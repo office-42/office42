@@ -439,6 +439,12 @@ with penalties.
 **Scenarios.** Tools ▸ Scenarios keeps named sets of values for the
 same cells and puts any of them back.
 
+**Custom lists.** The fill handle continues the days and the months
+already. Tools ▸ Custom Lists takes another run -- the quarters, the
+regions, the shifts -- typed with commas between; drag a cell holding
+any of its names and the rest follow, round and round. The lists are
+kept with the book, so a book that needs them carries them.
+
 **Auditing.** Tools ▸ Auditing ▸ Trace Precedents rings every
 rectangle the selected cell's formula reads and draws an arrow from
 each into the cell; Trace Dependents does it the other way, from the

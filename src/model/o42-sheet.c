@@ -2393,6 +2393,24 @@ autofill_value (O42Sheet *sheet, const int *rows, const int *cols, int count,
           goto done_text;
         }
 
+      /* A list the book was given: it goes round the same way the days
+       * and the months do. */
+      if (sheet->book != NULL)
+        {
+          int at = 0;
+          int which = o42_book_custom_list_find (sheet->book, text, &at);
+
+          if (which >= 0)
+            {
+              GPtrArray *lists = o42_book_custom_lists (sheet->book);
+              char **items = g_ptr_array_index (lists, which);
+              int count_in = (int) g_strv_length (items);
+
+              input = g_strdup (items[(((at + n - period_index) % count_in) + count_in) % count_in]);
+              goto done_text;
+            }
+        }
+
       /* "Item1" counts on; the run of digits at the end is the counter. */
       while (digits < len && g_ascii_isdigit (text[len - 1 - digits]))
         digits++;

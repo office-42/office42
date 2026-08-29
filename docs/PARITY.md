@@ -109,7 +109,6 @@ thing is worth knowing:
 
 | | |
 |---|---|
-| **Custom lists** | the fill handle continues numbers, days and months, but the list cannot be added to |
 | **Passwords** | protection is a flag, not a secret |
 | **Track changes, sharing** | not there, and not planned |
 

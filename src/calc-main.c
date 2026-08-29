@@ -1834,6 +1834,28 @@ main (int argc, char *argv[])
 
       /* name TOTAL A1:A5 defines a name on the current sheet; unname TOTAL
        * removes it; names lists them. */
+      /* customlist A,B,C adds one the fill handle continues;
+       * customlists shows them. */
+      if (g_str_has_prefix (text, "customlist "))
+        {
+          o42_book_add_custom_list (book, g_strsplit (text + 11, ",", -1));
+          continue;
+        }
+
+      if (strcmp (text, "customlists") == 0)
+        {
+          GPtrArray *lists = o42_book_custom_lists (book);
+
+          for (guint i = 0; i < lists->len; i++)
+            {
+              char *joined = g_strjoinv (",", g_ptr_array_index (lists, i));
+
+              printf ("list %u: %s\n", i + 1, joined);
+              g_free (joined);
+            }
+          continue;
+        }
+
       if (g_str_has_prefix (text, "name "))
         {
           char **words = g_strsplit (text + 5, " ", -1);

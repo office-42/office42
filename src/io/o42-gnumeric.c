@@ -1269,6 +1269,23 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
       }
   }
 
+  /* The lists the fill handle continues, one element apiece: Excel
+   * keeps these in its options, and office42 with the book, so that a
+   * book that needs them carries them. */
+  {
+    GPtrArray *lists = o42_book_custom_lists (book);
+
+    for (guint i = 0; i < lists->len; i++)
+      {
+        char *joined = g_strjoinv ("\t", g_ptr_array_index (lists, i));
+        char *escaped = g_markup_escape_text (joined, -1);
+
+        g_string_append_printf (out, "  <gnm:o42-CustomList>%s</gnm:o42-CustomList>' + N + '", escaped);
+        g_free (escaped);
+        g_free (joined);
+      }
+  }
+
   /* Scripts, in an element of our own that Gnumeric passes over. */
   if (o42_book_n_scripts (book) > 0)
     {
@@ -1321,6 +1338,8 @@ typedef struct {
   gboolean    in_names;         /* inside gnm:Names */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
   gboolean    in_database;      /* gnm:o42-Database with the file inside it */
+  gboolean    in_custom_list;   /* gnm:o42-CustomList, whose text is the list */
+  GString    *custom_list;
   GString    *database;         /* its base64 */
   gboolean    in_query;         /* gnm:o42-Query, sheet level */
   GString    *query_sql;
@@ -1536,6 +1555,15 @@ start_element (GMarkupParseContext *context, const char *element,
                               attr_int (names, values, "EnableIteration", 0) != 0,
                               attr_int (names, values, "MaxIterations", 100),
                               attr_double (names, values, "IterationTolerance", 0.001));
+      return;
+    }
+
+  if (strcmp (name, "o42-CustomList") == 0)
+    {
+      r->in_custom_list = TRUE;
+      if (r->custom_list == NULL)
+        r->custom_list = g_string_new (NULL);
+      g_string_truncate (r->custom_list, 0);
       return;
     }
 
@@ -2450,6 +2478,13 @@ end_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (r->in_custom_list && strcmp (name, "o42-CustomList") == 0)
+    {
+      o42_book_add_custom_list (r->book, g_strsplit (r->custom_list->str, "\t", -1));
+      r->in_custom_list = FALSE;
+      return;
+    }
+
   if (r->in_database && strcmp (name, "o42-Database") == 0)
     {
       guchar *data;
@@ -2844,6 +2879,8 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     { g_string_append_len (r->script_code, text, (gssize) length); return; }
   if (r->in_database)
     { g_string_append_len (r->database, text, (gssize) length); return; }
+  if (r->in_custom_list)
+    { g_string_append_len (r->custom_list, text, (gssize) length); return; }
   if (r->in_query)
     { g_string_append_len (r->query_sql, text, (gssize) length); return; }
   if (r->in_name_name)

@@ -3715,6 +3715,115 @@ on_analysis_ok (GtkWidget *w, gpointer data)
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
 }
 
+/* ---- Tools > Custom Lists ---------------------------------------------- */
+
+static void wizard_setup_item (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer data);
+static void wizard_bind_item (GtkSignalListItemFactory *factory, GtkListItem *item, gpointer data);
+
+typedef struct {
+  O42Window     *window;
+  GtkWidget     *dialog;
+  GtkWidget     *list;
+  GtkStringList *entries;
+  GtkWidget     *items;      /* the entry a new list is typed into */
+} CustomListPrompt;
+
+static void
+custom_list_fill (CustomListPrompt *prompt)
+{
+  GPtrArray *lists = o42_book_custom_lists (prompt->window->book);
+
+  gtk_string_list_splice (prompt->entries, 0,
+                          g_list_model_get_n_items (G_LIST_MODEL (prompt->entries)), NULL);
+  for (guint i = 0; i < lists->len; i++)
+    {
+      char *joined = g_strjoinv (", ", g_ptr_array_index (lists, i));
+
+      gtk_string_list_append (prompt->entries, joined);
+      g_free (joined);
+    }
+}
+
+static void
+on_custom_list_add (GtkWidget *w, gpointer data)
+{
+  CustomListPrompt *prompt = data;
+  const char *text = gtk_editable_get_text (GTK_EDITABLE (prompt->items));
+  char **parts = g_strsplit (text, ",", -1);
+
+  (void) w;
+  for (int i = 0; parts[i] != NULL; i++)
+    {
+      char *trimmed = g_strdup (g_strstrip (parts[i]));
+
+      g_free (parts[i]);
+      parts[i] = trimmed;
+    }
+  o42_book_add_custom_list (prompt->window->book, parts);
+  custom_list_fill (prompt);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->items), "");
+}
+
+static void
+on_custom_list_remove (GtkWidget *w, gpointer data)
+{
+  CustomListPrompt *prompt = data;
+  GtkSelectionModel *model = gtk_list_view_get_model (GTK_LIST_VIEW (prompt->list));
+  guint at = gtk_single_selection_get_selected (GTK_SINGLE_SELECTION (model));
+
+  (void) w;
+  if (at != GTK_INVALID_LIST_POSITION)
+    {
+      o42_book_remove_custom_list (prompt->window->book, at);
+      custom_list_fill (prompt);
+    }
+}
+
+static void
+action_custom_lists (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  CustomListPrompt *prompt = g_new0 (CustomListPrompt, 1);
+  GtkWidget *content, *buttons, *scrolled, *grid;
+  GtkListItemFactory *factory;
+  GtkSingleSelection *selection;
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Custom Lists"), TRUE, &content, &buttons);
+
+  prompt->entries = gtk_string_list_new (NULL);
+  custom_list_fill (prompt);
+  factory = gtk_signal_list_item_factory_new ();
+  g_signal_connect (factory, "setup", G_CALLBACK (wizard_setup_item), prompt);
+  g_signal_connect (factory, "bind", G_CALLBACK (wizard_bind_item), prompt);
+  selection = gtk_single_selection_new (G_LIST_MODEL (prompt->entries));
+  gtk_single_selection_set_autoselect (selection, FALSE);
+  prompt->list = gtk_list_view_new (GTK_SELECTION_MODEL (selection), factory);
+
+  scrolled = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), prompt->list);
+  gtk_widget_set_size_request (scrolled, 320, 140);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Lists the fill handle continues:")));
+  gtk_box_append (GTK_BOX (content), scrolled);
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->items = labelled (grid, 0, _("New list:"), gtk_entry_new ());
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->items), _("Spring, Summer, Autumn, Winter"));
+  gtk_box_append (GTK_BOX (content), grid);
+  gtk_box_append (GTK_BOX (content),
+                  gtk_label_new (_("The days and the months are known already.")));
+
+  dialog_button (buttons, _("_Add"), G_CALLBACK (on_custom_list_add), prompt);
+  dialog_button (buttons, _("_Remove"), G_CALLBACK (on_custom_list_remove), prompt);
+  dialog_button (buttons, _("_Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  g_object_set_data_full (G_OBJECT (prompt->dialog), "o42-prompt", prompt, g_free);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
 /* ---- Tools > Auditing -------------------------------------------------- */
 
 static void
@@ -7759,6 +7868,7 @@ static const GActionEntry ACTIONS[] = {
   { "format-painter", action_format_painter, NULL, NULL, NULL, { 0 } },
   { "move-sheet-left",  action_move_sheet_left,  NULL, NULL, NULL, { 0 } },
   { "tab-colour",       action_tab_colour,       NULL, NULL, NULL, { 0 } },
+  { "custom-lists",     action_custom_lists,     NULL, NULL, NULL, { 0 } },
   { "trace-precedents", action_trace_precedents, NULL, NULL, NULL, { 0 } },
   { "trace-dependents", action_trace_dependents, NULL, NULL, NULL, { 0 } },
   { "clear-arrows",     action_clear_arrows,     NULL, NULL, NULL, { 0 } },

@@ -38,6 +38,7 @@ struct _O42Book {
   int           max_iterations;
   double        tolerance;
   gboolean      manual;       /* nothing is worked out until F9 */
+  GPtrArray    *custom_lists; /* GStrv: the runs the fill handle continues */
   char         *db_path;      /* the database beside the book, or NULL */
   gboolean      db_embedded;  /* ...and whether it lives inside it */
 };
@@ -219,6 +220,8 @@ o42_book_free (O42Book *book)
     g_string_free (book->recording, TRUE);
   g_free (book->recorded_sheet);
   g_free (book->db_path);
+  if (book->custom_lists != NULL)
+    g_ptr_array_unref (book->custom_lists);
   for (guint i = 0; i < book->styles->len; i++)
     g_free (g_array_index (book->styles, Style, i).name);
   g_array_free (book->styles, TRUE);
@@ -513,6 +516,62 @@ o42_book_iteration (O42Book *book, int *max, double *tolerance)
   if (tolerance != NULL)
     *tolerance = book->tolerance > 0 ? book->tolerance : 0.001;
   return book->iterative;
+}
+
+/* ---- Custom lists ------------------------------------------------------ */
+
+GPtrArray *
+o42_book_custom_lists (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  if (book->custom_lists == NULL)
+    book->custom_lists = g_ptr_array_new_with_free_func ((GDestroyNotify) g_strfreev);
+  return book->custom_lists;
+}
+
+void
+o42_book_add_custom_list (O42Book *book, char **items)
+{
+  g_return_if_fail (book != NULL);
+  if (items == NULL || items[0] == NULL || items[1] == NULL)
+    {
+      /* A list of one continues nothing. */
+      g_strfreev (items);
+      return;
+    }
+  g_ptr_array_add (o42_book_custom_lists (book), items);
+  o42_book_set_modified (book, TRUE);
+}
+
+void
+o42_book_remove_custom_list (O42Book *book, guint index)
+{
+  g_return_if_fail (book != NULL);
+  if (book->custom_lists != NULL && index < book->custom_lists->len)
+    {
+      g_ptr_array_remove_index (book->custom_lists, index);
+      o42_book_set_modified (book, TRUE);
+    }
+}
+
+int
+o42_book_custom_list_find (O42Book *book, const char *text, int *at)
+{
+  if (book == NULL || book->custom_lists == NULL || text == NULL)
+    return -1;
+  for (guint i = 0; i < book->custom_lists->len; i++)
+    {
+      char **items = g_ptr_array_index (book->custom_lists, i);
+
+      for (int k = 0; items[k] != NULL; k++)
+        if (g_ascii_strcasecmp (items[k], text) == 0)
+          {
+            if (at != NULL)
+              *at = k;
+            return (int) i;
+          }
+    }
+  return -1;
 }
 
 void

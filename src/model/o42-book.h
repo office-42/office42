@@ -149,6 +149,21 @@ const char *o42_book_database     (O42Book *book, gboolean *embedded);
  * say to go round the loop, at most `max` times or until nothing moves
  * by more than `tolerance`.  The second is manual calculation, where
  * nothing is worked out until it is asked for -- F9. */
+/* ---- Custom lists ------------------------------------------------------ */
+
+/* The runs the fill handle continues besides the days and the months:
+ * a list of names in the order they go round.  Excel keeps these in
+ * its options; office42 keeps them with the book, so that a book that
+ * needs them carries them.  The array and its lists belong to the
+ * book. */
+GPtrArray *o42_book_custom_lists   (O42Book *book);            /* GStrv per entry */
+void       o42_book_add_custom_list (O42Book *book, char **items);   /* takes them */
+void       o42_book_remove_custom_list (O42Book *book, guint index);
+
+/* The list `text` belongs to and where in it, or -1.  The lists are
+ * searched in order, and a name in two of them belongs to the first. */
+int        o42_book_custom_list_find (O42Book *book, const char *text, int *at);
+
 void     o42_book_set_iteration (O42Book *book, gboolean on, int max, double tolerance);
 gboolean o42_book_iteration     (O42Book *book, int *max, double *tolerance);
 void     o42_book_set_manual    (O42Book *book, gboolean manual);

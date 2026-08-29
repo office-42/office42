@@ -226,6 +226,7 @@
         <item><attribute name="label" translatable="yes">Statistical _Analysis...</attribute><attribute name="action">win.analysis</attribute></item>
         <item><attribute name="label" translatable="yes">_Spelling...</attribute><attribute name="action">win.spelling</attribute></item>
         <item><attribute name="label" translatable="yes">_Record Macro</attribute><attribute name="action">win.record-macro</attribute></item>
+        <item><attribute name="label" translatable="yes">Custom _Lists...</attribute><attribute name="action">win.custom-lists</attribute></item>
         <item><attribute name="label" translatable="yes">_Options...</attribute><attribute name="action">win.options</attribute></item>
       </section>
     </submenu>
