@@ -1,0 +1,24 @@
+# Meson / Ninja
+/build*/
+/builddir/
+*.o
+*.a
+*.so
+*.dll
+*.exe
+.ninja_deps
+.ninja_log
+compile_commands.json
+
+# Editors
+*.swp
+*~
+.vscode/
+.idea/
+
+# Generated
+*.gresource.c
+*.gresource.h
+
+# Local Claude Code settings
+.claude/settings.local.json

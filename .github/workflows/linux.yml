@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Linux
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ccache gcc pkg-config meson ninja-build \
+            libgtk-4-dev libpango1.0-dev libcairo2-dev libglib2.0-dev \
+            libgdk-pixbuf-2.0-dev libpoppler-glib-dev
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-${{ github.sha }}
+          restore-keys: ccache-linux-
+
+      - name: Configure
+        run: |
+          export CC="ccache gcc"
+          ccache --max-size=200M
+          meson setup builddir --werror
+
+      - name: Build
+        run: meson compile -C builddir
+
+      - name: Smoke test
+        # The terminal front-end needs no display, so the engine can be
+        # exercised end to end on the runner.
+        run: |
+          printf 'A1 = 10\nA2 = 20\nB1 = =SUM(A1:A2)*2\nB1\n' \
+            | ./builddir/src/office42-calc | tee out.txt
+          grep -q 'B1	60' out.txt
+
+      - name: Upload binary
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: office42-linux
+          path: builddir/src/office42-calc
+          retention-days: 14

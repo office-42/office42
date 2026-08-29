@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+o42_resources = gnome.compile_resources(
+  'o42-resources',
+  'office42.gresource.xml',
+  source_dir: meson.current_source_dir(),
+  c_name: 'o42',
+)
+
+# The desktop entry and application icon, for the platforms that have
+# such things; on Windows and macOS the icon rides inside the binary's
+# resources.
+install_data('net.office42.office42.desktop',
+  install_dir: get_option('datadir') / 'applications')
+install_data('icons/scalable/apps/net.office42.office42.svg',
+  install_dir: get_option('datadir') / 'icons/hicolor/scalable/apps')
+install_data('icons/128x128/apps/net.office42.office42.png',
+  install_dir: get_option('datadir') / 'icons/hicolor/128x128/apps')

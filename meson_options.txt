@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+option('python', type: 'feature', value: 'auto',
+  description: 'Embed CPython: Tools > Python Console, =PY() and functions from scripts')
+
+option('spell', type: 'feature', value: 'auto',
+  description: 'Check spelling with Hunspell: Tools > Spelling')
+
+option('sqlite', type: 'feature', value: 'auto',
+  description: 'A SQLite database beside the sheet: Data > Database')

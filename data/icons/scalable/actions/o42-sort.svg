@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- office42 toolbar icon: rows shortening down an arrow
+       Copyright (C) 2026 The office42 authors
+       SPDX-License-Identifier: GPL-3.0-or-later
+
+       Drawn in the sixteen colours a 1993 VGA had, on the 16-pixel grid:
+       outlines are 1-pixel strokes down the half-pixel lines, fills sit on
+       whole pixels.  The comment stays inside the element because
+       gdk-pixbuf only sniffs the head of the file for "<svg".
+  -->
+  <path d="M1 3h8v2H1zm0 4h6v2H1zm0 4h4v2H1z" fill="#000080"/>
+  <path d="M12 2h2v8h-2z" fill="#800000"/>
+  <path d="M10.5 9h5L13 14z" fill="#800000"/>
+</svg>

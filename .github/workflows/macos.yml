@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: macOS
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
+  HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: '1'
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install meson ninja pkg-config gtk4 pango cairo glib gdk-pixbuf poppler ccache
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-macos-${{ github.sha }}
+          restore-keys: ccache-macos-
+
+      - name: Configure
+        run: |
+          export CC="ccache clang"
+          ccache --max-size=200M
+          # No --werror: Apple clang warns about different things than the
+          # GCC the other two jobs use, and a warning it invents on its own
+          # should not turn the tree red.
+          meson setup builddir
+
+      - name: Build
+        run: meson compile -C builddir
+
+      - name: Smoke test
+        run: |
+          printf 'A1 = 10\nA2 = 20\nB1 = =SUM(A1:A2)*2\nB1\n' \
+            | ./builddir/src/office42-calc | tee out.txt
+          grep -q 'B1	60' out.txt
+
+      - name: Upload binary
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: office42-macos
+          path: builddir/src/office42-calc
+          retention-days: 14

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Office42 Spreadsheet
+GenericName=Spreadsheet
+Comment=Cells, formulas and charts; reads and writes .gnumeric, .xls, .xlsx, .ods and CSV
+Exec=office42 %F
+Icon=net.office42.office42
+Terminal=false
+Categories=Office;Spreadsheet;GTK;
+MimeType=application/x-gnumeric;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.ms-excel;text/csv;
+StartupNotify=true

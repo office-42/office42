@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/net/office42/office42">
+    <file preprocess="xml-stripblanks" alias="menus.ui">ui/menus.ui</file>
+    <file>style.css</file>
+    <file preprocess="xml-stripblanks" alias="logo.svg">office42-logo.svg</file>
+  </gresource>
+  <gresource prefix="/net/office42/office42/icons">
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-align-center.svg">icons/scalable/actions/o42-align-center.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-align-left.svg">icons/scalable/actions/o42-align-left.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-align-right.svg">icons/scalable/actions/o42-align-right.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-chart.svg">icons/scalable/actions/o42-chart.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-copy.svg">icons/scalable/actions/o42-copy.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-cut.svg">icons/scalable/actions/o42-cut.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-decrease-decimal.svg">icons/scalable/actions/o42-decrease-decimal.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-increase-decimal.svg">icons/scalable/actions/o42-increase-decimal.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-new.svg">icons/scalable/actions/o42-new.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-open.svg">icons/scalable/actions/o42-open.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-paste.svg">icons/scalable/actions/o42-paste.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-print.svg">icons/scalable/actions/o42-print.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-redo.svg">icons/scalable/actions/o42-redo.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-save.svg">icons/scalable/actions/o42-save.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-sort.svg">icons/scalable/actions/o42-sort.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/actions/o42-undo.svg">icons/scalable/actions/o42-undo.svg</file>
+    <file preprocess="xml-stripblanks" alias="scalable/apps/net.office42.office42.svg">icons/scalable/apps/net.office42.office42.svg</file>
+  </gresource>
+</gresources>

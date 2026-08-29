@@ -1,0 +1,335 @@
+/* office42 - the chrome of a 1993 spreadsheet.
+ *
+ * Copyright (C) 2026 The office42 authors
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The same Windows 3.1 silver word42 wears, with the same four-tone bevel on
+ * every button and the same bevel inverted on every field.  The two programs
+ * shipped side by side and looked it.  The grid paints itself.
+ */
+
+:root {
+  --o42-face:       #c0c0c0;
+  --o42-light:      #dfdfdf;
+  --o42-highlight:  #ffffff;
+  --o42-shadow:     #808080;
+  --o42-dark:       #000000;
+  --o42-title:      #000080;
+  --o42-title-text: #ffffff;
+  --o42-select:     #000080;
+}
+
+window.o42,
+window.o42 label,
+window.o42 button,
+.o42-titlebar label {
+  font-family: "MS Sans Serif", "Segoe UI", "DejaVu Sans", sans-serif;
+  font-size: 12px;
+  font-weight: normal;
+}
+
+.o42-menubar,
+.o42-menubar > item,
+popover.menu contents modelbutton label {
+  font-size: 13px;
+}
+
+/* --- the raised bevel ------------------------------------------------- */
+
+.o42-toolbar button,
+.o42-titlebar button,
+.o42-formulabar button {
+  background-color: var(--o42-face);
+  background-image: none;
+  color: var(--o42-dark);
+  border: 1px solid;
+  border-top-color: var(--o42-highlight);
+  border-left-color: var(--o42-highlight);
+  border-right-color: var(--o42-dark);
+  border-bottom-color: var(--o42-dark);
+  box-shadow: inset -1px -1px 0 var(--o42-shadow), inset 1px 1px 0 var(--o42-light);
+  border-radius: 0;
+  padding: 1px 4px;
+  margin: 0;
+  min-width: 22px;
+  min-height: 22px;
+  outline: none;
+}
+
+.o42-toolbar button:hover,
+.o42-formulabar button:hover {
+  background-color: var(--o42-light);
+}
+
+.o42-toolbar button:active,
+.o42-toolbar button.o42-down,
+.o42-formulabar button:active {
+  border-top-color: var(--o42-dark);
+  border-left-color: var(--o42-dark);
+  border-right-color: var(--o42-highlight);
+  border-bottom-color: var(--o42-highlight);
+  box-shadow: inset 1px 1px 0 var(--o42-shadow), inset -1px -1px 0 var(--o42-light);
+  padding: 2px 3px 0 5px;
+}
+
+.o42-toolbar button:disabled {
+  color: var(--o42-shadow);
+}
+
+/* The icons carry their own colours, so a disabled button cannot grey them
+ * the way it greys a label.  Fading them says the same thing. */
+.o42-toolbar button:disabled image,
+.o42-formulabar button:disabled image {
+  opacity: 0.3;
+}
+
+.o42-glyph           { font-weight: bold; font-size: 13px; }
+.o42-glyph-bold      { font-weight: bold; font-family: "Times New Roman", serif; font-size: 14px; }
+.o42-glyph-italic    { font-style: italic; font-family: "Times New Roman", serif; font-size: 14px; }
+.o42-glyph-underline { text-decoration: underline; font-family: "Times New Roman", serif; font-size: 14px; }
+
+/* --- title bar -------------------------------------------------------- */
+
+.o42-titlebar {
+  background-color: var(--o42-title);
+  color: var(--o42-title-text);
+  border-bottom: 1px solid var(--o42-dark);
+  min-height: 18px;
+  padding: 0 2px;
+}
+
+windowhandle,
+window.o42 headerbar,
+window.o42 .titlebar {
+  min-height: 18px;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+
+.o42-titlebar-label {
+  color: var(--o42-title-text);
+  font-weight: bold;
+  font-size: 11px;
+}
+
+.o42-titlebar button {
+  min-width: 16px;
+  min-height: 14px;
+  padding: 0;
+  margin: 1px;
+}
+
+.o42-titlebar:backdrop {
+  background-color: var(--o42-shadow);
+}
+
+/* --- menus ------------------------------------------------------------ */
+
+.o42-menubar {
+  background-color: var(--o42-face);
+  color: var(--o42-dark);
+  border-bottom: 1px solid var(--o42-shadow);
+  padding: 0 2px;
+  min-height: 20px;
+}
+
+.o42-menubar > item {
+  color: var(--o42-dark);
+  padding: 2px 8px;
+  border-radius: 0;
+}
+
+.o42-menubar > item:hover,
+.o42-menubar > item:selected {
+  background-color: var(--o42-select);
+  color: var(--o42-title-text);
+}
+
+popover.menu contents {
+  background-color: var(--o42-face);
+  color: var(--o42-dark);
+  border: 1px solid;
+  border-top-color: var(--o42-highlight);
+  border-left-color: var(--o42-highlight);
+  border-right-color: var(--o42-dark);
+  border-bottom-color: var(--o42-dark);
+  box-shadow: inset -1px -1px 0 var(--o42-shadow), inset 1px 1px 0 var(--o42-light);
+  border-radius: 0;
+  padding: 2px;
+}
+
+popover.menu contents > arrow,
+popover.menu > arrow { min-width: 0; min-height: 0; background: none; }
+
+popover.menu contents modelbutton {
+  border-radius: 0;
+  padding: 3px 10px;
+  min-height: 18px;
+  color: var(--o42-dark);
+}
+
+popover.menu contents modelbutton:hover {
+  background-color: var(--o42-select);
+  color: var(--o42-title-text);
+}
+
+popover.menu contents modelbutton:disabled { color: var(--o42-shadow); }
+
+popover.menu contents separator {
+  background-color: var(--o42-shadow);
+  min-height: 1px;
+  margin: 2px 0;
+}
+
+/* --- toolbars, formula bar ------------------------------------------- */
+
+.o42-toolbar,
+.o42-formulabar {
+  background-color: var(--o42-face);
+  border-bottom: 1px solid var(--o42-shadow);
+  padding: 2px 3px;
+}
+
+.o42-toolbar separator {
+  background-color: var(--o42-shadow);
+  min-width: 1px;
+  margin: 2px 3px;
+}
+
+/* --- fields: the bevel inside out ------------------------------------ */
+
+.o42-toolbar dropdown > button,
+.o42-namebox,
+.o42-namebox text,
+.o42-formula-entry,
+.o42-formula-entry text,
+.o42-cell-editor,
+.o42-cell-editor text {
+  background-color: var(--o42-highlight);
+  background-image: none;
+  color: var(--o42-dark);
+  border: 1px solid;
+  border-top-color: var(--o42-shadow);
+  border-left-color: var(--o42-shadow);
+  border-right-color: var(--o42-highlight);
+  border-bottom-color: var(--o42-highlight);
+  box-shadow: inset 1px 1px 0 var(--o42-dark);
+  border-radius: 0;
+  padding: 1px 3px;
+  min-height: 18px;
+  outline: none;
+}
+
+.o42-cell-editor,
+.o42-cell-editor text {
+  border: none;
+  box-shadow: none;
+  padding: 0 2px;
+  min-height: 0;
+  font-family: Arial, sans-serif;
+  font-size: 10pt;
+}
+
+.o42-toolbar dropdown > button:hover,
+.o42-toolbar dropdown > button:active,
+.o42-toolbar dropdown > button:checked {
+  background-color: var(--o42-highlight);
+  padding: 1px 3px;
+  border-top-color: var(--o42-shadow);
+  border-left-color: var(--o42-shadow);
+  border-right-color: var(--o42-highlight);
+  border-bottom-color: var(--o42-highlight);
+  box-shadow: inset 1px 1px 0 var(--o42-dark);
+}
+
+.o42-toolbar dropdown > button > arrow {
+  background-color: var(--o42-face);
+  border: 1px solid;
+  border-top-color: var(--o42-highlight);
+  border-left-color: var(--o42-highlight);
+  border-right-color: var(--o42-dark);
+  border-bottom-color: var(--o42-dark);
+  box-shadow: inset -1px -1px 0 var(--o42-shadow), inset 1px 1px 0 var(--o42-light);
+  min-width: 14px;
+  min-height: 16px;
+  -gtk-icon-size: 10px;
+  color: var(--o42-dark);
+}
+
+/* --- sheet tabs ------------------------------------------------------- */
+
+.o42-tabs {
+  background-color: var(--o42-face);
+  border-top: 1px solid var(--o42-shadow);
+  padding: 0 4px;
+  min-height: 20px;
+}
+
+.o42-tab,
+button.o42-tab {
+  background-color: var(--o42-light);
+  background-image: none;
+  color: var(--o42-dark);
+  border: 1px solid var(--o42-shadow);
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  box-shadow: none;
+  padding: 0 10px;
+  margin: 0 1px;
+  min-height: 18px;
+  outline: none;
+}
+
+.o42-tab-active {
+  background-color: var(--o42-highlight);
+  font-weight: bold;
+}
+
+/* --- status bar ------------------------------------------------------- */
+
+.o42-statusbar {
+  background-color: var(--o42-face);
+  color: var(--o42-dark);
+  border-top: 1px solid var(--o42-highlight);
+  padding: 1px 4px;
+}
+
+.o42-status-cell {
+  border: 1px solid;
+  border-top-color: var(--o42-shadow);
+  border-left-color: var(--o42-shadow);
+  border-right-color: var(--o42-highlight);
+  border-bottom-color: var(--o42-highlight);
+  padding: 0 6px;
+  min-height: 16px;
+}
+
+/* --- scrollbars ------------------------------------------------------- */
+
+scrollbar {
+  background-color: var(--o42-light);
+  border: none;
+  min-width: 16px;
+  min-height: 16px;
+}
+
+scrollbar slider {
+  background-color: var(--o42-face);
+  border: 1px solid;
+  border-top-color: var(--o42-highlight);
+  border-left-color: var(--o42-highlight);
+  border-right-color: var(--o42-dark);
+  border-bottom-color: var(--o42-dark);
+  box-shadow: inset -1px -1px 0 var(--o42-shadow), inset 1px 1px 0 var(--o42-light);
+  border-radius: 0;
+  margin: 0;
+  min-width: 14px;
+  min-height: 20px;
+}
+
+o42grid {
+  background-color: #ffffff;
+}
