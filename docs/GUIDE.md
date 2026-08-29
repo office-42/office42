@@ -470,7 +470,8 @@ value** is ticked, in which case the number is the period.
 Select the table, including its headings, and press the ChartWizard
 button (or Insert ▸ Chart). The wizard asks for the kind -- column,
 stacked column, 100% stacked column, bar, line, area, pie, XY scatter,
-doughnut, radar, bubble, stock or surface -- for a title, for whether
+doughnut, radar, bubble, stock, surface, box and whiskers, histogram,
+polar or contour -- for a title, for whether
 the first row and
 column are headings, for whether the series lie down the columns or
 along the rows, and whether the chart goes on this sheet or on a sheet

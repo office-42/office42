@@ -12,10 +12,6 @@ section spelled out.
 `o42-window.c` 8,600; both split along obvious seams -- the evaluator
 by function family, the window by dialog.
 
-**More plot types.** Gnumeric's chart engine has a box plot, a
-histogram plot, a polar plot and a contour plot; office42 has thirteen
-kinds and none of those.
-
 ## Not planned
 
 **Macros in Visual Basic.** Excel 5 had Excel 4 macros and the first

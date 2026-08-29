@@ -33,7 +33,13 @@ typedef enum {
   O42_CHART_RADAR,      /* a spoke per category, a polygon per series */
   O42_CHART_BUBBLE,     /* XY where a third series is the size */
   O42_CHART_STOCK,      /* high-low-close, or open-high-low-close candles */
-  O42_CHART_SURFACE     /* the values as a height field, in bands of colour */
+  O42_CHART_SURFACE,    /* the values as a height field, in bands of colour */
+
+  /* The four Gnumeric draws and Excel does not. */
+  O42_CHART_BOX,        /* a box and whiskers per series */
+  O42_CHART_HISTOGRAM,  /* how many values fall in each of a few bins */
+  O42_CHART_POLAR,      /* the angle is the category, the radius the value */
+  O42_CHART_CONTOUR     /* the height field from above, with its contours */
 } O42ChartKind;
 
 /* What is drawn at each point of a line, a scatter or a radar -- and,

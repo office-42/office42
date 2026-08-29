@@ -72,7 +72,8 @@ Early, but real. office42 today is a working spreadsheet:
 - **Charts** — select a table and Insert ▸ Chart (the ChartWizard button)
   draws a column, stacked or 100% column, bar, line, area, pie,
   doughnut, radar, bubble, stock (high-low-close bars, or candles when
-  the open is given too), surface (a height field in bands of colour) or XY
+  the open is given too), surface (a height field in bands of colour),
+  box and whiskers, histogram, polar, contour or XY
   scatter chart of it, floating over the grid like a
   picture and redrawn from the cells every time it is painted, so it is
   never out of date: change a number and the bar moves. Points on a

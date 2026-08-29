@@ -71,6 +71,10 @@ o42_chart_kind_name (O42ChartKind kind)
     case O42_CHART_BUBBLE:  return "bubble";
     case O42_CHART_STOCK:   return "stock";
     case O42_CHART_SURFACE: return "surface";
+    case O42_CHART_BOX:     return "box";
+    case O42_CHART_HISTOGRAM: return "histogram";
+    case O42_CHART_POLAR:   return "polar";
+    case O42_CHART_CONTOUR: return "contour";
     default:                return "column";
     }
 }
@@ -106,6 +110,14 @@ o42_chart_kind_parse (const char *name, O42ChartKind *kind)
     { *kind = O42_CHART_RADAR; return TRUE; }
   if (g_ascii_strcasecmp (name, "bubble") == 0)
     { *kind = O42_CHART_BUBBLE; return TRUE; }
+  if (g_ascii_strcasecmp (name, "box") == 0)
+    { *kind = O42_CHART_BOX; return TRUE; }
+  if (g_ascii_strcasecmp (name, "histogram") == 0)
+    { *kind = O42_CHART_HISTOGRAM; return TRUE; }
+  if (g_ascii_strcasecmp (name, "polar") == 0)
+    { *kind = O42_CHART_POLAR; return TRUE; }
+  if (g_ascii_strcasecmp (name, "contour") == 0)
+    { *kind = O42_CHART_CONTOUR; return TRUE; }
   return FALSE;
 }
 
@@ -1988,6 +2000,419 @@ draw_legend (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Char
     }
 }
 
+/* ---- The four plots Gnumeric has and Excel has not --------------------- */
+
+/* The five numbers a box plot stands on, with the whiskers reaching to
+ * the furthest point still within one and a half times the box. */
+typedef struct {
+  double low, q1, median, q3, high;
+  double *outliers;
+  int     n_outliers;
+  gboolean any;
+} FiveNumbers;
+
+static int
+compare_doubles (const void *a, const void *b)
+{
+  double x = *(const double *) a, y = *(const double *) b;
+
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/* The quantile at p of a sorted array, the way a spreadsheet's
+ * PERCENTILE reads it: between the two neighbours. */
+static double
+quantile_of (const double *sorted, int n, double p)
+{
+  double at = p * (n - 1);
+  int i = (int) floor (at);
+  double frac = at - i;
+
+  if (n < 1)
+    return NAN;
+  if (i >= n - 1)
+    return sorted[n - 1];
+  return sorted[i] + frac * (sorted[i + 1] - sorted[i]);
+}
+
+static void
+five_numbers (const double *values, int n, FiveNumbers *out)
+{
+  double *sorted = g_new (double, MAX (n, 1));
+  int kept = 0;
+  double iqr, lo_fence, hi_fence;
+
+  memset (out, 0, sizeof *out);
+  for (int i = 0; i < n; i++)
+    if (!isnan (values[i]))
+      sorted[kept++] = values[i];
+  if (kept == 0)
+    { g_free (sorted); return; }
+  qsort (sorted, kept, sizeof (double), compare_doubles);
+
+  out->q1 = quantile_of (sorted, kept, 0.25);
+  out->median = quantile_of (sorted, kept, 0.5);
+  out->q3 = quantile_of (sorted, kept, 0.75);
+  iqr = out->q3 - out->q1;
+  lo_fence = out->q1 - 1.5 * iqr;
+  hi_fence = out->q3 + 1.5 * iqr;
+
+  out->low = out->q1;
+  out->high = out->q3;
+  out->outliers = g_new (double, kept);
+  for (int i = 0; i < kept; i++)
+    {
+      if (sorted[i] < lo_fence || sorted[i] > hi_fence)
+        out->outliers[out->n_outliers++] = sorted[i];
+      else
+        {
+          out->low = MIN (out->low, sorted[i]);
+          out->high = MAX (out->high, sorted[i]);
+        }
+    }
+  out->any = TRUE;
+  g_free (sorted);
+}
+
+/* A box and its whiskers for each series: the middle half of the
+ * numbers in the box, the median across it, and anything more than one
+ * and a half boxes out drawn as a point of its own. */
+static void
+draw_box_plot (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
+               const ChartData *d, double x0, double y0, double w, double h)
+{
+  double low = 0, high = 0;
+  FiveNumbers *boxes;
+  double plot_bottom, plot_top, span, slot;
+  gboolean first = TRUE;
+
+  if (d->n_series < 1 || d->n_points < 1)
+    return;
+  boxes = g_new0 (FiveNumbers, d->n_series);
+  for (int s = 0; s < d->n_series; s++)
+    {
+      five_numbers (&d->values[(gsize) s * d->n_points], d->n_points, &boxes[s]);
+      if (!boxes[s].any)
+        continue;
+      for (int k = 0; k < boxes[s].n_outliers; k++)
+        {
+          low = first ? boxes[s].outliers[k] : MIN (low, boxes[s].outliers[k]);
+          high = first ? boxes[s].outliers[k] : MAX (high, boxes[s].outliers[k]);
+          first = FALSE;
+        }
+      low = first ? boxes[s].low : MIN (low, boxes[s].low);
+      high = first ? boxes[s].high : MAX (high, boxes[s].high);
+      first = FALSE;
+    }
+  if (first)
+    { g_free (boxes); return; }
+  if (high <= low)
+    high = low + 1;
+
+  plot_top = y0 + 4;
+  plot_bottom = y0 + h - 18;
+  span = high - low;
+  slot = w / d->n_series;
+
+#define BOX_Y(v) (plot_bottom - (plot_bottom - plot_top) * ((v) - low) / span)
+
+  /* The axis and its labels. */
+  cairo_set_line_width (cr, 1);
+  cairo_set_source_rgb (cr, 0.6, 0.6, 0.6);
+  cairo_move_to (cr, x0 + 0.5, plot_top);
+  cairo_line_to (cr, x0 + 0.5, plot_bottom + 0.5);
+  cairo_line_to (cr, x0 + w, plot_bottom + 0.5);
+  cairo_stroke (cr);
+
+  for (int s = 0; s < d->n_series; s++)
+    {
+      double centre = x0 + slot * (s + 0.5);
+      double half = MIN (slot * 0.3, 30);
+      guint32 colour = SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)];
+
+      if (!boxes[s].any)
+        continue;
+
+      /* The whiskers first, so the box covers where they meet it. */
+      cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
+      cairo_move_to (cr, centre, BOX_Y (boxes[s].low));
+      cairo_line_to (cr, centre, BOX_Y (boxes[s].high));
+      cairo_stroke (cr);
+      for (int end = 0; end < 2; end++)
+        {
+          double v = end == 0 ? boxes[s].low : boxes[s].high;
+
+          cairo_move_to (cr, centre - half / 2, BOX_Y (v));
+          cairo_line_to (cr, centre + half / 2, BOX_Y (v));
+        }
+      cairo_stroke (cr);
+
+      set_rgb (cr, colour);
+      cairo_rectangle (cr, centre - half, BOX_Y (boxes[s].q3),
+                       half * 2, BOX_Y (boxes[s].q1) - BOX_Y (boxes[s].q3));
+      cairo_fill_preserve (cr);
+      cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
+      cairo_stroke (cr);
+
+      cairo_move_to (cr, centre - half, BOX_Y (boxes[s].median));
+      cairo_line_to (cr, centre + half, BOX_Y (boxes[s].median));
+      cairo_stroke (cr);
+
+      for (int k = 0; k < boxes[s].n_outliers; k++)
+        {
+          cairo_arc (cr, centre, BOX_Y (boxes[s].outliers[k]), 2, 0, 2 * G_PI);
+          cairo_stroke (cr);
+        }
+
+      if (d->series != NULL && d->series[s] != NULL)
+        {
+          cairo_set_source_rgb (cr, 0, 0, 0);
+          show_text (chart, cr, layout, d->series[s], centre, plot_bottom + 2, 0.5, FALSE);
+        }
+    }
+
+#undef BOX_Y
+
+  for (int s = 0; s < d->n_series; s++)
+    g_free (boxes[s].outliers);
+  g_free (boxes);
+}
+
+/* How many of the values fall in each of a few equal bins: the plot a
+ * histogram is, rather than the bars of a column chart. */
+static void
+draw_histogram_plot (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
+                     const ChartData *d, double x0, double y0, double w, double h)
+{
+  int n = d->n_series * d->n_points;
+  double low = 0, high = 0, width, plot_top, plot_bottom;
+  int bins, tallest = 0;
+  int *counts;
+  gboolean first = TRUE;
+
+  for (int i = 0; i < n; i++)
+    if (!isnan (d->values[i]))
+      {
+        low = first ? d->values[i] : MIN (low, d->values[i]);
+        high = first ? d->values[i] : MAX (high, d->values[i]);
+        first = FALSE;
+      }
+  if (first)
+    return;
+  if (high <= low)
+    high = low + 1;
+
+  /* Sturges' rule, which is what a spreadsheet reaches for when it is
+   * not told how many bins to use. */
+  bins = (int) CLAMP (ceil (log2 (MAX (n, 2)) + 1), 3, 30);
+  width = (high - low) / bins;
+  counts = g_new0 (int, bins);
+  for (int i = 0; i < n; i++)
+    if (!isnan (d->values[i]))
+      {
+        int b = (int) ((d->values[i] - low) / width);
+
+        counts[CLAMP (b, 0, bins - 1)]++;
+      }
+  for (int b = 0; b < bins; b++)
+    tallest = MAX (tallest, counts[b]);
+  if (tallest == 0)
+    { g_free (counts); return; }
+
+  plot_top = y0 + 4;
+  plot_bottom = y0 + h - 18;
+
+  cairo_set_line_width (cr, 1);
+  cairo_set_source_rgb (cr, 0.6, 0.6, 0.6);
+  cairo_move_to (cr, x0 + 0.5, plot_top);
+  cairo_line_to (cr, x0 + 0.5, plot_bottom + 0.5);
+  cairo_line_to (cr, x0 + w, plot_bottom + 0.5);
+  cairo_stroke (cr);
+
+  for (int b = 0; b < bins; b++)
+    {
+      double bx = x0 + 1 + (w - 2) * b / bins;
+      double bw = (w - 2) / bins;
+      double bh = (plot_bottom - plot_top) * counts[b] / tallest;
+
+      if (bh <= 0)
+        continue;
+      set_rgb (cr, SERIES_COLOURS[0]);
+      cairo_rectangle (cr, bx, plot_bottom - bh, bw - 1, bh);
+      cairo_fill_preserve (cr);
+      cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
+      cairo_stroke (cr);
+    }
+
+  /* The ends of the range, which is all a histogram's axis needs. */
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  {
+    char *text = chart_number (chart, low);
+
+    show_text (chart, cr, layout, text, x0 + 2, plot_bottom + 2, 0, FALSE);
+    g_free (text);
+    text = chart_number (chart, high);
+    show_text (chart, cr, layout, text, x0 + w - 2, plot_bottom + 2, 1, FALSE);
+    g_free (text);
+  }
+  g_free (counts);
+}
+
+/* A polar plot: the angle is the category, going round, and the radius
+ * the value -- a radar without the web, drawn as a curve. */
+static void
+draw_polar_plot (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
+                 const ChartData *d, double x0, double y0, double w, double h)
+{
+  double cx = x0 + w / 2, cy = y0 + h / 2;
+  double radius = MIN (w, h) / 2 - 16;
+  double top = d->max > 0 ? d->max : 1;
+  double step;
+
+  if (d->n_points < 2 || radius <= 8)
+    return;
+  step = nice_step (top);
+  top = ceil (top / step) * step;
+
+  cairo_set_line_width (cr, 1);
+  cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+  for (double v = step; v <= top + step / 2; v += step)
+    {
+      cairo_new_path (cr);
+      cairo_arc (cr, cx, cy, radius * v / top, 0, 2 * G_PI);
+      cairo_stroke (cr);
+    }
+  for (int k = 0; k < 12; k++)
+    {
+      double at = 2 * G_PI * k / 12;
+
+      cairo_move_to (cr, cx, cy);
+      cairo_line_to (cr, cx + cos (at) * radius, cy + sin (at) * radius);
+    }
+  cairo_stroke (cr);
+
+  for (int s = 0; s < d->n_series; s++)
+    {
+      gboolean started = FALSE;
+
+      set_rgb (cr, SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+      cairo_set_line_width (cr, 2);
+      for (int p = 0; p < d->n_points; p++)
+        {
+          double v = d->values[(gsize) s * d->n_points + p];
+          double at, r, px, py;
+
+          if (isnan (v))
+            continue;
+          at = 2 * G_PI * p / d->n_points;
+          r = radius * CLAMP (v, 0, top) / top;
+          px = cx + cos (at) * r;
+          py = cy + sin (at) * r;
+          if (!started)
+            { cairo_move_to (cr, px, py); started = TRUE; }
+          else
+            cairo_line_to (cr, px, py);
+        }
+      if (started)
+        cairo_close_path (cr);
+      cairo_stroke (cr);
+    }
+
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  {
+    char *text = chart_number (chart, top);
+
+    show_text (chart, cr, layout, text, cx + radius, cy, 0.5, FALSE);
+    g_free (text);
+  }
+  (void) layout;
+}
+
+/* A contour plot: the same height field a surface chart draws, seen
+ * from above, with a line where the height crosses each level. */
+static void
+draw_contour_plot (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
+                   const ChartData *d, double x0, double y0, double w, double h)
+{
+  double low = d->min, high = d->max;
+  double cell_w, cell_h;
+  int levels = 8;
+
+  if (d->n_series < 2 || d->n_points < 2)
+    return;
+  if (high <= low)
+    high = low + 1;
+  cell_w = w / d->n_series;
+  cell_h = h / d->n_points;
+
+  /* The bands first, in the colours a surface uses, then the lines
+   * between them. */
+  for (int s = 0; s < d->n_series; s++)
+    for (int p = 0; p < d->n_points; p++)
+      {
+        double v = d->values[(gsize) s * d->n_points + p];
+
+        if (isnan (v))
+          continue;
+        set_rgb (cr, surface_band ((int) ((v - low) / (high - low) * 15), 16));
+        cairo_rectangle (cr, x0 + s * cell_w, y0 + p * cell_h, cell_w + 0.5, cell_h + 0.5);
+        cairo_fill (cr);
+      }
+
+  cairo_set_line_width (cr, 1);
+  cairo_set_source_rgb (cr, 0.25, 0.25, 0.25);
+  for (int k = 1; k < levels; k++)
+    {
+      double level = low + (high - low) * k / levels;
+
+      /* Marching squares: where the level crosses the four edges of
+       * a cell of the grid, joined up.  Two crossings make one
+       * segment; four make two, and which pair goes with which is the
+       * saddle no contour plot answers the same way twice. */
+      for (int s = 0; s + 1 < d->n_series; s++)
+        for (int p = 0; p + 1 < d->n_points; p++)
+          {
+            double corner[4];
+            double cross_x[4], cross_y[4];
+            int found = 0;
+            double px = x0 + (s + 0.5) * cell_w, py = y0 + (p + 0.5) * cell_h;
+
+            corner[0] = d->values[(gsize) s * d->n_points + p];             /* top left */
+            corner[1] = d->values[(gsize) (s + 1) * d->n_points + p];       /* top right */
+            corner[2] = d->values[(gsize) (s + 1) * d->n_points + p + 1];   /* bottom right */
+            corner[3] = d->values[(gsize) s * d->n_points + p + 1];         /* bottom left */
+            if (isnan (corner[0]) || isnan (corner[1]) ||
+                isnan (corner[2]) || isnan (corner[3]))
+              continue;
+
+            for (int e = 0; e < 4; e++)
+              {
+                double a = corner[e], b = corner[(e + 1) % 4], t;
+
+                if ((a - level) * (b - level) >= 0)
+                  continue;
+                t = (level - a) / (b - a);
+                switch (e)
+                  {
+                  case 0: cross_x[found] = px + t * cell_w; cross_y[found] = py; break;
+                  case 1: cross_x[found] = px + cell_w; cross_y[found] = py + t * cell_h; break;
+                  case 2: cross_x[found] = px + cell_w - t * cell_w; cross_y[found] = py + cell_h; break;
+                  default: cross_x[found] = px; cross_y[found] = py + cell_h - t * cell_h; break;
+                  }
+                found++;
+              }
+            for (int pair = 0; pair + 1 < found; pair += 2)
+              {
+                cairo_move_to (cr, cross_x[pair], cross_y[pair]);
+                cairo_line_to (cr, cross_x[pair + 1], cross_y[pair + 1]);
+              }
+          }
+      cairo_stroke (cr);
+    }
+  (void) layout;
+  (void) chart;
+}
+
 void
 o42_chart_draw (const O42Chart *chart, cairo_t *cr, double width, double height,
                 O42ChartFetch fetch, gpointer user)
@@ -2037,7 +2462,9 @@ o42_chart_draw_full (const O42Chart *chart, cairo_t *cr, double width, double he
       double legend_h = (d.n_series > 1 && chart->legend &&
                          chart->kind != O42_CHART_BUBBLE &&
                          chart->kind != O42_CHART_STOCK &&
-                         chart->kind != O42_CHART_SURFACE) ? 16 : 0;
+                         chart->kind != O42_CHART_SURFACE &&
+                         chart->kind != O42_CHART_HISTOGRAM &&
+                         chart->kind != O42_CHART_CONTOUR) ? 16 : 0;
       gboolean has_x = chart->x_title != NULL && *chart->x_title != '\0';
       gboolean has_y = chart->y_title != NULL && *chart->y_title != '\0';
       double x_title_h = has_x ? 16 : 0;
@@ -2058,6 +2485,14 @@ o42_chart_draw_full (const O42Chart *chart, cairo_t *cr, double width, double he
         draw_stock (chart, cr, layout, &d, plot_x, plot_y, plot_w, plot_h);
       else if (chart->kind == O42_CHART_SURFACE)
         draw_surface (chart, cr, layout, &d, plot_x, plot_y, plot_w, plot_h);
+      else if (chart->kind == O42_CHART_BOX)
+        draw_box_plot (chart, cr, layout, &d, plot_x, plot_y, plot_w, plot_h);
+      else if (chart->kind == O42_CHART_HISTOGRAM)
+        draw_histogram_plot (chart, cr, layout, &d, plot_x, plot_y, plot_w, plot_h);
+      else if (chart->kind == O42_CHART_POLAR)
+        draw_polar_plot (chart, cr, layout, &d, plot_x, plot_y, plot_w, plot_h);
+      else if (chart->kind == O42_CHART_CONTOUR)
+        draw_contour_plot (chart, cr, layout, &d, plot_x, plot_y, plot_w, plot_h);
       else
         draw_axes_chart (chart, cr, layout, &d, plot_x, plot_y, plot_w, plot_h);
 

@@ -200,6 +200,11 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_BUBBLE:  element = "bubbleChart"; break;
     case O42_CHART_STOCK:   element = "stockChart"; break;
     case O42_CHART_SURFACE: element = "surface3DChart"; break;
+    /* Excel's file format has no box plot, histogram, polar or
+     * contour; each goes out as the nearest thing it does have, and
+     * .gnumeric keeps what it really is. */
+    case O42_CHART_POLAR:   element = "radarChart"; break;
+    case O42_CHART_CONTOUR: element = "surface3DChart"; break;
     case O42_CHART_AREA:    element = chart->three_d ? "area3DChart" : "areaChart"; break;
     case O42_CHART_SCATTER: element = "scatterChart"; break;
     default:                element = chart->three_d ? "bar3DChart" : "barChart"; break;
@@ -226,7 +231,13 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_RADAR:   g_string_append (out, "<c:radarStyle val=\"marker\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_BUBBLE:  g_string_append (out, "<c:varyColors val=\"0\"/>"); break;
     case O42_CHART_STOCK:   g_string_append (out, "<c:varyColors val=\"0\"/>"); break;
-    case O42_CHART_SURFACE: g_string_append (out, "<c:wireframe val=\"0\"/>"); break;
+    case O42_CHART_SURFACE:
+    case O42_CHART_CONTOUR: g_string_append (out, "<c:wireframe val=\"0\"/>"); break;
+    case O42_CHART_POLAR:   g_string_append (out, "<c:radarStyle val=\"filled\"/><c:varyColors val=\"0\"/>"); break;
+    case O42_CHART_BOX:
+    case O42_CHART_HISTOGRAM:
+      g_string_append (out, "<c:barDir val=\"col\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>");
+      break;
     }
 
   /* One series per data column, or per data row when the series lie that

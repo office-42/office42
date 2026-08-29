@@ -5871,7 +5871,7 @@ static void action_delete_cells (GSimpleAction *a, GVariant *p, gpointer d) { (v
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
-  GtkWidget *kind[13];
+  GtkWidget *kind[17];
   GtkWidget *title;
   GtkWidget *row_labels, *col_labels;
   GtkWidget *in_rows;
@@ -5887,12 +5887,14 @@ on_chart_ok (GtkWidget *w, gpointer data)
   (void) w;
 
   {
-    static const O42ChartKind kinds[13] = { O42_CHART_COLUMN, O42_CHART_STACKED, O42_CHART_PERCENT,
+    static const O42ChartKind kinds[17] = { O42_CHART_COLUMN, O42_CHART_STACKED, O42_CHART_PERCENT,
                                             O42_CHART_BAR, O42_CHART_LINE, O42_CHART_AREA,
                                             O42_CHART_PIE, O42_CHART_SCATTER,
                                             O42_CHART_DOUGHNUT, O42_CHART_RADAR, O42_CHART_BUBBLE,
-                                            O42_CHART_STOCK, O42_CHART_SURFACE };
-    for (int i = 0; i < 13; i++)
+                                            O42_CHART_STOCK, O42_CHART_SURFACE,
+                                            O42_CHART_BOX, O42_CHART_HISTOGRAM,
+                                            O42_CHART_POLAR, O42_CHART_CONTOUR };
+    for (int i = 0; i < 17; i++)
       if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->kind[i])))
         kind = kinds[i];
   }
@@ -5940,10 +5942,12 @@ action_insert_chart (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   ChartPrompt *prompt = g_new0 (ChartPrompt, 1);
   GtkWidget *content, *buttons, *row, *ok;
-  static const char *names[13] = { "_Column", "_Stacked column", "100% stac_ked column",
-                                   "_Bar", "_Line", "_Area", "_Pie", "_XY (Scatter)",
-                                   "_Doughnut", "_Radar", "B_ubble",
-                                   "Sto_ck (high-low-close)", "Surfa_ce" };
+  static const char *names[17] = { N_("_Column"), N_("_Stacked column"), N_("100% stac_ked column"),
+                                   N_("_Bar"), N_("_Line"), N_("_Area"), N_("_Pie"), N_("_XY (Scatter)"),
+                                   N_("_Doughnut"), N_("_Radar"), N_("B_ubble"),
+                                   N_("Sto_ck (high-low-close)"), N_("Surfa_ce"),
+                                   N_("Box and w_hiskers"), N_("Histo_gram"),
+                                   N_("Pola_r"), N_("Con_tour") };
   O42Range sel;
   char *a_name, *b_name, *range_text;
 
@@ -5958,9 +5962,9 @@ action_insert_chart (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->dialog = dialog_frame (self, _("Chart Wizard"), TRUE, &content, &buttons);
   gtk_box_append (GTK_BOX (content), gtk_label_new (range_text));
 
-  for (int i = 0; i < 13; i++)
+  for (int i = 0; i < 17; i++)
     {
-      prompt->kind[i] = gtk_check_button_new_with_mnemonic (names[i]);
+      prompt->kind[i] = gtk_check_button_new_with_mnemonic (_(names[i]));
       if (i > 0)
         gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->kind[i]),
                                     GTK_CHECK_BUTTON (prompt->kind[0]));

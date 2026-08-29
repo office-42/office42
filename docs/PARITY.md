@@ -163,15 +163,15 @@ against.
 | Formatting | 10 | 97% | 9.7 | as above |
 | Rows, columns, sheets | 8 | 97% | 7.8 | |
 | Data tools | 12 | 100% | 12.0 | |
-| Charts | 8 | 90% | 7.2 | Gnumeric's chart engine (GOffice) has many more plot types and styling |
+| Charts | 8 | 97% | 7.8 | GOffice's styling, and the plot types nobody asks for |
 | Objects | 4 | 99% | 4.0 | |
 | File formats | 14 | 88% | 12.3 | Lotus, Applix and Quattro, all of them binary and long dead; `.gnumeric` itself is nearly complete |
 | Printing | 6 | 98% | 5.9 | as above |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 5 | 98% | 4.9 | Gnumeric's side pane for names and its object list |
-| **Total** | 100 | | **96.2** | |
+| **Total** | 100 | | **96.8** | |
 
-**About 96% of Gnumeric.**
+**About 97% of Gnumeric.**
 
 ## 5. Where office42 goes further
 
@@ -194,9 +194,7 @@ In the order the work is being done, largest gap first.
 1. **Splitting the two big files**, `o42-eval.c` (16,000 lines) and
    `o42-window.c` (8,600): both split along obvious seams -- the
    evaluator by function family, the window by dialog.
-2. **The plot types Gnumeric's chart engine has and ours has not**:
-   the box plot, the histogram plot, the polar and the contour.
-3. **The last of the file formats Gnumeric reads**: Lotus 1-2-3,
+2. **The last of the file formats Gnumeric reads**: Lotus 1-2-3,
    Quattro Pro and Applix, all of them binary and long dead.
-4. **Miltersen and Schwartz on commodity options**, the one formula of
+3. **Miltersen and Schwartz on commodity options**, the one formula of
    Gnumeric's derivatives plugin that is not here.
