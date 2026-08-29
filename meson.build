@@ -15,10 +15,13 @@ project('office42', 'c',
 
 cc = meson.get_compiler('c')
 gnome = import('gnome')
+i18n = import('i18n')
 
 add_project_arguments(
   '-DO42_VERSION="' + meson.project_version() + '"',
   '-DG_LOG_DOMAIN="office42"',
+  '-DGETTEXT_PACKAGE="office42"',
+  '-DO42_LOCALEDIR="' + get_option('prefix') / get_option('localedir') + '"',
   language: 'c',
 )
 
@@ -93,6 +96,7 @@ endif
 app_deps  = core_deps + [gtk_dep]
 
 subdir('data')
+subdir('po')
 subdir('src')
 
 summary({

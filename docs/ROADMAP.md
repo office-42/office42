@@ -8,8 +8,8 @@ section spelled out.
 
 ## Next
 
-**Translations.** `menus.ui` marks its strings translatable and nothing
-reads them: there is no gettext in the build and no `po/`.
+**The rest of the translations.** The menus, dialogs and buttons go
+through gettext; the string arrays behind some drop-downs do not.
 
 ## After that
 

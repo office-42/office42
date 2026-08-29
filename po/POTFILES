@@ -1,0 +1,5 @@
+data/ui/menus.ui
+src/main.c
+src/ui/o42-application.c
+src/ui/o42-grid.c
+src/ui/o42-window.c

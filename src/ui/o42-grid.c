@@ -22,6 +22,7 @@
 #include "o42-pdf.h"
 #include "o42-formula.h"
 
+#include <glib/gi18n.h>
 #include <math.h>
 #include <string.h>
 
@@ -1459,7 +1460,7 @@ entry_allowed (O42Grid *self, const char *text)
     GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", message);
     GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
 
-    gtk_alert_dialog_set_detail (alert, "Data > Validation limits what this cell may hold.");
+    gtk_alert_dialog_set_detail (alert, _("Data > Validation limits what this cell may hold."));
     gtk_alert_dialog_show (alert, GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL);
     g_object_unref (alert);
   }
@@ -2253,14 +2254,14 @@ show_custom_filter (O42Grid *self, int col)
   GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
   GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   GtkWidget *buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-  GtkWidget *ok = gtk_button_new_with_mnemonic ("_OK");
-  GtkWidget *cancel = gtk_button_new_with_mnemonic ("_Cancel");
+  GtkWidget *ok = gtk_button_new_with_mnemonic (_("_OK"));
+  GtkWidget *cancel = gtk_button_new_with_mnemonic (_("_Cancel"));
   const char *current = self->sheet ? o42_sheet_autofilter_choice (self->sheet, col) : NULL;
 
   cf->grid = self;
   cf->col = col;
   cf->window = gtk_window_new ();
-  gtk_window_set_title (GTK_WINDOW (cf->window), "Custom AutoFilter");
+  gtk_window_set_title (GTK_WINDOW (cf->window), _("Custom AutoFilter"));
   gtk_window_set_modal (GTK_WINDOW (cf->window), TRUE);
   gtk_window_set_resizable (GTK_WINDOW (cf->window), FALSE);
   if (GTK_IS_WINDOW (root))
@@ -2268,7 +2269,7 @@ show_custom_filter (O42Grid *self, int col)
 
   gtk_widget_set_margin_start (box, 12); gtk_widget_set_margin_end (box, 12);
   gtk_widget_set_margin_top (box, 12); gtk_widget_set_margin_bottom (box, 12);
-  gtk_box_append (GTK_BOX (box), gtk_label_new ("Show rows where the column:"));
+  gtk_box_append (GTK_BOX (box), gtk_label_new (_("Show rows where the column:")));
   cf->op = gtk_drop_down_new_from_strings (CUSTOM_OPS);
   cf->value = gtk_entry_new ();
   gtk_editable_set_width_chars (GTK_EDITABLE (cf->value), 14);
@@ -2333,11 +2334,11 @@ show_filter_menu (O42Grid *self, int col, double x, double y)
   g_signal_connect (box, "row-activated", G_CALLBACK (on_filter_row_activated), self);
 
   row = gtk_list_box_row_new ();
-  gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), gtk_label_new ("(All)"));
+  gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), gtk_label_new (_("(All)")));
   gtk_list_box_append (GTK_LIST_BOX (box), row);
 
   row = gtk_list_box_row_new ();
-  gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), gtk_label_new ("(Custom...)"));
+  gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), gtk_label_new (_("(Custom...)")));
   g_object_set_data (G_OBJECT (row), "o42-custom", GINT_TO_POINTER (1));
   gtk_list_box_append (GTK_LIST_BOX (box), row);
 

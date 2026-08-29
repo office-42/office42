@@ -110,7 +110,7 @@ thing is worth knowing:
 |---|---|
 | **Trace precedents** | the dependency graph is there and nothing draws it |
 | **Custom lists** | the fill handle continues numbers, days and months, but the list cannot be added to |
-| **Translations** | English only |
+| **Translations** | the menus, dialogs and buttons are translated -- Norwegian is in the tree -- but the lists inside some drop-downs are still English |
 | **Passwords** | protection is a flag, not a secret |
 | **Track changes, sharing** | not there, and not planned |
 
@@ -191,7 +191,9 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
+1. **The rest of the translations.** The menus, the dialogs, the
+   buttons and the status bar go through gettext, and `po/nb.po` is a
+   full Norwegian translation of them; the string arrays behind some
+   drop-downs are read by the widgets directly and are still English.
+2. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
    `o42-window.c` (8,000): both split along obvious seams.
-2. **Translations.** `menus.ui` marks its strings translatable and
-   nothing reads them; there is no gettext in the build and no `po/`.

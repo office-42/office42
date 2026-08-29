@@ -9,6 +9,7 @@
 #include "o42-window.h"
 #include "o42-types.h"
 
+#include <glib/gi18n.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -392,7 +393,7 @@ splash_show (O42Application *self, GtkWindow *over)
   gtk_window_set_resizable (GTK_WINDOW (splash), FALSE);
   gtk_window_set_transient_for (GTK_WINDOW (splash), over);
   gtk_window_set_modal (GTK_WINDOW (splash), TRUE);
-  gtk_window_set_title (GTK_WINDOW (splash), "Office42 Spreadsheet");
+  gtk_window_set_title (GTK_WINDOW (splash), _("Office42 Spreadsheet"));
   picture = gtk_picture_new_for_resource ("/net/office42/office42/logo.svg");
   gtk_picture_set_can_shrink (GTK_PICTURE (picture), FALSE);
   gtk_widget_set_size_request (picture, 520, 150);
