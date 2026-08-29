@@ -391,7 +391,7 @@ do with pixels:
   name — `=LET(twice, LAMBDA(x, x*2), twice(21))` — and `MAP`, `BYROW`,
   `BYCOL`, `REDUCE`, `SCAN` and `MAKEARRAY` put one to work over an
   array, with `ISOMITTED` for the arguments left out.
-- **592 functions** — arithmetic and trigonometry, rounding that rounds half
+- **605 functions** — arithmetic and trigonometry, rounding that rounds half
   away from zero, `MOD` that takes the sign of the divisor, `CEILING`,
   `COMBIN`, `GCD`; aggregates and statistics (`SUM`, `AVERAGE`, `MEDIAN`,
   `STDEV`, `VAR`, `PERCENTILE`, `RANK`, `CORREL`, `SLOPE`, `FORECAST`,

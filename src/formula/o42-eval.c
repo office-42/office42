@@ -4407,6 +4407,600 @@ fn_opt_bs_carrycost (O42EvalContext *ctx, O42Operand *args, int n)
                            : -time * spot * bs.carry * normal_cdf (-bs.d1));
 }
 
+/* ---- Gnumeric's other options ----------------------------------------- */
+
+/* The generalised Black-Scholes price on its own, for the formulas
+ * below that are built out of it. */
+static double
+gbs (gboolean call, double spot, double strike, double time,
+     double rate, double carry, double volatility)
+{
+  double root = volatility * sqrt (time);
+  double d1, d2;
+
+  if (spot <= 0 || strike <= 0)
+    return NAN;
+  if (time <= 0 || volatility <= 0)
+    {
+      double v = call ? spot - strike : strike - spot;
+
+      return MAX (v, 0);
+    }
+  d1 = (log (spot / strike) + (carry + volatility * volatility / 2) * time) / root;
+  d2 = d1 - root;
+  if (call)
+    return spot * exp ((carry - rate) * time) * normal_cdf (d1) -
+           strike * exp (-rate * time) * normal_cdf (d2);
+  return strike * exp (-rate * time) * normal_cdf (-d2) -
+         spot * exp ((carry - rate) * time) * normal_cdf (-d1);
+}
+
+/* "c" or "p", the way Gnumeric asks for it. */
+static gboolean
+opt_flag (const char *text, gboolean *call)
+{
+  if (text == NULL || (text[0] != 'c' && text[0] != 'C' && text[0] != 'p' && text[0] != 'P'))
+    return FALSE;
+  *call = text[0] == 'c' || text[0] == 'C';
+  return TRUE;
+}
+
+#define OPT_FLAG(index, target)                                          \
+  G_STMT_START {                                                         \
+    char *flag_ = NULL;                                                  \
+    ARG_TEXT (index, flag_);                                             \
+    if (!opt_flag (flag_, &(target)))                                    \
+      { g_free (flag_); return o42_value_error (O42_ERR_NUM); }          \
+    g_free (flag_);                                                      \
+  } G_STMT_END
+
+/* A currency option: the carry is the difference between the two
+ * interest rates, which is what Garman and Kohlhagen saw. */
+static O42Value
+fn_opt_garman_kohlhagen (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, strike, time, domestic, foreign, vol;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, strike);
+  ARG_NUMBER (3, time);
+  ARG_NUMBER (4, domestic);
+  ARG_NUMBER (5, foreign);
+  ARG_NUMBER (6, vol);
+  if (spot <= 0 || strike <= 0 || time < 0 || vol < 0)
+    return o42_value_error (O42_ERR_NUM);
+  return o42_value_number (gbs (call, spot, strike, time, domestic,
+                                domestic - foreign, vol));
+}
+
+/* French's: the variance grows with trading time and the carry with
+ * calendar time, which are not the same number of days. */
+static O42Value
+fn_opt_french (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, strike, time, ttime, rate, vol, carry;
+  double root, d1, d2;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, strike);
+  ARG_NUMBER (3, time);
+  ARG_NUMBER (4, ttime);
+  ARG_NUMBER (5, rate);
+  ARG_NUMBER (6, vol);
+  ARG_NUMBER (7, carry);
+  if (spot <= 0 || strike <= 0 || time <= 0 || ttime <= 0 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  root = vol * sqrt (ttime);
+  d1 = (log (spot / strike) + carry * time + vol * vol / 2 * ttime) / root;
+  d2 = d1 - root;
+  if (call)
+    return o42_value_number (spot * exp ((carry - rate) * time) * normal_cdf (d1) -
+                             strike * exp (-rate * time) * normal_cdf (d2));
+  return o42_value_number (strike * exp (-rate * time) * normal_cdf (-d2) -
+                           spot * exp ((carry - rate) * time) * normal_cdf (-d1));
+}
+
+/* Merton's jump diffusion: the price is the average of Black-Scholes
+ * prices over how many jumps happen, which is Poisson. */
+static O42Value
+fn_opt_jump_diff (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, strike, time, rate, vol, lambda, gamma;
+  double delta2, z2, sum = 0, term = 1;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, strike);
+  ARG_NUMBER (3, time);
+  ARG_NUMBER (4, rate);
+  ARG_NUMBER (5, vol);
+  ARG_NUMBER (6, lambda);
+  ARG_NUMBER (7, gamma);
+  if (spot <= 0 || strike <= 0 || time <= 0 || vol <= 0 || lambda <= 0 ||
+      gamma <= 0 || gamma > 1)
+    return o42_value_error (O42_ERR_NUM);
+
+  delta2 = gamma * vol * vol / lambda;
+  z2 = vol * vol - lambda * delta2;
+  if (z2 < 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  for (int i = 0; i < 51; i++)
+    {
+      double v = sqrt (z2 + delta2 * (i / time));
+
+      if (i > 0)
+        term *= lambda * time / i;
+      sum += exp (-lambda * time) * term * gbs (call, spot, strike, time, rate, rate, v);
+    }
+  return o42_value_number (sum);
+}
+
+/* Cox, Ross and Rubinstein's tree, which is where an American option
+ * that has no closed form is worked out. */
+static O42Value
+fn_opt_binomial (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call, american;
+  char *kind = NULL;
+  double steps, spot, strike, time, rate, vol, carry = 0;
+  double dt, u, d, p, discount;
+  double *value;
+  int m;
+
+  ARG_TEXT (0, kind);
+  american = kind != NULL && (kind[0] == 'a' || kind[0] == 'A');
+  if (kind == NULL || (kind[0] != 'a' && kind[0] != 'A' && kind[0] != 'e' && kind[0] != 'E'))
+    { g_free (kind); return o42_value_error (O42_ERR_NUM); }
+  g_free (kind);
+  OPT_FLAG (1, call);
+  ARG_NUMBER (2, steps);
+  ARG_NUMBER (3, spot);
+  ARG_NUMBER (4, strike);
+  ARG_NUMBER (5, time);
+  ARG_NUMBER (6, rate);
+  ARG_NUMBER (7, vol);
+  if (n >= 9)
+    ARG_NUMBER (8, carry);
+  else
+    carry = rate;
+  if (spot <= 0 || strike <= 0 || time <= 0 || vol <= 0 || steps < 1 || steps > 5000)
+    return o42_value_error (O42_ERR_NUM);
+
+  m = (int) steps;
+  dt = time / m;
+  u = exp (vol * sqrt (dt));
+  d = 1 / u;
+  p = (exp (carry * dt) - d) / (u - d);
+  discount = exp (-rate * dt);
+  if (p < 0 || p > 1)
+    return o42_value_error (O42_ERR_NUM);
+
+  value = g_new (double, (gsize) m + 1);
+  for (int i = 0; i <= m; i++)
+    {
+      double s = spot * pow (u, m - i) * pow (d, i);
+
+      value[i] = MAX (call ? s - strike : strike - s, 0);
+    }
+  for (int step = m - 1; step >= 0; step--)
+    for (int i = 0; i <= step; i++)
+      {
+        value[i] = discount * (p * value[i] + (1 - p) * value[i + 1]);
+        if (american)
+          {
+            double s = spot * pow (u, step - i) * pow (d, i);
+
+            value[i] = MAX (value[i], call ? s - strike : strike - s);
+          }
+      }
+  {
+    double answer = value[0];
+
+    g_free (value);
+    return o42_value_number (answer);
+  }
+}
+
+/* A time-switch option pays a little for every interval the spot
+ * spends on the right side of the strike. */
+static O42Value
+fn_opt_time_switch (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, strike, amount, time, m, dt, rate, carry, vol;
+  double sum = 0;
+  int steps;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, strike);
+  ARG_NUMBER (3, amount);
+  ARG_NUMBER (4, time);
+  ARG_NUMBER (5, m);
+  ARG_NUMBER (6, dt);
+  ARG_NUMBER (7, rate);
+  ARG_NUMBER (8, carry);
+  ARG_NUMBER (9, vol);
+  if (spot <= 0 || strike <= 0 || time <= 0 || dt <= 0 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  steps = (int) (time / dt);
+  for (int i = 1; i <= steps; i++)
+    {
+      double t = i * dt;
+      double d = (log (spot / strike) + (carry - vol * vol / 2) * t) / (vol * sqrt (t));
+
+      sum += normal_cdf (call ? d : -d) * dt;
+    }
+  return o42_value_number (amount * exp (-rate * time) * (sum + dt * m));
+}
+
+/* A chooser: at time1 the holder says whether it was a call or a put
+ * all along, and it runs to time2. */
+static O42Value
+fn_opt_simple_chooser (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double spot, strike, time1, time2, rate, carry, vol;
+  double d, y;
+
+  (void) n;
+  ARG_NUMBER (0, spot);
+  ARG_NUMBER (1, strike);
+  ARG_NUMBER (2, time1);
+  ARG_NUMBER (3, time2);
+  ARG_NUMBER (4, rate);
+  ARG_NUMBER (5, carry);
+  ARG_NUMBER (6, vol);
+  if (spot <= 0 || strike <= 0 || time1 <= 0 || time2 <= time1 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  d = (log (spot / strike) + (carry + vol * vol / 2) * time2) / (vol * sqrt (time2));
+  y = (log (spot / strike) + carry * time2 + vol * vol * time1 / 2) / (vol * sqrt (time1));
+
+  return o42_value_number (spot * exp ((carry - rate) * time2) * normal_cdf (d) -
+                           strike * exp (-rate * time2) * normal_cdf (d - vol * sqrt (time2)) -
+                           spot * exp ((carry - rate) * time2) * normal_cdf (-y) +
+                           strike * exp (-rate * time2) * normal_cdf (-y + vol * sqrt (time1)));
+}
+
+/* A forward-start option: the strike is settled at time1 as a fraction
+ * of the spot then. */
+static O42Value
+fn_opt_forward_start (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, alpha, time1, time, rate, vol, carry;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, alpha);
+  ARG_NUMBER (3, time1);
+  ARG_NUMBER (4, time);
+  ARG_NUMBER (5, rate);
+  ARG_NUMBER (6, vol);
+  ARG_NUMBER (7, carry);
+  if (spot <= 0 || alpha <= 0 || time <= time1 || time1 < 0 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  return o42_value_number (spot * exp ((carry - rate) * time1) *
+                           gbs (call, 1, alpha, time - time1, rate, carry, vol));
+}
+
+/* Margrabe's: the right to swap one asset for the other, which needs
+ * no strike and no interest rate to speak of. */
+static O42Value
+fn_opt_euro_exchange (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho;
+  double v, s1, s2, d1, d2;
+
+  (void) n;
+  ARG_NUMBER (0, spot1);
+  ARG_NUMBER (1, spot2);
+  ARG_NUMBER (2, qty1);
+  ARG_NUMBER (3, qty2);
+  ARG_NUMBER (4, time);
+  ARG_NUMBER (5, rate);
+  ARG_NUMBER (6, carry1);
+  ARG_NUMBER (7, carry2);
+  ARG_NUMBER (8, vol1);
+  ARG_NUMBER (9, vol2);
+  ARG_NUMBER (10, rho);
+  if (spot1 <= 0 || spot2 <= 0 || qty1 <= 0 || qty2 <= 0 || time <= 0 ||
+      vol1 < 0 || vol2 < 0 || rho < -1 || rho > 1)
+    return o42_value_error (O42_ERR_NUM);
+
+  v = sqrt (vol1 * vol1 + vol2 * vol2 - 2 * rho * vol1 * vol2);
+  if (v <= 0)
+    return o42_value_error (O42_ERR_NUM);
+  s1 = qty1 * spot1;
+  s2 = qty2 * spot2;
+  d1 = (log (s1 / s2) + (carry1 - carry2 + v * v / 2) * time) / (v * sqrt (time));
+  d2 = d1 - v * sqrt (time);
+  return o42_value_number (s1 * exp ((carry1 - rate) * time) * normal_cdf (d1) -
+                           s2 * exp ((carry2 - rate) * time) * normal_cdf (d2));
+}
+
+/* An executive option is a plain one that is forfeited at a rate. */
+static O42Value
+fn_opt_exec (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, strike, time, rate, vol, carry, lambda;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, strike);
+  ARG_NUMBER (3, time);
+  ARG_NUMBER (4, rate);
+  ARG_NUMBER (5, vol);
+  ARG_NUMBER (6, carry);
+  ARG_NUMBER (7, lambda);
+  if (spot <= 0 || strike <= 0 || time <= 0 || vol <= 0 || lambda < 0)
+    return o42_value_error (O42_ERR_NUM);
+  return o42_value_number (exp (-lambda * time) *
+                           gbs (call, spot, strike, time, rate, carry, vol));
+}
+
+/* Kirk's approximation to an option on the spread between two
+ * futures. */
+static O42Value
+fn_opt_spread_approx (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double f1, f2, strike, time, rate, vol1, vol2, rho;
+  double v, s;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, f1);
+  ARG_NUMBER (2, f2);
+  ARG_NUMBER (3, strike);
+  ARG_NUMBER (4, time);
+  ARG_NUMBER (5, rate);
+  ARG_NUMBER (6, vol1);
+  ARG_NUMBER (7, vol2);
+  ARG_NUMBER (8, rho);
+  if (f1 <= 0 || f2 <= 0 || f2 + strike <= 0 || time <= 0 || rho < -1 || rho > 1)
+    return o42_value_error (O42_ERR_NUM);
+
+  s = f2 / (f2 + strike);
+  v = sqrt (vol1 * vol1 + vol2 * s * (vol2 * s - 2 * rho * vol1));
+  if (v <= 0)
+    return o42_value_error (O42_ERR_NUM);
+  return o42_value_number ((f2 + strike) * exp (-rate * time) *
+                           gbs (call, f1 / (f2 + strike), 1, time, 0, 0, v));
+}
+
+/* The two lookbacks: one settles against the best the spot reached,
+ * the other against a fixed strike. */
+static O42Value
+fn_opt_float_strk_lkbk (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, low, high, time, rate, carry, vol;
+  double m, root, a1, a2, x;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, low);
+  ARG_NUMBER (3, high);
+  ARG_NUMBER (4, time);
+  ARG_NUMBER (5, rate);
+  ARG_NUMBER (6, carry);
+  ARG_NUMBER (7, vol);
+  if (spot <= 0 || low <= 0 || high <= 0 || time <= 0 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  m = call ? low : high;
+  root = vol * sqrt (time);
+  a1 = (log (spot / m) + (carry + vol * vol / 2) * time) / root;
+  a2 = a1 - root;
+  x = 2 * carry / (vol * vol);
+
+  if (call)
+    return o42_value_number (spot * exp ((carry - rate) * time) * normal_cdf (a1) -
+                             m * exp (-rate * time) * normal_cdf (a2) +
+                             exp (-rate * time) * vol * vol / (2 * carry) * spot *
+                             (pow (spot / m, -x) * normal_cdf (-a1 + x * root) -
+                              exp (carry * time) * normal_cdf (-a1)));
+  return o42_value_number (m * exp (-rate * time) * normal_cdf (-a2) -
+                           spot * exp ((carry - rate) * time) * normal_cdf (-a1) +
+                           exp (-rate * time) * vol * vol / (2 * carry) * spot *
+                           (-pow (spot / m, -x) * normal_cdf (a1 - x * root) +
+                            exp (carry * time) * normal_cdf (a1)));
+}
+
+static O42Value
+fn_opt_fixed_strk_lkbk (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, low, high, strike, time, rate, carry, vol;
+  double root, x, d1, d2, e1, e2, m;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, low);
+  ARG_NUMBER (3, high);
+  ARG_NUMBER (4, strike);
+  ARG_NUMBER (5, time);
+  ARG_NUMBER (6, rate);
+  ARG_NUMBER (7, carry);
+  ARG_NUMBER (8, vol);
+  if (spot <= 0 || low <= 0 || high <= 0 || strike <= 0 || time <= 0 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  root = vol * sqrt (time);
+  x = 2 * carry / (vol * vol);
+  m = call ? high : low;
+
+  if (call && strike > m)
+    {
+      d1 = (log (spot / strike) + (carry + vol * vol / 2) * time) / root;
+      d2 = d1 - root;
+      return o42_value_number (spot * exp ((carry - rate) * time) * normal_cdf (d1) -
+                               strike * exp (-rate * time) * normal_cdf (d2) +
+                               spot * exp (-rate * time) * vol * vol / (2 * carry) *
+                               (-pow (spot / strike, -x) * normal_cdf (d1 - x * root) +
+                                exp (carry * time) * normal_cdf (d1)));
+    }
+  if (call)
+    {
+      e1 = (log (spot / m) + (carry + vol * vol / 2) * time) / root;
+      e2 = e1 - root;
+      return o42_value_number (exp (-rate * time) * (m - strike) +
+                               spot * exp ((carry - rate) * time) * normal_cdf (e1) -
+                               m * exp (-rate * time) * normal_cdf (e2) +
+                               spot * exp (-rate * time) * vol * vol / (2 * carry) *
+                               (-pow (spot / m, -x) * normal_cdf (e1 - x * root) +
+                                exp (carry * time) * normal_cdf (e1)));
+    }
+  if (strike < m)
+    {
+      d1 = (log (spot / strike) + (carry + vol * vol / 2) * time) / root;
+      d2 = d1 - root;
+      return o42_value_number (strike * exp (-rate * time) * normal_cdf (-d2) -
+                               spot * exp ((carry - rate) * time) * normal_cdf (-d1) +
+                               spot * exp (-rate * time) * vol * vol / (2 * carry) *
+                               (pow (spot / strike, -x) * normal_cdf (-d1 + x * root) -
+                                exp (carry * time) * normal_cdf (-d1)));
+    }
+  e1 = (log (spot / m) + (carry + vol * vol / 2) * time) / root;
+  e2 = e1 - root;
+  return o42_value_number (exp (-rate * time) * (strike - m) -
+                           spot * exp ((carry - rate) * time) * normal_cdf (-e1) +
+                           m * exp (-rate * time) * normal_cdf (-e2) +
+                           spot * exp (-rate * time) * vol * vol / (2 * carry) *
+                           (pow (spot / m, -x) * normal_cdf (-e1 + x * root) -
+                            exp (carry * time) * normal_cdf (-e1)));
+}
+
+/* Barone-Adesi and Whaley's approximation to an American option: the
+ * European price plus what the right to exercise early is worth.  The
+ * spot at which exercising becomes the better of the two is found by
+ * Newton's method, in the form Haug sets it out in. */
+static double
+baw_critical (gboolean call, double strike, double time, double rate,
+              double carry, double vol)
+{
+  double v2 = vol * vol;
+  double mm = 2 * rate / v2, nn = 2 * carry / v2;
+  double kk = 1 - exp (-rate * time);
+  double root = vol * sqrt (time);
+  double q, q_inf, s_inf, h, si, d1, lhs, rhs, bi;
+
+  if (call)
+    {
+      q_inf = (-(nn - 1) + sqrt ((nn - 1) * (nn - 1) + 4 * mm)) / 2;
+      s_inf = strike / (1 - 1 / q_inf);
+      h = -(carry * time + 2 * root) * strike / (s_inf - strike);
+      si = strike + (s_inf - strike) * (1 - exp (h));
+      q = (-(nn - 1) + sqrt ((nn - 1) * (nn - 1) + 4 * mm / kk)) / 2;
+
+      for (int i = 0; i < 200; i++)
+        {
+          d1 = (log (si / strike) + (carry + v2 / 2) * time) / root;
+          lhs = si - strike;
+          rhs = gbs (TRUE, si, strike, time, rate, carry, vol) +
+                (1 - exp ((carry - rate) * time) * normal_cdf (d1)) * si / q;
+          bi = exp ((carry - rate) * time) * normal_cdf (d1) * (1 - 1 / q) +
+               (1 - exp ((carry - rate) * time) * normal_pdf (d1) / root) / q;
+          if (fabs (lhs - rhs) / strike < 1e-8 || fabs (1 - bi) < 1e-12)
+            break;
+          si = (strike + rhs - bi * si) / (1 - bi);
+          if (si <= 0 || !isfinite (si))
+            { si = strike; break; }
+        }
+      return si;
+    }
+
+  q_inf = (-(nn - 1) - sqrt ((nn - 1) * (nn - 1) + 4 * mm)) / 2;
+  s_inf = strike / (1 - 1 / q_inf);
+  h = (carry * time - 2 * root) * strike / (strike - s_inf);
+  si = s_inf + (strike - s_inf) * exp (h);
+  q = (-(nn - 1) - sqrt ((nn - 1) * (nn - 1) + 4 * mm / kk)) / 2;
+
+  for (int i = 0; i < 200; i++)
+    {
+      d1 = (log (si / strike) + (carry + v2 / 2) * time) / root;
+      lhs = strike - si;
+      rhs = gbs (FALSE, si, strike, time, rate, carry, vol) -
+            (1 - exp ((carry - rate) * time) * normal_cdf (-d1)) * si / q;
+      bi = -exp ((carry - rate) * time) * normal_cdf (-d1) * (1 - 1 / q) -
+           (1 + exp ((carry - rate) * time) * normal_pdf (-d1) / root) / q;
+      if (fabs (lhs - rhs) / strike < 1e-8 || fabs (1 + bi) < 1e-12)
+        break;
+      si = (strike - rhs + bi * si) / (1 + bi);
+      if (si <= 0 || !isfinite (si))
+        { si = strike; break; }
+    }
+  return si;
+}
+
+static O42Value
+fn_opt_baw_amer (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, strike, time, rate, carry, vol;
+  double v2, mm, nn, kk, q, trigger, a, root, d1;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, strike);
+  ARG_NUMBER (3, time);
+  ARG_NUMBER (4, rate);
+  ARG_NUMBER (5, carry);
+  ARG_NUMBER (6, vol);
+  if (spot <= 0 || strike <= 0 || time <= 0 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  /* With a carry at or above the rate a call is never exercised early,
+   * and the European price is the answer. */
+  if (call && carry >= rate)
+    return o42_value_number (gbs (TRUE, spot, strike, time, rate, carry, vol));
+
+  v2 = vol * vol;
+  mm = 2 * rate / v2;
+  nn = 2 * carry / v2;
+  kk = 1 - exp (-rate * time);
+  trigger = baw_critical (call, strike, time, rate, carry, vol);
+  root = vol * sqrt (time);
+  d1 = (log (trigger / strike) + (carry + v2 / 2) * time) / root;
+
+  if (call)
+    {
+      q = (-(nn - 1) + sqrt ((nn - 1) * (nn - 1) + 4 * mm / kk)) / 2;
+      if (spot >= trigger)
+        return o42_value_number (spot - strike);
+      a = (trigger / q) * (1 - exp ((carry - rate) * time) * normal_cdf (d1));
+      return o42_value_number (gbs (TRUE, spot, strike, time, rate, carry, vol) +
+                               a * pow (spot / trigger, q));
+    }
+
+  q = (-(nn - 1) - sqrt ((nn - 1) * (nn - 1) + 4 * mm / kk)) / 2;
+  if (spot <= trigger)
+    return o42_value_number (strike - spot);
+  a = -(trigger / q) * (1 - exp ((carry - rate) * time) * normal_cdf (-d1));
+  return o42_value_number (gbs (FALSE, spot, strike, time, rate, carry, vol) +
+                           a * pow (spot / trigger, q));
+}
+
 /* ---- Gnumeric's number theory ------------------------------------------ */
 
 /* All of these want a whole number that is not too big to take apart by
@@ -13528,6 +14122,8 @@ static const O42Function FUNCTIONS[] = {
   { "ODDLPRICE", 7, 8, fn_oddlprice },
   { "ODDLYIELD", 7, 8, fn_oddlyield },
   { "OFFSET", 3, 5, fn_offset },
+  { "OPT_BAW_AMER", 7, 7, fn_opt_baw_amer },
+  { "OPT_BINOMIAL", 8, 9, fn_opt_binomial },
   { "OPT_BS", 7, 7, fn_opt_bs },
   { "OPT_BS_CARRYCOST", 7, 7, fn_opt_bs_carrycost },
   { "OPT_BS_DELTA", 7, 7, fn_opt_bs_delta },
@@ -13535,6 +14131,17 @@ static const O42Function FUNCTIONS[] = {
   { "OPT_BS_RHO", 7, 7, fn_opt_bs_rho },
   { "OPT_BS_THETA", 7, 7, fn_opt_bs_theta },
   { "OPT_BS_VEGA", 6, 6, fn_opt_bs_vega },
+  { "OPT_EURO_EXCHANGE", 11, 11, fn_opt_euro_exchange },
+  { "OPT_EXEC", 8, 8, fn_opt_exec },
+  { "OPT_FIXED_STRK_LKBK", 9, 9, fn_opt_fixed_strk_lkbk },
+  { "OPT_FLOAT_STRK_LKBK", 8, 8, fn_opt_float_strk_lkbk },
+  { "OPT_FORWARD_START", 8, 8, fn_opt_forward_start },
+  { "OPT_FRENCH", 8, 8, fn_opt_french },
+  { "OPT_GARMAN_KOHLHAGEN", 7, 7, fn_opt_garman_kohlhagen },
+  { "OPT_JUMP_DIFF", 8, 8, fn_opt_jump_diff },
+  { "OPT_SIMPLE_CHOOSER", 7, 7, fn_opt_simple_chooser },
+  { "OPT_SPREAD_APPROX", 9, 9, fn_opt_spread_approx },
+  { "OPT_TIME_SWITCH", 10, 10, fn_opt_time_switch },
   { "OR", 1, -1, fn_or },
   { "OWENT", 2, 2, fn_owent },
   { "PARETO", 3, 3, fn_pareto },
@@ -14295,6 +14902,8 @@ static const struct {
   { "ODDLPRICE", "ODDLPRICE(settlement, maturity, last_interest, rate, yld, redemption, frequency, basis)", "The price of a bond with an odd last period." },
   { "ODDLYIELD", "ODDLYIELD(settlement, maturity, last_interest, rate, pr, redemption, frequency, basis)", "The yield of a bond with an odd last period." },
   { "OFFSET", "OFFSET(reference, rows, cols, height, width)", "A reference moved and resized from another." },
+  { "OPT_BAW_AMER", "OPT_BAW_AMER(call_put, spot, strike, time, rate, cost_of_carry, volatility)", "Barone-Adesi and Whaley's price for an American option." },
+  { "OPT_BINOMIAL", "OPT_BINOMIAL(amer_euro, call_put, steps, spot, strike, time, rate, volatility, cost_of_carry)", "The price from a binomial tree, American or European." },
   { "OPT_BS", "OPT_BS(call_put, spot, strike, time, rate, volatility, carry)", "The Black-Scholes price of a European option." },
   { "OPT_BS_CARRYCOST", "OPT_BS_CARRYCOST(call_put, spot, strike, time, rate, volatility, carry)", "How its price moves with the cost of carry." },
   { "OPT_BS_DELTA", "OPT_BS_DELTA(call_put, spot, strike, time, rate, volatility, carry)", "How its price moves with the spot price." },
@@ -14302,6 +14911,17 @@ static const struct {
   { "OPT_BS_RHO", "OPT_BS_RHO(call_put, spot, strike, time, rate, volatility, carry)", "How its price moves with the interest rate." },
   { "OPT_BS_THETA", "OPT_BS_THETA(call_put, spot, strike, time, rate, volatility, carry)", "How its price falls as the time runs out." },
   { "OPT_BS_VEGA", "OPT_BS_VEGA(spot, strike, time, rate, volatility, carry)", "How its price moves with the volatility." },
+  { "OPT_EURO_EXCHANGE", "OPT_EURO_EXCHANGE(spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho)", "Margrabe's: the right to swap one asset for another." },
+  { "OPT_EXEC", "OPT_EXEC(call_put, spot, strike, time, rate, volatility, cost_of_carry, lambda)", "An executive option, forfeited at a rate." },
+  { "OPT_FIXED_STRK_LKBK", "OPT_FIXED_STRK_LKBK(call_put, spot, spot_min, spot_max, strike, time, rate, cost_of_carry, volatility)", "A lookback settled against a fixed strike." },
+  { "OPT_FLOAT_STRK_LKBK", "OPT_FLOAT_STRK_LKBK(call_put, spot, spot_min, spot_max, time, rate, cost_of_carry, volatility)", "A lookback settled against the best the spot reached." },
+  { "OPT_FORWARD_START", "OPT_FORWARD_START(call_put, spot, alpha, time1, time, rate, volatility, cost_of_carry)", "An option whose strike is settled later." },
+  { "OPT_FRENCH", "OPT_FRENCH(call_put, spot, strike, time, ttime, rate, volatility, cost_of_carry)", "French's: the variance counted in trading time." },
+  { "OPT_GARMAN_KOHLHAGEN", "OPT_GARMAN_KOHLHAGEN(call_put, spot, strike, time, domestic_rate, foreign_rate, volatility)", "A currency option." },
+  { "OPT_JUMP_DIFF", "OPT_JUMP_DIFF(call_put, spot, strike, time, rate, volatility, lambda, gamma)", "Merton's jump diffusion price." },
+  { "OPT_SIMPLE_CHOOSER", "OPT_SIMPLE_CHOOSER(spot, strike, time1, time2, rate, cost_of_carry, volatility)", "An option that becomes a call or a put later." },
+  { "OPT_SPREAD_APPROX", "OPT_SPREAD_APPROX(call_put, fut_price1, fut_price2, strike, time, rate, vol1, vol2, rho)", "Kirk's approximation for an option on a spread." },
+  { "OPT_TIME_SWITCH", "OPT_TIME_SWITCH(call_put, spot, strike, amount, time, m, dt, rate, cost_of_carry, volatility)", "An option paying for each interval spent in the money." },
   { "OR", "OR(logical1, logical2, ...)", "TRUE if any argument is TRUE." },
   { "OWENT", "OWENT(h, a)", "Owen's T function." },
   { "PARETO", "PARETO(x, a, b)", "The density of Pareto's distribution." },
