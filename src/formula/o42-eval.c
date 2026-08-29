@@ -19,6 +19,8 @@
 #define normal_cdf o42_normal_cdf
 #define normal_pdf o42_normal_pdf
 #define collect_numbers o42_collect_numbers
+#define complex_parse o42_complex_parse
+#define complex_format o42_complex_format
 #define chi_cdf o42_chi_cdf
 #define beta_i o42_beta_i
 #define invert_cdf o42_invert_cdf
@@ -5520,8 +5522,6 @@ operand_line_key (O42EvalContext *ctx, const O42Operand *op, int line, gboolean 
 
 /* ---- Gnumeric's time series analysis ---------------------------------- */
 
-static char *complex_format (double re, double im, char suffix);
-static gboolean complex_parse (const char *text, double *re, double *im, char *suffix);
 
 /* A sequence for these functions is a vector: n by 1 or 1 by n, and
  * nothing else.  The values come back in an array the caller frees. */
@@ -8681,448 +8681,6 @@ fn_unicode (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (c);
 }
 
-/* ---- number bases ---- */
-
-/* Excel's bases are two's complement in 10 digits: binary from -512 to
- * 511, octal and hex from -2^29 to 2^29-1. */
-static gboolean
-base_to_number (const char *text, int base, double *out)
-{
-  gint64 v = 0;
-  gsize len = strlen (text);
-  int bits = base == 2 ? 10 : base == 8 ? 30 : 40;
-
-  if (len == 0 || len > 10) return FALSE;
-  for (const char *p = text; *p; p++)
-    {
-      int d = g_ascii_isdigit (*p) ? *p - '0' : g_ascii_isalpha (*p) ? g_ascii_toupper (*p) - 'A' + 10 : 99;
-      if (d >= base) return FALSE;
-      v = v * base + d;
-    }
-  if (len == 10 && (v >> (bits - 1)) & 1)
-    v -= (gint64) 1 << bits;
-  *out = (double) v;
-  return TRUE;
-}
-
-static O42Value
-number_to_base (double v, int base, int places, gboolean have_places)
-{
-  const char *digits = "0123456789ABCDEF";
-  int bits = base == 2 ? 10 : base == 8 ? 30 : 40;
-  double lo = -pow (2, bits - 1), hi = pow (2, bits - 1) - 1;
-  gint64 u;
-  char buf[16];
-  int len = 0;
-
-  if (v < lo || v > hi) return o42_value_error (O42_ERR_NUM);
-  u = (gint64) trunc (v);
-  if (u < 0) u += (gint64) 1 << bits;
-  do { buf[len++] = digits[u % base]; u /= base; } while (u > 0);
-  if (have_places)
-    {
-      if (places < len || places > 10) return o42_value_error (O42_ERR_NUM);
-      if (v >= 0)
-        while (len < places) buf[len++] = '0';
-    }
-  {
-    char *out = g_new (char, len + 1);
-    for (int i = 0; i < len; i++) out[i] = buf[len - 1 - i];
-    out[len] = '\0';
-    return o42_value_take (out);
-  }
-}
-
-static O42Value
-fn_base_convert (O42EvalContext *ctx, O42Operand *args, int n, int from, int to)
-{
-  O42Value v = operand_value (ctx, &args[0]);
-  char *text;
-  double number, places = 0;
-
-  if (v.type == O42_VALUE_ERROR) return v;
-  text = o42_value_to_text (&v);
-  o42_value_clear (&v);
-  if (from == 10)
-    {
-      O42ErrorCode e = O42_ERR_VALUE;
-      O42Value probe = o42_value_text (text);
-      gboolean ok = o42_value_to_number (&probe, &number, &e);
-      o42_value_clear (&probe);
-      if (!ok) { g_free (text); return o42_value_error (O42_ERR_VALUE); }
-    }
-  else if (!base_to_number (text, from, &number))
-    { g_free (text); return o42_value_error (O42_ERR_NUM); }
-  g_free (text);
-  if (to == 10)
-    return o42_value_number (number);
-  if (n >= 2) ARG_NUMBER (1, places);
-  return number_to_base (number, to, (int) places, n >= 2);
-}
-
-static O42Value fn_bin2dec (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 2, 10); }
-static O42Value fn_bin2hex (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 2, 16); }
-static O42Value fn_bin2oct (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 2, 8); }
-static O42Value fn_dec2bin (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 10, 2); }
-static O42Value fn_dec2hex (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 10, 16); }
-static O42Value fn_dec2oct (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 10, 8); }
-static O42Value fn_hex2bin (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 16, 2); }
-static O42Value fn_hex2dec (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 16, 10); }
-static O42Value fn_hex2oct (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 16, 8); }
-static O42Value fn_oct2bin (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 8, 2); }
-static O42Value fn_oct2dec (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 8, 10); }
-static O42Value fn_oct2hex (O42EvalContext *c, O42Operand *a, int n) { return fn_base_convert (c, a, n, 8, 16); }
-
-/* ---- bits ---- */
-
-static O42Value
-fn_bits (O42EvalContext *ctx, O42Operand *args, int n, char op)
-{
-  double a, b;
-  guint64 x, y, r;
-  (void) n;
-  ARG_NUMBER (0, a);
-  ARG_NUMBER (1, b);
-  if (a < 0 || a != floor (a) || a >= 281474976710656.0 ||
-      (op != '<' && op != '>' && (b < 0 || b != floor (b) || b >= 281474976710656.0)))
-    return o42_value_error (O42_ERR_NUM);
-  x = (guint64) a;
-  switch (op)
-    {
-    case '&': r = x & (guint64) b; break;
-    case '|': r = x | (guint64) b; break;
-    case '^': r = x ^ (guint64) b; break;
-    case '<':
-      if (fabs (b) > 53) return o42_value_error (O42_ERR_NUM);
-      r = b >= 0 ? x << (int) b : x >> (int) -b;
-      break;
-    default:
-      if (fabs (b) > 53) return o42_value_error (O42_ERR_NUM);
-      r = b >= 0 ? x >> (int) b : x << (int) -b;
-      break;
-    }
-  y = r;
-  if (y >= 281474976710656.0) return o42_value_error (O42_ERR_NUM);
-  return o42_value_number ((double) y);
-}
-
-static O42Value fn_bitand    (O42EvalContext *c, O42Operand *a, int n) { return fn_bits (c, a, n, '&'); }
-static O42Value fn_bitor     (O42EvalContext *c, O42Operand *a, int n) { return fn_bits (c, a, n, '|'); }
-static O42Value fn_bitxor    (O42EvalContext *c, O42Operand *a, int n) { return fn_bits (c, a, n, '^'); }
-static O42Value fn_bitlshift (O42EvalContext *c, O42Operand *a, int n) { return fn_bits (c, a, n, '<'); }
-static O42Value fn_bitrshift (O42EvalContext *c, O42Operand *a, int n) { return fn_bits (c, a, n, '>'); }
-
-/* ---- steps and error functions ---- */
-
-static O42Value
-fn_delta (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double a, b = 0;
-  ARG_NUMBER (0, a);
-  if (n >= 2) ARG_NUMBER (1, b);
-  return o42_value_number (a == b ? 1 : 0);
-}
-
-static O42Value
-fn_gestep (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double a, step = 0;
-  ARG_NUMBER (0, a);
-  if (n >= 2) ARG_NUMBER (1, step);
-  return o42_value_number (a >= step ? 1 : 0);
-}
-
-static O42Value
-fn_erf (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double lo, hi;
-  ARG_NUMBER (0, lo);
-  if (n >= 2)
-    {
-      ARG_NUMBER (1, hi);
-      return o42_value_number (erf (hi) - erf (lo));
-    }
-  return o42_value_number (erf (lo));
-}
-
-static O42Value
-fn_erfc (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x;
-  (void) n;
-  ARG_NUMBER (0, x);
-  return o42_value_number (erfc (x));
-}
-
-/* ---- complex numbers, as Excel keeps them: text like "3+4i" ---- */
-
-static gboolean
-complex_parse (const char *text, double *re, double *im, char *suffix)
-{
-  char *s = g_strstrip (g_strdup (text));
-  gsize len = strlen (s);
-  char unit = 'i';
-  gboolean ok = TRUE;
-
-  *re = *im = 0;
-  if (len == 0) { g_free (s); return TRUE; }
-  if (s[len - 1] == 'i' || s[len - 1] == 'j')
-    {
-      /* Split at the last sign that is not the first character and
-       * does not follow an exponent's e. */
-      gssize split = -1;
-      unit = s[len - 1];
-      s[len - 1] = '\0';
-      len--;
-      for (gssize k = (gssize) len - 1; k > 0; k--)
-        if ((s[k] == '+' || s[k] == '-') && s[k - 1] != 'e' && s[k - 1] != 'E')
-          { split = k; break; }
-      if (split > 0)
-        {
-          char *end_ptr;
-          char *im_part = g_strdup (s + split);   /* the sign included */
-
-          s[split] = '\0';
-          *re = g_ascii_strtod (s, &end_ptr);
-          if (*end_ptr != '\0') ok = FALSE;
-          if (strcmp (im_part, "+") == 0) *im = 1;
-          else if (strcmp (im_part, "-") == 0) *im = -1;
-          else
-            {
-              *im = g_ascii_strtod (im_part, &end_ptr);
-              if (*end_ptr != '\0') ok = FALSE;
-            }
-          g_free (im_part);
-        }
-      else
-        {
-          char *end_ptr;
-          if (len == 0) *im = 1;
-          else if (strcmp (s, "+") == 0) *im = 1;
-          else if (strcmp (s, "-") == 0) *im = -1;
-          else
-            {
-              *im = g_ascii_strtod (s, &end_ptr);
-              if (*end_ptr != '\0') ok = FALSE;
-            }
-        }
-    }
-  else
-    {
-      char *end_ptr;
-      *re = g_ascii_strtod (s, &end_ptr);
-      if (*end_ptr != '\0') ok = FALSE;
-    }
-  if (suffix != NULL) *suffix = unit;
-  g_free (s);
-  return ok;
-}
-
-static char *
-complex_format (double re, double im, char suffix)
-{
-  char rbuf[G_ASCII_DTOSTR_BUF_SIZE], ibuf[G_ASCII_DTOSTR_BUF_SIZE];
-
-  g_ascii_formatd (rbuf, sizeof rbuf, "%.15g", re);
-  g_ascii_formatd (ibuf, sizeof ibuf, "%.15g", fabs (im));
-  if (im == 0)
-    return g_strdup (rbuf);
-  if (re == 0)
-    return g_strdup_printf ("%s%s%c", im < 0 ? "-" : "", im == 1 || im == -1 ? "" : ibuf, suffix);
-  return g_strdup_printf ("%s%s%s%c", rbuf, im < 0 ? "-" : "+", im == 1 || im == -1 ? "" : ibuf, suffix);
-}
-
-#define ARG_COMPLEX(index, re, im, suffix)                               \
-  G_STMT_START {                                                         \
-    char *t_;                                                            \
-    ARG_TEXT (index, t_);                                                \
-    if (!complex_parse (t_, &(re), &(im), &(suffix)))                    \
-      { g_free (t_); return o42_value_error (O42_ERR_NUM); }             \
-    g_free (t_);                                                         \
-  } G_STMT_END
-
-static O42Value
-fn_complex (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im;
-  char suffix = 'i';
-  ARG_NUMBER (0, re);
-  ARG_NUMBER (1, im);
-  if (n >= 3)
-    {
-      char *s;
-      ARG_TEXT (2, s);
-      if (strcmp (s, "i") != 0 && strcmp (s, "j") != 0 && s[0] != '\0')
-        { g_free (s); return o42_value_error (O42_ERR_VALUE); }
-      if (s[0]) suffix = s[0];
-      g_free (s);
-    }
-  return o42_value_take (complex_format (re, im, suffix));
-}
-
-static O42Value
-fn_imreal (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  return o42_value_number (re);
-}
-
-static O42Value
-fn_imaginary (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  return o42_value_number (im);
-}
-
-static O42Value
-fn_imabs (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  return o42_value_number (hypot (re, im));
-}
-
-static O42Value
-fn_imargument (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  if (re == 0 && im == 0) return o42_value_error (O42_ERR_DIV0);
-  return o42_value_number (atan2 (im, re));
-}
-
-static O42Value
-fn_imconjugate (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  return o42_value_take (complex_format (re, -im, sfx));
-}
-
-static O42Value
-fn_imsum (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double sre = 0, sim = 0; char sfx = 'i';
-  for (int i = 0; i < n; i++)
-    {
-      double re, im;
-      ARG_COMPLEX (i, re, im, sfx);
-      sre += re; sim += im;
-    }
-  return o42_value_take (complex_format (sre, sim, sfx));
-}
-
-static O42Value
-fn_imsub (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double a, b, c, d; char sfx, sfx2;
-  (void) n;
-  ARG_COMPLEX (0, a, b, sfx);
-  ARG_COMPLEX (1, c, d, sfx2);
-  return o42_value_take (complex_format (a - c, b - d, sfx));
-}
-
-static O42Value
-fn_improduct (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double pre = 1, pim = 0; char sfx = 'i';
-  for (int i = 0; i < n; i++)
-    {
-      double re, im, nre;
-      ARG_COMPLEX (i, re, im, sfx);
-      nre = pre * re - pim * im;
-      pim = pre * im + pim * re;
-      pre = nre;
-    }
-  return o42_value_take (complex_format (pre, pim, sfx));
-}
-
-static O42Value
-fn_imdiv (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double a, b, c, d, den; char sfx, sfx2;
-  (void) n;
-  ARG_COMPLEX (0, a, b, sfx);
-  ARG_COMPLEX (1, c, d, sfx2);
-  den = c * c + d * d;
-  if (den == 0) return o42_value_error (O42_ERR_NUM);
-  return o42_value_take (complex_format ((a * c + b * d) / den, (b * c - a * d) / den, sfx));
-}
-
-static O42Value
-fn_impower (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im, p, r, theta; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  ARG_NUMBER (1, p);
-  r = hypot (re, im);
-  if (r == 0) return o42_value_take (complex_format (p == 0 ? 1 : 0, 0, sfx));
-  theta = atan2 (im, re);
-  return o42_value_take (complex_format (pow (r, p) * cos (p * theta), pow (r, p) * sin (p * theta), sfx));
-}
-
-static O42Value
-fn_imsqrt (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im, r, theta; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  r = sqrt (hypot (re, im));
-  theta = atan2 (im, re) / 2;
-  return o42_value_take (complex_format (r * cos (theta), r * sin (theta), sfx));
-}
-
-static O42Value
-fn_imexp (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  return o42_value_take (complex_format (exp (re) * cos (im), exp (re) * sin (im), sfx));
-}
-
-static O42Value
-fn_imln_base (O42EvalContext *ctx, O42Operand *args, int n, double base)
-{
-  double re, im, lr, th; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  if (re == 0 && im == 0) return o42_value_error (O42_ERR_NUM);
-  lr = log (hypot (re, im)) / log (base);
-  th = atan2 (im, re) / log (base);
-  return o42_value_take (complex_format (lr, th, sfx));
-}
-
-static O42Value fn_imln    (O42EvalContext *c, O42Operand *a, int n) { return fn_imln_base (c, a, n, G_E); }
-static O42Value fn_imlog10 (O42EvalContext *c, O42Operand *a, int n) { return fn_imln_base (c, a, n, 10); }
-static O42Value fn_imlog2  (O42EvalContext *c, O42Operand *a, int n) { return fn_imln_base (c, a, n, 2); }
-
-static O42Value
-fn_imsin (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  return o42_value_take (complex_format (sin (re) * cosh (im), cos (re) * sinh (im), sfx));
-}
-
-static O42Value
-fn_imcos (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double re, im; char sfx;
-  (void) n;
-  ARG_COMPLEX (0, re, im, sfx);
-  return o42_value_take (complex_format (cos (re) * cosh (im), -sin (re) * sinh (im), sfx));
-}
-
 /* ---- More of what Gnumeric offers ------------------------------------ */
 
 /* The complex functions Excel leaves out and Gnumeric has: the
@@ -9692,128 +9250,6 @@ fn_cronbach (O42EvalContext *ctx, O42Operand *args, int n)
     return o42_value_error (O42_ERR_DIV0);
   return o42_value_number (k / (double) (k - 1) * (1 - sum_of_variances / total_variance));
 }
-
-/* ---- The Hebrew calendar, as Gnumeric's HDATE functions give it ------- */
-
-/* Every one of these takes either a serial date or a year, a month and
- * a day; this reads whichever was given and answers the absolute day. */
-static gboolean
-hdate_absolute (O42EvalContext *ctx, O42Operand *args, int n, gint64 *out,
-                O42ErrorCode *err)
-{
-  int y = 0, m = 1, d = 1;
-
-  *err = O42_ERR_VALUE;
-  if (n >= 3)
-    {
-      O42Value v0 = operand_value (ctx, &args[0]);
-      O42Value v1 = operand_value (ctx, &args[1]);
-      O42Value v2 = operand_value (ctx, &args[2]);
-      gboolean ok = v0.type != O42_VALUE_ERROR && v1.type != O42_VALUE_ERROR &&
-                    v2.type != O42_VALUE_ERROR;
-
-      if (ok)
-        {
-          double a = 0, b = 0, c = 0;
-          O42ErrorCode e = O42_ERR_VALUE;
-
-          ok = o42_value_to_number (&v0, &a, &e) &&
-               o42_value_to_number (&v1, &b, &e) &&
-               o42_value_to_number (&v2, &c, &e);
-          y = (int) a; m = (int) b; d = (int) c;
-        }
-      o42_value_clear (&v0);
-      o42_value_clear (&v1);
-      o42_value_clear (&v2);
-      if (!ok)
-        return FALSE;
-    }
-  else if (n >= 1)
-    {
-      O42Value v = operand_value (ctx, &args[0]);
-      double serial = 0;
-      O42ErrorCode e = O42_ERR_VALUE;
-
-      if (!o42_value_to_number (&v, &serial, &e))
-        { o42_value_clear (&v); return FALSE; }
-      o42_value_clear (&v);
-      if (!o42_date_from_serial (serial, &y, &m, &d))
-        { *err = O42_ERR_NUM; return FALSE; }
-    }
-  else
-    return FALSE;
-
-  if (y < 1 || m < 1 || m > 12 || d < 1 || d > 31)
-    { *err = O42_ERR_NUM; return FALSE; }
-  *out = o42_gregorian_absolute (y, m, d);
-  return TRUE;
-}
-
-/* HDATE, and the three that pick one field out of it. */
-static O42Value
-hdate_part (O42EvalContext *ctx, O42Operand *args, int n, int what)
-{
-  gint64 absolute;
-  O42ErrorCode err;
-  int hy = 0, hm = 1, hd = 1;
-
-  if (!hdate_absolute (ctx, args, n, &absolute, &err))
-    return o42_value_error (err);
-  o42_hebrew_from_absolute (absolute, &hy, &hm, &hd);
-
-  switch (what)
-    {
-    case 1: return o42_value_number (hy);
-    case 2: return o42_value_number (hm);
-    case 3: return o42_value_number (hd);
-    case 4: return o42_value_number ((double) (absolute + 1721425));
-    default:
-      {
-        const char *name = o42_hebrew_month_name (hy, hm);
-
-        return o42_value_take (g_strdup_printf ("%d %s %d", hd,
-                                                name != NULL ? name : "", hy));
-      }
-    }
-}
-
-static O42Value fn_hdate       (O42EvalContext *c, O42Operand *a, int n) { return hdate_part (c, a, n, 0); }
-static O42Value fn_hdate_year  (O42EvalContext *c, O42Operand *a, int n) { return hdate_part (c, a, n, 1); }
-static O42Value fn_hdate_month (O42EvalContext *c, O42Operand *a, int n) { return hdate_part (c, a, n, 2); }
-static O42Value fn_hdate_day   (O42EvalContext *c, O42Operand *a, int n) { return hdate_part (c, a, n, 3); }
-static O42Value fn_hdate_julian (O42EvalContext *c, O42Operand *a, int n) { return hdate_part (c, a, n, 4); }
-
-/* The same from a serial date, which is what a cell holds. */
-static O42Value
-fn_date2hdate (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  return hdate_part (ctx, args, n, 0);
-}
-
-/* And the other way: a Hebrew date to a Julian day, or to the serial
- * date a cell can do arithmetic with. */
-static O42Value
-hebrew_to (O42EvalContext *ctx, O42Operand *args, int n, gboolean julian)
-{
-  double y, m, d;
-  gint64 absolute;
-  int gy = 0, gm = 1, gd = 1;
-
-  (void) n;
-  ARG_NUMBER (0, y);
-  ARG_NUMBER (1, m);
-  ARG_NUMBER (2, d);
-  if (y < 1 || m < 1 || m > 13 || d < 1 || d > 30)
-    return o42_value_error (O42_ERR_NUM);
-  absolute = o42_hebrew_absolute ((int) y, (int) m, (int) d);
-  if (julian)
-    return o42_value_number ((double) (absolute + 1721425));
-  o42_gregorian_from_absolute (absolute, &gy, &gm, &gd);
-  return o42_value_number (o42_date_serial (gy, gm, gd));
-}
-
-static O42Value fn_hdate2julian (O42EvalContext *c, O42Operand *a, int n) { return hebrew_to (c, a, n, TRUE); }
-static O42Value fn_hdate2date   (O42EvalContext *c, O42Operand *a, int n) { return hebrew_to (c, a, n, FALSE); }
 
 /* ---- More of what Gnumeric offers: the small ones --------------------- */
 
@@ -10534,16 +9970,8 @@ static const O42Function FUNCTIONS[] = {
   { "BETA", 2, 2, fn_beta },
   { "BETA.DIST", 4, 6, fn_beta_dist },
   { "BETALN", 2, 2, fn_betaln },
-  { "BIN2DEC", 1, 1, fn_bin2dec },
-  { "BIN2HEX", 1, 2, fn_bin2hex },
-  { "BIN2OCT", 1, 2, fn_bin2oct },
   { "BINOM.DIST.RANGE", 3, 4, fn_binom_dist_range },
   { "BINOM.INV", 3, 3, fn_critbinom },
-  { "BITAND", 2, 2, fn_bitand },
-  { "BITLSHIFT", 2, 2, fn_bitlshift },
-  { "BITOR", 2, 2, fn_bitor },
-  { "BITRSHIFT", 2, 2, fn_bitrshift },
-  { "BITXOR", 2, 2, fn_bitxor },
   { "BYCOL", 2, 2, fn_let_stub },
   { "BYROW", 2, 2, fn_let_stub },
   { "CAUCHY", 2, 3, fn_cauchy },
@@ -10565,7 +9993,6 @@ static const O42Function FUNCTIONS[] = {
   { "COLUMNS", 1, 1, fn_columns },
   { "COMBIN", 2, 2, fn_combin },
   { "COMBINA", 2, 2, fn_combina },
-  { "COMPLEX", 2, 3, fn_complex },
   { "CONCAT", 1, -1, fn_concatenate },
   { "CONCATENATE", 1, -1, fn_concatenate },
   { "CONFIDENCE.T", 3, 3, fn_confidence_t },
@@ -10590,7 +10017,6 @@ static const O42Function FUNCTIONS[] = {
   { "CUMIPMT", 6, 6, fn_cumipmt },
   { "CUMPRINC", 6, 6, fn_cumprinc },
   { "DATE", 3, 3, fn_date },
-  { "DATE2HDATE", 1, 3, fn_date2hdate },
   { "DATE2JULIAN", 1, 1, fn_date2julian },
   { "DATE2UNIX", 1, 1, fn_date2unix },
   { "DATEVALUE", 1, 1, fn_datevalue },
@@ -10602,12 +10028,8 @@ static const O42Function FUNCTIONS[] = {
   { "DCOUNT", 3, 3, fn_dcount },
   { "DCOUNTA", 3, 3, fn_dcounta },
   { "DDB", 4, 5, fn_ddb },
-  { "DEC2BIN", 1, 2, fn_dec2bin },
-  { "DEC2HEX", 1, 2, fn_dec2hex },
-  { "DEC2OCT", 1, 2, fn_dec2oct },
   { "DECIMAL", 2, 2, fn_decimal },
   { "DEGREES", 1, 1, fn_degrees },
-  { "DELTA", 1, 2, fn_delta },
   { "DEVSQ", 1, -1, fn_devsq },
   { "DGET", 3, 3, fn_dget },
   { "DMAX", 3, 3, fn_dmax },
@@ -10625,10 +10047,6 @@ static const O42Function FUNCTIONS[] = {
   { "EDATE", 2, 2, fn_edate },
   { "EFFECT", 2, 2, fn_effect },
   { "EOMONTH", 2, 2, fn_eomonth },
-  { "ERF", 1, 2, fn_erf },
-  { "ERF.PRECISE", 1, 1, fn_erf },
-  { "ERFC", 1, 1, fn_erfc },
-  { "ERFC.PRECISE", 1, 1, fn_erfc },
   { "ERROR", 1, 1, fn_error },
   { "ERROR.TYPE", 1, 1, fn_error_type },
   { "EVEN", 1, 1, fn_even },
@@ -10660,21 +10078,10 @@ static const O42Function FUNCTIONS[] = {
   { "GCD", 1, -1, fn_gcd },
   { "GEOMDIST", 2, 3, fn_geomdist },
   { "GEOMEAN", 1, -1, fn_geomean },
-  { "GESTEP", 1, 2, fn_gestep },
   { "GETENV", 1, 1, fn_getenv },
   { "GOODFRIDAY", 1, 1, fn_goodfriday },
   { "GROWTH", 1, 4, fn_offset },
   { "HARMEAN", 1, -1, fn_harmean },
-  { "HDATE", 1, 3, fn_hdate },
-  { "HDATE2DATE", 3, 3, fn_hdate2date },
-  { "HDATE2JULIAN", 3, 3, fn_hdate2julian },
-  { "HDATE_DAY", 1, 3, fn_hdate_day },
-  { "HDATE_JULIAN", 1, 3, fn_hdate_julian },
-  { "HDATE_MONTH", 1, 3, fn_hdate_month },
-  { "HDATE_YEAR", 1, 3, fn_hdate_year },
-  { "HEX2BIN", 1, 2, fn_hex2bin },
-  { "HEX2DEC", 1, 1, fn_hex2dec },
-  { "HEX2OCT", 1, 2, fn_hex2oct },
   { "HLOOKUP", 3, 4, fn_hlookup },
   { "HOUR", 1, 1, fn_hour },
   { "HYPERLINK", 1, 2, fn_hyperlink },
@@ -10684,8 +10091,6 @@ static const O42Function FUNCTIONS[] = {
   { "IFERROR", 2, 2, fn_iferror },
   { "IFNA", 2, 2, fn_ifna },
   { "IFS", 2, -1, fn_ifs_logic },
-  { "IMABS", 1, 1, fn_imabs },
-  { "IMAGINARY", 1, 1, fn_imaginary },
   { "IMARCCOS", 1, 1, fn_imarccos },
   { "IMARCCOSH", 1, 1, fn_imarccosh },
   { "IMARCCOT", 1, 1, fn_imarccot },
@@ -10698,31 +10103,16 @@ static const O42Function FUNCTIONS[] = {
   { "IMARCSINH", 1, 1, fn_imarcsinh },
   { "IMARCTAN", 1, 1, fn_imarctan },
   { "IMARCTANH", 1, 1, fn_imarctanh },
-  { "IMARGUMENT", 1, 1, fn_imargument },
-  { "IMCONJUGATE", 1, 1, fn_imconjugate },
-  { "IMCOS", 1, 1, fn_imcos },
   { "IMCOSH", 1, 1, fn_imcosh },
   { "IMCOT", 1, 1, fn_imcot },
   { "IMCOTH", 1, 1, fn_imcoth },
   { "IMCSC", 1, 1, fn_imcsc },
   { "IMCSCH", 1, 1, fn_imcsch },
-  { "IMDIV", 2, 2, fn_imdiv },
-  { "IMEXP", 1, 1, fn_imexp },
   { "IMINV", 1, 1, fn_iminv },
-  { "IMLN", 1, 1, fn_imln },
-  { "IMLOG10", 1, 1, fn_imlog10 },
-  { "IMLOG2", 1, 1, fn_imlog2 },
   { "IMNEG", 1, 1, fn_imneg },
-  { "IMPOWER", 2, 2, fn_impower },
-  { "IMPRODUCT", 1, -1, fn_improduct },
-  { "IMREAL", 1, 1, fn_imreal },
   { "IMSEC", 1, 1, fn_imsec },
   { "IMSECH", 1, 1, fn_imsech },
-  { "IMSIN", 1, 1, fn_imsin },
   { "IMSINH", 1, 1, fn_imsinh },
-  { "IMSQRT", 1, 1, fn_imsqrt },
-  { "IMSUB", 2, 2, fn_imsub },
-  { "IMSUM", 1, -1, fn_imsum },
   { "IMTAN", 1, 1, fn_imtan },
   { "IMTANH", 1, 1, fn_imtanh },
   { "INDEX", 2, 3, fn_index },
@@ -10817,9 +10207,6 @@ static const O42Function FUNCTIONS[] = {
   { "NT_RADICAL", 1, 1, fn_nt_radical },
   { "NT_SIGMA", 1, 1, fn_nt_sigma },
   { "NUMBERVALUE", 1, 3, fn_numbervalue },
-  { "OCT2BIN", 1, 2, fn_oct2bin },
-  { "OCT2DEC", 1, 1, fn_oct2dec },
-  { "OCT2HEX", 1, 2, fn_oct2hex },
   { "ODD", 1, 1, fn_odd },
   { "OFFSET", 3, 5, fn_offset },
   { "OR", 1, -1, fn_or },
@@ -10967,6 +10354,8 @@ static const O42Function FUNCTIONS[] = {
 /* The families that live in files of their own, each table ended by a
  * NULL name. */
 static const O42Function *const FAMILY_FUNCS[] = {
+  O42_FUNCS_HDATE,
+  O42_FUNCS_ENGINEERING,
   O42_FUNCS_DISTRIBUTIONS,
   O42_FUNCS_FINANCE,
   O42_FUNCS_INFO,
@@ -10976,6 +10365,8 @@ static const O42Function *const FAMILY_FUNCS[] = {
 };
 
 static const O42FunctionHelp *const FAMILY_HELP[] = {
+  O42_HELP_HDATE,
+  O42_HELP_ENGINEERING,
   O42_HELP_DISTRIBUTIONS,
   O42_HELP_FINANCE,
   O42_HELP_INFO,
@@ -11239,16 +10630,8 @@ static const struct {
   { "BETA", "BETA(a, b)", "The beta function." },
   { "BETA.DIST", "BETA.DIST(x, alpha, beta, cumulative, A, B)", "The beta distribution, density or cumulative." },
   { "BETALN", "BETALN(a, b)", "The logarithm of the beta function." },
-  { "BIN2DEC", "BIN2DEC(number)", "A binary number as decimal." },
-  { "BIN2HEX", "BIN2HEX(number, places)", "A binary number as hexadecimal." },
-  { "BIN2OCT", "BIN2OCT(number, places)", "A binary number as octal." },
   { "BINOM.DIST.RANGE", "BINOM.DIST.RANGE(trials, probability_s, number_s, number_s2)", "The probability of a range of successes." },
   { "BINOM.INV", "BINOM.INV(trials, probability_s, alpha)", "The smallest value whose cumulative binomial distribution reaches alpha." },
-  { "BITAND", "BITAND(number1, number2)", "Bitwise AND of two numbers." },
-  { "BITLSHIFT", "BITLSHIFT(number, shift_amount)", "A number shifted left by some bits." },
-  { "BITOR", "BITOR(number1, number2)", "Bitwise OR of two numbers." },
-  { "BITRSHIFT", "BITRSHIFT(number, shift_amount)", "A number shifted right by some bits." },
-  { "BITXOR", "BITXOR(number1, number2)", "Bitwise exclusive OR of two numbers." },
   { "BYCOL", "BYCOL(array, lambda)", "Each column of an array through a function." },
   { "BYROW", "BYROW(array, lambda)", "Each row of an array through a function." },
   { "CAUCHY", "CAUCHY(x, a, cumulative)", "The Cauchy, Lorentz or Breit-Wigner distribution." },
@@ -11270,7 +10653,6 @@ static const struct {
   { "COLUMNS", "COLUMNS(range)", "How many columns a range spans." },
   { "COMBIN", "COMBIN(n, k)", "How many ways k things can be chosen from n." },
   { "COMBINA", "COMBINA(number, number_chosen)", "Combinations with repetition." },
-  { "COMPLEX", "COMPLEX(real_num, i_num, suffix)", "A complex number as text, like 3+4i." },
   { "CONCAT", "CONCAT(text1, text2, ...)", "Joins pieces of text into one; Excel's newer name for CONCATENATE." },
   { "CONCATENATE", "CONCATENATE(text1, text2, ...)", "Joins pieces of text into one." },
   { "CONFIDENCE.T", "CONFIDENCE.T(alpha, standard_dev, size)", "Half the width of a confidence interval, by Student's t." },
@@ -11295,7 +10677,6 @@ static const struct {
   { "CUMIPMT", "CUMIPMT(rate, nper, pv, start_period, end_period, type)", "Interest paid between two periods of a loan." },
   { "CUMPRINC", "CUMPRINC(rate, nper, pv, start_period, end_period, type)", "Principal paid between two periods of a loan." },
   { "DATE", "DATE(year, month, day)", "The serial number of a date; months and days roll over." },
-  { "DATE2HDATE", "DATE2HDATE(date)", "The Hebrew date a serial date falls on, written out." },
   { "DATE2JULIAN", "DATE2JULIAN(date)", "The Julian day number of a date." },
   { "DATE2UNIX", "DATE2UNIX(date)", "A date as Unix time: seconds since the start of 1970." },
   { "DATEVALUE", "DATEVALUE(text)", "The serial number of a date written as text." },
@@ -11307,12 +10688,8 @@ static const struct {
   { "DCOUNT", "DCOUNT(database, field, criteria)", "How many records match the criteria and hold a number in the field." },
   { "DCOUNTA", "DCOUNTA(database, field, criteria)", "How many records match the criteria and are not blank in the field." },
   { "DDB", "DDB(cost, salvage, life, period, factor)", "Depreciation by the double-declining balance method." },
-  { "DEC2BIN", "DEC2BIN(number, places)", "A decimal number as binary." },
-  { "DEC2HEX", "DEC2HEX(number, places)", "A decimal number as hexadecimal." },
-  { "DEC2OCT", "DEC2OCT(number, places)", "A decimal number as octal." },
   { "DECIMAL", "DECIMAL(text, radix)", "Text in another base as a number." },
   { "DEGREES", "DEGREES(angle)", "Radians to degrees." },
-  { "DELTA", "DELTA(number1, number2)", "1 if the two numbers are equal, else 0." },
   { "DEVSQ", "DEVSQ(number1, number2, ...)", "The sum of squared deviations from the mean." },
   { "DGET", "DGET(database, field, criteria)", "The field of the one record that matches the criteria." },
   { "DMAX", "DMAX(database, field, criteria)", "The largest value of a field in the matching records." },
@@ -11330,10 +10707,6 @@ static const struct {
   { "EDATE", "EDATE(start_date, months)", "The date a number of months before or after another." },
   { "EFFECT", "EFFECT(nominal_rate, npery)", "The effective annual interest rate." },
   { "EOMONTH", "EOMONTH(start_date, months)", "The last day of the month a number of months away." },
-  { "ERF", "ERF(lower_limit, upper_limit)", "The error function between two limits." },
-  { "ERF.PRECISE", "ERF.PRECISE(x)", "The error function." },
-  { "ERFC", "ERFC(x)", "The complementary error function." },
-  { "ERFC.PRECISE", "ERFC.PRECISE(x)", "The complementary error function." },
   { "ERROR", "ERROR(text)", "The error value that text names." },
   { "ERROR.TYPE", "ERROR.TYPE(error)", "A number for each kind of error value." },
   { "EVEN", "EVEN(number)", "Rounds away from zero to an even integer." },
@@ -11365,21 +10738,10 @@ static const struct {
   { "GCD", "GCD(number1, number2, ...)", "The greatest common divisor." },
   { "GEOMDIST", "GEOMDIST(k, p, cumulative)", "How many failures before the first success." },
   { "GEOMEAN", "GEOMEAN(number1, number2, ...)", "The geometric mean." },
-  { "GESTEP", "GESTEP(number, step)", "1 if the number is at least the step, else 0." },
   { "GETENV", "GETENV(name)", "A value from the machine's environment." },
   { "GOODFRIDAY", "GOODFRIDAY(year)", "Good Friday, two days before Easter." },
   { "GROWTH", "GROWTH(known_ys, known_xs, new_xs, const)", "Values on the exponential curve fitted to the points." },
   { "HARMEAN", "HARMEAN(number1, number2, ...)", "The harmonic mean." },
-  { "HDATE", "HDATE(year, month, day)", "The Hebrew date a Gregorian one falls on, written out." },
-  { "HDATE2DATE", "HDATE2DATE(year, month, day)", "The serial date a Hebrew date falls on." },
-  { "HDATE2JULIAN", "HDATE2JULIAN(year, month, day)", "The Julian day a Hebrew date falls on." },
-  { "HDATE_DAY", "HDATE_DAY(year, month, day)", "The day of the Hebrew month." },
-  { "HDATE_JULIAN", "HDATE_JULIAN(year, month, day)", "The Julian day of a Gregorian date." },
-  { "HDATE_MONTH", "HDATE_MONTH(year, month, day)", "The Hebrew month, counting Tishri as one." },
-  { "HDATE_YEAR", "HDATE_YEAR(year, month, day)", "The Hebrew year." },
-  { "HEX2BIN", "HEX2BIN(number, places)", "A hexadecimal number as binary." },
-  { "HEX2DEC", "HEX2DEC(number)", "A hexadecimal number as decimal." },
-  { "HEX2OCT", "HEX2OCT(number, places)", "A hexadecimal number as octal." },
   { "HLOOKUP", "HLOOKUP(value, table, row_index, approximate)", "Finds a value in the top row and returns from that column." },
   { "HOUR", "HOUR(serial)", "The hour of a time, 0 to 23." },
   { "HYPERLINK", "HYPERLINK(link, friendly_name)", "The text to show for a link." },
@@ -11389,8 +10751,6 @@ static const struct {
   { "IFERROR", "IFERROR(value, if_error)", "A value, or something else if it is an error." },
   { "IFNA", "IFNA(value, if_na)", "A value, or something else if it is #N/A." },
   { "IFS", "IFS(test1, value1, test2, value2, ...)", "The first value whose test holds." },
-  { "IMABS", "IMABS(inumber)", "The modulus of a complex number." },
-  { "IMAGINARY", "IMAGINARY(inumber)", "The imaginary part of a complex number." },
   { "IMARCCOS", "IMARCCOS(complex)", "The inverse cosine of a complex number." },
   { "IMARCCOSH", "IMARCCOSH(complex)", "The inverse hyperbolic cosine of a complex number." },
   { "IMARCCOT", "IMARCCOT(complex)", "The inverse cotangent of a complex number." },
@@ -11403,31 +10763,16 @@ static const struct {
   { "IMARCSINH", "IMARCSINH(complex)", "The inverse hyperbolic sine of a complex number." },
   { "IMARCTAN", "IMARCTAN(complex)", "The inverse tangent of a complex number." },
   { "IMARCTANH", "IMARCTANH(complex)", "The inverse hyperbolic tangent of a complex number." },
-  { "IMARGUMENT", "IMARGUMENT(inumber)", "The argument of a complex number, in radians." },
-  { "IMCONJUGATE", "IMCONJUGATE(inumber)", "The conjugate of a complex number." },
-  { "IMCOS", "IMCOS(inumber)", "The cosine of a complex number." },
   { "IMCOSH", "IMCOSH(complex)", "The hyperbolic cosine of a complex number." },
   { "IMCOT", "IMCOT(complex)", "The cotangent of a complex number." },
   { "IMCOTH", "IMCOTH(complex)", "The hyperbolic cotangent of a complex number." },
   { "IMCSC", "IMCSC(complex)", "The cosecant of a complex number." },
   { "IMCSCH", "IMCSCH(complex)", "The hyperbolic cosecant of a complex number." },
-  { "IMDIV", "IMDIV(inumber1, inumber2)", "The quotient of two complex numbers." },
-  { "IMEXP", "IMEXP(inumber)", "The exponential of a complex number." },
   { "IMINV", "IMINV(complex)", "One divided by a complex number." },
-  { "IMLN", "IMLN(inumber)", "The natural logarithm of a complex number." },
-  { "IMLOG10", "IMLOG10(inumber)", "The base-10 logarithm of a complex number." },
-  { "IMLOG2", "IMLOG2(inumber)", "The base-2 logarithm of a complex number." },
   { "IMNEG", "IMNEG(complex)", "A complex number with its sign turned round." },
-  { "IMPOWER", "IMPOWER(inumber, number)", "A complex number raised to a power." },
-  { "IMPRODUCT", "IMPRODUCT(inumber1, inumber2, ...)", "The product of complex numbers." },
-  { "IMREAL", "IMREAL(inumber)", "The real part of a complex number." },
   { "IMSEC", "IMSEC(complex)", "The secant of a complex number." },
   { "IMSECH", "IMSECH(complex)", "The hyperbolic secant of a complex number." },
-  { "IMSIN", "IMSIN(inumber)", "The sine of a complex number." },
   { "IMSINH", "IMSINH(complex)", "The hyperbolic sine of a complex number." },
-  { "IMSQRT", "IMSQRT(inumber)", "The square root of a complex number." },
-  { "IMSUB", "IMSUB(inumber1, inumber2)", "The difference of two complex numbers." },
-  { "IMSUM", "IMSUM(inumber1, inumber2, ...)", "The sum of complex numbers." },
   { "IMTAN", "IMTAN(complex)", "The tangent of a complex number." },
   { "IMTANH", "IMTANH(complex)", "The hyperbolic tangent of a complex number." },
   { "INDEX", "INDEX(range, row, column)", "The cell at a row and column of a range." },
@@ -11522,9 +10867,6 @@ static const struct {
   { "NT_RADICAL", "NT_RADICAL(n)", "The product of the distinct primes of a number." },
   { "NT_SIGMA", "NT_SIGMA(n)", "What the divisors of a number add up to." },
   { "NUMBERVALUE", "NUMBERVALUE(text, decimal_separator, group_separator)", "Text as a number, ignoring spaces." },
-  { "OCT2BIN", "OCT2BIN(number, places)", "An octal number as binary." },
-  { "OCT2DEC", "OCT2DEC(number)", "An octal number as decimal." },
-  { "OCT2HEX", "OCT2HEX(number, places)", "An octal number as hexadecimal." },
   { "ODD", "ODD(number)", "Rounds away from zero to an odd integer." },
   { "OFFSET", "OFFSET(reference, rows, cols, height, width)", "A reference moved and resized from another." },
   { "OR", "OR(logical1, logical2, ...)", "TRUE if any argument is TRUE." },

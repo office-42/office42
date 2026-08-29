@@ -39,12 +39,16 @@ typedef struct {
 
 /* Each family's tables, both ended by an entry whose name is NULL.
  * o42-eval.c gathers them, sorts them and searches the lot. */
+extern const O42Function     O42_FUNCS_HDATE[];
+extern const O42Function     O42_FUNCS_ENGINEERING[];
 extern const O42Function     O42_FUNCS_DISTRIBUTIONS[];
 extern const O42Function     O42_FUNCS_FINANCE[];
 extern const O42Function     O42_FUNCS_INFO[];
 extern const O42Function     O42_FUNCS_BESSEL[];
 extern const O42Function     O42_FUNCS_RANDOM[];
 extern const O42Function     O42_FUNCS_OPTIONS[];
+extern const O42FunctionHelp O42_HELP_HDATE[];
+extern const O42FunctionHelp O42_HELP_ENGINEERING[];
 extern const O42FunctionHelp O42_HELP_DISTRIBUTIONS[];
 extern const O42FunctionHelp O42_HELP_FINANCE[];
 extern const O42FunctionHelp O42_HELP_INFO[];
@@ -104,6 +108,13 @@ double o42_beta_i (double a, double b, double x);
 /* The chi-squared distribution, which several tests end in. */
 double o42_chi_cdf (double x, double df, double unused);
 
+/* A complex number as Excel keeps it: text like "3+4i".  The caller
+ * frees what comes back. */
+char *o42_complex_format (double re, double im, char suffix);
+
+/* The other way: FALSE when the text is not a complex number. */
+gboolean o42_complex_parse (const char *text, double *re, double *im, char *suffix);
+
 /* ---- Reading arguments -------------------------------------------------- */
 
 /* Both of these return from the calling function with the error when
@@ -126,6 +137,17 @@ double o42_chi_cdf (double x, double df, double unused);
         return o42_value_error (e_); }                                   \
     (target) = o42_value_to_text (&v_);                                  \
     o42_value_clear (&v_);                                               \
+  } G_STMT_END
+
+/* An argument that is a complex number, read from the text it is
+ * written as. */
+#define ARG_COMPLEX(index, re, im, suffix)                               \
+  G_STMT_START {                                                         \
+    char *t_;                                                            \
+    ARG_TEXT (index, t_);                                                \
+    if (!complex_parse (t_, &(re), &(im), &(suffix)))                    \
+      { g_free (t_); return o42_value_error (O42_ERR_NUM); }             \
+    g_free (t_);                                                         \
   } G_STMT_END
 
 G_END_DECLS
