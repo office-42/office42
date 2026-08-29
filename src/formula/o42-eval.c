@@ -12767,7 +12767,9 @@ fn_randnegbinom (O42EvalContext *ctx, O42Operand *args, int n)
   double p = 0.5, failures = 1, count = 0, unused = 0;
 
   RAND_ARGS (p, failures, unused);
-  if (p <= 0 || p > 1 || failures < 1)
+  /* p of one is every draw a success and no failure ever, so there is
+   * no number to give back: the distribution has none. */
+  if (p <= 0 || p >= 1 || failures < 1)
     return o42_value_error (O42_ERR_NUM);
   /* How many successes before the given number of failures. */
   for (int seen = 0; seen < (int) failures; )
