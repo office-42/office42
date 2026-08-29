@@ -49,9 +49,9 @@ thing that knows what a mouse is.
 size: `o42-eval.c` and `o42-window.c` are each big enough that finding
 a function means grepping, and both split along obvious seams. The
 second was that the grid walked rows one at a time to answer "which row
-is at this y", which was fine at 16,384 rows and hopeless at a million;
-the sheet answers both questions by binary search now.
-The third is that nothing in the program is translated: `menus.ui`
+is at this y", and was a widget as big as the sheet: the sheet answers
+that question by binary search now, and the grid scrolls itself. The
+third is that nothing in the program is translated: `menus.ui`
 marks its strings translatable and no gettext ever reads them.
 
 ---
@@ -196,9 +196,14 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **Sheet tabs that can be dragged**, and given a colour.
-4. **The form controls in `.xls` and `.xlsx`**, and a surface chart
-   that goes out as Excel's own `surfaceChart` part.
-5. **Iterative calculation** for circular references, and a manual
-   calculation mode.
-6. **Splitting the two big files**, `o42-eval.c` and `o42-window.c`.
+1. **The form controls in `.xls` and `.xlsx`**, and a surface chart
+   that goes out as Excel's own `surfaceChart` part. They are in
+   `.gnumeric` and nowhere else, so a book that carries them cannot be
+   handed to Excel whole.
+2. **Selections of more than one rectangle**, which Ctrl+click makes
+   everywhere else.
+3. **Sheet tabs that can be dragged**, and given a colour.
+4. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
+   `o42-window.c` (8,000): both split along obvious seams.
+5. **Translations.** `menus.ui` marks its strings translatable and
+   nothing reads them; there is no gettext in the build and no `po/`.
