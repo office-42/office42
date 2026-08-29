@@ -950,6 +950,146 @@ write_styles (Writer *w)
   return g_string_free (out, FALSE);
 }
 
+/* Excel keeps its form controls in the sheet's legacy drawing -- the
+ * same VML part the notes are in -- as a shape apiece with an
+ * x:ClientData that says what kind it is and which cell it drives.
+ * That is how Excel 2003 wrote them into .xls, how Excel 2007 wrote
+ * them into .xlsx beside the newer ctrlProps parts, and what every
+ * reader still understands.
+ *
+ * The map from office42's kinds to Excel's names. */
+static const char *
+vml_control_type (O42ShapeKind kind)
+{
+  switch (kind)
+    {
+    case O42_SHAPE_BUTTON:    return "Button";
+    case O42_SHAPE_CHECKBOX:  return "Checkbox";
+    case O42_SHAPE_OPTION:    return "Radio";
+    case O42_SHAPE_SPINNER:   return "Spin";
+    case O42_SHAPE_SCROLLBAR: return "Scroll";
+    case O42_SHAPE_LISTBOX:   return "List";
+    case O42_SHAPE_COMBO:     return "Drop";
+    case O42_SHAPE_LABEL:     return "Label";
+    case O42_SHAPE_GROUPBOX:  return "GBox";
+    default:                  return NULL;
+    }
+}
+
+/* A cell reference the way a control's formula wants it: $B$3. */
+static char *
+vml_absolute_ref (const char *text)
+{
+  int row, col;
+
+  if (text == NULL || *text == 0 || !o42_ref_parse (text, &row, &col, NULL))
+    return NULL;
+  {
+    char *plain = o42_ref_name (row, col);
+    char *out = g_strdup_printf ("$%c$%s", plain[0], plain + 1);
+
+    /* o42_ref_name writes AB12; the dollars go before the letters and
+     * before the digits, so the letters are copied one by one. */
+    g_free (out);
+    {
+      GString *dollars = g_string_new ("$");
+      const char *q = plain;
+
+      while (g_ascii_isalpha (*q))
+        g_string_append_c (dollars, *q++);
+      g_string_append_c (dollars, '$');
+      g_string_append (dollars, q);
+      g_free (plain);
+      return g_string_free (dollars, FALSE);
+    }
+  }
+}
+
+static void
+write_control_vml (GString *vml, O42Sheet *sheet, const O42Shape *shape, int shape_id)
+{
+  const char *type = vml_control_type (shape->kind);
+  char *link = vml_absolute_ref (shape->link);
+  char *caption = g_markup_escape_text (shape->text != NULL ? shape->text : "", -1);
+  double left = 0, top = 0;
+  double value = 0;
+  gboolean has_value;
+
+  if (type == NULL)
+    return;
+
+  for (int c = 0; c < shape->col; c++)
+    left += o42_sheet_col_width (sheet, c);
+  for (int r = 0; r < shape->row; r++)
+    top += o42_sheet_row_height (sheet, r);
+  left = (left + shape->dx) * 0.75;    /* pixels to points */
+  top = (top + shape->dy) * 0.75;
+  has_value = o42_sheet_control_value (sheet, shape, &value);
+
+  g_string_append_printf (vml,
+    "<v:shape id=\"_x0000_s%d\" type=\"#_x0000_t201\" style=\"position:absolute;"
+    "margin-left:%gpt;margin-top:%gpt;width:%gpt;height:%gpt;z-index:%d\" o:button=\"t\" "
+    "fillcolor=\"buttonFace [67]\" strokecolor=\"windowText [64]\">"
+    "<v:textbox style=\"mso-direction-alt:auto\"><div style=\"text-align:center\">"
+    "<font face=\"Arial\" size=\"200\">%s</font></div></v:textbox>"
+    "<x:ClientData ObjectType=\"%s\">"
+    "<x:MoveWithCells/><x:SizeWithCells/>"
+    "<x:Anchor>%d, 0, %d, 0, %d, 0, %d, 0</x:Anchor>"
+    "<x:AutoFill>False</x:AutoFill>",
+    shape_id, left, top, shape->width * 0.75, shape->height * 0.75, shape_id - 1024,
+    caption, type,
+    shape->col, shape->row, shape->col + 2, shape->row + 2);
+
+  if (link != NULL)
+    g_string_append_printf (vml, "<x:FmlaLink>%s</x:FmlaLink>", link);
+  if (shape->script != NULL && *shape->script != 0)
+    {
+      /* Excel's word for what a button runs.  office42's scripts are
+       * Python and Excel's are not, but the name travels. */
+      char *macro = g_markup_escape_text (shape->script, -1);
+
+      g_string_append_printf (vml, "<x:FmlaMacro>%s</x:FmlaMacro>", macro);
+      g_free (macro);
+    }
+  if (shape->source != NULL && *shape->source != 0)
+    g_string_append_printf (vml, "<x:FmlaRange>%s</x:FmlaRange>", shape->source);
+
+  switch (shape->kind)
+    {
+    case O42_SHAPE_CHECKBOX:
+      g_string_append_printf (vml, "<x:Checked>%d</x:Checked>",
+                              (has_value && value != 0) ? 1 : 0);
+      break;
+    case O42_SHAPE_OPTION:
+      g_string_append_printf (vml, "<x:Checked>%d</x:Checked>",
+                              (has_value && value == (shape->value != 0 ? shape->value : 1)) ? 1 : 0);
+      break;
+    case O42_SHAPE_SPINNER:
+    case O42_SHAPE_SCROLLBAR:
+      g_string_append_printf (vml,
+        "<x:Val>%d</x:Val><x:Min>%d</x:Min><x:Max>%d</x:Max><x:Inc>%d</x:Inc>",
+        (int) (has_value ? value : shape->min), (int) shape->min, (int) shape->max,
+        (int) (shape->step > 0 ? shape->step : 1));
+      if (shape->kind == O42_SHAPE_SCROLLBAR)
+        g_string_append_printf (vml, "<x:Page>%d</x:Page><x:Horiz>%d</x:Horiz>",
+                                (int) (shape->page > 0 ? shape->page : 10),
+                                shape->width >= shape->height ? 1 : 0);
+      break;
+    case O42_SHAPE_LISTBOX:
+    case O42_SHAPE_COMBO:
+      if (has_value)
+        g_string_append_printf (vml, "<x:Sel>%d</x:Sel>", (int) value);
+      g_string_append (vml, "<x:SelType>Single</x:SelType>");
+      break;
+    default:
+      break;
+    }
+
+  g_string_append (vml, "</x:ClientData></v:shape>");
+  g_free (link);
+  g_free (caption);
+}
+
 /* Notes go out as Excel's comments: a comments part with the text, and
  * the VML drawing Excel needs before it will show them.  Returns the
  * relationship id of the VML part, or 0 if the sheet has no notes. */
@@ -1017,13 +1157,19 @@ write_comments (O42ZipWriter *zip, O42Sheet *sheet, int index, GString *content_
                 GHashTable *extensions_seen, GString *sheet_rels, int *next_rid)
 {
   GHashTable *notes = o42_sheet_notes (sheet);
+  GPtrArray *shapes = o42_sheet_shapes (sheet);
   GHashTableIter iter;
   gpointer key, value;
   GString *comments, *vml;
   char *part;
-  int comments_rid, vml_rid, shape = 1025;
+  int comments_rid = 0, vml_rid, shape = 1025;
+  int n_controls = 0;
 
-  if (g_hash_table_size (notes) == 0)
+  for (guint i = 0; i < shapes->len; i++)
+    if (o42_shape_is_control (((O42Shape *) g_ptr_array_index (shapes, i))->kind))
+      n_controls++;
+
+  if (g_hash_table_size (notes) == 0 && n_controls == 0)
     return 0;
 
   comments = g_string_new (
@@ -1034,7 +1180,10 @@ write_comments (O42ZipWriter *zip, O42Sheet *sheet, int index, GString *content_
     "xmlns:x=\"urn:schemas-microsoft-com:office:excel\">"
     "<o:shapelayout v:ext=\"edit\"><o:idmap v:ext=\"edit\" data=\"1\"/></o:shapelayout>"
     "<v:shapetype id=\"_x0000_t202\" coordsize=\"21600,21600\" o:spt=\"202\" path=\"m,l,21600r21600,l21600,xe\">"
-    "<v:stroke joinstyle=\"miter\"/><v:path gradientshapeok=\"t\" o:connecttype=\"rect\"/></v:shapetype>");
+    "<v:stroke joinstyle=\"miter\"/><v:path gradientshapeok=\"t\" o:connecttype=\"rect\"/></v:shapetype>"
+    "<v:shapetype id=\"_x0000_t201\" coordsize=\"21600,21600\" o:spt=\"201\" path=\"m,l,21600r21600,l21600,xe\">"
+    "<v:stroke joinstyle=\"miter\"/><v:path shadowok=\"t\" o:extrusionok=\"t\" gradientshapeok=\"t\" "
+    "o:connecttype=\"rect\"/></v:shapetype>");
 
   g_hash_table_iter_init (&iter, notes);
   while (g_hash_table_iter_next (&iter, &key, &value))
@@ -1059,18 +1208,30 @@ write_comments (O42ZipWriter *zip, O42Sheet *sheet, int index, GString *content_
       g_free (text);
       g_free (ref);
     }
+  /* The controls share the notes' drawing: one VML part a sheet. */
+  for (guint i = 0; i < shapes->len; i++)
+    {
+      const O42Shape *sh = g_ptr_array_index (shapes, i);
+
+      if (o42_shape_is_control (sh->kind))
+        write_control_vml (vml, sheet, sh, shape++);
+    }
+
   g_string_append (comments, "</commentList></comments>");
   g_string_append (vml, "</xml>");
 
-  part = g_strdup_printf ("xl/comments%d.xml", index);
-  o42_zip_writer_add (zip, part, comments->str, comments->len);
-  g_string_append_printf (content_types,
-    "<Override PartName=\"/%s\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml\"/>", part);
-  comments_rid = (*next_rid)++;
-  g_string_append_printf (sheet_rels,
-    "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments\" Target=\"../comments%d.xml\"/>",
-    comments_rid, index);
-  g_free (part);
+  if (g_hash_table_size (notes) > 0)
+    {
+      part = g_strdup_printf ("xl/comments%d.xml", index);
+      o42_zip_writer_add (zip, part, comments->str, comments->len);
+      g_string_append_printf (content_types,
+        "<Override PartName=\"/%s\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml\"/>", part);
+      comments_rid = (*next_rid)++;
+      g_string_append_printf (sheet_rels,
+        "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments\" Target=\"../comments%d.xml\"/>",
+        comments_rid, index);
+      g_free (part);
+    }
 
   part = g_strdup_printf ("xl/drawings/vmlDrawing%d.vml", index);
   o42_zip_writer_add (zip, part, vml->str, vml->len);
@@ -1090,6 +1251,243 @@ write_comments (O42ZipWriter *zip, O42Sheet *sheet, int index, GString *content_
   g_string_free (vml, TRUE);
   return vml_rid;
 }
+
+/* ---- Reading the form controls back out of the legacy drawing -------- */
+
+/* The other half of write_control_vml: a VML shape whose x:ClientData
+ * says what kind of control it is, which cell it drives, and where it
+ * sits.  Excel's own files are read the same way, which is the point --
+ * a book that comes from Excel with a check box on it arrives with the
+ * check box. */
+
+typedef struct {
+  O42Sheet   *sheet;
+  gboolean    in_shape;
+  gboolean    in_client;
+  char       *style;         /* the shape's own style attribute */
+  char       *object_type;   /* Checkbox, Spin, Scroll, Drop, List, ... */
+  char       *field;         /* the ClientData child being read */
+  GString    *text;          /* its text */
+  char       *link, *range, *macro;
+  GString    *caption;
+  gboolean    in_textbox;
+  double      value, min, max, step, page;
+  gboolean    checked, horizontal;
+  int         anchor_row, anchor_col;
+} VmlReader;
+
+static O42ShapeKind
+vml_kind (const char *type)
+{
+  if (type == NULL)                     return O42_SHAPE_RECT;
+  if (strcmp (type, "Checkbox") == 0)   return O42_SHAPE_CHECKBOX;
+  if (strcmp (type, "Radio") == 0)      return O42_SHAPE_OPTION;
+  if (strcmp (type, "Spin") == 0)       return O42_SHAPE_SPINNER;
+  if (strcmp (type, "Scroll") == 0)     return O42_SHAPE_SCROLLBAR;
+  if (strcmp (type, "List") == 0)       return O42_SHAPE_LISTBOX;
+  if (strcmp (type, "Drop") == 0)       return O42_SHAPE_COMBO;
+  if (strcmp (type, "Button") == 0)     return O42_SHAPE_BUTTON;
+  if (strcmp (type, "Label") == 0)      return O42_SHAPE_LABEL;
+  if (strcmp (type, "GBox") == 0)       return O42_SHAPE_GROUPBOX;
+  return O42_SHAPE_RECT;
+}
+
+/* One measurement out of a VML style string: "width:120pt" in points,
+ * answered in pixels. */
+static double
+vml_style_px (const char *style, const char *name, double fallback)
+{
+  const char *at;
+  char *key;
+
+  if (style == NULL)
+    return fallback;
+  key = g_strdup_printf ("%s:", name);
+  at = strstr (style, key);
+  g_free (key);
+  if (at == NULL)
+    return fallback;
+  at = strchr (at, ':') + 1;
+  return g_ascii_strtod (at, NULL) / 0.75;   /* points to pixels */
+}
+
+static void
+vml_start (GMarkupParseContext *ctx, const char *element, const char **names,
+           const char **values, gpointer user, GError **error)
+{
+  VmlReader *r = user;
+  const char *n = strchr (element, ':') ? strchr (element, ':') + 1 : element;
+
+  (void) ctx; (void) error;
+  if (strcmp (n, "shape") == 0)
+    {
+      r->in_shape = TRUE;
+      g_clear_pointer (&r->style, g_free);
+      g_clear_pointer (&r->object_type, g_free);
+      g_clear_pointer (&r->link, g_free);
+      g_clear_pointer (&r->range, g_free);
+      g_clear_pointer (&r->macro, g_free);
+      if (r->caption == NULL)
+        r->caption = g_string_new (NULL);
+      g_string_truncate (r->caption, 0);
+      r->value = r->min = r->page = 0;
+      r->max = 100;
+      r->step = 1;
+      r->checked = FALSE;
+      r->horizontal = TRUE;
+      r->anchor_row = r->anchor_col = 0;
+      for (int i = 0; names[i] != NULL; i++)
+        if (strcmp (names[i], "style") == 0)
+          r->style = g_strdup (values[i]);
+      return;
+    }
+  if (strcmp (n, "textbox") == 0)
+    {
+      r->in_textbox = TRUE;
+      return;
+    }
+  if (strcmp (n, "ClientData") == 0)
+    {
+      r->in_client = TRUE;
+      for (int i = 0; names[i] != NULL; i++)
+        if (strcmp (names[i], "ObjectType") == 0)
+          r->object_type = g_strdup (values[i]);
+      return;
+    }
+  if (r->in_client)
+    {
+      g_clear_pointer (&r->field, g_free);
+      r->field = g_strdup (n);
+      if (r->text == NULL)
+        r->text = g_string_new (NULL);
+      g_string_truncate (r->text, 0);
+    }
+}
+
+static void
+vml_text (GMarkupParseContext *ctx, const char *text, gsize length,
+          gpointer user, GError **error)
+{
+  VmlReader *r = user;
+
+  (void) ctx; (void) error;
+  if (r->in_client && r->field != NULL && r->text != NULL)
+    g_string_append_len (r->text, text, (gssize) length);
+  else if (r->in_textbox && r->caption != NULL)
+    g_string_append_len (r->caption, text, (gssize) length);
+}
+
+static void
+vml_end (GMarkupParseContext *ctx, const char *element, gpointer user, GError **error)
+{
+  VmlReader *r = user;
+  const char *n = strchr (element, ':') ? strchr (element, ':') + 1 : element;
+
+  (void) ctx; (void) error;
+
+  if (r->in_client && r->field != NULL && strcmp (n, r->field) == 0 && r->text != NULL)
+    {
+      const char *v = r->text->str;
+
+      if (strcmp (n, "FmlaLink") == 0)        { g_free (r->link); r->link = g_strdup (v); }
+      else if (strcmp (n, "FmlaRange") == 0)  { g_free (r->range); r->range = g_strdup (v); }
+      else if (strcmp (n, "FmlaMacro") == 0)  { g_free (r->macro); r->macro = g_strdup (v); }
+      else if (strcmp (n, "Val") == 0)        r->value = g_ascii_strtod (v, NULL);
+      else if (strcmp (n, "Min") == 0)        r->min = g_ascii_strtod (v, NULL);
+      else if (strcmp (n, "Max") == 0)        r->max = g_ascii_strtod (v, NULL);
+      else if (strcmp (n, "Inc") == 0)        r->step = g_ascii_strtod (v, NULL);
+      else if (strcmp (n, "Page") == 0)       r->page = g_ascii_strtod (v, NULL);
+      else if (strcmp (n, "Sel") == 0)        r->value = g_ascii_strtod (v, NULL);
+      else if (strcmp (n, "Checked") == 0)    r->checked = g_ascii_strtod (v, NULL) != 0;
+      else if (strcmp (n, "Horiz") == 0)      r->horizontal = g_ascii_strtod (v, NULL) != 0;
+      else if (strcmp (n, "Anchor") == 0)
+        {
+          int col = 0, coff = 0, row = 0;
+
+          if (sscanf (v, "%d, %d, %d", &col, &coff, &row) >= 3)
+            { r->anchor_col = col; r->anchor_row = row; }
+        }
+      g_clear_pointer (&r->field, g_free);
+      return;
+    }
+
+  if (strcmp (n, "textbox") == 0)
+    {
+      r->in_textbox = FALSE;
+      return;
+    }
+
+  if (strcmp (n, "ClientData") == 0)
+    {
+      r->in_client = FALSE;
+      return;
+    }
+
+  if (strcmp (n, "shape") == 0 && r->in_shape)
+    {
+      O42ShapeKind kind = vml_kind (r->object_type);
+
+      r->in_shape = FALSE;
+      /* A note is a shape here too, and is read from the comments part
+       * instead; only the controls are wanted. */
+      if (r->object_type != NULL && o42_shape_is_control (kind))
+        {
+          O42Shape *shape = o42_sheet_add_shape (r->sheet, kind,
+                                                 CLAMP (r->anchor_row, 0, O42_MAX_ROWS - 1),
+                                                 CLAMP (r->anchor_col, 0, O42_MAX_COLS - 1));
+
+          if (shape != NULL)
+            {
+              shape->width = vml_style_px (r->style, "width", shape->width);
+              shape->height = vml_style_px (r->style, "height", shape->height);
+              shape->min = r->min;
+              shape->max = r->max;
+              shape->step = r->step > 0 ? r->step : 1;
+              shape->page = r->page > 0 ? r->page : 10;
+              if (r->link != NULL && *r->link != 0)
+                {
+                  /* $B$3 and Sheet1!$B$3 both come down to B3. */
+                  const char *bare = strchr (r->link, '!');
+                  GString *plain = g_string_new (NULL);
+
+                  for (const char *q = bare ? bare + 1 : r->link; *q != 0; q++)
+                    if (*q != '$')
+                      g_string_append_c (plain, *q);
+                  g_free (shape->link);
+                  shape->link = g_string_free (plain, FALSE);
+                }
+              if (r->range != NULL && *r->range != 0)
+                {
+                  const char *bare = strchr (r->range, '!');
+                  GString *plain = g_string_new (NULL);
+
+                  for (const char *q = bare ? bare + 1 : r->range; *q != 0; q++)
+                    if (*q != '$')
+                      g_string_append_c (plain, *q);
+                  g_free (shape->source);
+                  shape->source = g_string_free (plain, FALSE);
+                }
+              if (r->caption != NULL && r->caption->len > 0)
+                {
+                  char *trimmed = g_strstrip (g_strdup (r->caption->str));
+
+                  g_free (shape->text);
+                  shape->text = trimmed;
+                }
+              if (r->macro != NULL && *r->macro != 0)
+                {
+                  g_free (shape->script);
+                  shape->script = g_strdup (r->macro);
+                }
+              if (kind == O42_SHAPE_OPTION)
+                shape->value = 1;
+            }
+        }
+      g_clear_pointer (&r->object_type, g_free);
+    }
+}
+
+static const GMarkupParser vml_parser = { vml_start, vml_end, vml_text, NULL, NULL };
 
 gboolean
 o42_xlsx_save (O42Book *book, GFile *file, GError **error)
@@ -2835,7 +3233,7 @@ scripts_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
 
 static gboolean
 parse_part (GHashTable *parts, const char *path, const GMarkupParser *parser,
-            Reader *r, GError **error)
+            gpointer r, GError **error)
 {
   GBytes *bytes = g_hash_table_lookup (parts, path);
   GMarkupParseContext *ctx;
@@ -2995,6 +3393,30 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                         char *cpart = o42_xlsx_resolve (part, ctarget);
                         ok = parse_part (parts, cpart, &comments_parser, &r, error);
                         g_free (cpart);
+                      }
+                    else if (g_str_has_suffix (ctarget, ".vml"))
+                      {
+                        /* The legacy drawing: the form controls are in
+                         * it, each as a shape with an x:ClientData. */
+                        char *vpart = o42_xlsx_resolve (part, ctarget);
+                        VmlReader vr;
+
+                        memset (&vr, 0, sizeof vr);
+                        vr.sheet = r.sheet;
+                        vr.max = 100;
+                        vr.step = 1;
+                        parse_part (parts, vpart, &vml_parser, &vr, NULL);
+                        g_clear_pointer (&vr.style, g_free);
+                        g_clear_pointer (&vr.object_type, g_free);
+                        g_clear_pointer (&vr.field, g_free);
+                        g_clear_pointer (&vr.link, g_free);
+                        g_clear_pointer (&vr.range, g_free);
+                        g_clear_pointer (&vr.macro, g_free);
+                        if (vr.text != NULL)
+                          g_string_free (vr.text, TRUE);
+                        if (vr.caption != NULL)
+                          g_string_free (vr.caption, TRUE);
+                        g_free (vpart);
                       }
                     else if (g_str_has_prefix (base ? base + 1 : ctarget, "table"))
                       {

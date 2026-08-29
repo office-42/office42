@@ -530,9 +530,11 @@ A plain click works a control; Ctrl+click takes hold of it, to move it,
 resize it by its handles, or open Format ▸ Control. Delete removes the
 one you are holding.
 
-Controls are kept in `.gnumeric` files. Excel's own form controls are
-not read or written yet, so a book saved as `.xls` or `.xlsx` keeps its
-numbers and loses its controls.
+Controls are kept in `.gnumeric` and in `.xlsx`, where they go into the
+sheet's legacy drawing the way Excel writes them -- a book saved that
+way opens with its controls in Excel and in LibreOffice, and comes back
+here with its links, its bounds and its captions. An `.xls` keeps the
+numbers and loses the controls.
 
 ## 13. Spelling
 

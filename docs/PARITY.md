@@ -72,7 +72,7 @@ has. The last column says what is missing, not what is there.
 | Rows, columns, sheets | 7 | 98% | 6.9 | dragging a sheet tab, and tab colours |
 | Data tools | 10 | 98% | 9.8 | Excel's own pivot parts, and its live TABLE() -- ours writes the numbers |
 | Charts | 8 | 100% | 8.0 | |
-| Objects | 5 | 99% | 5.0 | the form controls are not written into `.xls` or `.xlsx` |
+| Objects | 5 | 99% | 5.0 | the form controls are not in `.xls`; `.xlsx` carries them |
 | File formats | 12 | 98% | 11.8 | Excel 5 charts in `.xls` come back as pictures of themselves |
 | Printing | 6 | 100% | 6.0 | |
 | Undo | 5 | 100% | 5.0 | |
@@ -194,9 +194,9 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **The form controls in `.xls` and `.xlsx`.** They are in
-   `.gnumeric` and nowhere else, so a book that carries them cannot be
-   handed to Excel whole.
+1. **The form controls in `.xls`.** `.gnumeric` and `.xlsx` carry
+   them; BIFF wants them as Escher records with an OBJ apiece, which
+   is the last format that cannot hold a book whole.
 2. **Sheet tabs that can be dragged**, and given a colour.
 4. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
    `o42-window.c` (8,000): both split along obvious seams.

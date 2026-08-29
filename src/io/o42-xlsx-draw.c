@@ -525,6 +525,12 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
       const O42Shape *sh = g_ptr_array_index (shapes, i);
       gboolean stroke = sh->kind == O42_SHAPE_LINE || sh->kind == O42_SHAPE_ARROW;
 
+      /* A form control is not a drawing: it goes into the sheet's
+       * legacy drawing, with an x:ClientData that says what it does.
+       * Writing it here as well would put two of it on the sheet. */
+      if (o42_shape_is_control (sh->kind))
+        continue;
+
       append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height);
       g_string_append_printf (dr,
         "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"

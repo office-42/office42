@@ -14,9 +14,8 @@ pointer, and Excel's tab colours are not there.
 
 ## After that
 
-**The form controls in Excel's files.** They are in `.gnumeric`; `.xls`
-wants them as Escher records with an OBJ record apiece, and `.xlsx` as
-`xl/ctrlProps` parts beside the legacy drawing.
+**The form controls in `.xls`.** `.gnumeric` and `.xlsx` carry them
+now; BIFF wants them as Escher records with an OBJ record apiece.
 
 **More of the format language.** The locale codes in `[$-409]`.
 
