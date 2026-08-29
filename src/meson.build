@@ -46,6 +46,9 @@ o42_core_sources = files(
   'formula/o42-fn-distributions.c',
   'formula/o42-fn-engineering.c',
   'formula/o42-fn-hdate.c',
+  'formula/o42-fn-text.c',
+  'formula/o42-fn-dates.c',
+  'formula/o42-fn-statistics.c',
   'formula/o42-fn-options.c',
 )
 

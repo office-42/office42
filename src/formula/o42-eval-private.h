@@ -39,6 +39,9 @@ typedef struct {
 
 /* Each family's tables, both ended by an entry whose name is NULL.
  * o42-eval.c gathers them, sorts them and searches the lot. */
+extern const O42Function     O42_FUNCS_STATISTICS[];
+extern const O42Function     O42_FUNCS_DATES[];
+extern const O42Function     O42_FUNCS_TEXT[];
 extern const O42Function     O42_FUNCS_HDATE[];
 extern const O42Function     O42_FUNCS_ENGINEERING[];
 extern const O42Function     O42_FUNCS_DISTRIBUTIONS[];
@@ -47,6 +50,9 @@ extern const O42Function     O42_FUNCS_INFO[];
 extern const O42Function     O42_FUNCS_BESSEL[];
 extern const O42Function     O42_FUNCS_RANDOM[];
 extern const O42Function     O42_FUNCS_OPTIONS[];
+extern const O42FunctionHelp O42_HELP_STATISTICS[];
+extern const O42FunctionHelp O42_HELP_DATES[];
+extern const O42FunctionHelp O42_HELP_TEXT[];
 extern const O42FunctionHelp O42_HELP_HDATE[];
 extern const O42FunctionHelp O42_HELP_ENGINEERING[];
 extern const O42FunctionHelp O42_HELP_DISTRIBUTIONS[];
@@ -114,6 +120,43 @@ char *o42_complex_format (double re, double im, char suffix);
 
 /* The other way: FALSE when the text is not a complex number. */
 gboolean o42_complex_parse (const char *text, double *re, double *im, char *suffix);
+
+/* Rounding half away from zero, which is what a spreadsheet means by
+ * rounding and what C's rint does not do. */
+double o42_round_half_away (double x, int places);
+
+/* ---- Walking the numbers ----------------------------------------------- */
+
+/* Text in a range is skipped rather than being an error, which is what
+ * lets a sheet full of labels be added up.  The visitor stops the walk
+ * by returning FALSE. */
+typedef gboolean (*NumberVisitor) (double n, gpointer user);
+
+gboolean o42_visit_numbers (O42EvalContext *ctx, O42Operand *args, int n_args,
+                            NumberVisitor visit, gpointer user, O42ErrorCode *error);
+
+/* What the aggregates keep as they walk. */
+typedef struct {
+  double  sum;
+  double  product;
+  double  min;
+  double  max;
+  int     count;
+  GArray *values;    /* only the functions that need every one allocate it */
+} Accum;
+
+void     o42_accum_init  (Accum *a, gboolean keep_values);
+void     o42_accum_clear (Accum *a);
+gboolean o42_accumulate  (double n, gpointer user);   /* a NumberVisitor */
+
+/* Whether a serial date is one of the holidays an operand lists. */
+gboolean o42_is_holiday (O42EvalContext *ctx, const O42Operand *holidays, double serial);
+
+/* The numbers of two operands, paired up and only where both are a
+ * number: what every function of two variables wants.  Both arrays are
+ * the caller's to free. */
+gboolean o42_collect_pairs (O42EvalContext *ctx, const O42Operand *a, const O42Operand *b,
+                            GArray **xs, GArray **ys, O42ErrorCode *error);
 
 /* ---- Reading arguments -------------------------------------------------- */
 

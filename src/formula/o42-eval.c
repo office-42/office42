@@ -19,6 +19,13 @@
 #define normal_cdf o42_normal_cdf
 #define normal_pdf o42_normal_pdf
 #define collect_numbers o42_collect_numbers
+#define collect_pairs o42_collect_pairs
+#define is_holiday o42_is_holiday
+#define visit_numbers o42_visit_numbers
+#define accum_clear o42_accum_clear
+#define accum_init o42_accum_init
+#define accumulate o42_accumulate
+#define round_half_away o42_round_half_away
 #define complex_parse o42_complex_parse
 #define complex_format o42_complex_format
 #define chi_cdf o42_chi_cdf
@@ -249,10 +256,9 @@ o42_operand_value (O42EvalContext *ctx, const O42Operand *op)
  * sitting in a referenced cell, and the difference matters: SUM("x") is an
  * error, but SUM over a range containing "x" quietly ignores it.  A
  * spreadsheet full of labels would be unusable otherwise. */
-typedef gboolean (*NumberVisitor) (double n, gpointer user);
 
-static gboolean
-visit_numbers (O42EvalContext *ctx,
+gboolean
+o42_visit_numbers (O42EvalContext *ctx,
                O42Operand     *args,
                int             n_args,
                NumberVisitor   visit,
@@ -343,17 +349,8 @@ count_non_blank (O42EvalContext *ctx, O42Operand *args, int n_args)
 /* Accumulators used by the aggregate functions                            */
 /* ---------------------------------------------------------------------- */
 
-typedef struct {
-  double sum;
-  double product;
-  double min;
-  double max;
-  int    count;
-  GArray *values;    /* only allocated by the functions that need every one */
-} Accum;
-
-static gboolean
-accumulate (double n, gpointer user)
+gboolean
+o42_accumulate (double n, gpointer user)
 {
   Accum *a = user;
 
@@ -369,16 +366,16 @@ accumulate (double n, gpointer user)
   return TRUE;
 }
 
-static void
-accum_init (Accum *a, gboolean keep_values)
+void
+o42_accum_init (Accum *a, gboolean keep_values)
 {
   memset (a, 0, sizeof *a);
   a->product = 1.0;
   a->values = keep_values ? g_array_new (FALSE, FALSE, sizeof (double)) : NULL;
 }
 
-static void
-accum_clear (Accum *a)
+void
+o42_accum_clear (Accum *a)
 {
   if (a->values != NULL)
     g_array_free (a->values, TRUE);
@@ -792,8 +789,8 @@ fn_mod (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (r);
 }
 
-static double
-round_half_away (double x, int digits)
+double
+o42_round_half_away (double x, int digits)
 {
   double scale = pow (10.0, digits);
   double scaled = x * scale;
@@ -848,261 +845,6 @@ fn_pi (O42EvalContext *ctx, O42Operand *args, int n)
   (void) ctx; (void) args; (void) n;
   return o42_value_number (G_PI);
 }
-
-/* ---- Text ------------------------------------------------------------- */
-
-static O42Value
-fn_len (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  glong length;
-
-  (void) n;
-  ARG_TEXT (0, s);
-  length = g_utf8_strlen (s, -1);
-  g_free (s);
-
-  return o42_value_number ((double) length);
-}
-
-static O42Value
-fn_left_right (O42EvalContext *ctx, O42Operand *args, int n, gboolean from_left)
-{
-  char *s = NULL;
-  double count = 1;
-  glong length;
-  char *result;
-
-  ARG_TEXT (0, s);
-  if (n >= 2)
-    {
-      O42Value v = operand_value (ctx, &args[1]);
-      O42ErrorCode err = O42_ERR_VALUE;
-      gboolean ok = o42_value_to_number (&v, &count, &err);
-      o42_value_clear (&v);
-      if (!ok) { g_free (s); return o42_value_error (err); }
-    }
-
-  if (count < 0)
-    { g_free (s); return o42_value_error (O42_ERR_VALUE); }
-
-  length = g_utf8_strlen (s, -1);
-  if (count > length)
-    count = length;
-
-  if (from_left)
-    result = g_utf8_substring (s, 0, (glong) count);
-  else
-    result = g_utf8_substring (s, length - (glong) count, length);
-
-  g_free (s);
-  return o42_value_take (result);
-}
-
-static O42Value fn_left  (O42EvalContext *c, O42Operand *a, int n) { return fn_left_right (c, a, n, TRUE); }
-static O42Value fn_right (O42EvalContext *c, O42Operand *a, int n) { return fn_left_right (c, a, n, FALSE); }
-
-static O42Value
-fn_mid (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  double start, count;
-  glong length;
-  char *result;
-
-  (void) n;
-  ARG_TEXT (0, s);
-  ARG_NUMBER (1, start);
-  ARG_NUMBER (2, count);
-
-  if (start < 1 || count < 0)
-    { g_free (s); return o42_value_error (O42_ERR_VALUE); }
-
-  length = g_utf8_strlen (s, -1);
-  if (start > length)
-    { g_free (s); return o42_value_text (""); }
-
-  if (start - 1 + count > length)
-    count = length - (start - 1);
-
-  result = g_utf8_substring (s, (glong) start - 1, (glong) (start - 1 + count));
-  g_free (s);
-  return o42_value_take (result);
-}
-
-static O42Value
-fn_upper (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  char *result;
-
-  (void) n;
-  ARG_TEXT (0, s);
-  result = g_utf8_strup (s, -1);
-  g_free (s);
-  return o42_value_take (result);
-}
-
-static O42Value
-fn_lower (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  char *result;
-
-  (void) n;
-  ARG_TEXT (0, s);
-  result = g_utf8_strdown (s, -1);
-  g_free (s);
-  return o42_value_take (result);
-}
-
-static O42Value
-fn_trim (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  char *result;
-
-  (void) n;
-  ARG_TEXT (0, s);
-  result = g_strstrip (g_strdup (s));
-  g_free (s);
-  return o42_value_take (result);
-}
-
-static O42Value
-fn_concatenate (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  GString *out = g_string_new (NULL);
-
-  for (int i = 0; i < n; i++)
-    {
-      O42Value v = operand_value (ctx, &args[i]);
-      char *text;
-
-      if (v.type == O42_VALUE_ERROR)
-        {
-          O42ErrorCode err = v.as.error;
-          o42_value_clear (&v);
-          g_string_free (out, TRUE);
-          return o42_value_error (err);
-        }
-
-      text = o42_value_to_text (&v);
-      g_string_append (out, text);
-      g_free (text);
-      o42_value_clear (&v);
-    }
-
-  return o42_value_take (g_string_free (out, FALSE));
-}
-
-static O42Value
-fn_rept (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  double count;
-  GString *out;
-
-  (void) n;
-  ARG_TEXT (0, s);
-  ARG_NUMBER (1, count);
-
-  if (count < 0 || count > 10000)
-    { g_free (s); return o42_value_error (O42_ERR_VALUE); }
-
-  out = g_string_new (NULL);
-  for (int i = 0; i < (int) count; i++)
-    g_string_append (out, s);
-
-  g_free (s);
-  return o42_value_take (g_string_free (out, FALSE));
-}
-
-static O42Value
-fn_find (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *needle = NULL, *hay = NULL;
-  const char *found;
-  double start = 1;
-  const char *from;
-  O42Value result;
-
-  ARG_TEXT (0, needle);
-  ARG_TEXT (1, hay);
-  if (n >= 3)
-    {
-      O42Value v = operand_value (ctx, &args[2]);
-      O42ErrorCode err = O42_ERR_VALUE;
-      gboolean ok = o42_value_to_number (&v, &start, &err);
-      o42_value_clear (&v);
-      if (!ok) { g_free (needle); g_free (hay); return o42_value_error (err); }
-    }
-
-  if (start < 1 || start > g_utf8_strlen (hay, -1) + 1)
-    { g_free (needle); g_free (hay); return o42_value_error (O42_ERR_VALUE); }
-
-  from = g_utf8_offset_to_pointer (hay, (glong) start - 1);
-  found = strstr (from, needle);
-
-  result = (found == NULL)
-    ? o42_value_error (O42_ERR_VALUE)
-    : o42_value_number ((double) g_utf8_pointer_to_offset (hay, found) + 1);
-
-  g_free (needle);
-  g_free (hay);
-  return result;
-}
-
-static O42Value
-fn_substitute (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *hay = NULL, *needle = NULL, *with = NULL;
-  char **parts;
-  char *result;
-
-  (void) n;
-  ARG_TEXT (0, hay);
-  ARG_TEXT (1, needle);
-  ARG_TEXT (2, with);
-
-  if (*needle == '\0')
-    { g_free (needle); g_free (with); return o42_value_take (hay); }
-
-  parts = g_strsplit (hay, needle, -1);
-  result = g_strjoinv (with, parts);
-
-  g_strfreev (parts);
-  g_free (hay);
-  g_free (needle);
-  g_free (with);
-
-  return o42_value_take (result);
-}
-
-static O42Value
-fn_value (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x;
-  (void) n;
-  ARG_NUMBER (0, x);
-  return o42_value_number (x);
-}
-
-static O42Value
-fn_rows_cols (O42EvalContext *ctx, O42Operand *args, int n, gboolean rows)
-{
-  (void) ctx; (void) n;
-
-  if (!args[0].is_range)
-    return o42_value_number (1);
-
-  return o42_value_number (rows
-    ? args[0].range.row1 - args[0].range.row0 + 1
-    : args[0].range.col1 - args[0].range.col0 + 1);
-}
-
-static O42Value fn_rows    (O42EvalContext *c, O42Operand *a, int n) { return fn_rows_cols (c, a, n, TRUE); }
-static O42Value fn_columns (O42EvalContext *c, O42Operand *a, int n) { return fn_rows_cols (c, a, n, FALSE); }
 
 /* ---- Criteria --------------------------------------------------------- */
 
@@ -2031,1080 +1773,6 @@ fn_sqrtpi (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (sqrt (x * G_PI));
 }
 
-/* ---- Statistics ------------------------------------------------------- */
-
-/* Every number in the arguments, in order, or the error that stopped the
- * walk.  The statistical functions all start here. */
-gboolean
-o42_collect_numbers (O42EvalContext *ctx, O42Operand *args, int n,
-                 GArray **values, O42ErrorCode *err)
-{
-  Accum a;
-
-  accum_init (&a, TRUE);
-  if (!visit_numbers (ctx, args, n, accumulate, &a, err))
-    {
-      accum_clear (&a);
-      return FALSE;
-    }
-
-  *values = a.values;
-  return TRUE;
-}
-
-/* The mean and the sum of squared deviations from it, in two passes.  The
- * one-pass formula sum(x^2) - n*mean^2 cancels catastrophically on data
- * with a large mean and a small spread; two passes are what Gnumeric does
- * and what keeps STDEV of 1000000.1, 1000000.2, 1000000.3 at 0.1 rather
- * than at something with a stray digit in it. */
-void
-o42_moments (const GArray *values, double *mean, double *ssd)
-{
-  double sum = 0, m, s = 0, correction = 0;
-  guint n = values->len;
-
-  for (guint i = 0; i < n; i++)
-    sum += g_array_index (values, double, i);
-  m = (n > 0) ? sum / n : 0;
-
-  for (guint i = 0; i < n; i++)
-    {
-      double d = g_array_index (values, double, i) - m;
-      s += d * d;
-      correction += d;
-    }
-
-  /* The residual of the deviations should be zero; whatever is left is
-   * rounding error in the mean, and this takes it back out. */
-  if (n > 0)
-    s -= correction * correction / n;
-
-  *mean = m;
-  *ssd = s;
-}
-
-typedef enum { STAT_VAR, STAT_VARP, STAT_STDEV, STAT_STDEVP, STAT_AVEDEV,
-               STAT_DEVSQ } StatKind;
-
-static O42Value
-fn_spread (O42EvalContext *ctx, O42Operand *args, int n, StatKind kind)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double mean, ssd, r;
-  guint count;
-
-  if (!collect_numbers (ctx, args, n, &values, &err))
-    return o42_value_error (err);
-
-  count = values->len;
-  moments (values, &mean, &ssd);
-
-  switch (kind)
-    {
-    case STAT_VAR:
-    case STAT_STDEV:
-      if (count < 2) { g_array_free (values, TRUE); return o42_value_error (O42_ERR_DIV0); }
-      r = ssd / (count - 1);
-      if (kind == STAT_STDEV) r = sqrt (r);
-      break;
-
-    case STAT_VARP:
-    case STAT_STDEVP:
-      if (count < 1) { g_array_free (values, TRUE); return o42_value_error (O42_ERR_DIV0); }
-      r = ssd / count;
-      if (kind == STAT_STDEVP) r = sqrt (r);
-      break;
-
-    case STAT_AVEDEV:
-      if (count < 1) { g_array_free (values, TRUE); return o42_value_error (O42_ERR_DIV0); }
-      r = 0;
-      for (guint i = 0; i < count; i++)
-        r += fabs (g_array_index (values, double, i) - mean);
-      r /= count;
-      break;
-
-    case STAT_DEVSQ:
-    default:
-      r = ssd;
-      break;
-    }
-
-  g_array_free (values, TRUE);
-  return o42_value_number (r);
-}
-
-static O42Value fn_var    (O42EvalContext *c, O42Operand *a, int n) { return fn_spread (c, a, n, STAT_VAR); }
-static O42Value fn_varp   (O42EvalContext *c, O42Operand *a, int n) { return fn_spread (c, a, n, STAT_VARP); }
-static O42Value fn_stdev  (O42EvalContext *c, O42Operand *a, int n) { return fn_spread (c, a, n, STAT_STDEV); }
-static O42Value fn_stdevp (O42EvalContext *c, O42Operand *a, int n) { return fn_spread (c, a, n, STAT_STDEVP); }
-static O42Value fn_avedev (O42EvalContext *c, O42Operand *a, int n) { return fn_spread (c, a, n, STAT_AVEDEV); }
-static O42Value fn_devsq  (O42EvalContext *c, O42Operand *a, int n) { return fn_spread (c, a, n, STAT_DEVSQ); }
-
-static O42Value
-fn_geomean_harmean (O42EvalContext *ctx, O42Operand *args, int n, gboolean geometric)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double acc = 0;
-
-  if (!collect_numbers (ctx, args, n, &values, &err))
-    return o42_value_error (err);
-
-  if (values->len == 0)
-    { g_array_free (values, TRUE); return o42_value_error (O42_ERR_NUM); }
-
-  for (guint i = 0; i < values->len; i++)
-    {
-      double v = g_array_index (values, double, i);
-
-      if (v <= 0)
-        { g_array_free (values, TRUE); return o42_value_error (O42_ERR_NUM); }
-      acc += geometric ? log (v) : 1.0 / v;
-    }
-
-  acc = geometric ? exp (acc / values->len) : values->len / acc;
-  g_array_free (values, TRUE);
-  return o42_value_number (acc);
-}
-
-static O42Value fn_geomean (O42EvalContext *c, O42Operand *a, int n) { return fn_geomean_harmean (c, a, n, TRUE); }
-static O42Value fn_harmean (O42EvalContext *c, O42Operand *a, int n) { return fn_geomean_harmean (c, a, n, FALSE); }
-
-static O42Value
-fn_large_small (O42EvalContext *ctx, O42Operand *args, int n, gboolean large)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double k;
-  O42Value result;
-
-  (void) n;
-  ARG_NUMBER (1, k);
-
-  if (!collect_numbers (ctx, args, 1, &values, &err))
-    return o42_value_error (err);
-
-  if (k < 1 || k > values->len)
-    { g_array_free (values, TRUE); return o42_value_error (O42_ERR_NUM); }
-
-  g_array_sort (values, compare_doubles);
-  result = o42_value_number (g_array_index (values, double,
-                               large ? values->len - (guint) k : (guint) k - 1));
-  g_array_free (values, TRUE);
-  return result;
-}
-
-static O42Value fn_large (O42EvalContext *c, O42Operand *a, int n) { return fn_large_small (c, a, n, TRUE); }
-static O42Value fn_small (O42EvalContext *c, O42Operand *a, int n) { return fn_large_small (c, a, n, FALSE); }
-
-static O42Value
-fn_rank (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double x, order = 0;
-  int rank = 1;
-  gboolean found = FALSE;
-
-  ARG_NUMBER (0, x);
-  if (n >= 3)
-    ARG_NUMBER (2, order);
-
-  if (!collect_numbers (ctx, args + 1, 1, &values, &err))
-    return o42_value_error (err);
-
-  for (guint i = 0; i < values->len; i++)
-    {
-      double v = g_array_index (values, double, i);
-
-      if (v == x) found = TRUE;
-      else if (order == 0 ? v > x : v < x) rank++;
-    }
-
-  g_array_free (values, TRUE);
-  return found ? o42_value_number (rank) : o42_value_error (O42_ERR_NA);
-}
-
-/* Excel's PERCENTILE interpolates linearly between the order statistics,
- * with the smallest value at 0 and the largest at 1. */
-static O42Value
-percentile_of (GArray *values, double k)
-{
-  double pos, frac;
-  guint lo;
-  O42Value result;
-
-  if (values->len == 0 || k < 0 || k > 1)
-    { g_array_free (values, TRUE); return o42_value_error (O42_ERR_NUM); }
-
-  g_array_sort (values, compare_doubles);
-  pos = k * (values->len - 1);
-  lo = (guint) floor (pos);
-  frac = pos - lo;
-
-  if (lo + 1 >= values->len)
-    result = o42_value_number (g_array_index (values, double, values->len - 1));
-  else
-    result = o42_value_number (g_array_index (values, double, lo) * (1 - frac) +
-                               g_array_index (values, double, lo + 1) * frac);
-
-  g_array_free (values, TRUE);
-  return result;
-}
-
-static O42Value
-fn_percentile (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double k;
-
-  (void) n;
-  ARG_NUMBER (1, k);
-  if (!collect_numbers (ctx, args, 1, &values, &err))
-    return o42_value_error (err);
-  return percentile_of (values, k);
-}
-
-static O42Value
-fn_quartile (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double q;
-
-  (void) n;
-  ARG_NUMBER (1, q);
-  q = trunc (q);
-  if (q < 0 || q > 4)
-    return o42_value_error (O42_ERR_NUM);
-  if (!collect_numbers (ctx, args, 1, &values, &err))
-    return o42_value_error (err);
-  return percentile_of (values, q / 4.0);
-}
-
-static O42Value
-fn_mode (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double best = 0;
-  int best_count = 1;
-
-  if (!collect_numbers (ctx, args, n, &values, &err))
-    return o42_value_error (err);
-
-  /* The first of the most frequent values, in the order they appear,
-   * which is the tie-break Excel uses. */
-  for (guint i = 0; i < values->len; i++)
-    {
-      double v = g_array_index (values, double, i);
-      int count = 0;
-
-      for (guint j = 0; j < values->len; j++)
-        if (g_array_index (values, double, j) == v)
-          count++;
-
-      if (count > best_count)
-        {
-          best = v;
-          best_count = count;
-        }
-    }
-
-  g_array_free (values, TRUE);
-  return (best_count > 1) ? o42_value_number (best) : o42_value_error (O42_ERR_NA);
-}
-
-/* Two ranges walked in step, keeping only the positions where both hold a
- * number: what every function of two variables wants. */
-static gboolean
-collect_pairs (O42EvalContext *ctx, const O42Operand *a, const O42Operand *b,
-               GArray **xs, GArray **ys, O42ErrorCode *err)
-{
-  int rows, cols;
-
-  if (!a->is_range || !b->is_range)
-    { *err = O42_ERR_VALUE; return FALSE; }
-
-  rows = a->range.row1 - a->range.row0 + 1;
-  cols = a->range.col1 - a->range.col0 + 1;
-  if (rows != b->range.row1 - b->range.row0 + 1 ||
-      cols != b->range.col1 - b->range.col0 + 1)
-    { *err = O42_ERR_NA; return FALSE; }
-
-  *xs = g_array_new (FALSE, FALSE, sizeof (double));
-  *ys = g_array_new (FALSE, FALSE, sizeof (double));
-
-  for (int r = 0; r < rows; r++)
-    for (int c = 0; c < cols; c++)
-      {
-        O42Value va, vb;
-
-        ctx->get_cell (ctx, a->sheet, a->range.row0 + r, a->range.col0 + c, &va);
-        ctx->get_cell (ctx, b->sheet, b->range.row0 + r, b->range.col0 + c, &vb);
-
-        if (va.type == O42_VALUE_NUMBER && vb.type == O42_VALUE_NUMBER)
-          {
-            g_array_append_val (*xs, va.as.number);
-            g_array_append_val (*ys, vb.as.number);
-          }
-        o42_value_clear (&va);
-        o42_value_clear (&vb);
-      }
-
-  return TRUE;
-}
-
-typedef enum { PAIR_CORREL, PAIR_COVAR, PAIR_SLOPE, PAIR_INTERCEPT, PAIR_RSQ,
-               PAIR_PEARSON } PairKind;
-
-static O42Value
-fn_pair (O42EvalContext *ctx, O42Operand *args, int n, PairKind kind)
-{
-  GArray *xs, *ys;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double mx, my, sxx, syy, sxy = 0, r;
-  guint count;
-
-  (void) n;
-
-  /* SLOPE, INTERCEPT and RSQ take known_y's first; the others x first. */
-  if (kind == PAIR_SLOPE || kind == PAIR_INTERCEPT || kind == PAIR_RSQ)
-    {
-      if (!collect_pairs (ctx, &args[1], &args[0], &xs, &ys, &err))
-        return o42_value_error (err);
-    }
-  else if (!collect_pairs (ctx, &args[0], &args[1], &xs, &ys, &err))
-    return o42_value_error (err);
-
-  count = xs->len;
-  moments (xs, &mx, &sxx);
-  moments (ys, &my, &syy);
-  for (guint i = 0; i < count; i++)
-    sxy += (g_array_index (xs, double, i) - mx) * (g_array_index (ys, double, i) - my);
-
-  g_array_free (xs, TRUE);
-  g_array_free (ys, TRUE);
-
-  if (count == 0)
-    return o42_value_error (O42_ERR_DIV0);
-
-  switch (kind)
-    {
-    case PAIR_COVAR:
-      r = sxy / count;
-      break;
-    case PAIR_SLOPE:
-      if (sxx == 0) return o42_value_error (O42_ERR_DIV0);
-      r = sxy / sxx;
-      break;
-    case PAIR_INTERCEPT:
-      if (sxx == 0) return o42_value_error (O42_ERR_DIV0);
-      r = my - (sxy / sxx) * mx;
-      break;
-    case PAIR_RSQ:
-      if (sxx == 0 || syy == 0) return o42_value_error (O42_ERR_DIV0);
-      r = (sxy * sxy) / (sxx * syy);
-      break;
-    case PAIR_CORREL:
-    case PAIR_PEARSON:
-    default:
-      if (sxx == 0 || syy == 0) return o42_value_error (O42_ERR_DIV0);
-      r = sxy / sqrt (sxx * syy);
-      break;
-    }
-
-  return o42_value_number (r);
-}
-
-static O42Value fn_correl    (O42EvalContext *c, O42Operand *a, int n) { return fn_pair (c, a, n, PAIR_CORREL); }
-static O42Value fn_pearson   (O42EvalContext *c, O42Operand *a, int n) { return fn_pair (c, a, n, PAIR_PEARSON); }
-static O42Value fn_covar     (O42EvalContext *c, O42Operand *a, int n) { return fn_pair (c, a, n, PAIR_COVAR); }
-static O42Value fn_slope     (O42EvalContext *c, O42Operand *a, int n) { return fn_pair (c, a, n, PAIR_SLOPE); }
-static O42Value fn_intercept (O42EvalContext *c, O42Operand *a, int n) { return fn_pair (c, a, n, PAIR_INTERCEPT); }
-static O42Value fn_rsq       (O42EvalContext *c, O42Operand *a, int n) { return fn_pair (c, a, n, PAIR_RSQ); }
-
-static O42Value
-fn_forecast (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x;
-  O42Value slope, intercept;
-  double result;
-
-  (void) n;
-  ARG_NUMBER (0, x);
-
-  slope = fn_pair (ctx, args + 1, 2, PAIR_SLOPE);
-  if (slope.type == O42_VALUE_ERROR) return slope;
-  intercept = fn_pair (ctx, args + 1, 2, PAIR_INTERCEPT);
-  if (intercept.type == O42_VALUE_ERROR) return intercept;
-
-  result = intercept.as.number + slope.as.number * x;
-  return o42_value_number (result);
-}
-
-/* The standard normal distribution.  erfc is accurate in the tails where
- * 1 - erf would lose everything. */
-double
-o42_normal_cdf (double z)
-{
-  return 0.5 * erfc (-z / G_SQRT2);
-}
-
-/* Its density, which the option Greeks are full of. */
-double
-o42_normal_pdf (double x)
-{
-  return exp (-x * x / 2) / sqrt (2 * G_PI);
-}
-
-/* Its inverse: Acklam's rational approximation, then one step of Newton's
- * method on the CDF, which takes the error from about 1e-9 to the last
- * digit of a double. */
-double
-o42_normal_inverse (double p)
-{
-  static const double a[] = { -3.969683028665376e+01, 2.209460984245205e+02,
-                              -2.759285104469687e+02, 1.383577518672690e+02,
-                              -3.066479806614716e+01, 2.506628277459239e+00 };
-  static const double b[] = { -5.447609879822406e+01, 1.615858368580409e+02,
-                              -1.556989798598866e+02, 6.680131188771972e+01,
-                              -1.328068155288572e+01 };
-  static const double c[] = { -7.784894002430293e-03, -3.223964580411365e-01,
-                              -2.400758277161838e+00, -2.549732539343734e+00,
-                               4.374664141464968e+00, 2.938163982698783e+00 };
-  static const double d[] = { 7.784695709041462e-03, 3.224671290700398e-01,
-                              2.445134137142996e+00, 3.754408661907416e+00 };
-  const double plow = 0.02425, phigh = 1 - 0.02425;
-  double q, r, x;
-
-  if (p < plow)
-    {
-      q = sqrt (-2 * log (p));
-      x = (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) /
-          ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
-    }
-  else if (p <= phigh)
-    {
-      q = p - 0.5;
-      r = q * q;
-      x = (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q /
-          (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
-    }
-  else
-    {
-      q = sqrt (-2 * log (1 - p));
-      x = -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) /
-           ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
-    }
-
-  /* Newton refinement. */
-  {
-    double e = normal_cdf (x) - p;
-    double u = e * sqrt (2 * G_PI) * exp (x * x / 2);
-    x = x - u / (1 + x * u / 2);
-  }
-
-  return x;
-}
-
-static O42Value
-fn_normsdist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double z;
-  (void) n;
-  ARG_NUMBER (0, z);
-  return o42_value_number (normal_cdf (z));
-}
-
-static O42Value
-fn_normsinv (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double p;
-  (void) n;
-  ARG_NUMBER (0, p);
-  if (p <= 0 || p >= 1)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (normal_inverse (p));
-}
-
-static O42Value
-fn_normdist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, mean, sd;
-  gboolean cumulative = TRUE;
-
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, mean);
-  ARG_NUMBER (2, sd);
-  if (n >= 4)
-    {
-      O42Value v = operand_value (ctx, &args[3]);
-      O42ErrorCode err = O42_ERR_VALUE;
-      gboolean ok = o42_value_to_bool (&v, &cumulative, &err);
-      o42_value_clear (&v);
-      if (!ok) return o42_value_error (err);
-    }
-
-  if (sd <= 0)
-    return o42_value_error (O42_ERR_NUM);
-
-  if (cumulative)
-    return o42_value_number (normal_cdf ((x - mean) / sd));
-
-  return o42_value_number (exp (-0.5 * ((x - mean) / sd) * ((x - mean) / sd)) /
-                           (sd * sqrt (2 * G_PI)));
-}
-
-static O42Value
-fn_norminv (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double p, mean, sd;
-  (void) n;
-  ARG_NUMBER (0, p);
-  ARG_NUMBER (1, mean);
-  ARG_NUMBER (2, sd);
-  if (p <= 0 || p >= 1 || sd <= 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (mean + sd * normal_inverse (p));
-}
-
-static O42Value
-fn_standardize (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, mean, sd;
-  (void) n;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, mean);
-  ARG_NUMBER (2, sd);
-  if (sd <= 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number ((x - mean) / sd);
-}
-
-/* ---- More text -------------------------------------------------------- */
-
-static O42Value
-fn_proper (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  GString *out;
-  gboolean start = TRUE;
-
-  (void) n;
-  ARG_TEXT (0, s);
-
-  out = g_string_new (NULL);
-  for (const char *p = s; *p != '\0'; p = g_utf8_next_char (p))
-    {
-      gunichar c = g_utf8_get_char (p);
-
-      if (g_unichar_isalpha (c))
-        {
-          g_string_append_unichar (out, start ? g_unichar_totitle (c)
-                                              : g_unichar_tolower (c));
-          start = FALSE;
-        }
-      else
-        {
-          g_string_append_unichar (out, c);
-          start = TRUE;
-        }
-    }
-
-  g_free (s);
-  return o42_value_take (g_string_free (out, FALSE));
-}
-
-static O42Value
-fn_exact (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *a = NULL, *b = NULL;
-  gboolean same;
-  (void) n;
-  ARG_TEXT (0, a);
-  ARG_TEXT (1, b);
-  same = strcmp (a, b) == 0;
-  g_free (a);
-  g_free (b);
-  return o42_value_bool (same);
-}
-
-static O42Value
-fn_char (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double code;
-  char buf[8];
-  int len;
-  (void) n;
-  ARG_NUMBER (0, code);
-  if (code < 1 || code > 0x10FFFF)
-    return o42_value_error (O42_ERR_VALUE);
-  len = g_unichar_to_utf8 ((gunichar) code, buf);
-  buf[len] = '\0';
-  return o42_value_text (buf);
-}
-
-static O42Value
-fn_code (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  gunichar c;
-  (void) n;
-  ARG_TEXT (0, s);
-  if (*s == '\0')
-    { g_free (s); return o42_value_error (O42_ERR_VALUE); }
-  c = g_utf8_get_char (s);
-  g_free (s);
-  return o42_value_number (c);
-}
-
-static O42Value
-fn_clean (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *s = NULL;
-  GString *out;
-  (void) n;
-  ARG_TEXT (0, s);
-  out = g_string_new (NULL);
-  for (const char *p = s; *p != '\0'; p = g_utf8_next_char (p))
-    {
-      gunichar c = g_utf8_get_char (p);
-      if (c >= 32)
-        g_string_append_unichar (out, c);
-    }
-  g_free (s);
-  return o42_value_take (g_string_free (out, FALSE));
-}
-
-/* Does `pattern`, which may hold * and ?, match a prefix of `text`?  Used
- * by SEARCH, which wants the earliest position at which the pattern
- * begins. */
-static gboolean
-glob_matches_prefix (const char *pattern, const char *text)
-{
-  for (;;)
-    {
-      gunichar pc, tc;
-
-      if (*pattern == '\0')
-        return TRUE;
-
-      pc = g_utf8_get_char (pattern);
-
-      if (pc == '*')
-        {
-          const char *rest = g_utf8_next_char (pattern);
-          for (const char *t = text; ; t = g_utf8_next_char (t))
-            {
-              if (glob_matches_prefix (rest, t))
-                return TRUE;
-              if (*t == '\0')
-                return FALSE;
-            }
-        }
-
-      if (*text == '\0')
-        return FALSE;
-
-      tc = g_utf8_get_char (text);
-      if (pc != '?' && pc != tc)
-        return FALSE;
-
-      pattern = g_utf8_next_char (pattern);
-      text = g_utf8_next_char (text);
-    }
-}
-
-static O42Value
-fn_search (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *needle = NULL, *hay = NULL, *fneedle, *fhay;
-  double start = 1;
-  glong length;
-  O42Value result = o42_value_error (O42_ERR_VALUE);
-
-  ARG_TEXT (0, needle);
-  ARG_TEXT (1, hay);
-  if (n >= 3)
-    {
-      O42Value v = operand_value (ctx, &args[2]);
-      O42ErrorCode err = O42_ERR_VALUE;
-      gboolean ok = o42_value_to_number (&v, &start, &err);
-      o42_value_clear (&v);
-      if (!ok) { g_free (needle); g_free (hay); return o42_value_error (err); }
-    }
-
-  length = g_utf8_strlen (hay, -1);
-  if (start < 1 || start > length + 1)
-    { g_free (needle); g_free (hay); return o42_value_error (O42_ERR_VALUE); }
-
-  /* Case-insensitive, unlike FIND, and with wildcards.  Folding both
-   * sides keeps the character positions in step only if folding does not
-   * change lengths, which it can for a few letters; SEARCH("ß", ...) may
-   * be a character off, and that is a corner not worth a slower path. */
-  fneedle = g_utf8_casefold (needle, -1);
-  fhay = g_utf8_casefold (hay, -1);
-
-  {
-    const char *p = g_utf8_offset_to_pointer (fhay, (glong) start - 1);
-    glong pos = (glong) start - 1;
-
-    for (; ; p = g_utf8_next_char (p), pos++)
-      {
-        if (glob_matches_prefix (fneedle, p))
-          {
-            result = o42_value_number (pos + 1);
-            break;
-          }
-        if (*p == '\0')
-          break;
-      }
-  }
-
-  g_free (fneedle);
-  g_free (fhay);
-  g_free (needle);
-  g_free (hay);
-  return result;
-}
-
-static O42Value
-fn_replace (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *old = NULL, *with = NULL;
-  double start, count;
-  glong length;
-  GString *out;
-
-  (void) n;
-  ARG_TEXT (0, old);
-  ARG_NUMBER (1, start);
-  ARG_NUMBER (2, count);
-  {
-    O42Value v = operand_value (ctx, &args[3]);
-    if (v.type == O42_VALUE_ERROR)
-      { O42ErrorCode e = v.as.error; o42_value_clear (&v); g_free (old); return o42_value_error (e); }
-    with = o42_value_to_text (&v);
-    o42_value_clear (&v);
-  }
-
-  if (start < 1 || count < 0)
-    { g_free (old); g_free (with); return o42_value_error (O42_ERR_VALUE); }
-
-  length = g_utf8_strlen (old, -1);
-  if (start - 1 > length) start = length + 1;
-  if (start - 1 + count > length) count = length - (start - 1);
-
-  out = g_string_new (NULL);
-  g_string_append_len (out, old,
-                       g_utf8_offset_to_pointer (old, (glong) start - 1) - old);
-  g_string_append (out, with);
-  g_string_append (out, g_utf8_offset_to_pointer (old, (glong) (start - 1 + count)));
-
-  g_free (old);
-  g_free (with);
-  return o42_value_take (g_string_free (out, FALSE));
-}
-
-static O42Value
-fn_fixed (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, decimals = 2;
-  gboolean no_commas = FALSE;
-
-  ARG_NUMBER (0, x);
-  if (n >= 2) ARG_NUMBER (1, decimals);
-  if (n >= 3)
-    {
-      O42Value b = operand_value (ctx, &args[2]);
-      O42ErrorCode err = O42_ERR_VALUE;
-      gboolean ok = o42_value_to_bool (&b, &no_commas, &err);
-      o42_value_clear (&b);
-      if (!ok) return o42_value_error (err);
-    }
-
-  /* Negative decimals round to the left of the point. */
-  if (decimals < 0)
-    {
-      x = round_half_away (x, (int) decimals);
-      decimals = 0;
-    }
-
-  return o42_value_take (o42_number_format (x, no_commas ? O42_NUM_FIXED
-                                                         : O42_NUM_COMMA,
-                                            (int) decimals));
-}
-
-static O42Value
-fn_dollar (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, decimals = 2;
-
-  ARG_NUMBER (0, x);
-  if (n >= 2) ARG_NUMBER (1, decimals);
-
-  if (decimals < 0)
-    {
-      x = round_half_away (x, (int) decimals);
-      decimals = 0;
-    }
-
-  return o42_value_take (o42_number_format (x, O42_NUM_CURRENCY, (int) decimals));
-}
-
-/* TEXT(value, format) with the formats people actually type: "0", "0.00",
- * "#,##0.00", "0%", "0.00E+00", "yyyy-mm-dd", "hh:mm:ss".  The full
- * format language is on the roadmap; until then the format string is
- * read for its shape rather than obeyed letter by letter. */
-static O42Value
-fn_text (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  O42Value v = operand_value (ctx, &args[0]);
-  char *format = NULL;
-  char *result;
-
-  (void) n;
-
-  if (v.type == O42_VALUE_ERROR)
-    return v;
-
-  {
-    O42Value f = operand_value (ctx, &args[1]);
-    if (f.type == O42_VALUE_ERROR)
-      { O42ErrorCode e = f.as.error; o42_value_clear (&f); o42_value_clear (&v); return o42_value_error (e); }
-    format = o42_value_to_text (&f);
-    o42_value_clear (&f);
-  }
-
-  if (v.type != O42_VALUE_NUMBER)
-    {
-      char *text = o42_value_to_text (&v);
-      char *shown = o42_format_string (format, 0, text);
-      o42_value_clear (&v);
-      g_free (format);
-      g_free (text);
-      return o42_value_take (shown);
-    }
-
-  /* General, and the presets by their plain spellings, go the preset way
-   * so that TEXT(x, "0.00") and a cell formatted Fixed agree to the digit;
-   * anything else is the format language. */
-  if (g_ascii_strcasecmp (format, "General") == 0)
-    result = o42_number_format (v.as.number, O42_NUM_GENERAL, 0);
-  else
-    result = o42_format_string (format, v.as.number, NULL);
-  o42_value_clear (&v);
-  g_free (format);
-  return o42_value_take (result);
-}
-
-/* ---- Dates and times -------------------------------------------------- */
-
-static O42Value
-fn_today (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  (void) ctx; (void) args; (void) n;
-  return o42_value_number (floor (o42_date_now ()));
-}
-
-static O42Value
-fn_now (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  (void) ctx; (void) args; (void) n;
-  return o42_value_number (o42_date_now ());
-}
-
-static O42Value
-fn_date (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double y, m, d, serial;
-  (void) n;
-  ARG_NUMBER (0, y);
-  ARG_NUMBER (1, m);
-  ARG_NUMBER (2, d);
-
-  /* Two-digit years are 1900s, as they have been since 1900. */
-  if (y >= 0 && y < 1900)
-    y += 1900;
-
-  serial = o42_date_serial ((int) y, (int) m, (int) d);
-  if (serial < 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (serial);
-}
-
-static O42Value
-fn_time (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double h, m, s, frac;
-  (void) n;
-  ARG_NUMBER (0, h);
-  ARG_NUMBER (1, m);
-  ARG_NUMBER (2, s);
-  frac = o42_time_fraction (trunc (h), trunc (m), trunc (s));
-  if (frac < 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (frac - floor (frac));
-}
-
-static O42Value
-fn_datevalue_timevalue (O42EvalContext *ctx, O42Operand *args, int n, gboolean date)
-{
-  char *s = NULL;
-  double serial;
-  gboolean ok;
-  (void) n;
-  ARG_TEXT (0, s);
-  ok = o42_date_parse (s, &serial, NULL, NULL);
-  g_free (s);
-  if (!ok)
-    return o42_value_error (O42_ERR_VALUE);
-  return o42_value_number (date ? floor (serial) : serial - floor (serial));
-}
-
-static O42Value fn_datevalue (O42EvalContext *c, O42Operand *a, int n) { return fn_datevalue_timevalue (c, a, n, TRUE); }
-static O42Value fn_timevalue (O42EvalContext *c, O42Operand *a, int n) { return fn_datevalue_timevalue (c, a, n, FALSE); }
-
-typedef enum { PART_YEAR, PART_MONTH, PART_DAY, PART_HOUR, PART_MINUTE, PART_SECOND } DatePart;
-
-static O42Value
-fn_date_part (O42EvalContext *ctx, O42Operand *args, int n, DatePart part)
-{
-  double serial;
-  int y, mo, d, h, mi, s;
-  (void) n;
-  ARG_NUMBER (0, serial);
-
-  if (serial < 0)
-    return o42_value_error (O42_ERR_NUM);
-
-  if (part <= PART_DAY)
-    {
-      if (!o42_date_from_serial (serial, &y, &mo, &d))
-        return o42_value_error (O42_ERR_NUM);
-      return o42_value_number (part == PART_YEAR ? y : part == PART_MONTH ? mo : d);
-    }
-
-  o42_time_from_serial (serial, &h, &mi, &s);
-  return o42_value_number (part == PART_HOUR ? h : part == PART_MINUTE ? mi : s);
-}
-
-static O42Value fn_year   (O42EvalContext *c, O42Operand *a, int n) { return fn_date_part (c, a, n, PART_YEAR); }
-static O42Value fn_month  (O42EvalContext *c, O42Operand *a, int n) { return fn_date_part (c, a, n, PART_MONTH); }
-static O42Value fn_day    (O42EvalContext *c, O42Operand *a, int n) { return fn_date_part (c, a, n, PART_DAY); }
-static O42Value fn_hour   (O42EvalContext *c, O42Operand *a, int n) { return fn_date_part (c, a, n, PART_HOUR); }
-static O42Value fn_minute (O42EvalContext *c, O42Operand *a, int n) { return fn_date_part (c, a, n, PART_MINUTE); }
-static O42Value fn_second (O42EvalContext *c, O42Operand *a, int n) { return fn_date_part (c, a, n, PART_SECOND); }
-
-static O42Value
-fn_weekday (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double serial, type = 1;
-  int iso;
-
-  ARG_NUMBER (0, serial);
-  if (n >= 2)
-    ARG_NUMBER (1, type);
-
-  if (serial < 0)
-    return o42_value_error (O42_ERR_NUM);
-
-  iso = o42_date_weekday (serial);      /* Monday 1 .. Sunday 7 */
-
-  switch ((int) type)
-    {
-    case 1:  return o42_value_number (iso % 7 + 1);   /* Sunday 1 .. Saturday 7 */
-    case 2:  return o42_value_number (iso);           /* Monday 1 .. Sunday 7 */
-    case 3:  return o42_value_number (iso - 1);       /* Monday 0 .. Sunday 6 */
-    default: return o42_value_error (O42_ERR_NUM);
-    }
-}
-
-static O42Value
-fn_edate_eomonth (O42EvalContext *ctx, O42Operand *args, int n, gboolean end)
-{
-  double serial, months, result;
-  int y, m, d;
-  (void) n;
-  ARG_NUMBER (0, serial);
-  ARG_NUMBER (1, months);
-
-  if (!o42_date_from_serial (serial, &y, &m, &d))
-    return o42_value_error (O42_ERR_NUM);
-
-  if (end)
-    result = o42_date_serial (y, m + (int) months + 1, 0);
-  else
-    {
-      /* The same day that many months on, or the last day of the month
-       * if it has no such day: 31 January plus a month is 28 February. */
-      double first = o42_date_serial (y, m + (int) months, 1);
-      double last = o42_date_serial (y, m + (int) months + 1, 0);
-      result = MIN (first + d - 1, last);
-    }
-
-  if (result < 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (result);
-}
-
-static O42Value fn_edate   (O42EvalContext *c, O42Operand *a, int n) { return fn_edate_eomonth (c, a, n, FALSE); }
-static O42Value fn_eomonth (O42EvalContext *c, O42Operand *a, int n) { return fn_edate_eomonth (c, a, n, TRUE); }
-
-/* The US (NASD) method: months of thirty days, with the end-of-month
- * adjustments the bond markets settled on. */
-static O42Value
-fn_days360 (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double s1, s2;
-  int y1, m1, d1, y2, m2, d2;
-  gboolean european = FALSE;
-
-  ARG_NUMBER (0, s1);
-  ARG_NUMBER (1, s2);
-  if (n >= 3)
-    {
-      O42Value v = operand_value (ctx, &args[2]);
-      O42ErrorCode err = O42_ERR_VALUE;
-      gboolean ok = o42_value_to_bool (&v, &european, &err);
-      o42_value_clear (&v);
-      if (!ok) return o42_value_error (err);
-    }
-
-  if (!o42_date_from_serial (s1, &y1, &m1, &d1) ||
-      !o42_date_from_serial (s2, &y2, &m2, &d2))
-    return o42_value_error (O42_ERR_NUM);
-
-  if (european)
-    {
-      if (d1 == 31) d1 = 30;
-      if (d2 == 31) d2 = 30;
-    }
-  else
-    {
-      gboolean d1_last = (d1 == 31) ||
-        (m1 == 2 && d1 >= 28 && o42_date_serial (y1, 3, 0) == floor (s1));
-
-      if (d1_last) d1 = 30;
-      if (d2 == 31 && d1 == 30) d2 = 30;
-    }
-
-  return o42_value_number ((y2 - y1) * 360 + (m2 - m1) * 30 + (d2 - d1));
-}
-
-static O42Value
-fn_days (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double end, start;
-  (void) n;
-  ARG_NUMBER (0, end);
-  ARG_NUMBER (1, start);
-  return o42_value_number (floor (end) - floor (start));
-}
-
 /* ---- Money ------------------------------------------------------------ */
 
 /* The annuity functions all come from one identity relating present
@@ -3710,82 +2378,6 @@ static O42Value fn_dstdev   (O42EvalContext *c, O42Operand *a, int n) { return f
 static O42Value fn_dvar     (O42EvalContext *c, O42Operand *a, int n) { return fn_db (c, a, n, DB_VAR); }
 static O42Value fn_dstdevp  (O42EvalContext *c, O42Operand *a, int n) { return fn_db (c, a, n, DB_STDEVP); }
 static O42Value fn_dvarp    (O42EvalContext *c, O42Operand *a, int n) { return fn_db (c, a, n, DB_VARP); }
-
-/* ---- More dates -------------------------------------------------------- */
-
-static gboolean
-is_weekend (double serial)
-{
-  int wd = o42_date_weekday (serial);    /* Monday 1 .. Sunday 7 */
-  return wd >= 6;
-}
-
-/* Is the day one of the holidays in the optional range? */
-static gboolean
-is_holiday (O42EvalContext *ctx, const O42Operand *holidays, double serial)
-{
-  const O42Range *r;
-
-  if (holidays == NULL || !holidays->is_range)
-    return FALSE;
-
-  r = &holidays->range;
-  for (int row = r->row0; row <= r->row1; row++)
-    for (int col = r->col0; col <= r->col1; col++)
-      {
-        O42Value v;
-        gboolean hit;
-
-        ctx->get_cell (ctx, holidays->sheet, row, col, &v);
-        hit = (v.type == O42_VALUE_NUMBER && floor (v.as.number) == floor (serial));
-        o42_value_clear (&v);
-        if (hit)
-          return TRUE;
-      }
-
-  return FALSE;
-}
-
-static O42Value
-fn_networkdays (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double start, end;
-  int count = 0, sign = 1;
-
-  ARG_NUMBER (0, start);
-  ARG_NUMBER (1, end);
-  start = floor (start);
-  end = floor (end);
-  if (end < start) { double t = start; start = end; end = t; sign = -1; }
-
-  for (double d = start; d <= end; d += 1)
-    if (!is_weekend (d) && !is_holiday (ctx, n >= 3 ? &args[2] : NULL, d))
-      count++;
-
-  return o42_value_number (sign * count);
-}
-
-static O42Value
-fn_workday (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double start, days, d;
-  int step;
-
-  ARG_NUMBER (0, start);
-  ARG_NUMBER (1, days);
-  d = floor (start);
-  step = (days < 0) ? -1 : 1;
-  days = fabs (trunc (days));
-
-  while (days > 0)
-    {
-      d += step;
-      if (!is_weekend (d) && !is_holiday (ctx, n >= 3 ? &args[2] : NULL, d))
-        days--;
-    }
-
-  return o42_value_number (d);
-}
 
 /* ---- Text and dates that Excel added later ---------------------------- */
 
@@ -9961,7 +8553,6 @@ static const O42Function FUNCTIONS[] = {
   { "ATAN", 1, 1, fn_atan },
   { "ATAN2", 2, 2, fn_atan2 },
   { "ATANH", 1, 1, fn_atanh },
-  { "AVEDEV", 1, -1, fn_avedev },
   { "AVERAGE", 1, -1, fn_average },
   { "AVERAGEA", 1, -1, fn_averagea },
   { "AVERAGEIF", 2, 3, fn_averageif },
@@ -9979,7 +8570,6 @@ static const O42Function FUNCTIONS[] = {
   { "CEILING", 1, 2, fn_ceiling },
   { "CEILING.MATH", 1, 3, fn_ceiling_math },
   { "CEILING.PRECISE", 1, 2, fn_ceiling_precise },
-  { "CHAR", 1, 1, fn_char },
   { "CHISQ.DIST", 3, 3, fn_chisq_dist },
   { "CHISQ.INV", 2, 2, fn_chisq_inv },
   { "CHISQ.TEST", 2, 2, fn_chitest },
@@ -9987,17 +8577,11 @@ static const O42Function FUNCTIONS[] = {
   { "CHISQINV", 2, 2, fn_chisqinv },
   { "CHITEST", 2, 2, fn_chitest },
   { "CHOOSE", 2, -1, fn_choose },
-  { "CLEAN", 1, 1, fn_clean },
-  { "CODE", 1, 1, fn_code },
   { "COLUMN", 0, 1, fn_column },
-  { "COLUMNS", 1, 1, fn_columns },
   { "COMBIN", 2, 2, fn_combin },
   { "COMBINA", 2, 2, fn_combina },
-  { "CONCAT", 1, -1, fn_concatenate },
-  { "CONCATENATE", 1, -1, fn_concatenate },
   { "CONFIDENCE.T", 3, 3, fn_confidence_t },
   { "CONVERT", 3, 3, fn_convert },
-  { "CORREL", 2, 2, fn_correl },
   { "COS", 1, 1, fn_cos },
   { "COSH", 1, 1, fn_cosh },
   { "COT", 1, 1, fn_cot },
@@ -10007,8 +8591,6 @@ static const O42Function FUNCTIONS[] = {
   { "COUNTBLANK", 1, 1, fn_countblank },
   { "COUNTIF", 2, 2, fn_countif },
   { "COUNTIFS", 2, -1, fn_countifs },
-  { "COVAR", 2, 2, fn_covar },
-  { "COVARIANCE.P", 2, 2, fn_covar },
   { "COVARIANCE.S", 2, 2, fn_covariance_s },
   { "CRITBINOM", 3, 3, fn_critbinom },
   { "CRONBACH", 2, -1, fn_cronbach },
@@ -10016,25 +8598,18 @@ static const O42Function FUNCTIONS[] = {
   { "CSCH", 1, 1, fn_csch },
   { "CUMIPMT", 6, 6, fn_cumipmt },
   { "CUMPRINC", 6, 6, fn_cumprinc },
-  { "DATE", 3, 3, fn_date },
   { "DATE2JULIAN", 1, 1, fn_date2julian },
   { "DATE2UNIX", 1, 1, fn_date2unix },
-  { "DATEVALUE", 1, 1, fn_datevalue },
   { "DAVERAGE", 3, 3, fn_daverage },
-  { "DAY", 1, 1, fn_day },
-  { "DAYS", 2, 2, fn_days },
-  { "DAYS360", 2, 3, fn_days360 },
   { "DB", 4, 5, fn_db_depreciation },
   { "DCOUNT", 3, 3, fn_dcount },
   { "DCOUNTA", 3, 3, fn_dcounta },
   { "DDB", 4, 5, fn_ddb },
   { "DECIMAL", 2, 2, fn_decimal },
   { "DEGREES", 1, 1, fn_degrees },
-  { "DEVSQ", 1, -1, fn_devsq },
   { "DGET", 3, 3, fn_dget },
   { "DMAX", 3, 3, fn_dmax },
   { "DMIN", 3, 3, fn_dmin },
-  { "DOLLAR", 1, 2, fn_dollar },
   { "DOLLARDE", 2, 2, fn_dollarde },
   { "DOLLARFR", 2, 2, fn_dollarfr },
   { "DPRODUCT", 3, 3, fn_dproduct },
@@ -10044,13 +8619,10 @@ static const O42Function FUNCTIONS[] = {
   { "DVAR", 3, 3, fn_dvar },
   { "DVARP", 3, 3, fn_dvarp },
   { "EASTERSUNDAY", 1, 1, fn_eastersunday },
-  { "EDATE", 2, 2, fn_edate },
   { "EFFECT", 2, 2, fn_effect },
-  { "EOMONTH", 2, 2, fn_eomonth },
   { "ERROR", 1, 1, fn_error },
   { "ERROR.TYPE", 1, 1, fn_error_type },
   { "EVEN", 1, 1, fn_even },
-  { "EXACT", 2, 2, fn_exact },
   { "EXP", 1, 1, fn_exp },
   { "EXPM1", 1, 1, fn_expm1 },
   { "EXPPOWDIST", 3, 3, fn_exppowdist },
@@ -10061,15 +8633,11 @@ static const O42Function FUNCTIONS[] = {
   { "FACTDOUBLE", 1, 1, fn_factdouble },
   { "FALSE", 0, 0, fn_false },
   { "FILTER", 2, 3, fn_offset },
-  { "FIND", 2, 3, fn_find },
   { "FISHER", 1, 1, fn_fisher },
   { "FISHERINV", 1, 1, fn_fisherinv },
-  { "FIXED", 1, 3, fn_fixed },
   { "FLOOR", 1, 2, fn_floor },
   { "FLOOR.MATH", 1, 3, fn_floor_math },
   { "FLOOR.PRECISE", 1, 2, fn_floor_precise },
-  { "FORECAST", 3, 3, fn_forecast },
-  { "FORECAST.LINEAR", 3, 3, fn_forecast },
   { "FORMULATEXT", 1, 1, fn_formulatext },
   { "FTEST", 2, 2, fn_ftest },
   { "FV", 3, 5, fn_fv },
@@ -10077,13 +8645,10 @@ static const O42Function FUNCTIONS[] = {
   { "GAUSS", 1, 1, fn_gauss },
   { "GCD", 1, -1, fn_gcd },
   { "GEOMDIST", 2, 3, fn_geomdist },
-  { "GEOMEAN", 1, -1, fn_geomean },
   { "GETENV", 1, 1, fn_getenv },
   { "GOODFRIDAY", 1, 1, fn_goodfriday },
   { "GROWTH", 1, 4, fn_offset },
-  { "HARMEAN", 1, -1, fn_harmean },
   { "HLOOKUP", 3, 4, fn_hlookup },
-  { "HOUR", 1, 1, fn_hour },
   { "HYPERLINK", 1, 2, fn_hyperlink },
   { "HYPGEOM.DIST", 5, 5, fn_hypgeom_dist },
   { "HYPGEOMDIST", 4, 4, fn_hypgeomdist },
@@ -10118,7 +8683,6 @@ static const O42Function FUNCTIONS[] = {
   { "INDEX", 2, 3, fn_index },
   { "INDIRECT", 1, 2, fn_indirect },
   { "INT", 1, 1, fn_int },
-  { "INTERCEPT", 2, 2, fn_intercept },
   { "IPMT", 4, 6, fn_ipmt },
   { "IRR", 1, 2, fn_irr },
   { "ISBLANK", 1, 1, fn_isblank },
@@ -10143,10 +8707,7 @@ static const O42Function FUNCTIONS[] = {
   { "LAMBDA", 1, -1, fn_let_stub },
   { "LANDAU", 1, 1, fn_landau },
   { "LAPLACE", 2, 2, fn_laplace },
-  { "LARGE", 2, 2, fn_large },
   { "LCM", 1, -1, fn_lcm },
-  { "LEFT", 1, 2, fn_left },
-  { "LEN", 1, 1, fn_len },
   { "LET", 3, -1, fn_let_stub },
   { "LN", 1, 1, fn_ln },
   { "LN1P", 1, 1, fn_ln1p },
@@ -10158,7 +8719,6 @@ static const O42Function FUNCTIONS[] = {
   { "LOGNORM.DIST", 4, 4, fn_lognorm_dist },
   { "LOGNORM.INV", 3, 3, fn_loginv },
   { "LOOKUP", 2, 3, fn_lookup_vector },
-  { "LOWER", 1, 1, fn_lower },
   { "MAKEARRAY", 3, 3, fn_let_stub },
   { "MAP", 2, -1, fn_let_stub },
   { "MATCH", 2, 3, fn_match },
@@ -10167,36 +8727,22 @@ static const O42Function FUNCTIONS[] = {
   { "MAXIFS", 3, -1, fn_maxifs },
   { "MDETERM", 1, 1, fn_mdeterm },
   { "MEDIAN", 1, -1, fn_median },
-  { "MID", 3, 3, fn_mid },
   { "MIN", 1, -1, fn_min },
   { "MINA", 1, -1, fn_mina },
   { "MINIFS", 3, -1, fn_minifs },
-  { "MINUTE", 1, 1, fn_minute },
   { "MIRR", 3, 3, fn_mirr },
   { "MOD", 2, 2, fn_mod },
-  { "MODE", 1, -1, fn_mode },
-  { "MODE.SNGL", 1, -1, fn_mode },
-  { "MONTH", 1, 1, fn_month },
   { "MROUND", 2, 2, fn_mround },
   { "MULTINOMIAL", 1, -1, fn_multinomial },
   { "N", 1, 1, fn_n },
   { "NA", 0, 0, fn_na },
   { "NEGBINOM.DIST", 4, 4, fn_negbinom_dist },
   { "NEGBINOMDIST", 3, 3, fn_negbinomdist },
-  { "NETWORKDAYS", 2, 3, fn_networkdays },
   { "NETWORKDAYS.INTL", 2, 4, fn_networkdays_intl },
   { "NOMINAL", 2, 2, fn_nominal },
-  { "NORM.DIST", 4, 4, fn_normdist },
-  { "NORM.INV", 3, 3, fn_norminv },
   { "NORM.S.DIST", 1, 2, fn_norm_s_dist },
-  { "NORM.S.INV", 1, 1, fn_normsinv },
   { "NORMALTEST", 1, -1, fn_normaltest },
-  { "NORMDIST", 3, 4, fn_normdist },
-  { "NORMINV", 3, 3, fn_norminv },
-  { "NORMSDIST", 1, 1, fn_normsdist },
-  { "NORMSINV", 1, 1, fn_normsinv },
   { "NOT", 1, 1, fn_not },
-  { "NOW", 0, 0, fn_now },
   { "NPER", 3, 5, fn_nper },
   { "NPV", 2, -1, fn_npv },
   { "NT_D", 1, 1, fn_nt_d },
@@ -10213,11 +8759,8 @@ static const O42Function FUNCTIONS[] = {
   { "OWENT", 2, 2, fn_owent },
   { "PARETO", 3, 3, fn_pareto },
   { "PDURATION", 3, 3, fn_pduration },
-  { "PEARSON", 2, 2, fn_pearson },
   { "PENTECOSTSUNDAY", 1, 1, fn_pentecostsunday },
-  { "PERCENTILE", 2, 2, fn_percentile },
   { "PERCENTILE.EXC", 2, 2, fn_percentile_exc },
-  { "PERCENTILE.INC", 2, 2, fn_percentile },
   { "PERCENTRANK", 2, 3, fn_percentrank },
   { "PERCENTRANK.EXC", 2, 3, fn_percentrank_exc },
   { "PERCENTRANK.INC", 2, 3, fn_percentrank },
@@ -10231,38 +8774,26 @@ static const O42Function FUNCTIONS[] = {
   { "PPMT", 4, 6, fn_ppmt },
   { "PROB", 3, 4, fn_prob },
   { "PRODUCT", 1, -1, fn_product },
-  { "PROPER", 1, 1, fn_proper },
   { "PV", 3, 5, fn_pv },
-  { "QUARTILE", 2, 2, fn_quartile },
   { "QUARTILE.EXC", 2, 2, fn_quartile_exc },
-  { "QUARTILE.INC", 2, 2, fn_quartile },
   { "QUOTIENT", 2, 2, fn_quotient },
   { "RADIANS", 1, 1, fn_radians },
   { "RAND", 0, 0, fn_rand },
   { "RANDARRAY", 0, 5, fn_offset },
   { "RANDBETWEEN", 2, 2, fn_randbetween },
-  { "RANK", 2, 3, fn_rank },
   { "RANK.AVG", 2, 3, fn_rank_avg },
-  { "RANK.EQ", 2, 3, fn_rank },
   { "RATE", 3, 6, fn_rate },
   { "RAYLEIGH", 2, 2, fn_rayleigh },
   { "REDUCE", 3, 3, fn_let_stub },
-  { "REPLACE", 4, 4, fn_replace },
-  { "REPT", 2, 2, fn_rept },
-  { "RIGHT", 1, 2, fn_right },
   { "ROMAN", 1, 2, fn_roman },
   { "ROUND", 1, 2, fn_round },
   { "ROUNDDOWN", 1, 2, fn_rounddown },
   { "ROUNDUP", 1, 2, fn_roundup },
   { "ROW", 0, 1, fn_row },
-  { "ROWS", 1, 1, fn_rows },
   { "RRI", 3, 3, fn_rri },
-  { "RSQ", 2, 2, fn_rsq },
   { "SCAN", 3, 3, fn_let_stub },
-  { "SEARCH", 2, 3, fn_search },
   { "SEC", 1, 1, fn_sec },
   { "SECH", 1, 1, fn_sech },
-  { "SECOND", 1, 1, fn_second },
   { "SEQUENCE", 1, 4, fn_offset },
   { "SERIESSUM", 4, 4, fn_seriessum },
   { "SHEET", 0, 1, fn_sheet },
@@ -10273,23 +8804,15 @@ static const O42Function FUNCTIONS[] = {
   { "SKEW.P", 1, -1, fn_skew_p },
   { "SKEWP", 1, -1, fn_skewp },
   { "SLN", 3, 3, fn_sln },
-  { "SLOPE", 2, 2, fn_slope },
-  { "SMALL", 2, 2, fn_small },
   { "SNORM.DIST.RANGE", 2, 2, fn_snorm_dist_range },
   { "SORT", 1, 4, fn_offset },
   { "SORTBY", 2, 4, fn_offset },
   { "SQRT", 1, 1, fn_sqrt },
   { "SQRTPI", 1, 1, fn_sqrtpi },
   { "SSMEDIAN", 1, 2, fn_ssmedian },
-  { "STANDARDIZE", 3, 3, fn_standardize },
-  { "STDEV", 1, -1, fn_stdev },
-  { "STDEV.P", 1, -1, fn_stdevp },
-  { "STDEV.S", 1, -1, fn_stdev },
   { "STDEVA", 1, -1, fn_stdeva },
-  { "STDEVP", 1, -1, fn_stdevp },
   { "STDEVPA", 1, -1, fn_stdevpa },
   { "STEYX", 2, 2, fn_steyx },
-  { "SUBSTITUTE", 3, 3, fn_substitute },
   { "SUBTOTAL", 2, -1, fn_subtotal },
   { "SUM", 1, -1, fn_sum },
   { "SUMA", 1, -1, fn_suma },
@@ -10310,15 +8833,10 @@ static const O42Function FUNCTIONS[] = {
   { "T.TEST", 4, 4, fn_ttest },
   { "TAN", 1, 1, fn_tan },
   { "TANH", 1, 1, fn_tanh },
-  { "TEXT", 2, 2, fn_text },
   { "TEXTAFTER", 2, 3, fn_textafter },
   { "TEXTBEFORE", 2, 3, fn_textbefore },
   { "TEXTJOIN", 3, -1, fn_textjoin },
-  { "TIME", 3, 3, fn_time },
-  { "TIMEVALUE", 1, 1, fn_timevalue },
-  { "TODAY", 0, 0, fn_today },
   { "TREND", 1, 4, fn_offset },
-  { "TRIM", 1, 1, fn_trim },
   { "TRUE", 0, 0, fn_true },
   { "TRUNC", 1, 2, fn_trunc },
   { "TTEST", 4, 4, fn_ttest },
@@ -10327,26 +8845,17 @@ static const O42Function FUNCTIONS[] = {
   { "UNICODE", 1, 1, fn_unicode },
   { "UNIQUE", 1, 3, fn_offset },
   { "UNIX2DATE", 1, 1, fn_unix2date },
-  { "UPPER", 1, 1, fn_upper },
-  { "VALUE", 1, 1, fn_value },
   { "VALUETOTEXT", 1, 2, fn_valuetotext },
-  { "VAR", 1, -1, fn_var },
-  { "VAR.P", 1, -1, fn_varp },
-  { "VAR.S", 1, -1, fn_var },
   { "VARA", 1, -1, fn_vara },
-  { "VARP", 1, -1, fn_varp },
   { "VARPA", 1, -1, fn_varpa },
   { "VDB", 5, 7, fn_vdb },
   { "VLOOKUP", 3, 4, fn_vlookup },
-  { "WEEKDAY", 1, 2, fn_weekday },
-  { "WORKDAY", 2, 3, fn_workday },
   { "WORKDAY.INTL", 2, 4, fn_workday_intl },
   { "XIRR", 2, 3, fn_xirr },
   { "XLOOKUP", 3, 6, fn_xlookup },
   { "XMATCH", 2, 4, fn_xmatch },
   { "XNPV", 3, 3, fn_xnpv },
   { "XOR", 1, -1, fn_xor },
-  { "YEAR", 1, 1, fn_year },
   { "Z.TEST", 2, 3, fn_ztest },
   { "ZTEST", 2, 3, fn_ztest },
 };
@@ -10354,6 +8863,9 @@ static const O42Function FUNCTIONS[] = {
 /* The families that live in files of their own, each table ended by a
  * NULL name. */
 static const O42Function *const FAMILY_FUNCS[] = {
+  O42_FUNCS_STATISTICS,
+  O42_FUNCS_DATES,
+  O42_FUNCS_TEXT,
   O42_FUNCS_HDATE,
   O42_FUNCS_ENGINEERING,
   O42_FUNCS_DISTRIBUTIONS,
@@ -10365,6 +8877,9 @@ static const O42Function *const FAMILY_FUNCS[] = {
 };
 
 static const O42FunctionHelp *const FAMILY_HELP[] = {
+  O42_HELP_STATISTICS,
+  O42_HELP_DATES,
+  O42_HELP_TEXT,
   O42_HELP_HDATE,
   O42_HELP_ENGINEERING,
   O42_HELP_DISTRIBUTIONS,
@@ -10621,7 +9136,6 @@ static const struct {
   { "ATAN", "ATAN(number)", "The arctangent, in radians." },
   { "ATAN2", "ATAN2(x, y)", "The arctangent of y/x, in radians, in the right quadrant." },
   { "ATANH", "ATANH(number)", "The inverse hyperbolic tangent." },
-  { "AVEDEV", "AVEDEV(number1, number2, ...)", "The average absolute deviation from the mean." },
   { "AVERAGE", "AVERAGE(number1, number2, ...)", "The arithmetic mean; text and blanks in a range are skipped." },
   { "AVERAGEA", "AVERAGEA(value1, value2, ...)", "The average, counting text as 0 and TRUE as 1." },
   { "AVERAGEIF", "AVERAGEIF(range, criteria, average_range)", "The mean of the cells that meet a condition." },
@@ -10639,7 +9153,6 @@ static const struct {
   { "CEILING", "CEILING(number, significance)", "Rounds up, away from zero, to a multiple of significance." },
   { "CEILING.MATH", "CEILING.MATH(number, significance, mode)", "Rounds up to a multiple of the significance." },
   { "CEILING.PRECISE", "CEILING.PRECISE(number, significance)", "Rounded up towards plus infinity, whatever the sign." },
-  { "CHAR", "CHAR(number)", "The character with a given code." },
   { "CHISQ.DIST", "CHISQ.DIST(x, deg_freedom, cumulative)", "The chi-squared distribution, density or cumulative." },
   { "CHISQ.INV", "CHISQ.INV(probability, deg_freedom)", "The inverse of the left-tailed chi-squared distribution." },
   { "CHISQ.TEST", "CHISQ.TEST(actual_range, expected_range)", "The chi-squared test for independence." },
@@ -10647,17 +9160,11 @@ static const struct {
   { "CHISQINV", "CHISQINV(p, dof)", "The value of chi-squared with the given probability below it." },
   { "CHITEST", "CHITEST(actual_range, expected_range)", "The chi-squared test for independence." },
   { "CHOOSE", "CHOOSE(index, value1, value2, ...)", "The value at a given position in the list." },
-  { "CLEAN", "CLEAN(text)", "Removes the characters that cannot be printed." },
-  { "CODE", "CODE(text)", "The code of the first character." },
   { "COLUMN", "COLUMN(reference)", "The column number of a reference, or of this cell." },
-  { "COLUMNS", "COLUMNS(range)", "How many columns a range spans." },
   { "COMBIN", "COMBIN(n, k)", "How many ways k things can be chosen from n." },
   { "COMBINA", "COMBINA(number, number_chosen)", "Combinations with repetition." },
-  { "CONCAT", "CONCAT(text1, text2, ...)", "Joins pieces of text into one; Excel's newer name for CONCATENATE." },
-  { "CONCATENATE", "CONCATENATE(text1, text2, ...)", "Joins pieces of text into one." },
   { "CONFIDENCE.T", "CONFIDENCE.T(alpha, standard_dev, size)", "Half the width of a confidence interval, by Student's t." },
   { "CONVERT", "CONVERT(number, from_unit, to_unit)", "A measurement in other units: CONVERT(1,\"mi\",\"km\")." },
-  { "CORREL", "CORREL(array1, array2)", "The correlation coefficient of two sets." },
   { "COS", "COS(number)", "The cosine of an angle in radians." },
   { "COSH", "COSH(number)", "The hyperbolic cosine." },
   { "COT", "COT(number)", "The cotangent." },
@@ -10667,8 +9174,6 @@ static const struct {
   { "COUNTBLANK", "COUNTBLANK(range)", "How many cells in a range are blank." },
   { "COUNTIF", "COUNTIF(range, criteria)", "How many cells meet a condition such as \">5\" or \"a*\"." },
   { "COUNTIFS", "COUNTIFS(range1, criteria1, range2, criteria2, ...)", "How many cells meet every condition." },
-  { "COVAR", "COVAR(array1, array2)", "The population covariance of two sets." },
-  { "COVARIANCE.P", "COVARIANCE.P(array1, array2)", "The population covariance." },
   { "COVARIANCE.S", "COVARIANCE.S(array1, array2)", "The sample covariance." },
   { "CRITBINOM", "CRITBINOM(trials, probability, alpha)", "The smallest value whose cumulative binomial distribution reaches alpha." },
   { "CRONBACH", "CRONBACH(item1, item2, ...)", "Cronbach's alpha: how far the items measure one thing." },
@@ -10676,25 +9181,18 @@ static const struct {
   { "CSCH", "CSCH(number)", "The hyperbolic cosecant." },
   { "CUMIPMT", "CUMIPMT(rate, nper, pv, start_period, end_period, type)", "Interest paid between two periods of a loan." },
   { "CUMPRINC", "CUMPRINC(rate, nper, pv, start_period, end_period, type)", "Principal paid between two periods of a loan." },
-  { "DATE", "DATE(year, month, day)", "The serial number of a date; months and days roll over." },
   { "DATE2JULIAN", "DATE2JULIAN(date)", "The Julian day number of a date." },
   { "DATE2UNIX", "DATE2UNIX(date)", "A date as Unix time: seconds since the start of 1970." },
-  { "DATEVALUE", "DATEVALUE(text)", "The serial number of a date written as text." },
   { "DAVERAGE", "DAVERAGE(database, field, criteria)", "The mean of a field in the records that match the criteria." },
-  { "DAY", "DAY(serial)", "The day of the month, 1 to 31." },
-  { "DAYS", "DAYS(end_date, start_date)", "The number of days between two dates." },
-  { "DAYS360", "DAYS360(start_date, end_date, method)", "Days between two dates on a 360-day year." },
   { "DB", "DB(cost, salvage, life, period, month)", "Fixed-declining-balance depreciation." },
   { "DCOUNT", "DCOUNT(database, field, criteria)", "How many records match the criteria and hold a number in the field." },
   { "DCOUNTA", "DCOUNTA(database, field, criteria)", "How many records match the criteria and are not blank in the field." },
   { "DDB", "DDB(cost, salvage, life, period, factor)", "Depreciation by the double-declining balance method." },
   { "DECIMAL", "DECIMAL(text, radix)", "Text in another base as a number." },
   { "DEGREES", "DEGREES(angle)", "Radians to degrees." },
-  { "DEVSQ", "DEVSQ(number1, number2, ...)", "The sum of squared deviations from the mean." },
   { "DGET", "DGET(database, field, criteria)", "The field of the one record that matches the criteria." },
   { "DMAX", "DMAX(database, field, criteria)", "The largest value of a field in the matching records." },
   { "DMIN", "DMIN(database, field, criteria)", "The smallest value of a field in the matching records." },
-  { "DOLLAR", "DOLLAR(number, decimals)", "A number as currency text." },
   { "DOLLARDE", "DOLLARDE(fractional_dollar, fraction)", "A price quoted as a fraction, as a decimal." },
   { "DOLLARFR", "DOLLARFR(decimal_dollar, fraction)", "A decimal price as a fraction quote." },
   { "DPRODUCT", "DPRODUCT(database, field, criteria)", "The product of a field in the matching records." },
@@ -10704,13 +9202,10 @@ static const struct {
   { "DVAR", "DVAR(database, field, criteria)", "The sample variance of a field in the matching records." },
   { "DVARP", "DVARP(database, field, criteria)", "Population variance of matching records." },
   { "EASTERSUNDAY", "EASTERSUNDAY(year)", "Easter Sunday, by the Gregorian computus." },
-  { "EDATE", "EDATE(start_date, months)", "The date a number of months before or after another." },
   { "EFFECT", "EFFECT(nominal_rate, npery)", "The effective annual interest rate." },
-  { "EOMONTH", "EOMONTH(start_date, months)", "The last day of the month a number of months away." },
   { "ERROR", "ERROR(text)", "The error value that text names." },
   { "ERROR.TYPE", "ERROR.TYPE(error)", "A number for each kind of error value." },
   { "EVEN", "EVEN(number)", "Rounds away from zero to an even integer." },
-  { "EXACT", "EXACT(text1, text2)", "TRUE if two texts are identical, case included." },
   { "EXP", "EXP(number)", "e raised to a power." },
   { "EXPM1", "EXPM1(x)", "exp(x) - 1, keeping the digits a small x would lose." },
   { "EXPPOWDIST", "EXPPOWDIST(x, a, b)", "The density of the exponential power distribution." },
@@ -10721,15 +9216,11 @@ static const struct {
   { "FACTDOUBLE", "FACTDOUBLE(number)", "The double factorial." },
   { "FALSE", "FALSE()", "The logical value FALSE." },
   { "FILTER", "FILTER(array, include, if_empty)", "The rows (or columns) of an array where a condition holds." },
-  { "FIND", "FIND(find_text, within_text, start)", "Where one text starts inside another; case matters." },
   { "FISHER", "FISHER(x)", "The Fisher transformation." },
   { "FISHERINV", "FISHERINV(y)", "The inverse of the Fisher transformation." },
-  { "FIXED", "FIXED(number, decimals, no_commas)", "A number as text with a fixed number of decimals." },
   { "FLOOR", "FLOOR(number, significance)", "Rounds down, toward zero, to a multiple of significance." },
   { "FLOOR.MATH", "FLOOR.MATH(number, significance, mode)", "Rounds down to a multiple of the significance." },
   { "FLOOR.PRECISE", "FLOOR.PRECISE(number, significance)", "Rounded down towards minus infinity, whatever the sign." },
-  { "FORECAST", "FORECAST(x, known_y's, known_x's)", "A value on the regression line through known points." },
-  { "FORECAST.LINEAR", "FORECAST.LINEAR(x, known_ys, known_xs)", "A value on the regression line through the points." },
   { "FORMULATEXT", "FORMULATEXT(reference)", "What was typed into a cell, formula and all." },
   { "FTEST", "FTEST(array1, array2)", "The two-tailed F-test probability that the variances differ." },
   { "FV", "FV(rate, nper, pmt, pv, type)", "The future value of regular payments." },
@@ -10737,13 +9228,10 @@ static const struct {
   { "GAUSS", "GAUSS(z)", "The probability between the mean and z standard deviations." },
   { "GCD", "GCD(number1, number2, ...)", "The greatest common divisor." },
   { "GEOMDIST", "GEOMDIST(k, p, cumulative)", "How many failures before the first success." },
-  { "GEOMEAN", "GEOMEAN(number1, number2, ...)", "The geometric mean." },
   { "GETENV", "GETENV(name)", "A value from the machine's environment." },
   { "GOODFRIDAY", "GOODFRIDAY(year)", "Good Friday, two days before Easter." },
   { "GROWTH", "GROWTH(known_ys, known_xs, new_xs, const)", "Values on the exponential curve fitted to the points." },
-  { "HARMEAN", "HARMEAN(number1, number2, ...)", "The harmonic mean." },
   { "HLOOKUP", "HLOOKUP(value, table, row_index, approximate)", "Finds a value in the top row and returns from that column." },
-  { "HOUR", "HOUR(serial)", "The hour of a time, 0 to 23." },
   { "HYPERLINK", "HYPERLINK(link, friendly_name)", "The text to show for a link." },
   { "HYPGEOM.DIST", "HYPGEOM.DIST(sample_s, number_sample, population_s, number_pop, cumulative)", "The hypergeometric distribution." },
   { "HYPGEOMDIST", "HYPGEOMDIST(successes, draws, population_successes, population)", "The hypergeometric distribution." },
@@ -10778,7 +9266,6 @@ static const struct {
   { "INDEX", "INDEX(range, row, column)", "The cell at a row and column of a range." },
   { "INDIRECT", "INDIRECT(text)", "The reference the text names." },
   { "INT", "INT(number)", "Rounds down to the nearest integer." },
-  { "INTERCEPT", "INTERCEPT(known_y's, known_x's)", "Where the regression line crosses the y axis." },
   { "IPMT", "IPMT(rate, per, nper, pv, fv, type)", "The interest part of one payment." },
   { "IRR", "IRR(values, guess)", "The internal rate of return of a series of cash flows." },
   { "ISBLANK", "ISBLANK(value)", "TRUE for an empty cell." },
@@ -10803,10 +9290,7 @@ static const struct {
   { "LAMBDA", "LAMBDA(name1, ..., calculation)", "A function of its own, called at once or through LET." },
   { "LANDAU", "LANDAU(x)", "The Landau distribution, by its integral." },
   { "LAPLACE", "LAPLACE(x, a)", "The density of Laplace's distribution." },
-  { "LARGE", "LARGE(range, k)", "The k-th largest value." },
   { "LCM", "LCM(number1, number2, ...)", "The least common multiple." },
-  { "LEFT", "LEFT(text, count)", "The first characters of a text." },
-  { "LEN", "LEN(text)", "How many characters a text has." },
   { "LET", "LET(name1, value1, ..., calculation)", "Names values for use in a calculation." },
   { "LN", "LN(number)", "The natural logarithm." },
   { "LN1P", "LN1P(x)", "log(1 + x), keeping the digits a small x would lose." },
@@ -10818,7 +9302,6 @@ static const struct {
   { "LOGNORM.DIST", "LOGNORM.DIST(x, mean, standard_dev, cumulative)", "The lognormal distribution." },
   { "LOGNORM.INV", "LOGNORM.INV(probability, mean, standard_dev)", "The inverse of the cumulative lognormal distribution." },
   { "LOOKUP", "LOOKUP(value, lookup_vector, result_vector)", "Finds a value in one vector and returns from another." },
-  { "LOWER", "LOWER(text)", "Text in lower case." },
   { "MAKEARRAY", "MAKEARRAY(rows, columns, lambda)", "An array from a function of the row and column." },
   { "MAP", "MAP(array, ..., lambda)", "Every element of an array through a function." },
   { "MATCH", "MATCH(value, range, type)", "The position of a value in a range." },
@@ -10827,36 +9310,22 @@ static const struct {
   { "MAXIFS", "MAXIFS(max_range, range1, criteria1, ...)", "The largest value among the cells meeting every condition." },
   { "MDETERM", "MDETERM(array)", "The determinant of a square matrix." },
   { "MEDIAN", "MEDIAN(number1, number2, ...)", "The middle value." },
-  { "MID", "MID(text, start, count)", "Characters from the middle of a text." },
   { "MIN", "MIN(number1, number2, ...)", "The smallest number." },
   { "MINA", "MINA(value1, value2, ...)", "The smallest value, counting text as 0 and TRUE as 1." },
   { "MINIFS", "MINIFS(min_range, range1, criteria1, ...)", "The smallest value among the cells meeting every condition." },
-  { "MINUTE", "MINUTE(serial)", "The minute of a time, 0 to 59." },
   { "MIRR", "MIRR(values, finance_rate, reinvest_rate)", "The modified internal rate of return." },
   { "MOD", "MOD(number, divisor)", "The remainder, with the sign of the divisor." },
-  { "MODE", "MODE(number1, number2, ...)", "The most frequent value." },
-  { "MODE.SNGL", "MODE.SNGL(number1, number2, ...)", "The most frequent value." },
-  { "MONTH", "MONTH(serial)", "The month of a date, 1 to 12." },
   { "MROUND", "MROUND(number, multiple)", "Rounds to the nearest multiple." },
   { "MULTINOMIAL", "MULTINOMIAL(number1, number2, ...)", "The multinomial of a set of numbers." },
   { "N", "N(value)", "A value as a number; text becomes 0." },
   { "NA", "NA()", "The error value #N/A." },
   { "NEGBINOM.DIST", "NEGBINOM.DIST(number_f, number_s, probability_s, cumulative)", "The negative binomial distribution." },
   { "NEGBINOMDIST", "NEGBINOMDIST(failures, successes, probability)", "The negative binomial distribution." },
-  { "NETWORKDAYS", "NETWORKDAYS(start_date, end_date, holidays)", "The working days between two dates, weekends and holidays left out." },
   { "NETWORKDAYS.INTL", "NETWORKDAYS.INTL(start, end, weekend, holidays)", "Working days between two dates, with the weekend named." },
   { "NOMINAL", "NOMINAL(effect_rate, npery)", "The nominal annual interest rate." },
-  { "NORM.DIST", "NORM.DIST(x, mean, standard_dev, cumulative)", "The normal distribution." },
-  { "NORM.INV", "NORM.INV(probability, mean, standard_dev)", "The inverse of the cumulative normal distribution." },
   { "NORM.S.DIST", "NORM.S.DIST(z, cumulative)", "The standard normal distribution." },
-  { "NORM.S.INV", "NORM.S.INV(probability)", "The inverse of the standard normal distribution." },
   { "NORMALTEST", "NORMALTEST(array)", "D'Agostino and Pearson's test for normality, from the skew and kurtosis." },
-  { "NORMDIST", "NORMDIST(x, mean, standard_dev, cumulative)", "The normal distribution." },
-  { "NORMINV", "NORMINV(probability, mean, standard_dev)", "The inverse of the normal distribution." },
-  { "NORMSDIST", "NORMSDIST(z)", "The standard normal cumulative distribution." },
-  { "NORMSINV", "NORMSINV(probability)", "The inverse of the standard normal distribution." },
   { "NOT", "NOT(logical)", "The opposite of a logical value." },
-  { "NOW", "NOW()", "The current date and time." },
   { "NPER", "NPER(rate, pmt, pv, fv, type)", "How many payments an investment takes." },
   { "NPV", "NPV(rate, value1, value2, ...)", "The net present value of a series of cash flows." },
   { "NT_D", "NT_D(n)", "How many divisors a number has." },
@@ -10873,11 +9342,8 @@ static const struct {
   { "OWENT", "OWENT(h, a)", "Owen's T function." },
   { "PARETO", "PARETO(x, a, b)", "The density of Pareto's distribution." },
   { "PDURATION", "PDURATION(rate, pv, fv)", "Periods for an investment to reach a value." },
-  { "PEARSON", "PEARSON(array1, array2)", "The Pearson correlation coefficient." },
   { "PENTECOSTSUNDAY", "PENTECOSTSUNDAY(year)", "Pentecost, forty-nine days after Easter." },
-  { "PERCENTILE", "PERCENTILE(range, k)", "The value below which a fraction k of the values lie." },
   { "PERCENTILE.EXC", "PERCENTILE.EXC(array, k)", "The k-th percentile, exclusive." },
-  { "PERCENTILE.INC", "PERCENTILE.INC(array, k)", "The k-th percentile, inclusive." },
   { "PERCENTRANK", "PERCENTRANK(array, x, significance)", "The rank of a value as a fraction of the set." },
   { "PERCENTRANK.EXC", "PERCENTRANK.EXC(array, x, significance)", "The rank of a value, with the ends counted out." },
   { "PERCENTRANK.INC", "PERCENTRANK.INC(array, x, significance)", "The rank of a value as a fraction of the set, inclusive." },
@@ -10891,38 +9357,26 @@ static const struct {
   { "PPMT", "PPMT(rate, per, nper, pv, fv, type)", "The principal part of one payment." },
   { "PROB", "PROB(x_range, prob_range, lower, upper)", "The probability that a value lies between two limits." },
   { "PRODUCT", "PRODUCT(number1, number2, ...)", "Multiplies its arguments." },
-  { "PROPER", "PROPER(text)", "Text with each word capitalised." },
   { "PV", "PV(rate, nper, pmt, fv, type)", "The present value of regular payments." },
-  { "QUARTILE", "QUARTILE(range, quart)", "A quartile of the values: 0 to 4." },
   { "QUARTILE.EXC", "QUARTILE.EXC(array, quart)", "A quartile, exclusive." },
-  { "QUARTILE.INC", "QUARTILE.INC(array, quart)", "A quartile, inclusive." },
   { "QUOTIENT", "QUOTIENT(numerator, denominator)", "The integer part of a division." },
   { "RADIANS", "RADIANS(angle)", "Degrees to radians." },
   { "RAND", "RAND()", "A random number between 0 and 1." },
   { "RANDARRAY", "RANDARRAY(rows, columns, min, max, whole_number)", "An array of random numbers." },
   { "RANDBETWEEN", "RANDBETWEEN(bottom, top)", "A random integer in a range." },
-  { "RANK", "RANK(number, range, order)", "The rank of a number among others." },
   { "RANK.AVG", "RANK.AVG(number, ref, order)", "The rank of a number, averaged over ties." },
-  { "RANK.EQ", "RANK.EQ(number, ref, order)", "The rank of a number in a list." },
   { "RATE", "RATE(nper, pmt, pv, fv, type, guess)", "The interest rate per period of an annuity." },
   { "RAYLEIGH", "RAYLEIGH(x, sigma)", "The density of Rayleigh's distribution." },
   { "REDUCE", "REDUCE(initial, array, lambda)", "An array folded into one value." },
-  { "REPLACE", "REPLACE(old_text, start, count, new_text)", "Replaces part of a text by position." },
-  { "REPT", "REPT(text, count)", "A text repeated." },
-  { "RIGHT", "RIGHT(text, count)", "The last characters of a text." },
   { "ROMAN", "ROMAN(number, form)", "A number as a Roman numeral." },
   { "ROUND", "ROUND(number, digits)", "Rounds to a number of digits, halves away from zero." },
   { "ROUNDDOWN", "ROUNDDOWN(number, digits)", "Rounds toward zero." },
   { "ROUNDUP", "ROUNDUP(number, digits)", "Rounds away from zero." },
   { "ROW", "ROW(reference)", "The row number of a reference, or of this cell." },
-  { "ROWS", "ROWS(range)", "How many rows a range spans." },
   { "RRI", "RRI(nper, pv, fv)", "The rate that grows pv to fv over nper periods." },
-  { "RSQ", "RSQ(known_y's, known_x's)", "The square of the correlation coefficient." },
   { "SCAN", "SCAN(initial, array, lambda)", "The running results of folding an array." },
-  { "SEARCH", "SEARCH(find_text, within_text, start)", "Where one text starts inside another; case ignored, wildcards allowed." },
   { "SEC", "SEC(number)", "The secant." },
   { "SECH", "SECH(number)", "The hyperbolic secant." },
-  { "SECOND", "SECOND(serial)", "The second of a time, 0 to 59." },
   { "SEQUENCE", "SEQUENCE(rows, columns, start, step)", "An array of numbers in sequence." },
   { "SERIESSUM", "SERIESSUM(x, n, m, coefficients)", "A power series." },
   { "SHEET", "SHEET(reference)", "The number of the sheet, counting from one." },
@@ -10933,23 +9387,15 @@ static const struct {
   { "SKEW.P", "SKEW.P(number1, number2, ...)", "The skewness of a population." },
   { "SKEWP", "SKEWP(number1, number2, ...)", "The skew of a whole population." },
   { "SLN", "SLN(cost, salvage, life)", "Straight-line depreciation for one period." },
-  { "SLOPE", "SLOPE(known_y's, known_x's)", "The slope of the regression line." },
-  { "SMALL", "SMALL(range, k)", "The k-th smallest value." },
   { "SNORM.DIST.RANGE", "SNORM.DIST.RANGE(x1, x2)", "The chance a standard normal falls between the two." },
   { "SORT", "SORT(array, sort_index, sort_order, by_col)", "An array sorted by one of its columns." },
   { "SORTBY", "SORTBY(array, by_array, sort_order)", "An array sorted by another." },
   { "SQRT", "SQRT(number)", "The square root." },
   { "SQRTPI", "SQRTPI(number)", "The square root of a number times pi." },
   { "SSMEDIAN", "SSMEDIAN(array, interval)", "The median of grouped data, interpolated inside its bin." },
-  { "STANDARDIZE", "STANDARDIZE(x, mean, standard_dev)", "A value as a number of standard deviations from the mean." },
-  { "STDEV", "STDEV(number1, number2, ...)", "The standard deviation of a sample." },
-  { "STDEV.P", "STDEV.P(number1, number2, ...)", "The population standard deviation." },
-  { "STDEV.S", "STDEV.S(number1, number2, ...)", "The sample standard deviation." },
   { "STDEVA", "STDEVA(value1, value2, ...)", "Sample standard deviation, counting text as 0 and TRUE as 1." },
-  { "STDEVP", "STDEVP(number1, number2, ...)", "The standard deviation of a whole population." },
   { "STDEVPA", "STDEVPA(value1, value2, ...)", "Population standard deviation, counting text as 0 and TRUE as 1." },
   { "STEYX", "STEYX(known_ys, known_xs)", "The standard error of the predicted y for each x." },
-  { "SUBSTITUTE", "SUBSTITUTE(text, old_text, new_text)", "Replaces text by content." },
   { "SUBTOTAL", "SUBTOTAL(function_num, ref1, ...)", "An aggregate chosen by number: 1 AVERAGE, 2 COUNT, 3 COUNTA, 4 MAX, 5 MIN, 6 PRODUCT, 7 STDEV, 8 STDEVP, 9 SUM, 10 VAR, 11 VARP." },
   { "SUM", "SUM(number1, number2, ...)", "Adds its arguments; text in a range is skipped." },
   { "SUMA", "SUMA(value1, value2, ...)", "The sum, counting text as 0 and TRUE as 1." },
@@ -10970,15 +9416,10 @@ static const struct {
   { "T.TEST", "T.TEST(array1, array2, tails, type)", "Student's t-test probability." },
   { "TAN", "TAN(number)", "The tangent of an angle in radians." },
   { "TANH", "TANH(number)", "The hyperbolic tangent." },
-  { "TEXT", "TEXT(value, format)", "A number as text in a format such as \"#,##0.00\"." },
   { "TEXTAFTER", "TEXTAFTER(text, delimiter, instance)", "The part of a text after the delimiter." },
   { "TEXTBEFORE", "TEXTBEFORE(text, delimiter, instance)", "The part of a text before the delimiter." },
   { "TEXTJOIN", "TEXTJOIN(delimiter, ignore_empty, text1, ...)", "Joins texts with a delimiter between them." },
-  { "TIME", "TIME(hour, minute, second)", "The fraction of a day for a time." },
-  { "TIMEVALUE", "TIMEVALUE(text)", "The fraction of a day for a time written as text." },
-  { "TODAY", "TODAY()", "Today's date." },
   { "TREND", "TREND(known_ys, known_xs, new_xs, const)", "Values on the line fitted to the points." },
-  { "TRIM", "TRIM(text)", "Text without leading and trailing spaces." },
   { "TRUE", "TRUE()", "The logical value TRUE." },
   { "TRUNC", "TRUNC(number, digits)", "Cuts a number off at a number of digits." },
   { "TTEST", "TTEST(array1, array2, tails, type)", "Student's t-test probability: type 1 paired, 2 equal variance, 3 unequal." },
@@ -10987,26 +9428,17 @@ static const struct {
   { "UNICODE", "UNICODE(text)", "The code point of the first character." },
   { "UNIQUE", "UNIQUE(array, by_col, exactly_once)", "The distinct rows (or columns) of an array." },
   { "UNIX2DATE", "UNIX2DATE(t)", "Unix time as a date and time." },
-  { "UPPER", "UPPER(text)", "Text in upper case." },
-  { "VALUE", "VALUE(text)", "Text read as a number." },
   { "VALUETOTEXT", "VALUETOTEXT(value, format)", "A value as text, plainly or with its quotes." },
-  { "VAR", "VAR(number1, number2, ...)", "The variance of a sample." },
-  { "VAR.P", "VAR.P(number1, number2, ...)", "The population variance." },
-  { "VAR.S", "VAR.S(number1, number2, ...)", "The sample variance." },
   { "VARA", "VARA(value1, value2, ...)", "Sample variance, counting text as 0 and TRUE as 1." },
-  { "VARP", "VARP(number1, number2, ...)", "The variance of a whole population." },
   { "VARPA", "VARPA(value1, value2, ...)", "Population variance, counting text as 0 and TRUE as 1." },
   { "VDB", "VDB(cost, salvage, life, start, end, factor, no_switch)", "Declining-balance depreciation over part of a life." },
   { "VLOOKUP", "VLOOKUP(value, table, col_index, approximate)", "Finds a value in the first column and returns from that row." },
-  { "WEEKDAY", "WEEKDAY(serial, type)", "The day of the week as a number." },
-  { "WORKDAY", "WORKDAY(start_date, days, holidays)", "The date a number of working days away." },
   { "WORKDAY.INTL", "WORKDAY.INTL(start, days, weekend, holidays)", "The date so many working days on, with the weekend named." },
   { "XIRR", "XIRR(values, dates, guess)", "The internal rate of return of dated cash flows." },
   { "XLOOKUP", "XLOOKUP(lookup, lookup_array, return_array, if_not_found, match_mode)", "Finds a value in one vector and returns the matching one from another." },
   { "XMATCH", "XMATCH(lookup_value, lookup_array, match_mode)", "The position of a value in a vector." },
   { "XNPV", "XNPV(rate, values, dates)", "The net present value of dated cash flows." },
   { "XOR", "XOR(logical1, logical2, ...)", "TRUE if an odd number of arguments are TRUE." },
-  { "YEAR", "YEAR(serial)", "The year of a date." },
   { "Z.TEST", "Z.TEST(array, x, sigma)", "The one-tailed probability of a z-test." },
   { "ZTEST", "ZTEST(array, x, sigma)", "The one-tailed probability of a z-test." },
 };
