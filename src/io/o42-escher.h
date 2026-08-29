@@ -25,6 +25,7 @@ G_BEGIN_DECLS
 typedef struct {
   gboolean is_note;
   gboolean is_chart;               /* a host control the chart substream fills */
+  gboolean is_control;             /* a form control; its OBJ says which */
   int      blip;                   /* pictures: 1-based index in the group's store */
   int      col1, row1, col2, row2; /* the anchor cells */
   double   dx1, dy1, dx2, dy2;     /* fractions of those cells, 0..1 */

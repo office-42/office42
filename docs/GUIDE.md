@@ -535,11 +535,12 @@ A plain click works a control; Ctrl+click takes hold of it, to move it,
 resize it by its handles, or open Format ▸ Control. Delete removes the
 one you are holding.
 
-Controls are kept in `.gnumeric` and in `.xlsx`, where they go into the
-sheet's legacy drawing the way Excel writes them -- a book saved that
-way opens with its controls in Excel and in LibreOffice, and comes back
-here with its links, its bounds and its captions. An `.xls` keeps the
-numbers and loses the controls.
+Controls are kept in `.gnumeric`, in `.xlsx` and in `.xls`. In `.xlsx`
+they go into the sheet's legacy drawing the way Excel writes them; in
+`.xls` they are Escher shapes with an OBJ record apiece, which is where
+Excel 97 put them. A book saved either way opens with its controls in
+Excel and in LibreOffice, and comes back here with its links, its
+bounds and its captions.
 
 ## 13. Spelling
 
@@ -591,7 +592,7 @@ File ▸ Open and Save As choose the format by the name you give:
 |---|---|---|
 | `.gnumeric` | Gnumeric's own, gzipped XML | everything office42 has, including the things no other format holds |
 | `.xlsx` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, charts, shapes, pictures, print setup, protection, chart sheets, custom views, scripts |
-| `.xls` | Excel 5 to 2003, BIFF8 | cells, formulas as Excel's own tokens, formats, notes, pictures, charts |
+| `.xls` | Excel 5 to 2003, BIFF8 | cells, formulas as Excel's own tokens, formats, notes, pictures, charts, form controls |
 | `.ods` | OpenDocument, LibreOffice Calc's own | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, frozen panes, pictures, shapes, charts |
 | `.html` | a table per sheet | values, fonts, fills, borders, alignments, merges, links |
 | `.csv` | comma separated | the values as shown, quoted where they need it |

@@ -180,10 +180,23 @@ o42_escher_drawing (int drawing_id, GArray *shapes)
 
       sp_at = a->len;
       header (a, 15, 0, ESC_SP_CONTAINER, 0);
-      header (a, 2, s->is_note ? 202 : s->is_chart ? 201 : 75, ESC_SP, 8);   /* text box, host control, picture frame */
+      header (a, 2, s->is_note ? 202 : s->is_chart || s->is_control ? 201 : 75, ESC_SP, 8);   /* text box, host control, picture frame */
       put32 (a, base + 1 + i);
       put32 (a, 0x0A00);                  /* has anchor, has shape type */
-      if (s->is_chart)
+      if (s->is_control)
+        {
+          /* What Excel puts on a form control: no fill of its own, no
+           * line, and the text laid out inside the shape. */
+          header (a, 3, 7, ESC_OPT, 7 * 6);
+          put16 (a, 0x007F); put32 (a, 0x01000100);
+          put16 (a, 0x0080); put32 (a, 0x00000000);
+          put16 (a, 0x0085); put32 (a, 0x00000001);
+          put16 (a, 0x00BF); put32 (a, 0x001A0008);
+          put16 (a, 0x01BF); put32 (a, 0x00100000);
+          put16 (a, 0x01FF); put32 (a, 0x00080000);
+          put16 (a, 0x03BF); put32 (a, 0x00080000);
+        }
+      else if (s->is_chart)
         {
           header (a, 3, 9, ESC_OPT, 9 * 6);
           put16 (a, 0x007F); put32 (a, 0x01040104);

@@ -69,10 +69,10 @@ has. The last column says what is missing, not what is there.
 | Number formats | 6 | 98% | 5.9 | the locale codes in `[$-409]` |
 | Fonts, borders, colours | 8 | 100% | 8.0 | |
 | Styles and conditional formats | 6 | 100% | 6.0 | |
-| Rows, columns, sheets | 7 | 98% | 6.9 | dragging a sheet tab, and tab colours |
+| Rows, columns, sheets | 7 | 100% | 7.0 | |
 | Data tools | 10 | 98% | 9.8 | Excel's own pivot parts, and its live TABLE() -- ours writes the numbers |
 | Charts | 8 | 100% | 8.0 | |
-| Objects | 5 | 99% | 5.0 | the form controls are not in `.xls`; `.xlsx` carries them |
+| Objects | 5 | 100% | 5.0 | |
 | File formats | 12 | 98% | 11.8 | Excel 5 charts in `.xls` come back as pictures of themselves |
 | Printing | 6 | 100% | 6.0 | |
 | Undo | 5 | 100% | 5.0 | |
@@ -191,10 +191,7 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **The form controls in `.xls`.** `.gnumeric` and `.xlsx` carry
-   them; BIFF wants them as Escher records with an OBJ apiece, which
-   is the last format that cannot hold a book whole.
-2. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
+1. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
    `o42-window.c` (8,000): both split along obvious seams.
-3. **Translations.** `menus.ui` marks its strings translatable and
+2. **Translations.** `menus.ui` marks its strings translatable and
    nothing reads them; there is no gettext in the build and no `po/`.

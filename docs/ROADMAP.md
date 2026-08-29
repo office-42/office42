@@ -8,18 +8,11 @@ section spelled out.
 
 ## Next
 
-**Sheet tabs that can be dragged.** Right-clicking one moves it left or
-right and two clicks rename it; the tab itself does not yet follow the
-pointer, and Excel's tab colours are not there.
-
-## After that
-
-**The form controls in `.xls`.** `.gnumeric` and `.xlsx` carry them
-now; BIFF wants them as Escher records with an OBJ record apiece.
-
 **More of the format language.** The locale codes in `[$-409]`.
 
 **More of `.ods`.** It reads more than it writes.
+
+## After that
 
 **Splitting the two big files.** `o42-eval.c` is 14,000 lines and
 `o42-window.c` 8,000; both split along obvious seams -- the evaluator

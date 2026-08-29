@@ -301,6 +301,29 @@ put_ustr16 (GByteArray *a, const char *text)
 /* Reading                                                                 */
 /* ====================================================================== */
 
+/* What one OBJ record said, kept until the sheet's drawing is read:
+ * the anchored shapes and the OBJ records come in the same order, so
+ * the nth of these belongs to the nth shape. */
+typedef struct {
+  guint16  ot;
+  int      kind;          /* an O42ShapeKind, or -1 for anything else */
+  char    *link;
+  char    *source;
+  char    *text;          /* the caption, from the TXO that follows */
+  double   value, min, max, step, page;
+  int      selected;
+  gboolean checked;
+  gboolean have_bounds;
+} ObjInfo;
+
+static void
+obj_info_clear (ObjInfo *info)
+{
+  g_clear_pointer (&info->link, g_free);
+  g_clear_pointer (&info->source, g_free);
+  g_clear_pointer (&info->text, g_free);
+}
+
 typedef struct
 {
   O42Book    *book;
@@ -360,7 +383,7 @@ typedef struct
   /* An embedded chart being read: its kind, the union of its series'
    * ranges, what the AI records said, and its title. */
   GArray     *chart_defs;       /* ChartDef, in the order the charts came */
-  GArray     *obj_types;        /* guint16: the ot of each OBJ, in order */
+  GArray     *objs;             /* ObjInfo: what each OBJ said, in order */
   gboolean    in_series;
   int         chart_depth;
 } Reader;
@@ -1648,6 +1671,146 @@ sheet_row_y (O42Sheet *sheet, int row)
   return y;
 }
 
+/* ---- Reading a form control's OBJ record ------------------------------- */
+
+/* Whether the OBJ record last read was a form control, and so whether
+ * the TXO that follows is its caption. */
+static gboolean
+last_obj_is_control (Reader *r)
+{
+  return r->objs->len > 0 &&
+    g_array_index (r->objs, ObjInfo, r->objs->len - 1).kind >= 0;
+}
+
+/* The kind an ot names, or -1 for an OBJ that is not a form control. */
+static int
+control_kind_of (guint16 ot)
+{
+  switch (ot)
+    {
+    case 0x07: return O42_SHAPE_BUTTON;
+    case 0x0B: return O42_SHAPE_CHECKBOX;
+    case 0x0C: return O42_SHAPE_OPTION;
+    case 0x0E: return O42_SHAPE_LABEL;
+    case 0x10: return O42_SHAPE_SPINNER;
+    case 0x11: return O42_SHAPE_SCROLLBAR;
+    case 0x12: return O42_SHAPE_LISTBOX;
+    case 0x13: return O42_SHAPE_GROUPBOX;
+    case 0x14: return O42_SHAPE_COMBO;
+    default:   return -1;
+    }
+}
+
+/* The reference inside an ObjFmla, as text: one ptg is all these
+ * records ever hold, and a three-dimensional one loses its sheet,
+ * which is the sheet the control is on anyway. */
+static char *
+obj_fmla_ref (const guchar *p, gsize len)
+{
+  guint cce;
+  const guchar *ptg;
+
+  if (len < 7)
+    return NULL;
+  cce = rd16 (p);
+  if (cce + 6 > len)
+    return NULL;
+  ptg = p + 6;
+  switch (ptg[0] & 0x1F)
+    {
+    case 0x04:   /* ptgRef */
+      if (cce >= 5)
+        return o42_ref_name (rd16 (ptg + 1), rd16 (ptg + 3) & 0x3FFF);
+      break;
+    case 0x05:   /* ptgArea */
+      if (cce >= 9)
+        {
+          char *a = o42_ref_name (rd16 (ptg + 1), rd16 (ptg + 5) & 0x3FFF);
+          char *b = o42_ref_name (rd16 (ptg + 3), rd16 (ptg + 7) & 0x3FFF);
+          char *both = g_strconcat (a, ":", b, NULL);
+
+          g_free (a); g_free (b);
+          return both;
+        }
+      break;
+    case 0x1A:   /* ptgRef3d */
+      if (cce >= 7)
+        return o42_ref_name (rd16 (ptg + 3), rd16 (ptg + 5) & 0x3FFF);
+      break;
+    case 0x1B:   /* ptgArea3d */
+      if (cce >= 11)
+        {
+          char *a = o42_ref_name (rd16 (ptg + 3), rd16 (ptg + 7) & 0x3FFF);
+          char *b = o42_ref_name (rd16 (ptg + 5), rd16 (ptg + 9) & 0x3FFF);
+          char *both = g_strconcat (a, ":", b, NULL);
+
+          g_free (a); g_free (b);
+          return both;
+        }
+      break;
+    default:
+      break;
+    }
+  return NULL;
+}
+
+/* Everything an OBJ record says about a form control, gathered from
+ * its subrecords: the cell it drives, a list's range, a spinner's
+ * bounds, whether a box is ticked. */
+static void
+read_control_records (ObjInfo *info, const guchar *p, gsize len)
+{
+  gsize i = 0;
+
+  while (i + 4 <= len)
+    {
+      guint ft = rd16 (p + i), cb = rd16 (p + i + 2);
+      const guchar *body = p + i + 4;
+
+      if (ft == 0)
+        break;
+      if (i + 4 + cb > len)
+        break;
+      switch (ft)
+        {
+        case 0x0A:    /* the check mark, twice over in some writers */
+          if (cb >= 2 && rd16 (body) != 0)
+            info->checked = TRUE;
+          break;
+        case 0x14:    /* a check box's or option button's linked cell */
+        case 0x0E:    /* a spinner's, a scroll bar's or a list's */
+          if (info->link == NULL)
+            info->link = obj_fmla_ref (body, cb);
+          break;
+        case 0x0C:    /* the bounds a spinner or scroll bar moves in */
+          if (cb >= 20 && (info->kind == O42_SHAPE_SPINNER || info->kind == O42_SHAPE_SCROLLBAR))
+            {
+              info->value = rd16 (body + 4);
+              info->min = rd16 (body + 6);
+              info->max = rd16 (body + 8);
+              info->step = rd16 (body + 10);
+              info->page = rd16 (body + 12);
+              info->have_bounds = TRUE;
+            }
+          break;
+        case 0x13:    /* a list box's or drop-down's own record */
+          if (cb >= 2)
+            {
+              guint fmla = rd16 (body);
+
+              if (fmla > 0 && fmla + 2 <= cb && info->source == NULL)
+                info->source = obj_fmla_ref (body + 2, fmla);
+              if (fmla + 2 + 4 <= cb)
+                info->selected = rd16 (body + 2 + fmla + 2);
+            }
+          break;
+        default:
+          break;
+        }
+      i += 4 + cb;
+    }
+}
+
 /* The sheet's shapes, once its records are all in: pictures become
  * pictures at their anchors; notes were placed by their NOTE records. */
 static void
@@ -1664,11 +1827,49 @@ read_drawing (Reader *r)
   for (guint i = 0; i < found->len; i++)
     {
       const O42EscherFound *f = &g_array_index (found, O42EscherFound, i);
+      const ObjInfo *info = i < r->objs->len ? &g_array_index (r->objs, ObjInfo, i) : NULL;
       GBytes *data;
       int pw, ph;
       const char *fmt;
       double x0, y0, x1, y1;
       O42Picture *pic;
+
+      /* A form control: the shape says where it is, its OBJ what it
+       * is and what it drives. */
+      if (info != NULL && info->kind >= 0 &&
+          f->col1 < O42_MAX_COLS && f->row1 < O42_MAX_ROWS)
+        {
+          O42Shape *shape = o42_sheet_add_shape (r->sheet, (O42ShapeKind) info->kind,
+                                                 f->row1, f->col1);
+
+          if (shape != NULL)
+            {
+              double sx0 = sheet_col_x (r->sheet, f->col1) + f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
+              double sy0 = sheet_row_y (r->sheet, f->row1) + f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
+              int c2 = MIN (f->col2, O42_MAX_COLS - 1), r2 = MIN (f->row2, O42_MAX_ROWS - 1);
+              double sx1 = sheet_col_x (r->sheet, c2) + f->dx2 * o42_sheet_col_width (r->sheet, c2);
+              double sy1 = sheet_row_y (r->sheet, r2) + f->dy2 * o42_sheet_row_height (r->sheet, r2);
+
+              shape->dx = f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
+              shape->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
+              shape->width = MAX (sx1 - sx0, 12);
+              shape->height = MAX (sy1 - sy0, 12);
+              if (info->text != NULL)
+                { g_free (shape->text); shape->text = g_strdup (info->text); }
+              if (info->link != NULL)
+                { g_free (shape->link); shape->link = g_strdup (info->link); }
+              if (info->source != NULL)
+                { g_free (shape->source); shape->source = g_strdup (info->source); }
+              if (info->have_bounds)
+                {
+                  shape->min = info->min;
+                  shape->max = info->max;
+                  shape->step = info->step;
+                  shape->page = info->page;
+                }
+            }
+          continue;
+        }
 
       if (f->is_chart)
         {
@@ -1821,14 +2022,23 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
     case R_OBJ:
       if (len >= 10 && rd16 (p) == 0x15)
         {
+          ObjInfo info;
           guint16 ot = rd16 (p + 4);
+
+          memset (&info, 0, sizeof info);
+          info.ot = ot;
+          info.kind = control_kind_of (ot);
           r->obj_id = rd16 (p + 6);
           r->obj_is_note = ot == 0x19;
-          g_array_append_val (r->obj_types, ot);
+          if (info.kind >= 0 && len > 22)
+            read_control_records (&info, p + 22, len - 22);
+          g_array_append_val (r->objs, info);
         }
       break;
     case R_TXO:
-      if (len >= 18 && r->obj_is_note)
+      /* The text of the object the last OBJ named: a note's, or the
+       * caption on a form control. */
+      if (len >= 18 && (r->obj_is_note || last_obj_is_control (r)))
         {
           r->txo_chars = rd16 (p + 10);
           g_string_truncate (r->txo_text, 0);
@@ -2024,7 +2234,9 @@ read_workbook (Reader *r, GError **error)
                 g_hash_table_remove_all (r->shared);
                 g_hash_table_remove_all (r->note_texts);
                 g_byte_array_set_size (r->drawing, 0);
-                g_array_set_size (r->obj_types, 0);
+                for (guint k = 0; k < r->objs->len; k++)
+                  obj_info_clear (&g_array_index (r->objs, ObjInfo, k));
+                g_array_set_size (r->objs, 0);
                 for (guint k = 0; k < r->chart_defs->len; k++)
                   g_free (g_array_index (r->chart_defs, ChartDef, k).title);
                 g_array_set_size (r->chart_defs, 0);
@@ -2107,9 +2319,10 @@ read_workbook (Reader *r, GError **error)
             g_ptr_array_add (sst_segs, g_bytes_new (body, len));
           else if (r->group != NULL && r->group_open)
             g_byte_array_append (r->group, body, len);
-          else if (r->obj_is_note && r->txo_chars > 0 && len >= 1)
+          else if ((r->obj_is_note || last_obj_is_control (r)) && r->txo_chars > 0 && len >= 1)
             {
-              /* The note's text: a flags byte, then the characters. */
+              /* The text of a note or of a control's caption: a flags
+               * byte, then the characters. */
               const guchar *q = body + 1, *qend = body + len;
               gboolean wide = (body[0] & 0x01) != 0;
               while (r->txo_chars > 0 && q < qend)
@@ -2120,7 +2333,15 @@ read_workbook (Reader *r, GError **error)
                 }
               if (r->txo_chars == 0)
                 {
-                  g_hash_table_insert (r->note_texts, GUINT_TO_POINTER (r->obj_id), g_strdup (r->txo_text->str));
+                  if (r->obj_is_note)
+                    g_hash_table_insert (r->note_texts, GUINT_TO_POINTER (r->obj_id), g_strdup (r->txo_text->str));
+                  else
+                    {
+                      ObjInfo *info = &g_array_index (r->objs, ObjInfo, r->objs->len - 1);
+
+                      g_free (info->text);
+                      info->text = g_strdup (r->txo_text->str);
+                    }
                   r->obj_is_note = FALSE;
                 }
             }
@@ -2225,7 +2446,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.group = g_byte_array_new ();
   r.drawing = g_byte_array_new ();
   r.chart_defs = g_array_new (FALSE, FALSE, sizeof (ChartDef));
-  r.obj_types = g_array_new (FALSE, FALSE, sizeof (guint16));
+  r.objs = g_array_new (FALSE, FALSE, sizeof (ObjInfo));
 
   o42_book_clear (book);
   ok = read_workbook (&r, error);
@@ -2304,7 +2525,9 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   for (guint k = 0; k < r.chart_defs->len; k++)
     g_free (g_array_index (r.chart_defs, ChartDef, k).title);
   g_array_unref (r.chart_defs);
-  g_array_unref (r.obj_types);
+  for (guint k = 0; k < r.objs->len; k++)
+    obj_info_clear (&g_array_index (r.objs, ObjInfo, k));
+  g_array_unref (r.objs);
   g_bytes_unref (stream);
   return ok;
 }
@@ -2969,6 +3192,198 @@ chart_axis (Writer *w, int which)
   begin_record (w, C_END); end_record (w);
 }
 
+/* ---- Form controls in a sheet's OBJ records ---------------------------- */
+
+/* The ot of a form control: the number Excel's OBJ record uses to say
+ * what kind of thing the shape is. */
+static guint16
+control_ot (O42ShapeKind kind)
+{
+  switch (kind)
+    {
+    case O42_SHAPE_BUTTON:    return 0x07;
+    case O42_SHAPE_CHECKBOX:  return 0x0B;
+    case O42_SHAPE_OPTION:    return 0x0C;
+    case O42_SHAPE_LABEL:     return 0x0E;
+    case O42_SHAPE_SPINNER:   return 0x10;
+    case O42_SHAPE_SCROLLBAR: return 0x11;
+    case O42_SHAPE_LISTBOX:   return 0x12;
+    case O42_SHAPE_GROUPBOX:  return 0x13;
+    case O42_SHAPE_COMBO:     return 0x14;
+    default:                  return 0x08;
+    }
+}
+
+/* The little formula a control keeps for its linked cell or for its
+ * list's range: a length, four unused bytes, one ptg, and a pad byte.
+ * An empty array comes back for anything that is not a plain
+ * reference, and the caller then leaves the record out. */
+static GByteArray *
+obj_fmla (const char *ref)
+{
+  GByteArray *a = g_byte_array_new ();
+  const char *colon = ref != NULL ? strchr (ref, ':') : NULL;
+  int r1 = 0, c1 = 0, r2 = 0, c2 = 0;
+  gboolean area = FALSE;
+
+  if (ref == NULL || *ref == 0)
+    return a;
+  if (colon != NULL)
+    {
+      char *left = g_strndup (ref, (gsize) (colon - ref));
+
+      area = o42_ref_parse (left, &r1, &c1, NULL) && o42_ref_parse (colon + 1, &r2, &c2, NULL);
+      g_free (left);
+      if (!area)
+        return a;
+    }
+  else if (!o42_ref_parse (ref, &r1, &c1, NULL))
+    return a;
+
+  put16 (a, area ? 9 : 5);
+  put32 (a, 0);
+  if (area)
+    {
+      put8 (a, 0x25);
+      put16 (a, r1); put16 (a, r2); put16 (a, c1); put16 (a, c2);
+    }
+  else
+    {
+      put8 (a, 0x24);
+      put16 (a, r1); put16 (a, c1);
+    }
+  put8 (a, 0);
+  return a;
+}
+
+/* The subrecords after ftCmo that carry what a control is set to: the
+ * cell it drives, a check mark, a spinner's bounds, a list's range.
+ * The shapes of these records are Excel's, and are what LibreOffice
+ * writes for the same controls, so that both read them back. */
+static void
+put_control_records (Writer *w, O42Sheet *sheet, const O42Shape *shape)
+{
+  GByteArray *link = obj_fmla (shape->link);
+  double value = 0;
+  gboolean has_value = o42_sheet_control_value (sheet, shape, &value);
+
+  switch (shape->kind)
+    {
+    case O42_SHAPE_CHECKBOX:
+    case O42_SHAPE_OPTION:
+      {
+        int on = shape->kind == O42_SHAPE_CHECKBOX
+          ? (has_value && value != 0)
+          : (has_value && value == (shape->value != 0 ? shape->value : 1));
+
+        put16 (w->out, 0x0A); put16 (w->out, 12);
+        put16 (w->out, on);
+        for (int k = 0; k < 10; k++) put8 (w->out, 0);
+        if (link->len > 0)
+          {
+            put16 (w->out, 0x14); put16 (w->out, link->len);
+            g_byte_array_append (w->out, link->data, link->len);
+          }
+        put16 (w->out, 0x0A); put16 (w->out, 8);
+        put16 (w->out, on);
+        for (int k = 0; k < 6; k++) put8 (w->out, 0);
+      }
+      break;
+
+    case O42_SHAPE_SPINNER:
+    case O42_SHAPE_SCROLLBAR:
+      put16 (w->out, 0x0C); put16 (w->out, 20);
+      put32 (w->out, 0);
+      put16 (w->out, (int) (has_value ? value : shape->min));
+      put16 (w->out, (int) shape->min);
+      put16 (w->out, (int) shape->max);
+      put16 (w->out, (int) (shape->step > 0 ? shape->step : 1));
+      put16 (w->out, (int) (shape->page > 0 ? shape->page : 10));
+      put16 (w->out, shape->kind == O42_SHAPE_SCROLLBAR && shape->width >= shape->height ? 1 : 0);
+      put16 (w->out, 0x000F);
+      put16 (w->out, 1);
+      if (link->len > 0)
+        {
+          put16 (w->out, 0x0E); put16 (w->out, link->len);
+          g_byte_array_append (w->out, link->data, link->len);
+        }
+      break;
+
+    case O42_SHAPE_LISTBOX:
+    case O42_SHAPE_COMBO:
+      {
+        GByteArray *src = obj_fmla (shape->source);
+        char **items = o42_sheet_control_items (sheet, shape);
+        int lines = items != NULL ? (int) g_strv_length (items) : 0;
+        int sel = (int) (has_value ? value : 0);
+
+        put16 (w->out, 0x0C); put16 (w->out, 20);
+        put32 (w->out, 0);
+        put16 (w->out, sel); put16 (w->out, 0); put16 (w->out, 0);
+        put16 (w->out, 1); put16 (w->out, lines);
+        put16 (w->out, 0); put16 (w->out, 0x000F); put16 (w->out, 1);
+        if (link->len > 0)
+          {
+            put16 (w->out, 0x0E); put16 (w->out, link->len);
+            g_byte_array_append (w->out, link->data, link->len);
+          }
+
+        /* The list's own record: the range it reads, how many rows
+         * that is, and which of them is chosen. */
+        put16 (w->out, 0x13);
+        put16 (w->out, src->len + (shape->kind == O42_SHAPE_COMBO ? 18 : 11));
+        put16 (w->out, src->len);
+        if (src->len > 0)
+          g_byte_array_append (w->out, src->data, src->len);
+        put16 (w->out, lines);
+        put16 (w->out, sel);
+        put16 (w->out, 0); put16 (w->out, 0);
+        if (shape->kind == O42_SHAPE_COMBO)
+          { put16 (w->out, 0); put16 (w->out, 1); put16 (w->out, 0); put16 (w->out, 0); }
+        else
+          put8 (w->out, 0);
+        g_byte_array_unref (src);
+        if (items != NULL)
+          g_strfreev (items);
+      }
+      break;
+
+    case O42_SHAPE_GROUPBOX:
+      put16 (w->out, 0x0F); put16 (w->out, 6);
+      for (int k = 0; k < 6; k++) put8 (w->out, 0);
+      break;
+
+    default:
+      break;
+    }
+  g_byte_array_unref (link);
+}
+
+/* A control's caption travels as the text of the shape, in a TXO and
+ * the two CONTINUEs that follow it: the characters, then one run. */
+static void
+write_control_text (Writer *w, const O42Shape *shape)
+{
+  glong n;
+
+  if (shape->text == NULL || *shape->text == 0)
+    return;
+  n = MIN (char_count (shape->text), 32000);
+  begin_record (w, R_TXO);
+  put16 (w->out, shape->kind == O42_SHAPE_BUTTON ? 0x0024 : 0x0022);
+  put16 (w->out, 0);
+  for (int k = 0; k < 6; k++) put8 (w->out, 0);
+  put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
+  end_record (w);
+  begin_record (w, R_CONTINUE);
+  put_ustr_body (w->out, shape->text);
+  end_record (w);
+  begin_record (w, R_CONTINUE);
+  put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
+  put16 (w->out, n); put16 (w->out, 0); put32 (w->out, 0);
+  end_record (w);
+}
+
 /* The chart substream that follows a chart's OBJ record, in the order
  * Excel and Calc write it: the frame, a SERIES per data column with
  * its AI links, the axes, the chart type, the legend and the title. */
@@ -3204,6 +3619,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     GPtrArray *pictures = o42_sheet_pictures (sheet);
     GHashTable *notes = o42_sheet_notes (sheet);
     GArray *shapes = g_array_new (FALSE, FALSE, sizeof (O42EscherShape));
+    GPtrArray *controls = g_ptr_array_new ();   /* per shape: its O42Shape, or NULL */
     GHashTableIter iter;
     gpointer key, value;
     int first_blip = 0;
@@ -3235,6 +3651,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
         s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
         g_array_append_val (shapes, s);
+        g_ptr_array_add (controls, NULL);
       }
     {
       GPtrArray *charts = o42_sheet_charts (sheet);
@@ -3259,8 +3676,43 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
           s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
           s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
           g_array_append_val (shapes, s);
+          g_ptr_array_add (controls, NULL);
         }
     }
+
+    /* The form controls, anchored the way a picture is. */
+    {
+      GPtrArray *sheet_shapes = o42_sheet_shapes (sheet);
+
+      for (guint i = 0; i < sheet_shapes->len; i++)
+        {
+          const O42Shape *shape = g_ptr_array_index (sheet_shapes, i);
+          O42EscherShape s;
+          double x1, y1, x, y;
+          int c, rr;
+
+          if (!o42_shape_is_control (shape->kind))
+            continue;
+          x1 = sheet_col_x (sheet, shape->col) + shape->dx + shape->width;
+          y1 = sheet_row_y (sheet, shape->row) + shape->dy + shape->height;
+          c = shape->col; rr = shape->row;
+          x = sheet_col_x (sheet, c); y = sheet_row_y (sheet, rr);
+
+          memset (&s, 0, sizeof s);
+          s.is_control = TRUE;
+          s.col1 = shape->col; s.row1 = shape->row;
+          s.dx1 = shape->dx / MAX (o42_sheet_col_width (sheet, shape->col), 1);
+          s.dy1 = shape->dy / MAX (o42_sheet_row_height (sheet, shape->row), 1);
+          while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
+          while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
+          s.col2 = c; s.row2 = rr;
+          s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
+          s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
+          g_array_append_val (shapes, s);
+          g_ptr_array_add (controls, (gpointer) shape);
+        }
+    }
+
     g_hash_table_iter_init (&iter, notes);
     while (g_hash_table_iter_next (&iter, &key, &value))
       {
@@ -3276,6 +3728,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         s.col2 = MIN (s.note_col + 3, O42_MAX_COLS - 1); s.dx2 = 0.8;
         s.row2 = MIN (s.note_row + 3, O42_MAX_ROWS - 1); s.dy2 = 0.2;
         g_array_append_val (shapes, s);
+        g_ptr_array_add (controls, NULL);
       }
 
     if (shapes->len > 0)
@@ -3290,12 +3743,17 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             g_byte_array_append (w->out, g_bytes_get_data (chunk, NULL), g_bytes_get_size (chunk));
             end_record (w);
 
+            const O42Shape *ctl = i < controls->len ? g_ptr_array_index (controls, i) : NULL;
+
             begin_record (w, R_OBJ);
             put16 (w->out, 0x15); put16 (w->out, 0x12);
-            put16 (w->out, s->is_note ? 0x19 : s->is_chart ? 0x05 : 0x08);
+            put16 (w->out, ctl != NULL ? control_ot (ctl->kind)
+                           : s->is_note ? 0x19 : s->is_chart ? 0x05 : 0x08);
             put16 (w->out, i + 1);
-            put16 (w->out, s->is_note ? 0x4011 : 0x6011);
+            put16 (w->out, ctl != NULL ? 0x0011 : s->is_note ? 0x4011 : 0x6011);
             for (int k = 0; k < 12; k++) put8 (w->out, 0);
+            if (ctl != NULL)
+              put_control_records (w, sheet, ctl);
             if (s->is_note)
               {
                 put16 (w->out, 0x0D); put16 (w->out, 0x16);
@@ -3305,6 +3763,8 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             put16 (w->out, 0); put16 (w->out, 0);
             end_record (w);
 
+            if (ctl != NULL)
+              write_control_text (w, ctl);
             if (s->is_chart)
               write_chart_substream (w, sheet, index, g_ptr_array_index (o42_sheet_charts (sheet), s->blip));
             if (s->is_note)
@@ -3337,6 +3797,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
           }
         g_ptr_array_unref (chunks);
       }
+    g_ptr_array_unref (controls);
     g_array_unref (shapes);
   }
 
