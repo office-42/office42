@@ -42,6 +42,7 @@ thing that knows what a mouse is.
 | | `o42-pdf.c` | 1,412 | Pages out, and pages in through poppler | Shares its layout with the printer |
 | | `o42-sql.c` | 619 | The SQLite database | The smallest of the io files that does something whole |
 | | `o42-text-formats.c` | 687 | DIF, SYLK and LaTeX | Three formats older than the programs that read them, and the one a paper is set in |
+| | `o42-lotus.c` | 247 | Lotus 1-2-3, both ways | The oldest format here, and the smallest reader |
 | script | `o42-python.c` | 962 | CPython embedded | Optional; the API is `book` and `sheet` objects |
 | ui | `o42-window.c` | 8,004 | 106 actions, every dialog, printing | Too big by the same argument as the evaluator: the dialogs could be a file of their own |
 | | `o42-grid.c` | 4,520 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
@@ -163,13 +164,13 @@ against.
 | Data tools | 12 | 100% | 12.0 | |
 | Charts | 8 | 97% | 7.8 | GOffice's styling, and the plot types nobody asks for |
 | Objects | 4 | 99% | 4.0 | |
-| File formats | 14 | 88% | 12.3 | Lotus, Applix and Quattro, all of them binary and long dead; `.gnumeric` itself is nearly complete |
+| File formats | 14 | 94% | 13.2 | Quattro Pro and Applix, both long dead; `.gnumeric` itself is nearly complete |
 | Printing | 6 | 98% | 5.9 | as above |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 5 | 98% | 4.9 | Gnumeric's side pane for names and its object list |
-| **Total** | 100 | | **96.8** | |
+| **Total** | 100 | | **97.7** | |
 
-**About 97% of Gnumeric.**
+**About 98% of Gnumeric.**
 
 ## 5. Where office42 goes further
 
@@ -192,7 +193,7 @@ In the order the work is being done, largest gap first.
 1. **Splitting the two big files**, `o42-eval.c` (16,000 lines) and
    `o42-window.c` (8,600): both split along obvious seams -- the
    evaluator by function family, the window by dialog.
-2. **The last of the file formats Gnumeric reads**: Lotus 1-2-3,
-   Quattro Pro and Applix, all of them binary and long dead.
+2. **The last two file formats Gnumeric reads**: Quattro Pro and
+   Applix, both binary and long dead.
 3. **Miltersen and Schwartz on commodity options**, the one formula of
    Gnumeric's derivatives plugin that is not here.

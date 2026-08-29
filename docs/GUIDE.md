@@ -650,6 +650,7 @@ File ▸ Open and Save As choose the format by the name you give:
 | `.dif` | VisiCalc's Data Interchange Format | one sheet: the numbers as numbers and everything else as text |
 | `.slk` | Multiplan's SYLK, which Excel still offers | one sheet: values, formulas in R1C1, column widths |
 | `.tex` | export only | a LaTeX tabular of what the cells show, bold and italic kept |
+| `.wk1` | Lotus 1-2-3 release 2 | one sheet: labels and numbers, and what a formula last worked out |
 | `.pdf` | export only (import with poppler) | the printed pages |
 
 Every one of them but LaTeX and PDF is read as well as written, and

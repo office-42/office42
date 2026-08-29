@@ -21,6 +21,7 @@
 #include "o42-sql.h"
 #include "o42-csv.h"
 #include "o42-text-formats.h"
+#include "o42-lotus.h"
 #include "o42-gnumeric.h"
 #include "o42-xlsx.h"
 #include "o42-xls.h"
@@ -7389,6 +7390,16 @@ file_is_sylk (GFile *file)
 }
 
 static gboolean
+file_is_lotus (GFile *file)
+{
+  char *name = g_file_get_basename (file);
+  gboolean wk1 = name != NULL && (g_str_has_suffix (name, ".wk1") ||
+                                  g_str_has_suffix (name, ".wks"));
+  g_free (name);
+  return wk1;
+}
+
+static gboolean
 file_is_latex (GFile *file)
 {
   char *name = g_file_get_basename (file);
@@ -7443,12 +7454,13 @@ o42_window_open_file (O42Window *self, GFile *file)
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
   if (file_is_csv (file) || file_is_html (file) ||
-      file_is_dif (file) || file_is_sylk (file))
+      file_is_dif (file) || file_is_sylk (file) || file_is_lotus (file))
     {
-      ok = file_is_csv (file)  ? o42_csv_load (self->sheet, file, &error)
-         : file_is_dif (file)  ? o42_dif_load (self->sheet, file, &error)
-         : file_is_sylk (file) ? o42_sylk_load (self->sheet, file, &error)
-                               : o42_html_load (self->sheet, file, &error);
+      ok = file_is_csv (file)   ? o42_csv_load (self->sheet, file, &error)
+         : file_is_dif (file)   ? o42_dif_load (self->sheet, file, &error)
+         : file_is_sylk (file)  ? o42_sylk_load (self->sheet, file, &error)
+         : file_is_lotus (file) ? o42_lotus_load (self->sheet, file, &error)
+                                : o42_html_load (self->sheet, file, &error);
       o42_sheet_clear_undo (self->sheet);
       o42_sheet_set_modified (self->sheet, FALSE);
     }
@@ -7507,6 +7519,8 @@ window_save_to (O42Window *self, GFile *file)
     ok = o42_sylk_save (self->sheet, file, &error);
   else if (file_is_latex (file))
     ok = o42_latex_save (self->sheet, file, &error);
+  else if (file_is_lotus (file))
+    ok = o42_lotus_save (self->sheet, file, &error);
   else if (file_is_xlsx (file))
     ok = o42_xlsx_save (self->book, file, &error);
   else if (file_is_xls (file))
@@ -7540,7 +7554,8 @@ window_save_to (O42Window *self, GFile *file)
       g_free (said);
     }
 
-  if (file_is_csv (file) || file_is_dif (file) || file_is_sylk (file))
+  if (file_is_csv (file) || file_is_dif (file) || file_is_sylk (file) ||
+      file_is_lotus (file))
     o42_sheet_set_modified (self->sheet, FALSE);
   else
     o42_book_set_modified (self->book, FALSE);
@@ -7569,6 +7584,7 @@ book_filters (void)
   g_list_store_append (filters, pattern_filter ("Data Interchange Format (*.dif)", "*.dif"));
   g_list_store_append (filters, pattern_filter ("SYLK (*.slk)", "*.slk"));
   g_list_store_append (filters, pattern_filter ("LaTeX Tables (*.tex)", "*.tex"));
+  g_list_store_append (filters, pattern_filter ("Lotus 1-2-3 Worksheets (*.wk1)", "*.wk1"));
   g_list_store_append (filters, pattern_filter ("All Files", "*"));
 
   return G_LIST_MODEL (filters);
