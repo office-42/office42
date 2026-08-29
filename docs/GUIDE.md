@@ -230,13 +230,16 @@ The families, with a few from each:
 | Lookup | `VLOOKUP`, `INDEX`, `MATCH`, `XLOOKUP`, `CHOOSECOLS`, `TAKE`, `DROP`, `OFFSET`, `INDIRECT` |
 | Text | `LEFT`, `MID`, `SUBSTITUTE`, `TEXT`, `TEXTJOIN`, `TEXTBEFORE`, `TEXTSPLIT`, `PROPER`, `UNICHAR` |
 | Dates | `DATE`, `EDATE`, `EOMONTH`, `WEEKNUM`, `NETWORKDAYS.INTL`, `WORKDAY.INTL`, `YEARFRAC`, `DATEDIF` |
+| The Hebrew calendar | `HDATE`, `HDATE_YEAR`, `HDATE_MONTH`, `HDATE_DAY`, `HDATE_JULIAN`, `HDATE2DATE`, `HDATE2JULIAN`, `DATE2HDATE` |
 | Money | `PMT`, `IRR`, `XNPV`, `PRICE`, `YIELD`, `DURATION`, `COUPNUM`, `TBILLEQ`, `AMORLINC` |
 | Database | `DSUM`, `DGET`, `DAVERAGE`, `DCOUNT` with a criteria table |
 | Engineering | `CONVERT`, `BESSELJ`, `DEC2HEX`, `COMPLEX`, `IMSINH`, `IMARCTAN`, `DELTA`, `ERF` |
 | Logic and information | `IF`, `IFS`, `SWITCH`, `LET`, `LAMBDA`, `ISFORMULA`, `CELL`, `INFO`, `SHEET`, `FORMULATEXT` |
 
 Every function Excel 2003 has is here, along with a good deal of
-Gnumeric's own and the newer Excel ones that are worth having. Text in
+Gnumeric's own and the newer Excel ones that are worth having. The
+Hebrew ones count months from Tishri, where the civil year begins, so
+that a leap year's Adar I is 6 and its Adar II is 7. Text in
 a range is skipped by `SUM` and counted by `SUMA`, as in Gnumeric.
 
 ## 7. Formatting
