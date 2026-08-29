@@ -28,13 +28,15 @@ thing that knows what a mouse is.
 | | `o42-date.c` | 241 | Serial dates, the 1900 leap-year bug included | Deliberately bug-compatible, and says so |
 | | `o42-image.c` | 156 | Decoding a picture's bytes | A thin cover over gdk-pixbuf |
 | | `o42-spell.c` | 348 | Hunspell, when it is there | Optional; without it every word passes |
-| model | `o42-sheet.c` | 7,774 | Cells, formats, recalculation, undo, objects, filters, tables, queries | The largest file after the evaluator, and the one that would gain most from being split: cells, recalculation and objects are three subjects in one file |
+| model | `o42-sheet.c` | 8,580 | Cells, formats, recalculation, undo, objects, filters, tables, queries | The largest file after the evaluator, and the one that would gain most from being split: cells, recalculation and objects are three subjects in one file |
 | | `o42-book.c` | 980 | Sheets, names, styles, scripts, the database, the undo stack they share | Clean |
-| | `o42-chart.c` | 2,086 | Thirteen kinds of chart, drawn in cairo | One long draw per family; the axis arithmetic is repeated in four of them |
+| | `o42-chart.c` | 2,521 | Seventeen kinds of chart, drawn in cairo | One long draw per family; the axis arithmetic is repeated in four of them |
 | | `o42-shape.c` | 551 | Shapes and the nine form controls | Fine |
 | | `o42-analysis.c` | 928 | The statistical analysis tools | Each writes a labelled table; no drawing |
 | formula | `o42-formula.c` | 1,662 | Lexer and parser | Handles array constants, empty arguments, 3-D and structured references |
-| | `o42-eval.c` | 16,073 | 610 functions and the array evaluator | Far too big for one file. The function table is sorted and binary-searched, which is right, but the file should be several: text, dates, money, statistics, engineering, the array frame |
+| | `o42-eval.c` | 10,059 | The machine: operands, array constants, the tree walk, the tables | Was 16,073 and one file; the families live beside it now |
+| | `o42-eval-private.h` | 180 | The seam between the machine and the families | What a family may lean on, and nothing else |
+| | `o42-fn-*.c` | 6,400 | Eleven families: text, dates, statistics, distributions, finance, options, engineering, random, Hebrew dates, Bessel, info | Each keeps its own function table and its own help |
 | io | `o42-xls.c` | 3,943 | BIFF8 both ways, BIFF5 in | Dense but commented; the record numbers are named |
 | | `o42-xlsx.c` + `-draw.c` | 4,478 | Office Open XML, on a zip of our own | The drawing half is separate, which keeps both readable |
 | | `o42-ods.c` | 3,165 | OpenDocument | Cells, styles, charts, controls, both ways |
@@ -44,8 +46,8 @@ thing that knows what a mouse is.
 | | `o42-text-formats.c` | 687 | DIF, SYLK and LaTeX | Three formats older than the programs that read them, and the one a paper is set in |
 | | `o42-lotus.c` | 247 | Lotus 1-2-3, both ways | The oldest format here, and the smallest reader |
 | script | `o42-python.c` | 962 | CPython embedded | Optional; the API is `book` and `sheet` objects |
-| ui | `o42-window.c` | 8,004 | 106 actions, every dialog, printing | Too big by the same argument as the evaluator: the dialogs could be a file of their own |
-| | `o42-grid.c` | 4,520 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
+| ui | `o42-window.c` | 8,818 | 111 actions, every dialog, printing | The biggest file now, and the one that would gain most from being split: the dialogs could be a file of their own |
+| | `o42-grid.c` | 5,400 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
 
 **What the review turned up.** Three things stand out. The first is
 size: `o42-eval.c` and `o42-window.c` are each big enough that finding
@@ -190,9 +192,9 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **Splitting the two big files**, `o42-eval.c` (16,000 lines) and
-   `o42-window.c` (8,600): both split along obvious seams -- the
-   evaluator by function family, the window by dialog.
+1. **Splitting `o42-window.c`** (8,800 lines): the dialogs would make
+   a file of their own, the way the evaluator's function families now
+   do.
 2. **The last two file formats Gnumeric reads**: Quattro Pro and
    Applix, both binary and long dead.
 3. **Miltersen and Schwartz on commodity options**, the one formula of

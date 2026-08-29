@@ -8,9 +8,9 @@ section spelled out.
 
 ## Next
 
-**Splitting the two big files.** `o42-eval.c` is 16,000 lines and
-`o42-window.c` 8,600; both split along obvious seams -- the evaluator
-by function family, the window by dialog.
+**Splitting `o42-window.c`.** It is 8,800 lines; the dialogs would make
+a file of their own, the way the evaluator's eleven function families
+now do.
 
 ## Not planned
 
