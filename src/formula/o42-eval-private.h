@@ -39,11 +39,13 @@ typedef struct {
 
 /* Each family's tables, both ended by an entry whose name is NULL.
  * o42-eval.c gathers them, sorts them and searches the lot. */
+extern const O42Function     O42_FUNCS_DISTRIBUTIONS[];
 extern const O42Function     O42_FUNCS_FINANCE[];
 extern const O42Function     O42_FUNCS_INFO[];
 extern const O42Function     O42_FUNCS_BESSEL[];
 extern const O42Function     O42_FUNCS_RANDOM[];
 extern const O42Function     O42_FUNCS_OPTIONS[];
+extern const O42FunctionHelp O42_HELP_DISTRIBUTIONS[];
 extern const O42FunctionHelp O42_HELP_FINANCE[];
 extern const O42FunctionHelp O42_HELP_INFO[];
 extern const O42FunctionHelp O42_HELP_BESSEL[];
@@ -65,6 +67,42 @@ gboolean o42_collect_numbers (O42EvalContext *ctx, O42Operand *args, int n,
 /* The normal distribution, which half the functions here are built on. */
 double o42_normal_cdf (double z);
 double o42_normal_pdf (double x);
+
+/* The inverse of the normal distribution: Acklam's approximation with
+ * a step of Newton's method on top. */
+double o42_normal_inverse (double p);
+
+/* Sorting doubles, for the functions that must see their numbers in
+ * order. */
+int o42_compare_doubles (gconstpointer a, gconstpointer b);
+
+/* The mean and the sum of squared deviations of an array, in one
+ * walk. */
+void o42_moments (const GArray *values, double *mean, double *ssd);
+
+/* An argument that may not be there: TRUE unless it says otherwise. */
+gboolean o42_optional_bool (O42EvalContext *ctx, O42Operand *args, int n, int index,
+                            gboolean fallback, gboolean *out);
+
+/* The regularised lower incomplete gamma function, which the chi
+ * squared and the Poisson are both written in terms of. */
+double o42_gamma_p (double a, double x);
+
+double o42_f_cdf (double x, double d1, double d2);
+
+double o42_t_cdf (double t, double df, double unused);
+
+/* The inverse of a distribution by bisection, for the ones with no
+ * closed form. */
+double o42_invert_cdf (double (*cdf) (double x, double a, double b),
+                       double p, double a, double b, double lo, double hi);
+
+/* The regularised incomplete beta function, which the t, the F and the
+ * binomial are all written in terms of. */
+double o42_beta_i (double a, double b, double x);
+
+/* The chi-squared distribution, which several tests end in. */
+double o42_chi_cdf (double x, double df, double unused);
 
 /* ---- Reading arguments -------------------------------------------------- */
 

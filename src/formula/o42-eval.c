@@ -19,6 +19,16 @@
 #define normal_cdf o42_normal_cdf
 #define normal_pdf o42_normal_pdf
 #define collect_numbers o42_collect_numbers
+#define chi_cdf o42_chi_cdf
+#define beta_i o42_beta_i
+#define invert_cdf o42_invert_cdf
+#define t_cdf o42_t_cdf
+#define f_cdf o42_f_cdf
+#define gamma_p o42_gamma_p
+#define compare_doubles o42_compare_doubles
+#define optional_bool o42_optional_bool
+#define moments o42_moments
+#define normal_inverse o42_normal_inverse
 
 static O42Value eval_node (O42EvalContext *ctx, const O42Node *node);
 
@@ -488,8 +498,8 @@ fn_counta (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (count_non_blank (ctx, args, n));
 }
 
-static int
-compare_doubles (gconstpointer a, gconstpointer b)
+int
+o42_compare_doubles (gconstpointer a, gconstpointer b)
 {
   double x = *(const double *) a;
   double y = *(const double *) b;
@@ -2045,8 +2055,8 @@ o42_collect_numbers (O42EvalContext *ctx, O42Operand *args, int n,
  * with a large mean and a small spread; two passes are what Gnumeric does
  * and what keeps STDEV of 1000000.1, 1000000.2, 1000000.3 at 0.1 rather
  * than at something with a stray digit in it. */
-static void
-moments (const GArray *values, double *mean, double *ssd)
+void
+o42_moments (const GArray *values, double *mean, double *ssd)
 {
   double sum = 0, m, s = 0, correction = 0;
   guint n = values->len;
@@ -2451,8 +2461,8 @@ o42_normal_pdf (double x)
 /* Its inverse: Acklam's rational approximation, then one step of Newton's
  * method on the CDF, which takes the error from about 1e-9 to the last
  * digit of a double. */
-static double
-normal_inverse (double p)
+double
+o42_normal_inverse (double p)
 {
   static const double a[] = { -3.969683028665376e+01, 2.209460984245205e+02,
                               -2.759285104469687e+02, 1.383577518672690e+02,
@@ -4096,7 +4106,6 @@ fn_getenv (O42EvalContext *ctx, O42Operand *args, int n)
 
 /* ---- Two tests for normality, and the Fourier transform -------------- */
 
-static double chi_cdf (double x, double df, double unused);
 /* ---- Two tests for normality, and the Fourier transform -------------- */
 
 /* Anderson and Darling's test: how far a sample is from the normal
@@ -4581,7 +4590,6 @@ EASTER_FUNCTION (fn_pentecostsunday, 49)
 
 /* ---- More of Gnumeric's statistics ------------------------------------ */
 
-static double chi_cdf (double x, double df, double unused);
 /* ---- More of Gnumeric's statistics ------------------------------------ */
 
 /* GEOMDIST(k, p, cumulative): how many failures before the first
@@ -4825,474 +4833,6 @@ fn_percentrank_exc (O42EvalContext *ctx, O42Operand *args, int n)
   scale = pow (10, floor (sig));
   return o42_value_number (floor (rank * scale + 1e-9) / scale);
 }
-
-/* ---- Distributions ----------------------------------------------------- */
-
-/* The regularised incomplete gamma function P(a, x), by the series for
- * x < a + 1 and the continued fraction (modified Lentz) beyond, which is
- * the standard split and accurate to about 1e-14 either side. */
-static double
-gamma_p (double a, double x)
-{
-  if (x <= 0)
-    return 0;
-
-  if (x < a + 1)
-    {
-      double sum = 1.0 / a, term = 1.0 / a, ap = a;
-
-      for (int i = 0; i < 1000; i++)
-        {
-          ap += 1;
-          term *= x / ap;
-          sum += term;
-          if (fabs (term) < fabs (sum) * 1e-16)
-            break;
-        }
-      return sum * exp (-x + a * log (x) - lgamma (a));
-    }
-  else
-    {
-      double b = x + 1 - a, c = 1e300, d = 1 / b, h = d;
-
-      for (int i = 1; i < 1000; i++)
-        {
-          double an = -i * (i - a), del;
-
-          b += 2;
-          d = an * d + b;
-          if (fabs (d) < 1e-300) d = 1e-300;
-          c = b + an / c;
-          if (fabs (c) < 1e-300) c = 1e-300;
-          d = 1 / d;
-          del = d * c;
-          h *= del;
-          if (fabs (del - 1) < 1e-16)
-            break;
-        }
-      return 1 - exp (-x + a * log (x) - lgamma (a)) * h;
-    }
-}
-
-/* The regularised incomplete beta function I_x(a, b), by the continued
- * fraction, with the symmetry that keeps it converging fast. */
-static double
-beta_cf (double a, double b, double x)
-{
-  double qab = a + b, qap = a + 1, qam = a - 1;
-  double c = 1, d = 1 - qab * x / qap, h;
-
-  if (fabs (d) < 1e-300) d = 1e-300;
-  d = 1 / d;
-  h = d;
-
-  for (int m = 1; m <= 1000; m++)
-    {
-      int m2 = 2 * m;
-      double aa = m * (b - m) * x / ((qam + m2) * (a + m2));
-      double del;
-
-      d = 1 + aa * d; if (fabs (d) < 1e-300) d = 1e-300;
-      c = 1 + aa / c; if (fabs (c) < 1e-300) c = 1e-300;
-      d = 1 / d;
-      h *= d * c;
-
-      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
-      d = 1 + aa * d; if (fabs (d) < 1e-300) d = 1e-300;
-      c = 1 + aa / c; if (fabs (c) < 1e-300) c = 1e-300;
-      d = 1 / d;
-      del = d * c;
-      h *= del;
-      if (fabs (del - 1) < 1e-16)
-        break;
-    }
-
-  return h;
-}
-
-static double
-beta_i (double a, double b, double x)
-{
-  double bt;
-
-  if (x <= 0) return 0;
-  if (x >= 1) return 1;
-
-  bt = exp (lgamma (a + b) - lgamma (a) - lgamma (b) + a * log (x) + b * log (1 - x));
-
-  if (x < (a + 1) / (a + b + 2))
-    return bt * beta_cf (a, b, x) / a;
-  return 1 - bt * beta_cf (b, a, 1 - x) / b;
-}
-
-/* Inverts a monotone distribution function by bisection on [lo, hi],
- * which is slow but certain -- sixty halvings are all a double needs. */
-typedef double (*Cdf) (double x, double p1, double p2);
-
-static double
-invert_cdf (Cdf cdf, double p, double p1, double p2, double lo, double hi)
-{
-  for (int i = 0; i < 200; i++)
-    {
-      double mid = (lo + hi) / 2;
-
-      if (cdf (mid, p1, p2) < p) lo = mid;
-      else                       hi = mid;
-      if (hi - lo < 1e-15 * MAX (1.0, fabs (hi)))
-        break;
-    }
-  return (lo + hi) / 2;
-}
-
-static gboolean
-optional_bool (O42EvalContext *ctx, O42Operand *args, int n, int index,
-               gboolean fallback, gboolean *out)
-{
-  O42Value v;
-  O42ErrorCode err = O42_ERR_VALUE;
-  gboolean ok;
-
-  if (n <= index)
-    { *out = fallback; return TRUE; }
-  v = operand_value (ctx, &args[index]);
-  ok = o42_value_to_bool (&v, out, &err);
-  o42_value_clear (&v);
-  return ok;
-}
-
-static double chi_cdf  (double x, double df, double unused) { (void) unused; return gamma_p (df / 2, x / 2); }
-static double gamma_cdf (double x, double alpha, double beta) { return gamma_p (alpha, x / beta); }
-static double beta_cdf (double x, double a, double b) { return beta_i (a, b, x); }
-
-static double
-t_cdf (double t, double df, double unused)
-{
-  double x = df / (df + t * t);
-  double tail = 0.5 * beta_i (df / 2, 0.5, x);
-  (void) unused;
-  return (t >= 0) ? 1 - tail : tail;
-}
-
-static double
-f_cdf (double x, double d1, double d2)
-{
-  if (x <= 0) return 0;
-  return beta_i (d1 / 2, d2 / 2, d1 * x / (d1 * x + d2));
-}
-
-/* CHIDIST is the right tail, as Excel's is. */
-static O42Value
-fn_chidist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, df;
-  (void) n;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, df);
-  if (x < 0 || df < 1)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (1 - chi_cdf (x, floor (df), 0));
-}
-
-static O42Value
-fn_chiinv (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double p, df;
-  (void) n;
-  ARG_NUMBER (0, p);
-  ARG_NUMBER (1, df);
-  if (p <= 0 || p > 1 || df < 1)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (invert_cdf (chi_cdf, 1 - p, floor (df), 0, 0, 1e6));
-}
-
-/* TDIST(x, df, tails): the tail beyond |x|, one or both. */
-static O42Value
-fn_tdist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, df, tails;
-  double tail;
-  (void) n;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, df);
-  ARG_NUMBER (2, tails);
-  if (x < 0 || df < 1 || (tails != 1 && tails != 2))
-    return o42_value_error (O42_ERR_NUM);
-  tail = 1 - t_cdf (x, floor (df), 0);
-  return o42_value_number (tails == 2 ? 2 * tail : tail);
-}
-
-/* TINV is two-tailed, as Excel's is: the |x| beyond which p lies. */
-static O42Value
-fn_tinv (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double p, df;
-  (void) n;
-  ARG_NUMBER (0, p);
-  ARG_NUMBER (1, df);
-  if (p <= 0 || p > 1 || df < 1)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (invert_cdf (t_cdf, 1 - p / 2, floor (df), 0, 0, 1e6));
-}
-
-static O42Value
-fn_fdist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, d1, d2;
-  (void) n;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, d1);
-  ARG_NUMBER (2, d2);
-  if (x < 0 || d1 < 1 || d2 < 1)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (1 - f_cdf (x, floor (d1), floor (d2)));
-}
-
-static O42Value
-fn_finv (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double p, d1, d2;
-  (void) n;
-  ARG_NUMBER (0, p);
-  ARG_NUMBER (1, d1);
-  ARG_NUMBER (2, d2);
-  if (p <= 0 || p > 1 || d1 < 1 || d2 < 1)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (invert_cdf (f_cdf, 1 - p, floor (d1), floor (d2), 0, 1e6));
-}
-
-static O42Value
-fn_gammadist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, alpha, beta;
-  gboolean cumulative;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, alpha);
-  ARG_NUMBER (2, beta);
-  if (!optional_bool (ctx, args, n, 3, TRUE, &cumulative))
-    return o42_value_error (O42_ERR_VALUE);
-  if (x < 0 || alpha <= 0 || beta <= 0)
-    return o42_value_error (O42_ERR_NUM);
-  if (cumulative)
-    return o42_value_number (gamma_cdf (x, alpha, beta));
-  return o42_value_number (exp ((alpha - 1) * log (x) - x / beta - lgamma (alpha) - alpha * log (beta)));
-}
-
-static O42Value
-fn_gammainv (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double p, alpha, beta;
-  (void) n;
-  ARG_NUMBER (0, p);
-  ARG_NUMBER (1, alpha);
-  ARG_NUMBER (2, beta);
-  if (p < 0 || p >= 1 || alpha <= 0 || beta <= 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (invert_cdf (gamma_cdf, p, alpha, beta, 0, 1e7));
-}
-
-static O42Value
-fn_betadist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, a, b, lo = 0, hi = 1;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, a);
-  ARG_NUMBER (2, b);
-  if (n >= 4) ARG_NUMBER (3, lo);
-  if (n >= 5) ARG_NUMBER (4, hi);
-  if (a <= 0 || b <= 0 || x < lo || x > hi || lo == hi)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (beta_cdf ((x - lo) / (hi - lo), a, b));
-}
-
-static O42Value
-fn_betainv (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double p, a, b, lo = 0, hi = 1;
-  ARG_NUMBER (0, p);
-  ARG_NUMBER (1, a);
-  ARG_NUMBER (2, b);
-  if (n >= 4) ARG_NUMBER (3, lo);
-  if (n >= 5) ARG_NUMBER (4, hi);
-  if (a <= 0 || b <= 0 || p <= 0 || p >= 1)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (lo + (hi - lo) * invert_cdf (beta_cdf, p, a, b, 0, 1));
-}
-
-static O42Value
-fn_expondist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, lambda;
-  gboolean cumulative;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, lambda);
-  if (!optional_bool (ctx, args, n, 2, TRUE, &cumulative))
-    return o42_value_error (O42_ERR_VALUE);
-  if (x < 0 || lambda <= 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (cumulative ? 1 - exp (-lambda * x) : lambda * exp (-lambda * x));
-}
-
-static O42Value
-fn_poisson (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, mean;
-  gboolean cumulative;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, mean);
-  if (!optional_bool (ctx, args, n, 2, TRUE, &cumulative))
-    return o42_value_error (O42_ERR_VALUE);
-  x = floor (x);
-  if (x < 0 || mean < 0)
-    return o42_value_error (O42_ERR_NUM);
-  if (!cumulative)
-    return o42_value_number (exp (x * log (mean) - mean - lgamma (x + 1)));
-  /* The cumulative Poisson is the complement of an incomplete gamma. */
-  return o42_value_number (1 - gamma_p (x + 1, mean));
-}
-
-static O42Value
-fn_binomdist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double k, trials, p;
-  gboolean cumulative;
-  double total = 0;
-  (void) n;
-  ARG_NUMBER (0, k);
-  ARG_NUMBER (1, trials);
-  ARG_NUMBER (2, p);
-  if (!optional_bool (ctx, args, n, 3, FALSE, &cumulative))
-    return o42_value_error (O42_ERR_VALUE);
-  k = floor (k); trials = floor (trials);
-  if (k < 0 || k > trials || p < 0 || p > 1)
-    return o42_value_error (O42_ERR_NUM);
-
-  for (double i = cumulative ? 0 : k; i <= k; i += 1)
-    total += exp (lgamma (trials + 1) - lgamma (i + 1) - lgamma (trials - i + 1)
-                  + (i > 0 ? i * log (p) : 0) + (trials - i > 0 ? (trials - i) * log (1 - p) : 0));
-  return o42_value_number (total);
-}
-
-static O42Value
-fn_lognormdist (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, mean, sd;
-  (void) n;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, mean);
-  ARG_NUMBER (2, sd);
-  if (x <= 0 || sd <= 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (normal_cdf ((log (x) - mean) / sd));
-}
-
-static O42Value
-fn_weibull (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x, alpha, beta;
-  gboolean cumulative;
-  ARG_NUMBER (0, x);
-  ARG_NUMBER (1, alpha);
-  ARG_NUMBER (2, beta);
-  if (!optional_bool (ctx, args, n, 3, TRUE, &cumulative))
-    return o42_value_error (O42_ERR_VALUE);
-  if (x < 0 || alpha <= 0 || beta <= 0)
-    return o42_value_error (O42_ERR_NUM);
-  if (cumulative)
-    return o42_value_number (1 - exp (-pow (x / beta, alpha)));
-  return o42_value_number (alpha / beta * pow (x / beta, alpha - 1) * exp (-pow (x / beta, alpha)));
-}
-
-static O42Value
-fn_gammaln (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double x;
-  (void) n;
-  ARG_NUMBER (0, x);
-  if (x <= 0)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (lgamma (x));
-}
-
-static O42Value
-fn_confidence (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  double alpha, sd, size;
-  (void) n;
-  ARG_NUMBER (0, alpha);
-  ARG_NUMBER (1, sd);
-  ARG_NUMBER (2, size);
-  if (alpha <= 0 || alpha >= 1 || sd <= 0 || size < 1)
-    return o42_value_error (O42_ERR_NUM);
-  return o42_value_number (normal_inverse (1 - alpha / 2) * sd / sqrt (floor (size)));
-}
-
-/* TRIMMEAN drops a fraction of the values from each end, rounded down to
- * an even count, then averages the rest. */
-static O42Value
-fn_trimmean (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double fraction, sum = 0;
-  guint drop, count;
-
-  (void) n;
-  ARG_NUMBER (1, fraction);
-  if (fraction < 0 || fraction >= 1)
-    return o42_value_error (O42_ERR_NUM);
-  if (!collect_numbers (ctx, args, 1, &values, &err))
-    return o42_value_error (err);
-
-  count = values->len;
-  if (count == 0)
-    { g_array_free (values, TRUE); return o42_value_error (O42_ERR_NUM); }
-
-  g_array_sort (values, compare_doubles);
-  drop = (guint) floor (count * fraction / 2);
-  for (guint i = drop; i < count - drop; i++)
-    sum += g_array_index (values, double, i);
-
-  g_array_free (values, TRUE);
-  return o42_value_number (sum / (count - 2 * drop));
-}
-
-static O42Value
-fn_skew_kurt (O42EvalContext *ctx, O42Operand *args, int n, gboolean kurt)
-{
-  GArray *values;
-  O42ErrorCode err = O42_ERR_VALUE;
-  double mean, ssd, sd, m3 = 0, m4 = 0;
-  double count;
-
-  if (!collect_numbers (ctx, args, n, &values, &err))
-    return o42_value_error (err);
-
-  count = values->len;
-  if (count < (kurt ? 4 : 3))
-    { g_array_free (values, TRUE); return o42_value_error (O42_ERR_DIV0); }
-
-  moments (values, &mean, &ssd);
-  sd = sqrt (ssd / (count - 1));
-  if (sd == 0)
-    { g_array_free (values, TRUE); return o42_value_error (O42_ERR_DIV0); }
-
-  for (guint i = 0; i < values->len; i++)
-    {
-      double z = (g_array_index (values, double, i) - mean) / sd;
-      m3 += z * z * z;
-      m4 += z * z * z * z;
-    }
-  g_array_free (values, TRUE);
-
-  if (!kurt)
-    return o42_value_number (count / ((count - 1) * (count - 2)) * m3);
-
-  return o42_value_number (count * (count + 1) / ((count - 1) * (count - 2) * (count - 3)) * m4
-                           - 3 * (count - 1) * (count - 1) / ((count - 2) * (count - 3)));
-}
-
-static O42Value fn_skew (O42EvalContext *c, O42Operand *a, int n) { return fn_skew_kurt (c, a, n, FALSE); }
-static O42Value fn_kurt (O42EvalContext *c, O42Operand *a, int n) { return fn_skew_kurt (c, a, n, TRUE); }
 
 /* ---- Odds and ends ----------------------------------------------------- */
 
@@ -10993,17 +10533,12 @@ static const O42Function FUNCTIONS[] = {
   { "BASE", 2, 3, fn_base },
   { "BETA", 2, 2, fn_beta },
   { "BETA.DIST", 4, 6, fn_beta_dist },
-  { "BETA.INV", 3, 5, fn_betainv },
-  { "BETADIST", 3, 5, fn_betadist },
-  { "BETAINV", 3, 5, fn_betainv },
   { "BETALN", 2, 2, fn_betaln },
   { "BIN2DEC", 1, 1, fn_bin2dec },
   { "BIN2HEX", 1, 2, fn_bin2hex },
   { "BIN2OCT", 1, 2, fn_bin2oct },
-  { "BINOM.DIST", 4, 4, fn_binomdist },
   { "BINOM.DIST.RANGE", 3, 4, fn_binom_dist_range },
   { "BINOM.INV", 3, 3, fn_critbinom },
-  { "BINOMDIST", 4, 4, fn_binomdist },
   { "BITAND", 2, 2, fn_bitand },
   { "BITLSHIFT", 2, 2, fn_bitlshift },
   { "BITOR", 2, 2, fn_bitor },
@@ -11017,12 +10552,8 @@ static const O42Function FUNCTIONS[] = {
   { "CEILING.MATH", 1, 3, fn_ceiling_math },
   { "CEILING.PRECISE", 1, 2, fn_ceiling_precise },
   { "CHAR", 1, 1, fn_char },
-  { "CHIDIST", 2, 2, fn_chidist },
-  { "CHIINV", 2, 2, fn_chiinv },
   { "CHISQ.DIST", 3, 3, fn_chisq_dist },
-  { "CHISQ.DIST.RT", 2, 2, fn_chidist },
   { "CHISQ.INV", 2, 2, fn_chisq_inv },
-  { "CHISQ.INV.RT", 2, 2, fn_chiinv },
   { "CHISQ.TEST", 2, 2, fn_chitest },
   { "CHISQDIST", 2, 3, fn_chisqdist },
   { "CHISQINV", 2, 2, fn_chisqinv },
@@ -11037,8 +10568,6 @@ static const O42Function FUNCTIONS[] = {
   { "COMPLEX", 2, 3, fn_complex },
   { "CONCAT", 1, -1, fn_concatenate },
   { "CONCATENATE", 1, -1, fn_concatenate },
-  { "CONFIDENCE", 3, 3, fn_confidence },
-  { "CONFIDENCE.NORM", 3, 3, fn_confidence },
   { "CONFIDENCE.T", 3, 3, fn_confidence_t },
   { "CONVERT", 3, 3, fn_convert },
   { "CORREL", 2, 2, fn_correl },
@@ -11106,21 +10635,15 @@ static const O42Function FUNCTIONS[] = {
   { "EXACT", 2, 2, fn_exact },
   { "EXP", 1, 1, fn_exp },
   { "EXPM1", 1, 1, fn_expm1 },
-  { "EXPON.DIST", 3, 3, fn_expondist },
-  { "EXPONDIST", 2, 3, fn_expondist },
   { "EXPPOWDIST", 3, 3, fn_exppowdist },
   { "F.DIST", 4, 4, fn_f_dist },
-  { "F.DIST.RT", 3, 3, fn_fdist },
   { "F.INV", 3, 3, fn_f_inv },
-  { "F.INV.RT", 3, 3, fn_finv },
   { "F.TEST", 2, 2, fn_ftest },
   { "FACT", 1, 1, fn_fact },
   { "FACTDOUBLE", 1, 1, fn_factdouble },
   { "FALSE", 0, 0, fn_false },
-  { "FDIST", 3, 3, fn_fdist },
   { "FILTER", 2, 3, fn_offset },
   { "FIND", 2, 3, fn_find },
-  { "FINV", 3, 3, fn_finv },
   { "FISHER", 1, 1, fn_fisher },
   { "FISHERINV", 1, 1, fn_fisherinv },
   { "FIXED", 1, 3, fn_fixed },
@@ -11133,12 +10656,6 @@ static const O42Function FUNCTIONS[] = {
   { "FTEST", 2, 2, fn_ftest },
   { "FV", 3, 5, fn_fv },
   { "GAMMA", 1, 1, fn_gamma },
-  { "GAMMA.DIST", 4, 4, fn_gammadist },
-  { "GAMMA.INV", 3, 3, fn_gammainv },
-  { "GAMMADIST", 3, 4, fn_gammadist },
-  { "GAMMAINV", 3, 3, fn_gammainv },
-  { "GAMMALN", 1, 1, fn_gammaln },
-  { "GAMMALN.PRECISE", 1, 1, fn_gammaln },
   { "GAUSS", 1, 1, fn_gauss },
   { "GCD", 1, -1, fn_gcd },
   { "GEOMDIST", 2, 3, fn_geomdist },
@@ -11232,7 +10749,6 @@ static const O42Function FUNCTIONS[] = {
   { "ISREF", 1, 1, fn_isref },
   { "ISTEXT", 1, 1, fn_istext },
   { "ITHPRIME", 1, 1, fn_ithprime },
-  { "KURT", 1, -1, fn_kurt },
   { "KURTP", 1, -1, fn_kurtp },
   { "LAMBDA", 1, -1, fn_let_stub },
   { "LANDAU", 1, 1, fn_landau },
@@ -11251,7 +10767,6 @@ static const O42Function FUNCTIONS[] = {
   { "LOGISTIC", 2, 2, fn_logistic },
   { "LOGNORM.DIST", 4, 4, fn_lognorm_dist },
   { "LOGNORM.INV", 3, 3, fn_loginv },
-  { "LOGNORMDIST", 3, 3, fn_lognormdist },
   { "LOOKUP", 2, 3, fn_lookup_vector },
   { "LOWER", 1, 1, fn_lower },
   { "MAKEARRAY", 3, 3, fn_let_stub },
@@ -11325,8 +10840,6 @@ static const O42Function FUNCTIONS[] = {
   { "PHI", 1, 1, fn_phi },
   { "PI", 0, 0, fn_pi },
   { "PMT", 3, 5, fn_pmt },
-  { "POISSON", 2, 3, fn_poisson },
-  { "POISSON.DIST", 3, 3, fn_poisson },
   { "POWER", 2, 2, fn_power },
   { "PPMT", 4, 6, fn_ppmt },
   { "PROB", 3, 4, fn_prob },
@@ -11370,7 +10883,6 @@ static const O42Function FUNCTIONS[] = {
   { "SIGN", 1, 1, fn_sign },
   { "SIN", 1, 1, fn_sin },
   { "SINH", 1, 1, fn_sinh },
-  { "SKEW", 1, -1, fn_skew },
   { "SKEW.P", 1, -1, fn_skew_p },
   { "SKEWP", 1, -1, fn_skewp },
   { "SLN", 3, 3, fn_sln },
@@ -11408,22 +10920,18 @@ static const O42Function FUNCTIONS[] = {
   { "T.DIST.2T", 2, 2, fn_t_dist_2t },
   { "T.DIST.RT", 2, 2, fn_t_dist_rt },
   { "T.INV", 2, 2, fn_t_inv },
-  { "T.INV.2T", 2, 2, fn_tinv },
   { "T.TEST", 4, 4, fn_ttest },
   { "TAN", 1, 1, fn_tan },
   { "TANH", 1, 1, fn_tanh },
-  { "TDIST", 3, 3, fn_tdist },
   { "TEXT", 2, 2, fn_text },
   { "TEXTAFTER", 2, 3, fn_textafter },
   { "TEXTBEFORE", 2, 3, fn_textbefore },
   { "TEXTJOIN", 3, -1, fn_textjoin },
   { "TIME", 3, 3, fn_time },
   { "TIMEVALUE", 1, 1, fn_timevalue },
-  { "TINV", 2, 2, fn_tinv },
   { "TODAY", 0, 0, fn_today },
   { "TREND", 1, 4, fn_offset },
   { "TRIM", 1, 1, fn_trim },
-  { "TRIMMEAN", 2, 2, fn_trimmean },
   { "TRUE", 0, 0, fn_true },
   { "TRUNC", 1, 2, fn_trunc },
   { "TTEST", 4, 4, fn_ttest },
@@ -11444,8 +10952,6 @@ static const O42Function FUNCTIONS[] = {
   { "VDB", 5, 7, fn_vdb },
   { "VLOOKUP", 3, 4, fn_vlookup },
   { "WEEKDAY", 1, 2, fn_weekday },
-  { "WEIBULL", 3, 4, fn_weibull },
-  { "WEIBULL.DIST", 4, 4, fn_weibull },
   { "WORKDAY", 2, 3, fn_workday },
   { "WORKDAY.INTL", 2, 4, fn_workday_intl },
   { "XIRR", 2, 3, fn_xirr },
@@ -11461,6 +10967,7 @@ static const O42Function FUNCTIONS[] = {
 /* The families that live in files of their own, each table ended by a
  * NULL name. */
 static const O42Function *const FAMILY_FUNCS[] = {
+  O42_FUNCS_DISTRIBUTIONS,
   O42_FUNCS_FINANCE,
   O42_FUNCS_INFO,
   O42_FUNCS_RANDOM,
@@ -11469,6 +10976,7 @@ static const O42Function *const FAMILY_FUNCS[] = {
 };
 
 static const O42FunctionHelp *const FAMILY_HELP[] = {
+  O42_HELP_DISTRIBUTIONS,
   O42_HELP_FINANCE,
   O42_HELP_INFO,
   O42_HELP_RANDOM,
@@ -11730,17 +11238,12 @@ static const struct {
   { "BASE", "BASE(number, radix, min_length)", "A number as text in another base." },
   { "BETA", "BETA(a, b)", "The beta function." },
   { "BETA.DIST", "BETA.DIST(x, alpha, beta, cumulative, A, B)", "The beta distribution, density or cumulative." },
-  { "BETA.INV", "BETA.INV(probability, alpha, beta, A, B)", "The inverse of the cumulative beta distribution." },
-  { "BETADIST", "BETADIST(x, alpha, beta, A, B)", "The cumulative beta distribution." },
-  { "BETAINV", "BETAINV(probability, alpha, beta, A, B)", "The inverse of the cumulative beta distribution." },
   { "BETALN", "BETALN(a, b)", "The logarithm of the beta function." },
   { "BIN2DEC", "BIN2DEC(number)", "A binary number as decimal." },
   { "BIN2HEX", "BIN2HEX(number, places)", "A binary number as hexadecimal." },
   { "BIN2OCT", "BIN2OCT(number, places)", "A binary number as octal." },
-  { "BINOM.DIST", "BINOM.DIST(number_s, trials, probability_s, cumulative)", "The binomial distribution." },
   { "BINOM.DIST.RANGE", "BINOM.DIST.RANGE(trials, probability_s, number_s, number_s2)", "The probability of a range of successes." },
   { "BINOM.INV", "BINOM.INV(trials, probability_s, alpha)", "The smallest value whose cumulative binomial distribution reaches alpha." },
-  { "BINOMDIST", "BINOMDIST(successes, trials, probability, cumulative)", "The binomial distribution." },
   { "BITAND", "BITAND(number1, number2)", "Bitwise AND of two numbers." },
   { "BITLSHIFT", "BITLSHIFT(number, shift_amount)", "A number shifted left by some bits." },
   { "BITOR", "BITOR(number1, number2)", "Bitwise OR of two numbers." },
@@ -11754,12 +11257,8 @@ static const struct {
   { "CEILING.MATH", "CEILING.MATH(number, significance, mode)", "Rounds up to a multiple of the significance." },
   { "CEILING.PRECISE", "CEILING.PRECISE(number, significance)", "Rounded up towards plus infinity, whatever the sign." },
   { "CHAR", "CHAR(number)", "The character with a given code." },
-  { "CHIDIST", "CHIDIST(x, degrees_freedom)", "The right tail of the chi-squared distribution." },
-  { "CHIINV", "CHIINV(probability, degrees_freedom)", "The inverse of the right-tailed chi-squared distribution." },
   { "CHISQ.DIST", "CHISQ.DIST(x, deg_freedom, cumulative)", "The chi-squared distribution, density or cumulative." },
-  { "CHISQ.DIST.RT", "CHISQ.DIST.RT(x, deg_freedom)", "The right tail of the chi-squared distribution." },
   { "CHISQ.INV", "CHISQ.INV(probability, deg_freedom)", "The inverse of the left-tailed chi-squared distribution." },
-  { "CHISQ.INV.RT", "CHISQ.INV.RT(probability, deg_freedom)", "The inverse of the right-tailed chi-squared distribution." },
   { "CHISQ.TEST", "CHISQ.TEST(actual_range, expected_range)", "The chi-squared test for independence." },
   { "CHISQDIST", "CHISQDIST(x, dof, cumulative)", "The chi-squared distribution, as Gnumeric names it." },
   { "CHISQINV", "CHISQINV(p, dof)", "The value of chi-squared with the given probability below it." },
@@ -11774,8 +11273,6 @@ static const struct {
   { "COMPLEX", "COMPLEX(real_num, i_num, suffix)", "A complex number as text, like 3+4i." },
   { "CONCAT", "CONCAT(text1, text2, ...)", "Joins pieces of text into one; Excel's newer name for CONCATENATE." },
   { "CONCATENATE", "CONCATENATE(text1, text2, ...)", "Joins pieces of text into one." },
-  { "CONFIDENCE", "CONFIDENCE(alpha, standard_dev, size)", "The half-width of a confidence interval for a mean." },
-  { "CONFIDENCE.NORM", "CONFIDENCE.NORM(alpha, standard_dev, size)", "Half the width of a confidence interval for a mean." },
   { "CONFIDENCE.T", "CONFIDENCE.T(alpha, standard_dev, size)", "Half the width of a confidence interval, by Student's t." },
   { "CONVERT", "CONVERT(number, from_unit, to_unit)", "A measurement in other units: CONVERT(1,\"mi\",\"km\")." },
   { "CORREL", "CORREL(array1, array2)", "The correlation coefficient of two sets." },
@@ -11843,21 +11340,15 @@ static const struct {
   { "EXACT", "EXACT(text1, text2)", "TRUE if two texts are identical, case included." },
   { "EXP", "EXP(number)", "e raised to a power." },
   { "EXPM1", "EXPM1(x)", "exp(x) - 1, keeping the digits a small x would lose." },
-  { "EXPON.DIST", "EXPON.DIST(x, lambda, cumulative)", "The exponential distribution." },
-  { "EXPONDIST", "EXPONDIST(x, lambda, cumulative)", "The exponential distribution." },
   { "EXPPOWDIST", "EXPPOWDIST(x, a, b)", "The density of the exponential power distribution." },
   { "F.DIST", "F.DIST(x, deg_freedom1, deg_freedom2, cumulative)", "The F distribution, density or cumulative." },
-  { "F.DIST.RT", "F.DIST.RT(x, deg_freedom1, deg_freedom2)", "The right tail of the F distribution." },
   { "F.INV", "F.INV(probability, deg_freedom1, deg_freedom2)", "The inverse of the left-tailed F distribution." },
-  { "F.INV.RT", "F.INV.RT(probability, deg_freedom1, deg_freedom2)", "The inverse of the right-tailed F distribution." },
   { "F.TEST", "F.TEST(array1, array2)", "The two-tailed F-test probability." },
   { "FACT", "FACT(number)", "The factorial." },
   { "FACTDOUBLE", "FACTDOUBLE(number)", "The double factorial." },
   { "FALSE", "FALSE()", "The logical value FALSE." },
-  { "FDIST", "FDIST(x, degrees_freedom1, degrees_freedom2)", "The right tail of the F distribution." },
   { "FILTER", "FILTER(array, include, if_empty)", "The rows (or columns) of an array where a condition holds." },
   { "FIND", "FIND(find_text, within_text, start)", "Where one text starts inside another; case matters." },
-  { "FINV", "FINV(probability, degrees_freedom1, degrees_freedom2)", "The inverse of the right-tailed F distribution." },
   { "FISHER", "FISHER(x)", "The Fisher transformation." },
   { "FISHERINV", "FISHERINV(y)", "The inverse of the Fisher transformation." },
   { "FIXED", "FIXED(number, decimals, no_commas)", "A number as text with a fixed number of decimals." },
@@ -11870,12 +11361,6 @@ static const struct {
   { "FTEST", "FTEST(array1, array2)", "The two-tailed F-test probability that the variances differ." },
   { "FV", "FV(rate, nper, pmt, pv, type)", "The future value of regular payments." },
   { "GAMMA", "GAMMA(number)", "The gamma function." },
-  { "GAMMA.DIST", "GAMMA.DIST(x, alpha, beta, cumulative)", "The gamma distribution." },
-  { "GAMMA.INV", "GAMMA.INV(probability, alpha, beta)", "The inverse of the cumulative gamma distribution." },
-  { "GAMMADIST", "GAMMADIST(x, alpha, beta, cumulative)", "The gamma distribution." },
-  { "GAMMAINV", "GAMMAINV(probability, alpha, beta)", "The inverse of the cumulative gamma distribution." },
-  { "GAMMALN", "GAMMALN(x)", "The natural logarithm of the gamma function." },
-  { "GAMMALN.PRECISE", "GAMMALN.PRECISE(x)", "The natural logarithm of the gamma function." },
   { "GAUSS", "GAUSS(z)", "The probability between the mean and z standard deviations." },
   { "GCD", "GCD(number1, number2, ...)", "The greatest common divisor." },
   { "GEOMDIST", "GEOMDIST(k, p, cumulative)", "How many failures before the first success." },
@@ -11969,7 +11454,6 @@ static const struct {
   { "ISREF", "ISREF(value)", "TRUE if the value is a reference." },
   { "ISTEXT", "ISTEXT(value)", "TRUE for text." },
   { "ITHPRIME", "ITHPRIME(i)", "The ith prime number." },
-  { "KURT", "KURT(number1, number2, ...)", "The kurtosis of a sample." },
   { "KURTP", "KURTP(number1, number2, ...)", "The kurtosis of a whole population." },
   { "LAMBDA", "LAMBDA(name1, ..., calculation)", "A function of its own, called at once or through LET." },
   { "LANDAU", "LANDAU(x)", "The Landau distribution, by its integral." },
@@ -11988,7 +11472,6 @@ static const struct {
   { "LOGISTIC", "LOGISTIC(x, a)", "The density of the logistic distribution." },
   { "LOGNORM.DIST", "LOGNORM.DIST(x, mean, standard_dev, cumulative)", "The lognormal distribution." },
   { "LOGNORM.INV", "LOGNORM.INV(probability, mean, standard_dev)", "The inverse of the cumulative lognormal distribution." },
-  { "LOGNORMDIST", "LOGNORMDIST(x, mean, standard_dev)", "The cumulative lognormal distribution." },
   { "LOOKUP", "LOOKUP(value, lookup_vector, result_vector)", "Finds a value in one vector and returns from another." },
   { "LOWER", "LOWER(text)", "Text in lower case." },
   { "MAKEARRAY", "MAKEARRAY(rows, columns, lambda)", "An array from a function of the row and column." },
@@ -12062,8 +11545,6 @@ static const struct {
   { "PHI", "PHI(x)", "The standard normal density." },
   { "PI", "PI()", "3.14159265358979." },
   { "PMT", "PMT(rate, nper, pv, fv, type)", "The payment on a loan." },
-  { "POISSON", "POISSON(x, mean, cumulative)", "The Poisson distribution." },
-  { "POISSON.DIST", "POISSON.DIST(x, mean, cumulative)", "The Poisson distribution." },
   { "POWER", "POWER(number, power)", "A number raised to a power." },
   { "PPMT", "PPMT(rate, per, nper, pv, fv, type)", "The principal part of one payment." },
   { "PROB", "PROB(x_range, prob_range, lower, upper)", "The probability that a value lies between two limits." },
@@ -12107,7 +11588,6 @@ static const struct {
   { "SIGN", "SIGN(number)", "1, 0 or -1 by the sign of a number." },
   { "SIN", "SIN(number)", "The sine of an angle in radians." },
   { "SINH", "SINH(number)", "The hyperbolic sine." },
-  { "SKEW", "SKEW(number1, number2, ...)", "The skewness of a sample." },
   { "SKEW.P", "SKEW.P(number1, number2, ...)", "The skewness of a population." },
   { "SKEWP", "SKEWP(number1, number2, ...)", "The skew of a whole population." },
   { "SLN", "SLN(cost, salvage, life)", "Straight-line depreciation for one period." },
@@ -12145,22 +11625,18 @@ static const struct {
   { "T.DIST.2T", "T.DIST.2T(x, deg_freedom)", "Both tails of Student's t distribution." },
   { "T.DIST.RT", "T.DIST.RT(x, deg_freedom)", "The right tail of Student's t distribution." },
   { "T.INV", "T.INV(probability, deg_freedom)", "The inverse of the left-tailed t distribution." },
-  { "T.INV.2T", "T.INV.2T(probability, deg_freedom)", "The inverse of the two-tailed t distribution." },
   { "T.TEST", "T.TEST(array1, array2, tails, type)", "Student's t-test probability." },
   { "TAN", "TAN(number)", "The tangent of an angle in radians." },
   { "TANH", "TANH(number)", "The hyperbolic tangent." },
-  { "TDIST", "TDIST(x, degrees_freedom, tails)", "The tail of Student's t distribution, one or both." },
   { "TEXT", "TEXT(value, format)", "A number as text in a format such as \"#,##0.00\"." },
   { "TEXTAFTER", "TEXTAFTER(text, delimiter, instance)", "The part of a text after the delimiter." },
   { "TEXTBEFORE", "TEXTBEFORE(text, delimiter, instance)", "The part of a text before the delimiter." },
   { "TEXTJOIN", "TEXTJOIN(delimiter, ignore_empty, text1, ...)", "Joins texts with a delimiter between them." },
   { "TIME", "TIME(hour, minute, second)", "The fraction of a day for a time." },
   { "TIMEVALUE", "TIMEVALUE(text)", "The fraction of a day for a time written as text." },
-  { "TINV", "TINV(probability, degrees_freedom)", "The two-tailed inverse of Student's t distribution." },
   { "TODAY", "TODAY()", "Today's date." },
   { "TREND", "TREND(known_ys, known_xs, new_xs, const)", "Values on the line fitted to the points." },
   { "TRIM", "TRIM(text)", "Text without leading and trailing spaces." },
-  { "TRIMMEAN", "TRIMMEAN(range, percent)", "The mean with a fraction of the extremes left out." },
   { "TRUE", "TRUE()", "The logical value TRUE." },
   { "TRUNC", "TRUNC(number, digits)", "Cuts a number off at a number of digits." },
   { "TTEST", "TTEST(array1, array2, tails, type)", "Student's t-test probability: type 1 paired, 2 equal variance, 3 unequal." },
@@ -12181,8 +11657,6 @@ static const struct {
   { "VDB", "VDB(cost, salvage, life, start, end, factor, no_switch)", "Declining-balance depreciation over part of a life." },
   { "VLOOKUP", "VLOOKUP(value, table, col_index, approximate)", "Finds a value in the first column and returns from that row." },
   { "WEEKDAY", "WEEKDAY(serial, type)", "The day of the week as a number." },
-  { "WEIBULL", "WEIBULL(x, alpha, beta, cumulative)", "The Weibull distribution." },
-  { "WEIBULL.DIST", "WEIBULL.DIST(x, alpha, beta, cumulative)", "The Weibull distribution." },
   { "WORKDAY", "WORKDAY(start_date, days, holidays)", "The date a number of working days away." },
   { "WORKDAY.INTL", "WORKDAY.INTL(start, days, weekend, holidays)", "The date so many working days on, with the weekend named." },
   { "XIRR", "XIRR(values, dates, guess)", "The internal rate of return of dated cash flows." },
