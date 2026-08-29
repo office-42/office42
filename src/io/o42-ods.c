@@ -39,6 +39,7 @@
   "xmlns:draw=\"urn:oasis:names:tc:opendocument:xmlns:drawing:1.0\" " \
   "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" " \
   "xmlns:chart=\"urn:oasis:names:tc:opendocument:xmlns:chart:1.0\" " \
+  "xmlns:form=\"urn:oasis:names:tc:opendocument:xmlns:form:1.0\" " \
   "office:version=\"1.2\""
 
 /* ====================================================================== */
@@ -630,6 +631,165 @@ append_frame_head (GString *out, const char *name, int z,
   g_free (escaped);
 }
 
+/* ---- Form controls ------------------------------------------------------ */
+
+/* A reference as ODF writes it: the sheet's name, a dot, the cell.  A
+ * name that is not a plain word is quoted, which is what the format
+ * asks for and what LibreOffice writes. */
+static char *
+ods_ref (O42Sheet *sheet, const char *ref)
+{
+  const char *name = o42_sheet_get_name (sheet);
+  gboolean plain = name != NULL && *name != 0;
+  char *escaped, *out;
+
+  if (ref == NULL || *ref == 0)
+    return NULL;
+  for (const char *p = name; plain && *p != 0; p++)
+    if (!g_ascii_isalnum (*p) && *p != '_')
+      plain = FALSE;
+  {
+    const char *colon = strchr (ref, ':');
+    char *left = colon != NULL ? g_strndup (ref, (gsize) (colon - ref)) : g_strdup (ref);
+
+    /* ODF names the sheet on both sides of a range. */
+    if (plain)
+      out = colon != NULL ? g_strdup_printf ("%s.%s:%s.%s", name, left, name, colon + 1)
+                          : g_strdup_printf ("%s.%s", name, left);
+    else
+      out = colon != NULL ? g_strdup_printf ("$'%s'.%s:$'%s'.%s", name, left, name, colon + 1)
+                          : g_strdup_printf ("$'%s'.%s", name, left);
+    g_free (left);
+  }
+  escaped = g_markup_escape_text (out, -1);
+  g_free (out);
+  return escaped;
+}
+
+/* The controls of a sheet, as an ODF form.  Each one is named
+ * "controlN" here and the draw:control in the cell points back at that
+ * name; LibreOffice and Excel both read the pair. */
+static void
+write_forms (GString *out, O42Sheet *sheet)
+{
+  GPtrArray *shapes = o42_sheet_shapes (sheet);
+  gboolean any = FALSE;
+
+  for (guint i = 0; i < shapes->len; i++)
+    if (o42_shape_is_control (((const O42Shape *) g_ptr_array_index (shapes, i))->kind))
+      any = TRUE;
+  if (!any)
+    return;
+
+  g_string_append (out,
+    "<office:forms form:automatic-focus=\"false\" form:apply-design-mode=\"false\">"
+    "<form:form form:name=\"Standard\" form:apply-filter=\"true\" "
+    "form:control-implementation=\"ooo:com.sun.star.form.component.Form\" "
+    "office:target-frame=\"\">");
+
+  for (guint i = 0; i < shapes->len; i++)
+    {
+      const O42Shape *shape = g_ptr_array_index (shapes, i);
+      char *label, *link, *source;
+      double value = 0;
+      gboolean has_value;
+
+      if (!o42_shape_is_control (shape->kind))
+        continue;
+      label = g_markup_escape_text (shape->text != NULL ? shape->text : "", -1);
+      link = ods_ref (sheet, shape->link);
+      source = ods_ref (sheet, shape->source);
+      has_value = o42_sheet_control_value (sheet, shape, &value);
+
+      switch (shape->kind)
+        {
+        case O42_SHAPE_BUTTON:
+          g_string_append_printf (out,
+            "<form:button form:name=\"Control %u\" "
+            "form:control-implementation=\"ooo:com.sun.star.form.component.CommandButton\" "
+            "xml:id=\"control%u\" form:id=\"control%u\" "
+            "form:label=\"%s\" form:image-position=\"center\"/>", i + 1, i + 1, i + 1, label);
+          break;
+
+        case O42_SHAPE_CHECKBOX:
+        case O42_SHAPE_OPTION:
+          {
+            gboolean on = shape->kind == O42_SHAPE_CHECKBOX
+              ? (has_value && value != 0)
+              : (has_value && value == (shape->value != 0 ? shape->value : 1));
+
+            g_string_append_printf (out,
+              "<form:%s form:name=\"Control %u\" xml:id=\"control%u\" form:id=\"control%u\" "
+              "form:label=\"%s\" form:image-position=\"center\" form:current-state=\"%s\"",
+              shape->kind == O42_SHAPE_CHECKBOX ? "checkbox" : "radio",
+              i + 1, i + 1, i + 1, label, on ? "checked" : "unchecked");
+            if (link != NULL)
+              g_string_append_printf (out, " form:linked-cell=\"%s\"", link);
+            g_string_append_printf (out, "/>");
+          }
+          break;
+
+        case O42_SHAPE_SPINNER:
+        case O42_SHAPE_SCROLLBAR:
+          g_string_append_printf (out,
+            "<form:value-range form:name=\"Control %u\" xml:id=\"control%u\" form:id=\"control%u\" "
+            "form:control-implementation=\"ooo:com.sun.star.form.component.%s\" "
+            "form:orientation=\"%s\" form:value=\"%d\" form:min-value=\"%d\" "
+            "form:max-value=\"%d\" form:step-size=\"%d\" form:page-step-size=\"%d\"",
+            i + 1, i + 1, i + 1,
+            shape->kind == O42_SHAPE_SPINNER ? "SpinButton" : "ScrollBar",
+            shape->kind == O42_SHAPE_SCROLLBAR && shape->width >= shape->height
+              ? "horizontal" : "vertical",
+            (int) (has_value ? value : shape->min), (int) shape->min, (int) shape->max,
+            (int) (shape->step > 0 ? shape->step : 1),
+            (int) (shape->page > 0 ? shape->page : 10));
+          if (link != NULL)
+            g_string_append_printf (out, " form:linked-cell=\"%s\"", link);
+          g_string_append (out, "/>");
+          break;
+
+        case O42_SHAPE_LISTBOX:
+        case O42_SHAPE_COMBO:
+          g_string_append_printf (out,
+            "<form:listbox form:name=\"Control %u\" "
+            "form:control-implementation=\"ooo:com.sun.star.form.component.ListBox\" "
+            "xml:id=\"control%u\" form:id=\"control%u\" "
+            "form:bound-column=\"1\"%s", i + 1, i + 1, i + 1,
+            shape->kind == O42_SHAPE_COMBO ? " form:dropdown=\"true\" form:size=\"1\"" : "");
+          if (source != NULL)
+            g_string_append_printf (out, " form:source-cell-range=\"%s\"", source);
+          if (link != NULL)
+            g_string_append_printf (out, " form:linked-cell=\"%s\"", link);
+          g_string_append (out, "/>");
+          break;
+
+        case O42_SHAPE_LABEL:
+          g_string_append_printf (out,
+            "<form:fixed-text form:name=\"Control %u\" "
+            "form:control-implementation=\"ooo:com.sun.star.form.component.FixedText\" "
+            "xml:id=\"control%u\" form:id=\"control%u\" "
+            "form:label=\"%s\" form:multi-line=\"true\"/>", i + 1, i + 1, i + 1, label);
+          break;
+
+        case O42_SHAPE_GROUPBOX:
+          g_string_append_printf (out,
+            "<form:frame form:name=\"Control %u\" "
+            "form:control-implementation=\"ooo:com.sun.star.form.component.GroupBox\" "
+            "xml:id=\"control%u\" form:id=\"control%u\" "
+            "form:label=\"%s\"/>", i + 1, i + 1, i + 1, label);
+          break;
+
+        default:
+          break;
+        }
+      g_free (label);
+      g_free (link);
+      g_free (source);
+    }
+
+  g_string_append (out, "</form:form></office:forms>");
+}
+
 /* Everything anchored to one cell, drawn inside its element. */
 static void
 write_cell_drawings (GString *out, O42Sheet *sheet, int sheet_index, int row, int col)
@@ -662,6 +822,17 @@ write_cell_drawings (GString *out, O42Sheet *sheet, int sheet_index, int row, in
 
       if (shape->row != row || shape->col != col)
         continue;
+      if (o42_shape_is_control (shape->kind))
+        {
+          /* A control's box points at the form entry written above. */
+          g_string_append_printf (out,
+            "<draw:control draw:name=\"Control %u\" draw:z-index=\"%u\" "
+            "svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" svg:width=\"%.3fcm\" svg:height=\"%.3fcm\" "
+            "draw:control=\"control%u\"/>",
+            i + 1, 200 + i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+            shape->width * PX_TO_CM, shape->height * PX_TO_CM, i + 1);
+          continue;
+        }
       name = g_strdup_printf ("Shape %u", i + 1);
       text = g_markup_escape_text (shape->text != NULL ? shape->text : "", -1);
       /* A line is a line; everything else is a box or an ellipse, and
@@ -917,6 +1088,8 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
     g_string_append (out, ">");
   }
   g_free (name);
+
+  write_forms (out, sheet);
 
   /* Columns, in runs of the same width. */
   for (int c = 0; c <= last_col; )
@@ -1288,6 +1461,9 @@ typedef struct {
   GArray     *cell_runs;     /* O42TextRun for the cell being read */
   O42Shape   *shape;         /* the shape being read, for its text */
   double      frame_x, frame_y, frame_w, frame_h;   /* the frame being read */
+  GHashTable *form_controls;  /* form:id -> FormControl, for draw:control */
+  GArray     *loose_controls; /* LooseControl: shapes outside any cell */
+  gboolean    in_form;        /* inside <office:forms>, where a frame is a group box */
 
   /* Frozen panes from settings.xml. */
   char       *setting_table;
@@ -1317,6 +1493,168 @@ attr_int (const char **names, const char **values, const char *want, int fallbac
 {
   const char *v = attr (names, values, want);
   return v != NULL ? atoi (v) : fallback;
+}
+
+static double
+attr_num (const char **names, const char **values, const char *want, double fallback)
+{
+  const char *v = attr (names, values, want);
+  return v != NULL ? g_ascii_strtod (v, NULL) : fallback;
+}
+
+/* ---- Form controls ----------------------------------------------------- */
+
+/* A draw:control that came in <table:shapes> rather than in a cell:
+ * its place is measured from the sheet's corner, and the columns and
+ * rows it falls in are only known once they have all been read. */
+typedef struct {
+  char  *id;
+  double x, y, w, h;
+} LooseControl;
+
+/* What one form:* element said.  The draw:control that names it says
+ * where the control goes on the sheet. */
+typedef struct {
+  O42ShapeKind kind;
+  char        *label;
+  char        *link;
+  char        *source;
+  double       min, max, step, page;
+} FormControl;
+
+static void
+form_control_free (gpointer data)
+{
+  FormControl *c = data;
+
+  g_free (c->label);
+  g_free (c->link);
+  g_free (c->source);
+  g_free (c);
+}
+
+/* A reference without the sheet in front of it: office42 keeps a
+ * control's link as a plain cell on the control's own sheet, which is
+ * what ODF's own writers mean by it in every file seen here. */
+static char *
+ref_without_sheet (const char *text)
+{
+  GString *out;
+  char **parts;
+
+  if (text == NULL || *text == 0)
+    return NULL;
+  out = g_string_new (NULL);
+  parts = g_strsplit (text, ":", 2);
+  for (int i = 0; parts[i] != NULL; i++)
+    {
+      const char *dot = strrchr (parts[i], '.');
+
+      if (i > 0)
+        g_string_append_c (out, ':');
+      g_string_append (out, dot != NULL ? dot + 1 : parts[i]);
+    }
+  g_strfreev (parts);
+  return g_string_free (out, FALSE);
+}
+
+/* The form:* elements of a sheet, gathered by their form:id. */
+static void
+read_form_control (Reader *r, const char *name, const char **names, const char **values)
+{
+  const char *id = attr (names, values, "id");
+  const char *impl = attr (names, values, "control-implementation");
+  const char *label = attr (names, values, "label");
+  FormControl *c;
+
+  if (id == NULL)
+    return;
+  c = g_new0 (FormControl, 1);
+  c->step = 1;
+  c->page = 10;
+  if (strcmp (name, "button") == 0)
+    c->kind = O42_SHAPE_BUTTON;
+  else if (strcmp (name, "checkbox") == 0)
+    c->kind = O42_SHAPE_CHECKBOX;
+  else if (strcmp (name, "radio") == 0)
+    c->kind = O42_SHAPE_OPTION;
+  else if (strcmp (name, "fixed-text") == 0)
+    c->kind = O42_SHAPE_LABEL;
+  else if (strcmp (name, "frame") == 0)
+    c->kind = O42_SHAPE_GROUPBOX;
+  else if (strcmp (name, "value-range") == 0)
+    {
+      c->kind = impl != NULL && strstr (impl, "ScrollBar") != NULL
+        ? O42_SHAPE_SCROLLBAR : O42_SHAPE_SPINNER;
+      c->min = attr_num (names, values, "min-value", 0);
+      c->max = attr_num (names, values, "max-value", 100);
+      c->step = attr_num (names, values, "step-size", 1);
+      c->page = attr_num (names, values, "page-step-size", 10);
+    }
+  else   /* listbox, with or without its drop-down */
+    {
+      const char *drop = attr (names, values, "dropdown");
+
+      c->kind = drop != NULL && strcmp (drop, "true") == 0 ? O42_SHAPE_COMBO : O42_SHAPE_LISTBOX;
+    }
+
+  c->label = g_strdup (label != NULL ? label : "");
+  c->link = ref_without_sheet (attr (names, values, "linked-cell"));
+  c->source = ref_without_sheet (attr (names, values, "source-cell-range"));
+  g_hash_table_replace (r->form_controls, g_strdup (id), c);
+}
+
+/* The control itself, put on the sheet at a cell with an offset
+ * inside it. */
+static void
+place_control (Reader *r, FormControl *c, int row, int col,
+               double dx, double dy, double w, double h)
+{
+  O42Shape *shape = o42_sheet_add_shape (r->sheet, c->kind, row, col);
+
+  if (shape == NULL)
+    return;
+  shape->dx = dx;
+  shape->dy = dy;
+  shape->width = MAX (w, 12);
+  shape->height = MAX (h, 12);
+  if (c->label != NULL)
+    { g_free (shape->text); shape->text = g_strdup (c->label); }
+  if (c->link != NULL)
+    { g_free (shape->link); shape->link = g_strdup (c->link); }
+  if (c->source != NULL)
+    { g_free (shape->source); shape->source = g_strdup (c->source); }
+  shape->min = c->min;
+  shape->max = c->max;
+  shape->step = c->step;
+  shape->page = c->page;
+}
+
+/* The controls that came in <table:shapes>, once the columns and rows
+ * of the sheet are known: each is measured from the sheet's corner, so
+ * walking the widths and heights says which cell it starts in. */
+static void
+place_loose_controls (Reader *r)
+{
+  for (guint i = 0; r->loose_controls != NULL && i < r->loose_controls->len; i++)
+    {
+      LooseControl *l = &g_array_index (r->loose_controls, LooseControl, i);
+      FormControl *c = g_hash_table_lookup (r->form_controls, l->id);
+      double x = 0, y = 0;
+      int col = 0, row = 0;
+
+      if (c != NULL && r->sheet != NULL)
+        {
+          while (col < O42_MAX_COLS - 1 && x + o42_sheet_col_width (r->sheet, col) <= l->x)
+            x += o42_sheet_col_width (r->sheet, col++);
+          while (row < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (r->sheet, row) <= l->y)
+            y += o42_sheet_row_height (r->sheet, row++);
+          place_control (r, c, row, col, l->x - x, l->y - y, l->w, l->h);
+        }
+      g_free (l->id);
+    }
+  if (r->loose_controls != NULL)
+    g_array_set_size (r->loose_controls, 0);
 }
 
 /* "2.54cm", "1in", "12pt", "25.4mm" -> pixels at 96 dpi. */
@@ -1911,7 +2249,20 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
             }
           g_array_append_val (r->cell_runs, run);
         }
-      else if (strcmp (name, "frame") == 0)
+      else if (strcmp (name, "control") == 0)
+        {
+          /* A form control: the form said what it is, this says where. */
+          const char *id = attr (names, values, "control");
+          FormControl *c = id != NULL ? g_hash_table_lookup (r->form_controls, id) : NULL;
+
+          if (c != NULL)
+            place_control (r, c, r->row, r->cell_col,
+                           ods_length (attr (names, values, "x")),
+                           ods_length (attr (names, values, "y")),
+                           ods_length (attr (names, values, "width")),
+                           ods_length (attr (names, values, "height")));
+        }
+      else if (strcmp (name, "frame") == 0 && !r->in_form)
         {
           r->frame_x = ods_length (attr (names, values, "x"));
           r->frame_y = ods_length (attr (names, values, "y"));
@@ -2175,6 +2526,42 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
     }
 
   /* Tables. */
+  if (strcmp (name, "forms") == 0)
+    {
+      r->in_form = TRUE;
+      return;
+    }
+  if (r->in_form)
+    {
+      if (strcmp (name, "button") == 0 || strcmp (name, "checkbox") == 0 ||
+          strcmp (name, "radio") == 0 || strcmp (name, "value-range") == 0 ||
+          strcmp (name, "listbox") == 0 || strcmp (name, "combobox") == 0 ||
+          strcmp (name, "fixed-text") == 0 || strcmp (name, "frame") == 0)
+        read_form_control (r, name, names, values);
+      return;
+    }
+
+  if (strcmp (name, "control") == 0)
+    {
+      /* A control in <table:shapes>, placed from the sheet's corner
+       * once the columns and rows are read. */
+      LooseControl l;
+      const char *id = attr (names, values, "control");
+
+      if (id != NULL)
+        {
+          l.id = g_strdup (id);
+          l.x = ods_length (attr (names, values, "x"));
+          l.y = ods_length (attr (names, values, "y"));
+          l.w = ods_length (attr (names, values, "width"));
+          l.h = ods_length (attr (names, values, "height"));
+          if (r->loose_controls == NULL)
+            r->loose_controls = g_array_new (FALSE, FALSE, sizeof (LooseControl));
+          g_array_append_val (r->loose_controls, l);
+        }
+      return;
+    }
+
   if (strcmp (name, "table") == 0)
     {
       const char *tname = attr (names, values, "name");
@@ -2328,8 +2715,13 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
     { r->in_num_style = FALSE; r->num = NULL; }
   else if (strcmp (name, "table-row") == 0 && r->sheet != NULL)
     row_finish (r);
+  else if (strcmp (name, "forms") == 0)
+    r->in_form = FALSE;
   else if (strcmp (name, "table") == 0)
-    r->sheet = NULL;
+    {
+      place_loose_controls (r);
+      r->sheet = NULL;
+    }
 }
 
 static void
@@ -2465,6 +2857,7 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   memset (&r, 0, sizeof r);
   r.book = book;
   r.styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, style_free);
+  r.form_controls = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, form_control_free);
   r.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.col_styles = g_ptr_array_new_with_free_func (g_free);
 
@@ -2476,6 +2869,7 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
        parse_part (parts, "settings.xml", &settings_parser, &r, error);
 
   g_hash_table_unref (r.styles);
+  g_hash_table_unref (r.form_controls);
   g_hash_table_unref (r.num_styles);
   g_ptr_array_unref (r.col_styles);
   g_free (r.row_style); g_free (r.cell_style); g_free (r.formula); g_free (r.value_type); g_free (r.value);
