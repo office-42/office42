@@ -34,7 +34,7 @@ thing that knows what a mouse is.
 | | `o42-shape.c` | 551 | Shapes and the nine form controls | Fine |
 | | `o42-analysis.c` | 928 | The statistical analysis tools | Each writes a labelled table; no drawing |
 | formula | `o42-formula.c` | 1,662 | Lexer and parser | Handles array constants, empty arguments, 3-D and structured references |
-| | `o42-eval.c` | 16,077 | 610 functions and the array evaluator | Far too big for one file. The function table is sorted and binary-searched, which is right, but the file should be several: text, dates, money, statistics, engineering, the array frame |
+| | `o42-eval.c` | 16,073 | 610 functions and the array evaluator | Far too big for one file. The function table is sorted and binary-searched, which is right, but the file should be several: text, dates, money, statistics, engineering, the array frame |
 | io | `o42-xls.c` | 3,943 | BIFF8 both ways, BIFF5 in | Dense but commented; the record numbers are named |
 | | `o42-xlsx.c` + `-draw.c` | 4,478 | Office Open XML, on a zip of our own | The drawing half is separate, which keeps both readable |
 | | `o42-ods.c` | 3,165 | OpenDocument | Cells, styles, charts, controls, both ways |
@@ -168,8 +168,8 @@ against.
 | File formats | 14 | 88% | 12.3 | Lotus, Applix and Quattro, all of them binary and long dead; `.gnumeric` itself is nearly complete |
 | Printing | 6 | 98% | 5.9 | as above |
 | Undo | 5 | 100% | 5.0 | |
-| Window and dialogs | 5 | 92% | 4.6 | right-click menus |
-| **Total** | 100 | | **95.9** | |
+| Window and dialogs | 5 | 98% | 4.9 | Gnumeric's side pane for names and its object list |
+| **Total** | 100 | | **96.2** | |
 
 **About 96% of Gnumeric.**
 
@@ -191,5 +191,12 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
-   `o42-window.c` (8,000): both split along obvious seams.
+1. **Splitting the two big files**, `o42-eval.c` (16,000 lines) and
+   `o42-window.c` (8,600): both split along obvious seams -- the
+   evaluator by function family, the window by dialog.
+2. **The plot types Gnumeric's chart engine has and ours has not**:
+   the box plot, the histogram plot, the polar and the contour.
+3. **The last of the file formats Gnumeric reads**: Lotus 1-2-3,
+   Quattro Pro and Applix, all of them binary and long dead.
+4. **Miltersen and Schwartz on commodity options**, the one formula of
+   Gnumeric's derivatives plugin that is not here.
