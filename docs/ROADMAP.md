@@ -8,9 +8,13 @@ section spelled out.
 
 ## Next
 
-**Splitting `o42-window.c`.** It is 8,800 lines; the dialogs would make
-a file of their own, the way the evaluator's eleven function families
-now do.
+**Splitting `o42-sheet.c`.** It is 8,580 lines and the biggest file
+now that the evaluator and the window have come apart: cells and their
+formats, recalculation and the dependency graph, and the objects that
+float over the grid are three subjects in one file.
+
+**Splitting `o42-grid.c`.** 5,400 lines: drawing, editing, selection
+and dragging objects.
 
 ## Not planned
 

@@ -46,7 +46,9 @@ thing that knows what a mouse is.
 | | `o42-text-formats.c` | 687 | DIF, SYLK and LaTeX | Three formats older than the programs that read them, and the one a paper is set in |
 | | `o42-lotus.c` | 247 | Lotus 1-2-3, both ways | The oldest format here, and the smallest reader |
 | script | `o42-python.c` | 962 | CPython embedded | Optional; the API is `book` and `sheet` objects |
-| ui | `o42-window.c` | 8,818 | 111 actions, every dialog, printing | The biggest file now, and the one that would gain most from being split: the dialogs could be a file of their own |
+| ui | `o42-window.c` | 5,373 | The window itself: title bar, toolbars, actions, files, printing, tabs | Was 8,825 and held every dialog too |
+| | `o42-window-private.h` | 130 | The seam between the window and its dialogs | The frame a dialog is built in, and what a dialog may ask of the window |
+| | `o42-dialogs-*.c` | 3,526 | The Data, Tools and Format menus' dialogs, a file apiece | Each is the dialogs of one menu and nothing else |
 | | `o42-grid.c` | 5,400 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
 
 **What the review turned up.** Three things stand out. The first is
@@ -192,9 +194,10 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **Splitting `o42-window.c`** (8,800 lines): the dialogs would make
-   a file of their own, the way the evaluator's function families now
-   do.
+1. **Splitting `o42-sheet.c`** (8,580 lines), which is the biggest file
+   now that the evaluator and the window have come apart: cells and
+   their formats, recalculation and the dependency graph, and the
+   objects that float over the grid are three subjects in one file.
 2. **The last two file formats Gnumeric reads**: Quattro Pro and
    Applix. Both are long dead, and neither can be written here with a
    straight face: there is no file of either to read, and no program on
