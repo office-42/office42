@@ -702,11 +702,27 @@ append_text_runs (GString *out, Styles *s, const char *text, const O42TextRun *r
         continue;
       style = text_style (s, &runs[i].fmt, base);
       escaped = g_markup_escape_text (text + start, (gssize) (end - start));
-      if (style != NULL)
-        g_string_append_printf (out, "<text:span text:style-name=\"%s\">%s</text:span>",
-                                style, escaped);
-      else
-        g_string_append (out, escaped);
+      {
+        /* A line inside a cell is a break, not a paragraph, when the
+         * text is set in more than one font: the runs are counted
+         * against the whole string and paragraphs would cut them. */
+        char **lines = g_strsplit (escaped, "\n", -1);
+        GString *body = g_string_new (NULL);
+
+        for (int k = 0; lines[k] != NULL; k++)
+          {
+            if (k > 0)
+              g_string_append (body, "<text:line-break/>");
+            g_string_append (body, lines[k]);
+          }
+        if (style != NULL)
+          g_string_append_printf (out, "<text:span text:style-name=\"%s\">%s</text:span>",
+                                  style, body->str);
+        else
+          g_string_append (out, body->str);
+        g_string_free (body, TRUE);
+        g_strfreev (lines);
+      }
       g_free (escaped);
       g_free (style);
     }
@@ -2077,7 +2093,9 @@ cell_finish (Reader *r)
           input = g_strdup (g_ascii_dtostr (buf, sizeof buf, g_ascii_strtod (r->value, NULL)));
         }
       else if (strcmp (t, "boolean") == 0 && r->value != NULL)
-        input = g_strdup (strcmp (r->value, "true") == 0 ? "=TRUE" : "=FALSE");
+        /* TRUE typed into a cell is a boolean, not a formula that
+         * returns one, and that is what the file meant. */
+        input = g_strdup (strcmp (r->value, "true") == 0 ? "TRUE" : "FALSE");
       else if (strcmp (t, "date") == 0 && r->value != NULL)
         {
           int y = 0, m = 0, d = 0, hh = 0, mm = 0, ss = 0;

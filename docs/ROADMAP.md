@@ -8,17 +8,14 @@ section spelled out.
 
 ## Next
 
-**More of `.ods`.** It reads more than it writes: a boolean number
-style comes in and nothing sends one out.
+**Translations.** `menus.ui` marks its strings translatable and nothing
+reads them: there is no gettext in the build and no `po/`.
 
 ## After that
 
 **Splitting the two big files.** `o42-eval.c` is 14,000 lines and
 `o42-window.c` 8,000; both split along obvious seams -- the evaluator
 by function family, the window by dialog.
-
-**Translations.** `menus.ui` marks its strings translatable and nothing
-reads them: there is no gettext in the build and no `po/`.
 
 ## Not planned
 
