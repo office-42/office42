@@ -783,6 +783,9 @@ main (int argc, char *argv[])
                   else if (strcmp (words[i], "rows") == 0) options.layout = O42_ANALYSIS_ROWS;
                   else if (g_str_has_prefix (words[i], "bins=")) options.bins = atoi (words[i] + 5);
                   else if (g_str_has_prefix (words[i], "terms=")) options.interval = atoi (words[i] + 6);
+                  else if (g_str_has_prefix (words[i], "per=")) options.per_sample = atoi (words[i] + 4);
+                  else if (g_str_has_prefix (words[i], "size=")) options.sample_size = atoi (words[i] + 5);
+                  else if (strcmp (words[i], "periodic") == 0) options.periodic = TRUE;
                   else if (g_str_has_prefix (words[i], "confidence="))
                     options.confidence = g_ascii_strtod (words[i] + 11, NULL);
                 }
@@ -799,6 +802,10 @@ main (int argc, char *argv[])
                 ok = o42_analysis_histogram (sheet, &options);
               else if (strcmp (words[0], "anova") == 0)
                 ok = o42_analysis_anova (sheet, &options);
+              else if (strcmp (words[0], "anova2") == 0)
+                ok = o42_analysis_anova2 (sheet, &options);
+              else if (strcmp (words[0], "sampling") == 0)
+                ok = o42_analysis_sampling (sheet, &options);
               else if (strcmp (words[0], "rank") == 0)
                 ok = o42_analysis_rank (sheet, &options);
               else if (strcmp (words[0], "moving") == 0)
@@ -806,7 +813,7 @@ main (int argc, char *argv[])
               else
                 {
                   fprintf (stderr, "analyse: descriptive, correlation, covariance, regression,"
-                                   " histogram, anova, rank or moving\n");
+                                   " histogram, anova, anova2, sampling, rank or moving\n");
                   ok = TRUE;
                 }
               if (!ok)

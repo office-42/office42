@@ -3656,7 +3656,8 @@ typedef struct {
   GtkWidget *tool;
   GtkWidget *input, *output;
   GtkWidget *labels, *by_rows;
-  GtkWidget *number;      /* bins, or terms for the moving average */
+  GtkWidget *number;      /* bins, terms, rows to a sample, or how many to draw */
+  GtkWidget *periodic;    /* sampling: every nth rather than at random */
 } AnalysisPrompt;
 
 static void
@@ -3679,6 +3680,9 @@ on_analysis_ok (GtkWidget *w, gpointer data)
                    ? O42_ANALYSIS_ROWS : O42_ANALYSIS_COLUMNS;
   options.bins = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->number));
   options.interval = options.bins;
+  options.per_sample = options.bins;
+  options.sample_size = options.bins;
+  options.periodic = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->periodic));
 
   if (!o42_ref_parse (input, &options.input.row0, &options.input.col0, &len) ||
       input[len] != ':' ||
@@ -3697,7 +3701,9 @@ on_analysis_ok (GtkWidget *w, gpointer data)
     case 3: ok = o42_analysis_regression (self->sheet, &options); break;
     case 4: ok = o42_analysis_histogram (self->sheet, &options); break;
     case 5: ok = o42_analysis_anova (self->sheet, &options); break;
-    case 6: ok = o42_analysis_rank (self->sheet, &options); break;
+    case 6: ok = o42_analysis_anova2 (self->sheet, &options); break;
+    case 7: ok = o42_analysis_sampling (self->sheet, &options); break;
+    case 8: ok = o42_analysis_rank (self->sheet, &options); break;
     default: ok = o42_analysis_moving (self->sheet, &options); break;
     }
 
@@ -3716,8 +3722,8 @@ action_analysis (GSimpleAction *a, GVariant *p, gpointer data)
   GtkWidget *content, *buttons, *grid, *ok;
   static const char *const TOOLS[] = {
     N_("Descriptive Statistics"), N_("Correlation"), N_("Covariance"), N_("Regression"),
-    N_("Histogram"), N_("ANOVA: Single Factor"), N_("Rank and Percentile"),
-    N_("Moving Average"), NULL
+    N_("Histogram"), N_("ANOVA: Single Factor"), N_("ANOVA: Two Factor"),
+    N_("Sampling"), N_("Rank and Percentile"), N_("Moving Average"), NULL
   };
   O42Range selection;
 
@@ -3733,7 +3739,10 @@ action_analysis (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->tool = labelled (grid, 0, _("Tool:"), drop_down_of (TOOLS));
   prompt->input = labelled (grid, 1, _("Input range:"), gtk_entry_new ());
   prompt->output = labelled (grid, 2, _("Output at:"), gtk_entry_new ());
-  prompt->number = labelled (grid, 3, "Bins or terms:",
+  /* One number serves every tool that wants one: the bins of a
+   * histogram, the terms of a moving average, the rows to a sample of
+   * a two-factor analysis, or how many values a sample draws. */
+  prompt->number = labelled (grid, 3, _("Bins, terms or sample:"),
                              gtk_spin_button_new_with_range (0, 1000, 1));
 
   o42_grid_get_selection (self->grid, &selection);
@@ -3756,6 +3765,8 @@ action_analysis (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content), prompt->labels);
   prompt->by_rows = gtk_check_button_new_with_mnemonic ( _("Variables lie along the _rows"));
   gtk_box_append (GTK_BOX (content), prompt->by_rows);
+  prompt->periodic = gtk_check_button_new_with_mnemonic ( _("Sample every nth value, not at rando_m"));
+  gtk_box_append (GTK_BOX (content), prompt->periodic);
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_analysis_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);

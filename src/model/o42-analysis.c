@@ -826,6 +826,305 @@ o42_analysis_anova (O42Sheet *sheet, const O42AnalysisOptions *options)
 
 /* ---- Rank and percentile --------------------------------------------- */
 
+/* ---- Two-factor analysis of variance ---------------------------------- */
+
+/* The input as a rectangle of numbers, without the labels: rows by
+ * columns, with NAN where a cell holds no number.  A two-factor
+ * analysis reads its input as a table and not as a list of variables,
+ * because the position of a value in the table is what it means. */
+static double *
+read_matrix (O42Sheet *sheet, const O42AnalysisOptions *options,
+             int *rows_out, int *cols_out, int *first_row, int *first_col)
+{
+  O42Range r = o42_range_normalise (options->input.row0, options->input.col0,
+                                    options->input.row1, options->input.col1);
+  int row0 = r.row0 + (options->labels ? 1 : 0);
+  int col0 = r.col0 + (options->labels ? 1 : 0);
+  int rows = r.row1 - row0 + 1;
+  int cols = r.col1 - col0 + 1;
+  double *cells;
+
+  if (rows < 1 || cols < 1)
+    return NULL;
+  cells = g_new (double, (gsize) rows * cols);
+  for (int i = 0; i < rows; i++)
+    for (int j = 0; j < cols; j++)
+      {
+        O42Value value;
+
+        o42_sheet_get_value (sheet, row0 + i, col0 + j, &value);
+        cells[(gsize) i * cols + j] = value.type == O42_VALUE_NUMBER ? value.as.number : NAN;
+        o42_value_clear (&value);
+      }
+  *rows_out = rows;
+  *cols_out = cols;
+  *first_row = row0;
+  *first_col = col0;
+  return cells;
+}
+
+/* The name in the margin of the table, or "Row 3" when there is none. */
+static char *
+margin_name (O42Sheet *sheet, const O42AnalysisOptions *options,
+             gboolean down, int index, int first_row, int first_col)
+{
+  O42Range r = o42_range_normalise (options->input.row0, options->input.col0,
+                                    options->input.row1, options->input.col1);
+  char *shown = NULL;
+
+  if (options->labels)
+    shown = down ? o42_sheet_get_display (sheet, first_row + index, r.col0)
+                 : o42_sheet_get_display (sheet, r.row0, first_col + index);
+  if (shown != NULL && *shown != '\0')
+    return shown;
+  g_free (shown);
+  return g_strdup_printf (down ? "Row %d" : "Column %d", index + 1);
+}
+
+/* The summary line a two-factor table puts in front of every row and
+ * every column: how many, their sum, their mean and their variance. */
+static void
+put_summary (O42Sheet *sheet, int row, int col, const char *name,
+             const double *values, int n)
+{
+  double sum = 0, mean, m2 = 0;
+  int count = 0;
+
+  for (int i = 0; i < n; i++)
+    if (!isnan (values[i]))
+      { sum += values[i]; count++; }
+  mean = count > 0 ? sum / count : NAN;
+  for (int i = 0; i < n; i++)
+    if (!isnan (values[i]))
+      m2 += (values[i] - mean) * (values[i] - mean);
+
+  put_text (sheet, row, col, name);
+  put_number (sheet, row, col + 1, count);
+  put_number (sheet, row, col + 2, sum);
+  put_number (sheet, row, col + 3, mean);
+  put_number (sheet, row, col + 4, count > 1 ? m2 / (count - 1) : NAN);
+}
+
+/* One line of the ANOVA table. */
+static void
+put_anova_line (O42Sheet *sheet, int row, int col, const char *source,
+                double ss, int df, gboolean with_f, double ms_error, int df_error)
+{
+  double ms = df > 0 ? ss / df : NAN;
+  double f = with_f && ms_error > 0 ? ms / ms_error : NAN;
+
+  put_text (sheet, row, col, source);
+  put_number (sheet, row, col + 1, ss);
+  put_number (sheet, row, col + 2, df);
+  if (df > 0)
+    put_number (sheet, row, col + 3, ms);
+  if (!isnan (f))
+    {
+      put_number (sheet, row, col + 4, f);
+      put_number (sheet, row, col + 5, f_distribution_tail (f, df, df_error));
+    }
+}
+
+gboolean
+o42_analysis_anova2 (O42Sheet *sheet, const O42AnalysisOptions *options)
+{
+  int rows = 0, cols = 0, first_row = 0, first_col = 0;
+  double *cells;
+  int per = MAX (options->per_sample, 1);
+  int samples;
+  double grand_sum = 0, grand_mean;
+  int grand_count = 0;
+  int row;
+
+  g_return_val_if_fail (sheet != NULL && options != NULL, FALSE);
+  cells = read_matrix (sheet, options, &rows, &cols, &first_row, &first_col);
+  if (cells == NULL)
+    return FALSE;
+  samples = rows / per;
+  if (cols < 2 || samples < 2 || rows % per != 0)
+    { g_free (cells); return FALSE; }
+
+  for (int i = 0; i < rows * cols; i++)
+    if (!isnan (cells[i]))
+      { grand_sum += cells[i]; grand_count++; }
+  if (grand_count < rows * cols)
+    { g_free (cells); return FALSE; }    /* a gap makes the sums of squares meaningless */
+  grand_mean = grand_sum / grand_count;
+
+  o42_sheet_begin_group (sheet);
+  row = options->out_row;
+  put_text (sheet, row++, options->out_col, "SUMMARY");
+  put_text (sheet, row, options->out_col + 1, "Count");
+  put_text (sheet, row, options->out_col + 2, "Sum");
+  put_text (sheet, row, options->out_col + 3, "Average");
+  put_text (sheet, row++, options->out_col + 4, "Variance");
+
+  /* Every row of the table (or every sample of rows, when the samples
+   * repeat), then every column. */
+  {
+    double *line = g_new (double, (gsize) MAX (rows, cols) * per);
+
+    for (int s = 0; s < samples; s++)
+      {
+        char *name = margin_name (sheet, options, TRUE, s * per, first_row, first_col);
+        int n = 0;
+
+        for (int i = s * per; i < (s + 1) * per; i++)
+          for (int j = 0; j < cols; j++)
+            line[n++] = cells[(gsize) i * cols + j];
+        put_summary (sheet, row++, options->out_col, name, line, n);
+        g_free (name);
+      }
+    row++;
+    for (int j = 0; j < cols; j++)
+      {
+        char *name = margin_name (sheet, options, FALSE, j, first_row, first_col);
+
+        for (int i = 0; i < rows; i++)
+          line[i] = cells[(gsize) i * cols + j];
+        put_summary (sheet, row++, options->out_col, name, line, rows);
+        g_free (name);
+      }
+    g_free (line);
+  }
+
+  row++;
+  put_text (sheet, row++, options->out_col, "ANOVA");
+  put_text (sheet, row, options->out_col, "Source of Variation");
+  put_text (sheet, row, options->out_col + 1, "SS");
+  put_text (sheet, row, options->out_col + 2, "df");
+  put_text (sheet, row, options->out_col + 3, "MS");
+  put_text (sheet, row, options->out_col + 4, "F");
+  put_text (sheet, row++, options->out_col + 5, "P-value");
+
+  {
+    double ss_rows = 0, ss_cols = 0, ss_within = 0, ss_total = 0, ss_inter;
+    int df_rows = samples - 1, df_cols = cols - 1;
+    int df_within = per > 1 ? samples * cols * (per - 1) : df_rows * df_cols;
+    int df_inter = per > 1 ? df_rows * df_cols : 0;
+    double ms_within;
+
+    for (int s = 0; s < samples; s++)
+      {
+        double sum = 0;
+
+        for (int i = s * per; i < (s + 1) * per; i++)
+          for (int j = 0; j < cols; j++)
+            sum += cells[(gsize) i * cols + j];
+        {
+          double mean = sum / (per * cols);
+
+          ss_rows += per * cols * (mean - grand_mean) * (mean - grand_mean);
+        }
+      }
+    for (int j = 0; j < cols; j++)
+      {
+        double sum = 0;
+
+        for (int i = 0; i < rows; i++)
+          sum += cells[(gsize) i * cols + j];
+        {
+          double mean = sum / rows;
+
+          ss_cols += rows * (mean - grand_mean) * (mean - grand_mean);
+        }
+      }
+    for (int i = 0; i < rows * cols; i++)
+      ss_total += (cells[i] - grand_mean) * (cells[i] - grand_mean);
+
+    if (per > 1)
+      {
+        /* With repeats, what is left inside a cell of the table is the
+         * error, and what is left over between them is the interaction. */
+        for (int s = 0; s < samples; s++)
+          for (int j = 0; j < cols; j++)
+            {
+              double sum = 0, mean;
+
+              for (int i = s * per; i < (s + 1) * per; i++)
+                sum += cells[(gsize) i * cols + j];
+              mean = sum / per;
+              for (int i = s * per; i < (s + 1) * per; i++)
+                {
+                  double d = cells[(gsize) i * cols + j] - mean;
+
+                  ss_within += d * d;
+                }
+            }
+        ss_inter = ss_total - ss_rows - ss_cols - ss_within;
+      }
+    else
+      {
+        ss_within = ss_total - ss_rows - ss_cols;
+        ss_inter = 0;
+      }
+    ms_within = df_within > 0 ? ss_within / df_within : NAN;
+
+    put_anova_line (sheet, row++, options->out_col,
+                    per > 1 ? "Sample" : "Rows", ss_rows, df_rows, TRUE, ms_within, df_within);
+    put_anova_line (sheet, row++, options->out_col, "Columns", ss_cols, df_cols, TRUE, ms_within, df_within);
+    if (per > 1)
+      put_anova_line (sheet, row++, options->out_col, "Interaction", ss_inter, df_inter, TRUE, ms_within, df_within);
+    put_anova_line (sheet, row++, options->out_col,
+                    per > 1 ? "Within" : "Error", ss_within, df_within, FALSE, 0, 0);
+    put_anova_line (sheet, row++, options->out_col, "Total", ss_total, rows * cols - 1, FALSE, 0, 0);
+  }
+
+  o42_sheet_end_group (sheet);
+  g_free (cells);
+  return TRUE;
+}
+
+/* ---- Sampling ---------------------------------------------------------- */
+
+gboolean
+o42_analysis_sampling (O42Sheet *sheet, const O42AnalysisOptions *options)
+{
+  GArray *variables;
+  int wanted = options->sample_size;
+  int row = options->out_row;
+
+  g_return_val_if_fail (sheet != NULL && options != NULL, FALSE);
+  variables = read_variables (sheet, options);
+  if (variables->len == 0 || wanted < 1)
+    { free_variables (variables); return FALSE; }
+
+  o42_sheet_begin_group (sheet);
+  for (guint v = 0; v < variables->len; v++)
+    {
+      const Variable *var = &g_array_index (variables, Variable, v);
+      const GArray *values = var->values;
+      int col = options->out_col + (int) v;
+      int at = options->out_row;
+
+      put_text (sheet, at++, col, var->name);
+      if (values->len == 0)
+        continue;
+
+      if (options->periodic)
+        {
+          /* Every nth value, starting at the nth: what Excel and
+           * Gnumeric both mean by a periodic sample. */
+          int period = wanted;
+
+          for (guint i = period - 1; i < values->len; i += period)
+            put_number (sheet, at++, col, g_array_index (values, double, i));
+        }
+      else
+        {
+          for (int i = 0; i < wanted; i++)
+            put_number (sheet, at++, col,
+                        g_array_index (values, double,
+                                       g_random_int_range (0, (gint32) values->len)));
+        }
+      row = MAX (row, at);
+    }
+  o42_sheet_end_group (sheet);
+
+  free_variables (variables);
+  return TRUE;
+}
+
 gboolean
 o42_analysis_rank (O42Sheet *sheet, const O42AnalysisOptions *options)
 {

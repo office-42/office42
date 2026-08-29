@@ -444,11 +444,21 @@ tool of that name and Excel's Analysis ToolPak:
 | Regression | R and R squared, the ANOVA table, and each coefficient with its standard error, t and P-value |
 | Histogram | the count in each bin and the cumulative percentage |
 | ANOVA: Single Factor | the groups summarised, then SS, df, MS, F and P |
+| ANOVA: Two Factor | the input read as a table: the rows summarised, then the columns, then SS, df, MS, F and P for each factor |
+| Sampling | a sample of each variable |
 | Rank and Percentile | every value with its rank and percentile |
 | Moving Average | the average over a chosen number of terms |
 
 Each writes a labelled table of ordinary cells wherever you point it,
 in one undo step.
+
+The number box under the ranges serves whichever tool wants one: the
+bins of a histogram, the terms of a moving average, the rows to a
+sample of a two-factor analysis (leave it at 0 or 1 for a table with
+one value per cell, and the interaction between the two factors is
+worked out when it is more), or how many values a sample draws.
+Sampling draws at random with replacement unless **Sample every nth
+value** is ticked, in which case the number is the period.
 
 ## 11. Charts
 

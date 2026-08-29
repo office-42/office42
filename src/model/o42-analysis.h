@@ -33,6 +33,9 @@ typedef struct {
   double            confidence;  /* for the confidence level, 0.95 by default */
   int               bins;        /* histogram: how many, 0 to choose */
   double            interval;    /* moving average: how many terms */
+  int               per_sample;  /* two-factor ANOVA: rows to a sample, 1 for none */
+  int               sample_size; /* sampling: how many values, or the period */
+  gboolean          periodic;    /* sampling: every nth value rather than at random */
 } O42AnalysisOptions;
 
 /* Count, mean, standard error, median, mode, standard deviation,
@@ -55,6 +58,16 @@ gboolean o42_analysis_histogram   (O42Sheet *sheet, const O42AnalysisOptions *op
 /* One-factor analysis of variance: the groups summarised, then the
  * table of sums of squares with F and its probability. */
 gboolean o42_analysis_anova       (O42Sheet *sheet, const O42AnalysisOptions *options);
+
+/* Two-factor analysis of variance over the input read as a table: the
+ * rows summarised, then the columns, then the sums of squares.  With
+ * `per_sample` above 1 the rows repeat in samples of that many and the
+ * interaction between the two factors is worked out as well. */
+gboolean o42_analysis_anova2      (O42Sheet *sheet, const O42AnalysisOptions *options);
+
+/* A sample of each variable: every nth value when `periodic`, or
+ * `sample_size` of them drawn at random. */
+gboolean o42_analysis_sampling    (O42Sheet *sheet, const O42AnalysisOptions *options);
 
 /* Every value with its rank and its percentile. */
 gboolean o42_analysis_rank        (O42Sheet *sheet, const O42AnalysisOptions *options);

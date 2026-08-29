@@ -161,16 +161,16 @@ against.
 | Formulas and functions | 18 | 86% | 15.5 | 561 of ~650 functions; the Hebrew-calendar dates and the exotic options (Black and Scholes is here) |
 | Formatting | 10 | 97% | 9.7 | as above |
 | Rows, columns, sheets | 8 | 97% | 7.8 | |
-| Data tools | 12 | 92% | 11.0 | sampling and the two-factor ANOVAs |
+| Data tools | 12 | 100% | 12.0 | |
 | Charts | 8 | 90% | 7.2 | Gnumeric's chart engine (GOffice) has many more plot types and styling |
 | Objects | 4 | 99% | 4.0 | |
 | File formats | 14 | 78% | 10.9 | LaTeX, DIF, SYLK, Lotus, Applix, Quattro; `.gnumeric` itself is nearly complete |
 | Printing | 6 | 98% | 5.9 | as above |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 5 | 92% | 4.6 | right-click menus |
-| **Total** | 100 | | **91.4** | |
+| **Total** | 100 | | **92.4** | |
 
-**About 91% of Gnumeric.**
+**About 92% of Gnumeric.**
 
 ## 5. Where office42 goes further
 
