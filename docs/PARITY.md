@@ -64,7 +64,7 @@ has. The last column says what is missing, not what is there.
 | Area | Weight | Here | Score | What is missing |
 |---|---:|---:|---:|---|
 | Entering and editing | 8 | 100% | 8.0 | |
-| Selecting and navigating | 5 | 98% | 4.9 | multiple (Ctrl-held) selections |
+| Selecting and navigating | 5 | 100% | 5.0 | |
 | Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (561 in all) |
 | Number formats | 6 | 98% | 5.9 | the locale codes in `[$-409]` |
 | Fonts, borders, colours | 8 | 100% | 8.0 | |
@@ -78,7 +78,7 @@ has. The last column says what is missing, not what is there.
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 6 | 97% | 5.8 | arranging windows, which GTK 4 gives a program no way to do |
 | Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice |
-| **Total** | 100 | | **99.0** | |
+| **Total** | 100 | | **99.1** | |
 
 **About 98% of Excel 2003.** Against **Excel 365** the number is nearer
 45%: dynamic arrays and tables are here, but Power Query, the modern
@@ -108,7 +108,6 @@ thing is worth knowing:
 
 | | |
 |---|---|
-| **Multiple selections** | Ctrl+click does not add to the selection |
 | **Trace precedents** | the dependency graph is there and nothing draws it |
 | **Custom lists** | the fill handle continues numbers, days and months, but the list cannot be added to |
 | **Translations** | English only |
@@ -140,7 +139,6 @@ shapes and controls are selected, dragged and resized with handles.
 1. **Sheet tabs cannot be dragged.** Right-clicking one offers move
    left and move right, and two clicks rename it, but the tab itself
    does not follow the pointer, and there is no tab colour.
-2. **One selection at a time.**
 3. **No window arranging.** Window ▸ New Window opens a second view of
    the same book, and nothing tiles or cascades them -- GTK 4 took away
    the calls that would move a window, so this one is not ours to
@@ -200,9 +198,7 @@ In the order the work is being done, largest gap first.
    that goes out as Excel's own `surfaceChart` part. They are in
    `.gnumeric` and nowhere else, so a book that carries them cannot be
    handed to Excel whole.
-2. **Selections of more than one rectangle**, which Ctrl+click makes
-   everywhere else.
-3. **Sheet tabs that can be dragged**, and given a colour.
+2. **Sheet tabs that can be dragged**, and given a colour.
 4. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
    `o42-window.c` (8,000): both split along obvious seams.
 5. **Translations.** `menus.ui` marks its strings translatable and

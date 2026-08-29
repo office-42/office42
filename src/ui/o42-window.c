@@ -8076,23 +8076,33 @@ window_sync (O42Window *self)
     {
       double total = 0.0;
       int count = 0;
+      GArray *ranges = g_array_new (FALSE, FALSE, sizeof (O42Range));
 
-      for (int r = sel.row0; r <= sel.row1 && r < sel.row0 + 5000; r++)
-        for (int c = sel.col0; c <= sel.col1 && c < sel.col0 + 256; c++)
-          {
-            O42Value v;
+      /* Everything selected, which with Ctrl+click may be several
+       * rectangles at once. */
+      o42_grid_selection_ranges (self->grid, ranges);
+      for (guint i = 0; i < ranges->len; i++)
+        {
+          O42Range one = g_array_index (ranges, O42Range, i);
 
-            if (o42_sheet_is_empty (self->sheet, r, c))
-              continue;
-
-            o42_sheet_get_value (self->sheet, r, c, &v);
-            if (v.type == O42_VALUE_NUMBER)
+          for (int r = one.row0; r <= one.row1 && r < one.row0 + 5000; r++)
+            for (int c = one.col0; c <= one.col1 && c < one.col0 + 256; c++)
               {
-                total += v.as.number;
-                count++;
+                O42Value v;
+
+                if (o42_sheet_is_empty (self->sheet, r, c))
+                  continue;
+
+                o42_sheet_get_value (self->sheet, r, c, &v);
+                if (v.type == O42_VALUE_NUMBER)
+                  {
+                    total += v.as.number;
+                    count++;
+                  }
+                o42_value_clear (&v);
               }
-            o42_value_clear (&v);
-          }
+        }
+      g_array_unref (ranges);
 
       if (count > 0)
         {

@@ -130,6 +130,8 @@ struct _O42Grid {
   guint          hscroll_policy : 1;
   guint          vscroll_policy : 1;
   gulong         hadj_changed, vadj_changed;
+  GArray        *extra_sel;               /* O42Range: the selections Ctrl+click added
+                                           * before the one being made now */
   int            header_w;                /* the row headings' width, by the digits in them */
   gboolean       painting;                /* the format painter is loaded */
   O42Fmt         paint_fmt;               /* ...with this look */
@@ -204,10 +206,18 @@ picture_rect (O42Grid *self, const O42Picture *pic,
 }
 
 static void selection_range (O42Grid *self, O42Range *out);
+static void selection_ranges (O42Grid *self, GArray *out);
 static void pin_point (O42Grid *self, double *x, double *y);
 static void sheet_changed (O42Grid *self);
 
 /* ---- The format painter ------------------------------------------------ */
+
+void
+o42_grid_selection_ranges (O42Grid *self, GArray *out)
+{
+  g_return_if_fail (O42_IS_GRID (self) && out != NULL);
+  selection_ranges (self, out);
+}
 
 void
 o42_grid_pick_up_format (O42Grid *self)
@@ -663,6 +673,32 @@ selection_range (O42Grid *self, O42Range *out)
                               self->active_row, self->active_col);
 }
 
+/* Every rectangle of the selection: the one being made, and the ones
+ * Ctrl+click put behind it.  Excel calls the lot one selection and so
+ * does everything here that formats or clears. */
+static void
+selection_ranges (O42Grid *self, GArray *out)
+{
+  O42Range current;
+
+  g_array_set_size (out, 0);
+  for (guint i = 0; self->extra_sel != NULL && i < self->extra_sel->len; i++)
+    g_array_append_val (out, g_array_index (self->extra_sel, O42Range, i));
+  selection_range (self, &current);
+  g_array_append_val (out, current);
+}
+
+/* A plain click, or a move of the active cell, starts again. */
+static void
+selection_forget_extras (O42Grid *self)
+{
+  if (self->extra_sel != NULL && self->extra_sel->len > 0)
+    {
+      g_array_set_size (self->extra_sel, 0);
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+    }
+}
+
 /* The column whose right edge is within GRIP pixels of x, if x is in the
  * column header; -1 otherwise.  Rows likewise. */
 static int
@@ -1061,6 +1097,11 @@ static void
 move_active (O42Grid *self, int row, int col, gboolean extend)
 {
   O42Range merged;
+
+  /* Moving the cell, or making a new selection, forgets the rectangles
+   * Ctrl+click had put behind this one. */
+  if (!extend)
+    selection_forget_extras (self);
 
   row = CLAMP (row, 0, O42_MAX_ROWS - 1);
   col = CLAMP (col, 0, O42_MAX_COLS - 1);
@@ -1492,8 +1533,17 @@ o42_grid_delete_selection (O42Grid *self)
   if (self->sheet == NULL)
     return;
 
-  selection_range (self, &range);
-  o42_sheet_clear_range (self->sheet, &range);
+  {
+    GArray *ranges = g_array_new (FALSE, FALSE, sizeof (O42Range));
+
+    selection_ranges (self, ranges);
+    o42_sheet_begin_group (self->sheet);
+    for (guint i = 0; i < ranges->len; i++)
+      o42_sheet_clear_range (self->sheet, &g_array_index (ranges, O42Range, i));
+    o42_sheet_end_group (self->sheet);
+    g_array_unref (ranges);
+  }
+  (void) range;
   sheet_changed (self);
 }
 
@@ -2036,8 +2086,17 @@ o42_grid_apply_fmt (O42Grid *self, O42FmtMask mask, const O42Fmt *value)
   if (apply_to_editor_selection (self, mask, value))
     return;
 
-  selection_range (self, &range);
-  o42_sheet_apply_fmt (self->sheet, &range, mask, value);
+  {
+    GArray *ranges = g_array_new (FALSE, FALSE, sizeof (O42Range));
+
+    selection_ranges (self, ranges);
+    o42_sheet_begin_group (self->sheet);
+    for (guint i = 0; i < ranges->len; i++)
+      o42_sheet_apply_fmt (self->sheet, &g_array_index (ranges, O42Range, i), mask, value);
+    o42_sheet_end_group (self->sheet);
+    g_array_unref (ranges);
+  }
+  (void) range;
   sheet_changed (self);
 }
 
@@ -2778,6 +2837,26 @@ on_click_pressed (GtkGestureClick *gesture,
 
   row = row_at_y (self, y);
   col = col_at_x (self, x);
+
+  /* Ctrl+click on a cell adds a rectangle to the selection, as it does
+   * everywhere else: what was selected is put behind, and a new one
+   * starts where the pointer is.  A plain click forgets them all. */
+  if ((state & GDK_CONTROL_MASK) && row >= 0 && col >= 0 &&
+      o42_sheet_get_link (self->sheet, row, col) == NULL)
+    {
+      O42Range current;
+
+      if (self->extra_sel == NULL)
+        self->extra_sel = g_array_new (FALSE, FALSE, sizeof (O42Range));
+      selection_range (self, &current);
+      g_array_append_val (self->extra_sel, current);
+      self->anchor_row = self->active_row = row;
+      self->anchor_col = self->active_col = col;
+      self->dragging = TRUE;
+      selection_changed (self);
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+      return;
+    }
 
   /* Ctrl+click on a hyperlink follows it: a place in the sheet is
    * selected, anything else goes to the system. */
@@ -3853,6 +3932,27 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
 
 /* The selection's outline and the active cell's heavy border, with the
  * fill handle. */
+/* One of the rectangles behind the current selection: the same wash and
+ * outline, and no active cell. */
+static void
+paint_extra_selection (O42Grid *self, cairo_t *cr, const O42Range *sel)
+{
+  double sx0 = col_x (self, sel->col0);
+  double sy0 = row_y (self, sel->row0);
+  double sx1 = col_x (self, sel->col1) + o42_sheet_col_width (self->sheet, sel->col1);
+  double sy1 = row_y (self, sel->row1) + o42_sheet_row_height (self->sheet, sel->row1);
+
+  cairo_save (cr);
+  cairo_set_source_rgba (cr, 0.16, 0.30, 0.50, 0.16);
+  cairo_rectangle (cr, sx0, sy0, sx1 - sx0, sy1 - sy0);
+  cairo_fill (cr);
+  cairo_set_source_rgb (cr, 0.16, 0.30, 0.50);
+  cairo_set_line_width (cr, 1);
+  cairo_rectangle (cr, floor (sx0) + 0.5, floor (sy0) + 0.5, sx1 - sx0, sy1 - sy0);
+  cairo_stroke (cr);
+  cairo_restore (cr);
+}
+
 static void
 paint_selection (O42Grid *self, cairo_t *cr, const O42Range *sel)
 {
@@ -4427,6 +4527,11 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
       cairo_stroke (cr);
     }
 
+  /* The rectangles Ctrl+click put behind this one are washed the same
+   * way, without the heavy border, which belongs to the one being
+   * made. */
+  for (guint i = 0; self->extra_sel != NULL && i < self->extra_sel->len; i++)
+    paint_extra_selection (self, cr, &g_array_index (self->extra_sel, O42Range, i));
   paint_selection (self, cr, &sel);
 
   /* Page breaks, where the printed pages would divide. */
@@ -4949,6 +5054,7 @@ o42_grid_dispose (GObject *object)
       self->editor = NULL;
     }
 
+  g_clear_pointer (&self->extra_sel, g_array_unref);
   g_clear_object (&self->layout);
   g_clear_pointer (&self->clip_text, g_free);
   self->sheet = NULL;     /* not owned */

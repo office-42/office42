@@ -94,6 +94,10 @@ From the top down:
 
 View ▸ Options turns the gridlines and the zero values off and on.
 
+**Ctrl+click** adds to the selection: what was selected stays, and a
+new rectangle starts where you pressed. Formatting, clearing and the
+sum in the status bar act on all of them; a plain click starts again.
+
 **The right button** opens a menu wherever you press it: over a cell,
 cut, copy, paste, paste special, insert and delete cells, clear, format
 cells, a note and a hyperlink; over a row or column heading, insert,

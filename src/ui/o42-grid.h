@@ -113,6 +113,11 @@ void o42_grid_fit_wrapped_rows (O42Grid *self);
  * pointer in a state where the next cell or range clicked is given it.
  * Clicking anywhere else, or pressing Escape, puts the brush down. */
 void     o42_grid_pick_up_format (O42Grid *self);
+
+/* Every rectangle of the selection -- the one being made and the ones
+ * Ctrl+click put behind it -- appended to `out`, an array of O42Range.
+ * There is always at least one. */
+void     o42_grid_selection_ranges (O42Grid *self, GArray *out);
 gboolean o42_grid_is_painting    (O42Grid *self);
 
 /* Hides or shows the rows (columns) the selection spans.  Unhide works
