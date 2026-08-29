@@ -39,6 +39,7 @@ o42_core_sources = files(
   'model/o42-book.c',
   'formula/o42-formula.c',
   'formula/o42-eval.c',
+  'formula/o42-fn-options.c',
 )
 
 o42_core = static_library('o42core',
