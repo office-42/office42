@@ -984,7 +984,22 @@ main (int argc, char *argv[])
           int n = (int) g_strv_length (words);
 
           if (words[0][0] == 'p' && n >= 2)
-            o42_sheet_set_protected (sheet, strcmp (words[1], "on") == 0);
+            {
+              /* "protect on PASSWORD" sets one; "protect off PASSWORD"
+               * has to give the same one back. */
+              if (strcmp (words[1], "on") == 0)
+                {
+                  o42_sheet_set_password (sheet, n >= 3 ? words[2] : NULL);
+                  o42_sheet_set_protected (sheet, TRUE);
+                }
+              else if (!o42_sheet_password_matches (sheet, n >= 3 ? words[2] : ""))
+                fprintf (stderr, "protect: that is not the password\n");
+              else
+                {
+                  o42_sheet_set_protected (sheet, FALSE);
+                  o42_sheet_set_password (sheet, NULL);
+                }
+            }
           else if (n >= 3)
             {
               O42Range r;

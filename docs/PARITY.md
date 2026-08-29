@@ -109,7 +109,7 @@ thing is worth knowing:
 
 | | |
 |---|---|
-| **Passwords** | protection is a flag, not a secret |
+| **Passwords** | the sheet takes one, kept as the short hash Excel invented; it guards against a slip of the hand and nothing else |
 | **Track changes, sharing** | not there, and not planned |
 
 ---

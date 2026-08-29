@@ -439,6 +439,15 @@ with penalties.
 **Scenarios.** Tools ▸ Scenarios keeps named sets of values for the
 same cells and puts any of them back.
 
+**Protection.** Format ▸ Protect Sheet locks the sheet and asks for a
+password, which may be left empty; taking the protection off asks for
+the same one back. The password is kept as the sixteen-bit hash Excel
+invented for this and every spreadsheet since has had to keep -- it
+cannot be turned back into the password, and it cannot be relied on
+either: a hash that short collides, and anything reading the file can
+take the protection off. It guards against a slip of the hand, and the
+dialog says so. It travels in `.xlsx`, `.xls` and `.gnumeric`.
+
 **Custom lists.** The fill handle continues the days and the months
 already. Tools ▸ Custom Lists takes another run -- the quarters, the
 regions, the shifts -- typed with commas between; drag a cell holding

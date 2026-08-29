@@ -629,12 +629,13 @@ write_sheet (GString *out, O42Sheet *sheet)
     "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"0\" HideGrid=\"0\" HideColHeader=\"0\" "
     "HideRowHeader=\"0\" DisplayOutlines=\"1\" OutlineSymbolsBelow=\"1\" OutlineSymbolsRight=\"1\" "
     "Visibility=\"GNM_SHEET_VISIBILITY_VISIBLE\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
-    "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\">\n"
+    "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\">\n"
     "      <gnm:Name>%s</gnm:Name>\n"
     "      <gnm:MaxCol>%d</gnm:MaxCol>\n      <gnm:MaxRow>%d</gnm:MaxRow>\n"
     "      <gnm:Zoom>1</gnm:Zoom>\n",
     o42_sheet_protected (sheet) ? 1 : 0, o42_sheet_is_chart_sheet (sheet) ? 1 : 0,
-    o42_sheet_tab_colour (sheet), name, used.col1, used.row1);
+    o42_sheet_tab_colour (sheet), o42_sheet_password_hash (sheet),
+    name, used.col1, used.row1);
 
   /* The print setup, in Gnumeric's own element and codes; the print
    * area is the sheet-level name Print_Area, as Gnumeric keeps it. */
@@ -1667,6 +1668,12 @@ start_element (GMarkupParseContext *context, const char *element,
 
             if (tab != NULL)
               o42_sheet_set_tab_colour (r->sheet, (guint32) g_ascii_strtoull (tab, NULL, 10));
+          }
+          {
+            const char *pass = attr (names, values, "o42-password");
+
+            if (pass != NULL)
+              o42_sheet_set_password_hash (r->sheet, (guint16) g_ascii_strtoull (pass, NULL, 10));
           }
         }
       g_hash_table_remove_all (r->shared_exprs);

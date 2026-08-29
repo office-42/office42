@@ -76,6 +76,7 @@ enum {
   R_MSODRAWINGGROUP = 0x00EB, R_MSODRAWING = 0x00EC,
   R_HEADER = 0x0014, R_FOOTER = 0x0015, R_HCENTER = 0x0083, R_VCENTER = 0x0084,
   R_SETUP = 0x00A1, R_PRINTSIZE = 0x0033, R_PROTECT = 0x0012,
+  R_PASSWORD = 0x0013,
   C_UNITS = 0x1001, C_CHART = 0x1002, C_SERIES = 0x1003, C_DATAFORMAT = 0x1006,
   C_LINEFORMAT = 0x1007, C_AREAFORMAT = 0x100A, C_SERIESTEXT = 0x100D, C_CHARTFORMAT = 0x1014,
   C_LEGEND = 0x1015, C_BAR = 0x1017, C_LINE = 0x1018, C_PIE = 0x1019, C_AREA = 0x101A,
@@ -2126,6 +2127,16 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
             }
         }
       break;
+    case R_PROTECT:
+      if (len >= 2 && r->sheet != NULL && rd16 (p) != 0)
+        o42_sheet_set_protected (r->sheet, TRUE);
+      break;
+
+    case R_PASSWORD:
+      if (len >= 2 && r->sheet != NULL)
+        o42_sheet_set_password_hash (r->sheet, rd16 (p));
+      break;
+
     case R_WINDOW2:
       if (len >= 2 && r->sheet)
         r->pending = FALSE;
@@ -3800,6 +3811,18 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     g_ptr_array_unref (controls);
     g_array_unref (shapes);
   }
+
+  /* Protection, and the sixteen-bit hash of its password. */
+  if (o42_sheet_protected (sheet))
+    {
+      begin_record (w, R_PROTECT); put16 (w->out, 1); end_record (w);
+      if (o42_sheet_password_hash (sheet) != 0)
+        {
+          begin_record (w, R_PASSWORD);
+          put16 (w->out, o42_sheet_password_hash (sheet));
+          end_record (w);
+        }
+    }
 
   o42_sheet_get_frozen (sheet, &frozen_rows, &frozen_cols);
   begin_record (w, R_WINDOW2);

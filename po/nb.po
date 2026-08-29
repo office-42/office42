@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 0.9.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-29 22:28+0200\n"
+"POT-Creation-Date: 2026-08-29 22:33+0200\n"
 "PO-Revision-Date: 2026-08-29 21:16+0200\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Norwegian Bokmal\n"
@@ -30,12 +30,12 @@ msgstr "Data ▸ Validering begrenser hva denne cellen kan inneholde."
 #: src/ui/o42-window.c:1514 src/ui/o42-window.c:1644 src/ui/o42-window.c:1721
 #: src/ui/o42-window.c:2180 src/ui/o42-window.c:2294 src/ui/o42-window.c:2478
 #: src/ui/o42-window.c:2629 src/ui/o42-window.c:2705 src/ui/o42-window.c:2791
-#: src/ui/o42-window.c:3914 src/ui/o42-window.c:4231 src/ui/o42-window.c:4308
-#: src/ui/o42-window.c:4625 src/ui/o42-window.c:5088 src/ui/o42-window.c:5328
-#: src/ui/o42-window.c:5405 src/ui/o42-window.c:5491 src/ui/o42-window.c:5923
-#: src/ui/o42-window.c:5999 src/ui/o42-window.c:6154 src/ui/o42-window.c:6314
-#: src/ui/o42-window.c:6600 src/ui/o42-window.c:6708 src/ui/o42-window.c:6828
-#: src/ui/o42-window.c:7176
+#: src/ui/o42-window.c:3914 src/ui/o42-window.c:4090 src/ui/o42-window.c:4319
+#: src/ui/o42-window.c:4396 src/ui/o42-window.c:4713 src/ui/o42-window.c:5176
+#: src/ui/o42-window.c:5416 src/ui/o42-window.c:5493 src/ui/o42-window.c:5579
+#: src/ui/o42-window.c:6011 src/ui/o42-window.c:6087 src/ui/o42-window.c:6242
+#: src/ui/o42-window.c:6402 src/ui/o42-window.c:6688 src/ui/o42-window.c:6796
+#: src/ui/o42-window.c:6916 src/ui/o42-window.c:7264
 msgid "_OK"
 msgstr "_OK"
 
@@ -43,11 +43,12 @@ msgstr "_OK"
 #: src/ui/o42-window.c:990 src/ui/o42-window.c:1125 src/ui/o42-window.c:1240
 #: src/ui/o42-window.c:1515 src/ui/o42-window.c:1645 src/ui/o42-window.c:1722
 #: src/ui/o42-window.c:2181 src/ui/o42-window.c:2706 src/ui/o42-window.c:3915
-#: src/ui/o42-window.c:4232 src/ui/o42-window.c:4309 src/ui/o42-window.c:4626
-#: src/ui/o42-window.c:5089 src/ui/o42-window.c:5329 src/ui/o42-window.c:5406
-#: src/ui/o42-window.c:5492 src/ui/o42-window.c:5924 src/ui/o42-window.c:6000
-#: src/ui/o42-window.c:6155 src/ui/o42-window.c:6315 src/ui/o42-window.c:6601
-#: src/ui/o42-window.c:6709 src/ui/o42-window.c:6829 src/ui/o42-window.c:7177
+#: src/ui/o42-window.c:4091 src/ui/o42-window.c:4320 src/ui/o42-window.c:4397
+#: src/ui/o42-window.c:4714 src/ui/o42-window.c:5177 src/ui/o42-window.c:5417
+#: src/ui/o42-window.c:5494 src/ui/o42-window.c:5580 src/ui/o42-window.c:6012
+#: src/ui/o42-window.c:6088 src/ui/o42-window.c:6243 src/ui/o42-window.c:6403
+#: src/ui/o42-window.c:6689 src/ui/o42-window.c:6797 src/ui/o42-window.c:6917
+#: src/ui/o42-window.c:7265
 msgid "_Cancel"
 msgstr "_Avbryt"
 
@@ -135,11 +136,11 @@ msgstr "Antall"
 msgid "Average"
 msgstr "Gjennomsnitt"
 
-#: src/ui/o42-window.c:1021 src/ui/o42-window.c:4018
+#: src/ui/o42-window.c:1021 src/ui/o42-window.c:4106
 msgid "Min"
 msgstr "Minst"
 
-#: src/ui/o42-window.c:1021 src/ui/o42-window.c:4018
+#: src/ui/o42-window.c:1021 src/ui/o42-window.c:4106
 msgid "Max"
 msgstr "Størst"
 
@@ -196,7 +197,7 @@ msgid "Scenarios"
 msgstr "Scenarier"
 
 #: src/ui/o42-window.c:1376 src/ui/o42-window.c:1489 src/ui/o42-window.c:3251
-#: src/ui/o42-window.c:3634 src/ui/o42-window.c:4459 src/ui/o42-window.c:5915
+#: src/ui/o42-window.c:3634 src/ui/o42-window.c:4547 src/ui/o42-window.c:6003
 msgid "Name:"
 msgstr "Navn:"
 
@@ -209,17 +210,17 @@ msgid "_Show"
 msgstr "_Vis"
 
 #: src/ui/o42-window.c:1392 src/ui/o42-window.c:3642 src/ui/o42-window.c:3820
-#: src/ui/o42-window.c:4476
+#: src/ui/o42-window.c:4564
 msgid "_Add"
 msgstr "_Legg til"
 
 #: src/ui/o42-window.c:1393 src/ui/o42-window.c:3272 src/ui/o42-window.c:3644
-#: src/ui/o42-window.c:4477
+#: src/ui/o42-window.c:4565
 msgid "_Delete"
 msgstr "_Slett"
 
 #: src/ui/o42-window.c:1394 src/ui/o42-window.c:3494 src/ui/o42-window.c:3645
-#: src/ui/o42-window.c:3822 src/ui/o42-window.c:4165 src/ui/o42-window.c:6999
+#: src/ui/o42-window.c:3822 src/ui/o42-window.c:4253 src/ui/o42-window.c:7087
 #: data/ui/menus.ui:13
 msgid "_Close"
 msgstr "_Lukk"
@@ -309,15 +310,15 @@ msgid "Replace _All"
 msgstr "Erstatt _alle"
 
 #: src/ui/o42-window.c:1866 src/ui/o42-window.c:2792 src/ui/o42-window.c:2961
-#: src/ui/o42-window.c:3273 src/ui/o42-window.c:4478 src/ui/o42-window.c:4671
-#: src/ui/o42-window.c:4964
+#: src/ui/o42-window.c:3273 src/ui/o42-window.c:4566 src/ui/o42-window.c:4759
+#: src/ui/o42-window.c:5052
 msgid "Close"
 msgstr "Lukk"
 
 #. In the order of O42TrendKind, so the row is the kind.
 #. In the order of O42ErrBarKind.
-#: src/ui/o42-window.c:1896 src/ui/o42-window.c:2168 src/ui/o42-window.c:7129
-#: src/ui/o42-window.c:7141 src/ui/o42-window.c:7155
+#: src/ui/o42-window.c:1896 src/ui/o42-window.c:2168 src/ui/o42-window.c:7217
+#: src/ui/o42-window.c:7229 src/ui/o42-window.c:7243
 msgid "None"
 msgstr "Ingen"
 
@@ -345,7 +346,7 @@ msgstr "Stiplet"
 msgid "Dotted"
 msgstr "Prikket"
 
-#: src/ui/o42-window.c:1904 src/ui/o42-window.c:1907 src/ui/o42-window.c:7113
+#: src/ui/o42-window.c:1904 src/ui/o42-window.c:1907 src/ui/o42-window.c:7201
 msgid "General"
 msgstr "Generelt"
 
@@ -681,7 +682,7 @@ msgid "_Clear"
 msgstr "_Tøm"
 
 #: src/ui/o42-window.c:2296 src/ui/o42-window.c:2479 src/ui/o42-window.c:2631
-#: src/ui/o42-window.c:8292
+#: src/ui/o42-window.c:8380
 msgid "Cancel"
 msgstr "Avbryt"
 
@@ -909,8 +910,8 @@ msgstr "Overse _alle"
 msgid "The dashed lines are where the pages divide."
 msgstr "De stiplede linjene er der sidene deles."
 
-#: src/ui/o42-window.c:3512 src/ui/o42-window.c:8334 src/ui/o42-window.c:8471
-#: src/ui/o42-window.c:8472
+#: src/ui/o42-window.c:3512 src/ui/o42-window.c:8422 src/ui/o42-window.c:8559
+#: src/ui/o42-window.c:8560
 msgid "Ready"
 msgstr "Klar"
 
@@ -946,7 +947,7 @@ msgstr "Vår, sommer, høst, vinter"
 msgid "The days and the months are known already."
 msgstr "Dagene og månedene er kjent fra før."
 
-#: src/ui/o42-window.c:3821 src/ui/o42-window.c:4307
+#: src/ui/o42-window.c:3821 src/ui/o42-window.c:4395
 msgid "_Remove"
 msgstr "_Fjern"
 
@@ -1045,662 +1046,698 @@ msgstr "Objektene er atskilt igjen."
 msgid "Recording. Tools > Record Macro again to stop."
 msgstr "Spiller inn. Verktøy ▸ Spill inn makro igjen for å stoppe."
 
-#: src/ui/o42-window.c:4018
+#: src/ui/o42-window.c:4019
+msgid "The sheet is protected: locked cells cannot be typed into."
+msgstr "Arket er beskyttet: låste celler kan det ikke skrives i."
+
+#: src/ui/o42-window.c:4025
+msgid "That is not the password."
+msgstr "Det er ikke passordet."
+
+#: src/ui/o42-window.c:4031 src/ui/o42-window.c:4054
+msgid "The sheet is no longer protected."
+msgstr "Arket er ikke lenger beskyttet."
+
+#: src/ui/o42-window.c:4061
+msgid "Protect Sheet"
+msgstr "Beskytt ark"
+
+#: src/ui/o42-window.c:4061
+msgid "Unprotect Sheet"
+msgstr "Opphev beskyttelsen"
+
+#: src/ui/o42-window.c:4067
+msgid "Password:"
+msgstr "Passord:"
+
+#: src/ui/o42-window.c:4070
+msgid "leave empty for none"
+msgstr "la stå tom for ingen"
+
+#: src/ui/o42-window.c:4076
+msgid ""
+"A spreadsheet's password keeps a hand off the keys, not a reader out of the "
+"file: it is kept as a short hash that anything reading the file can ignore."
+msgstr ""
+"Passordet til et regneark holder en hånd unna tastene, ikke en leser ute av "
+"filen: det lagres som en kort kontrollsum som alt som leser filen kan overse."
+
+#: src/ui/o42-window.c:4106
 msgid "Value of"
 msgstr "Verdien"
 
-#: src/ui/o42-window.c:4037
+#: src/ui/o42-window.c:4125
 msgid "That is not a cell to aim at."
 msgstr "Det er ingen celle å sikte mot."
 
-#: src/ui/o42-window.c:4065
+#: src/ui/o42-window.c:4153
 msgid "Name at least one cell to change."
 msgstr "Oppgi minst én celle som skal endres."
 
-#: src/ui/o42-window.c:4123
+#: src/ui/o42-window.c:4211
 msgid "Solver"
 msgstr "Problemløser"
 
-#: src/ui/o42-window.c:4128
+#: src/ui/o42-window.c:4216
 msgid "Target cell:"
 msgstr "Målcelle:"
 
-#: src/ui/o42-window.c:4129
+#: src/ui/o42-window.c:4217
 msgid "Make it:"
 msgstr "Gjør den:"
 
-#: src/ui/o42-window.c:4130
+#: src/ui/o42-window.c:4218
 msgid "Value:"
 msgstr "Verdi:"
 
-#: src/ui/o42-window.c:4131
+#: src/ui/o42-window.c:4219
 msgid "By changing:"
 msgstr "Ved å endre:"
 
-#: src/ui/o42-window.c:4133
+#: src/ui/o42-window.c:4221
 msgid "A1, B1  or  A1:B1"
 msgstr ""
 
-#: src/ui/o42-window.c:4141
+#: src/ui/o42-window.c:4229
 msgid "Keeping these in bounds, one to a line:"
 msgstr "Med disse innenfor grensene, én per linje:"
 
-#: src/ui/o42-window.c:4164
+#: src/ui/o42-window.c:4252
 msgid "_Solve"
 msgstr "_Løs"
 
-#: src/ui/o42-window.c:4217
+#: src/ui/o42-window.c:4305
 msgid "Cell Note"
 msgstr "Cellemerknad"
 
-#: src/ui/o42-window.c:4289
+#: src/ui/o42-window.c:4377
 msgid "Hyperlink"
 msgstr "Hyperkobling"
 
-#: src/ui/o42-window.c:4296
+#: src/ui/o42-window.c:4384
 msgid "https://example.org, mailto:someone, or #Sheet2!B4"
 msgstr ""
 
-#: src/ui/o42-window.c:4301
+#: src/ui/o42-window.c:4389
 msgid "Ctrl+click the cell to follow the link."
 msgstr "Ctrl+klikk cellen for å følge koblingen."
 
-#: src/ui/o42-window.c:4438
+#: src/ui/o42-window.c:4526
 msgid "Define Name"
 msgstr "Definer navn"
 
-#: src/ui/o42-window.c:4453
+#: src/ui/o42-window.c:4541
 msgid "Names in Workbook:"
 msgstr "Navn i arbeidsboken:"
 
-#: src/ui/o42-window.c:4460
+#: src/ui/o42-window.c:4548
 msgid "Refers to:"
 msgstr "Viser til:"
 
-#: src/ui/o42-window.c:4580
+#: src/ui/o42-window.c:4668
 msgid "Options"
 msgstr "Alternativer"
 
-#: src/ui/o42-window.c:4582
+#: src/ui/o42-window.c:4670
 msgid "Window Options"
 msgstr "Vindusalternativer"
 
-#: src/ui/o42-window.c:4583
+#: src/ui/o42-window.c:4671
 msgid "_Gridlines"
 msgstr "_Rutenett"
 
-#: src/ui/o42-window.c:4584
+#: src/ui/o42-window.c:4672
 msgid "_Zero values"
 msgstr "_Nullverdier"
 
-#: src/ui/o42-window.c:4608
+#: src/ui/o42-window.c:4696
 msgid "Calculate only when as_ked (F9)"
 msgstr "Beregn bare når du _ber om det (F9)"
 
-#: src/ui/o42-window.c:4613
+#: src/ui/o42-window.c:4701
 msgid "Allow a formula to depend on _itself"
 msgstr "La en formel få avhenge av seg _selv"
 
-#: src/ui/o42-window.c:4620
+#: src/ui/o42-window.c:4708
 msgid "Until it moves less than:"
 msgstr "Til den flytter seg mindre enn:"
 
-#: src/ui/o42-window.c:4667
+#: src/ui/o42-window.c:4755
 msgid "office42 Help"
 msgstr "Hjelp for office42"
 
-#: src/ui/o42-window.c:4947
+#: src/ui/o42-window.c:5035
 msgid "Print Preview"
 msgstr "Forhåndsvisning"
 
-#: src/ui/o42-window.c:4961
+#: src/ui/o42-window.c:5049
 msgid "_Previous"
 msgstr "_Forrige"
 
-#: src/ui/o42-window.c:4962
+#: src/ui/o42-window.c:5050
 msgid "_Next"
 msgstr "_Neste"
 
-#: src/ui/o42-window.c:4963 data/ui/menus.ui:28
+#: src/ui/o42-window.c:5051 data/ui/menus.ui:28
 msgid "_Print..."
 msgstr "S_kriv ut..."
 
-#: src/ui/o42-window.c:5040
+#: src/ui/o42-window.c:5128
 msgid "Page Setup: Sheet"
 msgstr "Utskriftsformat: Ark"
 
-#: src/ui/o42-window.c:5045
+#: src/ui/o42-window.c:5133
 msgid "Header:"
 msgstr "Topptekst:"
 
-#: src/ui/o42-window.c:5046
+#: src/ui/o42-window.c:5134
 msgid "Footer:"
 msgstr "Bunntekst:"
 
-#: src/ui/o42-window.c:5047
+#: src/ui/o42-window.c:5135
 msgid "Print area:"
 msgstr "Utskriftsområde:"
 
-#: src/ui/o42-window.c:5048
+#: src/ui/o42-window.c:5136
 msgid "Rows to repeat at top:"
 msgstr "Rader som gjentas øverst:"
 
-#: src/ui/o42-window.c:5049
+#: src/ui/o42-window.c:5137
 msgid "Scale (per cent):"
 msgstr "Skala (prosent):"
 
-#: src/ui/o42-window.c:5050
+#: src/ui/o42-window.c:5138
 msgid "Fit to pages across:"
 msgstr "Tilpass til sider bortover:"
 
-#: src/ui/o42-window.c:5051
+#: src/ui/o42-window.c:5139
 msgid "Fit to pages down:"
 msgstr "Tilpass til sider nedover:"
 
-#: src/ui/o42-window.c:5052
+#: src/ui/o42-window.c:5140
 msgid "Margin (points):"
 msgstr "Marg (punkter):"
 
-#: src/ui/o42-window.c:5065
+#: src/ui/o42-window.c:5153
 msgid "the used range"
 msgstr "det brukte området"
 
-#: src/ui/o42-window.c:5081
+#: src/ui/o42-window.c:5169
 msgid "Print _gridlines"
 msgstr "Skriv ut _rutenett"
 
-#: src/ui/o42-window.c:5084
+#: src/ui/o42-window.c:5172
 msgid "Print row and column _headings"
 msgstr "Skriv ut rad- og kolonne_overskrifter"
 
-#: src/ui/o42-window.c:5286
+#: src/ui/o42-window.c:5374
 msgid "Function Wizard - Step 1 of 2"
 msgstr "Funksjonsveiviser – steg 1 av 2"
 
-#: src/ui/o42-window.c:5290
+#: src/ui/o42-window.c:5378
 msgid "Search functions"
 msgstr "Søk i funksjoner"
 
-#: src/ui/o42-window.c:5399
+#: src/ui/o42-window.c:5487
 msgid "AutoFormat"
 msgstr "Autoformat"
 
-#: src/ui/o42-window.c:5422
+#: src/ui/o42-window.c:5510
 msgid "Click a cell or a range to give it that look"
 msgstr "Klikk en celle eller et område for å gi det det utseendet"
 
-#: src/ui/o42-window.c:5475
+#: src/ui/o42-window.c:5563
 msgid "What-If Table"
 msgstr "Hva-hvis-tabell"
 
-#: src/ui/o42-window.c:5480
+#: src/ui/o42-window.c:5568
 msgid "Row input cell:"
 msgstr "Radinndatacelle:"
 
-#: src/ui/o42-window.c:5481
+#: src/ui/o42-window.c:5569
 msgid "Column input cell:"
 msgstr "Kolonneinndatacelle:"
 
-#: src/ui/o42-window.c:5489
+#: src/ui/o42-window.c:5577
 msgid "the formula goes in the corner, and the inside is filled in."
 msgstr "formelen står i hjørnet, og innsiden fylles ut."
 
-#: src/ui/o42-window.c:5632
+#: src/ui/o42-window.c:5720
 msgid "Tab Colour"
 msgstr "Arkfanefarge"
 
-#: src/ui/o42-window.c:5707
+#: src/ui/o42-window.c:5795
 msgid "_Insert Sheet"
 msgstr "_Sett inn ark"
 
-#: src/ui/o42-window.c:5708
+#: src/ui/o42-window.c:5796
 msgid "_Delete Sheet"
 msgstr "S_lett ark"
 
-#: src/ui/o42-window.c:5709
+#: src/ui/o42-window.c:5797
 msgid "_Rename Sheet..."
 msgstr "Gi arket _nytt navn..."
 
-#: src/ui/o42-window.c:5711
+#: src/ui/o42-window.c:5799
 msgid "Move _Left"
 msgstr "Flytt til _venstre"
 
-#: src/ui/o42-window.c:5712
+#: src/ui/o42-window.c:5800
 msgid "Move _Right"
 msgstr "Flytt til _høyre"
 
-#: src/ui/o42-window.c:5713
+#: src/ui/o42-window.c:5801
 msgid "Tab _Colour..."
 msgstr "Arkfane_farge..."
 
-#: src/ui/o42-window.c:5714
+#: src/ui/o42-window.c:5802
 msgid "_No Tab Colour"
 msgstr "_Ingen arkfanefarge"
 
-#: src/ui/o42-window.c:5912
+#: src/ui/o42-window.c:6000
 msgid "Rename Sheet"
 msgstr "Gi arket nytt navn"
 
-#: src/ui/o42-window.c:5987
+#: src/ui/o42-window.c:6075
 msgid "Insert"
 msgstr "Sett inn"
 
-#: src/ui/o42-window.c:5987
+#: src/ui/o42-window.c:6075
 msgid "Delete"
 msgstr "Slett"
 
-#: src/ui/o42-window.c:6087
+#: src/ui/o42-window.c:6175
 msgid "_Column"
 msgstr "_Stolpe"
 
-#: src/ui/o42-window.c:6087
+#: src/ui/o42-window.c:6175
 msgid "_Stacked column"
 msgstr "_Stablet stolpe"
 
-#: src/ui/o42-window.c:6087
+#: src/ui/o42-window.c:6175
 #, c-format
 msgid "100% stac_ked column"
 msgstr "100 % sta_blet stolpe"
 
-#: src/ui/o42-window.c:6088
+#: src/ui/o42-window.c:6176
 msgid "_Bar"
 msgstr "_Liggende stolpe"
 
-#: src/ui/o42-window.c:6088 data/ui/menus.ui:117
+#: src/ui/o42-window.c:6176 data/ui/menus.ui:117
 msgid "_Line"
 msgstr "_Linje"
 
-#: src/ui/o42-window.c:6088
+#: src/ui/o42-window.c:6176
 msgid "_Area"
 msgstr "_Areal"
 
-#: src/ui/o42-window.c:6088
+#: src/ui/o42-window.c:6176
 msgid "_Pie"
 msgstr "_Kake"
 
-#: src/ui/o42-window.c:6088
+#: src/ui/o42-window.c:6176
 msgid "_XY (Scatter)"
 msgstr "_XY (spredning)"
 
-#: src/ui/o42-window.c:6089
+#: src/ui/o42-window.c:6177
 msgid "_Doughnut"
 msgstr "_Smultring"
 
-#: src/ui/o42-window.c:6089
+#: src/ui/o42-window.c:6177
 msgid "_Radar"
 msgstr "_Radar"
 
-#: src/ui/o42-window.c:6089
+#: src/ui/o42-window.c:6177
 msgid "B_ubble"
 msgstr "B_oble"
 
-#: src/ui/o42-window.c:6090
+#: src/ui/o42-window.c:6178
 msgid "Sto_ck (high-low-close)"
 msgstr "A_ksje (høy-lav-slutt)"
 
-#: src/ui/o42-window.c:6090
+#: src/ui/o42-window.c:6178
 msgid "Surfa_ce"
 msgstr "O_verflate"
 
-#: src/ui/o42-window.c:6091
+#: src/ui/o42-window.c:6179
 msgid "Box and w_hiskers"
 msgstr "Bo_ks med haler"
 
-#: src/ui/o42-window.c:6091
+#: src/ui/o42-window.c:6179
 msgid "Histo_gram"
 msgstr "Histo_gram"
 
-#: src/ui/o42-window.c:6092
+#: src/ui/o42-window.c:6180
 msgid "Pola_r"
 msgstr "Pola_rt"
 
-#: src/ui/o42-window.c:6092
+#: src/ui/o42-window.c:6180
 msgid "Con_tour"
 msgstr "_Kotelinjer"
 
-#: src/ui/o42-window.c:6104
+#: src/ui/o42-window.c:6192
 msgid "Chart Wizard"
 msgstr "Diagramveiviser"
 
-#: src/ui/o42-window.c:6121
+#: src/ui/o42-window.c:6209
 msgid "First _row is a heading"
 msgstr "Første _rad er en overskrift"
 
-#: src/ui/o42-window.c:6122
+#: src/ui/o42-window.c:6210
 msgid "First col_umn is a heading"
 msgstr "Første _kolonne er en overskrift"
 
-#: src/ui/o42-window.c:6132
+#: src/ui/o42-window.c:6220
 msgid "Series in _columns"
 msgstr "Serier i _kolonner"
 
-#: src/ui/o42-window.c:6134
+#: src/ui/o42-window.c:6222
 msgid "Series in ro_ws"
 msgstr "Serier i _rader"
 
 #. Excel's last step asks where the chart is to go.
-#: src/ui/o42-window.c:6143
+#: src/ui/o42-window.c:6231
 msgid "On a sheet of its _own"
 msgstr "På et _eget ark"
 
-#: src/ui/o42-window.c:6147
+#: src/ui/o42-window.c:6235
 msgid "Title:"
 msgstr "Tittel:"
 
-#: src/ui/o42-window.c:6274
+#: src/ui/o42-window.c:6362
 msgid "Format Control"
 msgstr "Formater kontroll"
 
-#: src/ui/o42-window.c:6312
+#: src/ui/o42-window.c:6400
 msgid "A plain click works the control; Ctrl+click takes hold of it."
 msgstr "Et vanlig klikk bruker kontrollen; Ctrl+klikk tar tak i den."
 
-#: src/ui/o42-window.c:6424
+#: src/ui/o42-window.c:6512
 msgid "Open Database"
 msgstr "Åpne database"
 
-#: src/ui/o42-window.c:6427
+#: src/ui/o42-window.c:6515
 msgid "SQLite databases"
 msgstr "SQLite-databaser"
 
-#: src/ui/o42-window.c:6433
+#: src/ui/o42-window.c:6521
 msgid "All files"
 msgstr "Alle filer"
 
-#: src/ui/o42-window.c:6557
+#: src/ui/o42-window.c:6645
 msgid "Get Data"
 msgstr "Hent data"
 
-#: src/ui/o42-window.c:6559
+#: src/ui/o42-window.c:6647
 msgid "Tables in the database:"
 msgstr "Tabeller i databasen:"
 
-#: src/ui/o42-window.c:6581
+#: src/ui/o42-window.c:6669
 msgid "Query:"
 msgstr "Spørring:"
 
-#: src/ui/o42-window.c:6593
+#: src/ui/o42-window.c:6681
 msgid "Write the column _names above it"
 msgstr "Skriv kolonne_navnene over den"
 
-#: src/ui/o42-window.c:6692
+#: src/ui/o42-window.c:6780
 msgid "Send to Table"
 msgstr "Send til tabell"
 
-#: src/ui/o42-window.c:6699
+#: src/ui/o42-window.c:6787
 msgid "Table:"
 msgstr "Tabell:"
 
-#: src/ui/o42-window.c:6701
+#: src/ui/o42-window.c:6789
 msgid "The first row _names the columns"
 msgstr "Første rad _navngir kolonnene"
 
-#: src/ui/o42-window.c:6803
+#: src/ui/o42-window.c:6891
 msgid "Format Shape"
 msgstr "Formater figur"
 
-#: src/ui/o42-window.c:6805
+#: src/ui/o42-window.c:6893
 msgid "Text:"
 msgstr "Tekst:"
 
-#: src/ui/o42-window.c:6819
+#: src/ui/o42-window.c:6907
 msgid "Fill:"
 msgstr "Fyll:"
 
-#: src/ui/o42-window.c:6819
+#: src/ui/o42-window.c:6907
 msgid "Shape Fill"
 msgstr "Figurfyll"
 
-#: src/ui/o42-window.c:6820
+#: src/ui/o42-window.c:6908
 msgid "Line:"
 msgstr "Linje:"
 
-#: src/ui/o42-window.c:6820
+#: src/ui/o42-window.c:6908
 msgid "Shape Line"
 msgstr "Figurlinje"
 
-#: src/ui/o42-window.c:6821
+#: src/ui/o42-window.c:6909
 msgid "Line width:"
 msgstr "Linjebredde:"
 
-#: src/ui/o42-window.c:6824
+#: src/ui/o42-window.c:6912
 msgid "_No fill"
 msgstr "_Uten fyll"
 
-#: src/ui/o42-window.c:6960
+#: src/ui/o42-window.c:7048
 msgid "Style"
 msgstr "Stil"
 
-#: src/ui/o42-window.c:6972
+#: src/ui/o42-window.c:7060
 msgid "Style name:"
 msgstr "Stilnavn:"
 
-#: src/ui/o42-window.c:6996
+#: src/ui/o42-window.c:7084
 msgid "_Define"
 msgstr "_Definer"
 
-#: src/ui/o42-window.c:6997
+#: src/ui/o42-window.c:7085
 msgid "De_lete"
 msgstr "S_lett"
 
-#: src/ui/o42-window.c:6998
+#: src/ui/o42-window.c:7086
 msgid "_Apply"
 msgstr "_Bruk"
 
-#: src/ui/o42-window.c:7092
+#: src/ui/o42-window.c:7180
 msgid "Format Chart"
 msgstr "Formater diagram"
 
-#: src/ui/o42-window.c:7096
+#: src/ui/o42-window.c:7184
 msgid "Chart title:"
 msgstr "Diagramtittel:"
 
-#: src/ui/o42-window.c:7097
+#: src/ui/o42-window.c:7185
 msgid "Category (X) axis title:"
 msgstr "Tittel på kategoriaksen (X):"
 
-#: src/ui/o42-window.c:7098
+#: src/ui/o42-window.c:7186
 msgid "Value (Y) axis title:"
 msgstr "Tittel på verdiaksen (Y):"
 
-#: src/ui/o42-window.c:7099
+#: src/ui/o42-window.c:7187
 msgid "Value axis minimum:"
 msgstr "Minimum på verdiaksen:"
 
-#: src/ui/o42-window.c:7100
+#: src/ui/o42-window.c:7188
 msgid "Value axis maximum:"
 msgstr "Maksimum på verdiaksen:"
 
-#: src/ui/o42-window.c:7101
+#: src/ui/o42-window.c:7189
 msgid "Value axis format:"
 msgstr "Format på verdiaksen:"
 
-#: src/ui/o42-window.c:7102
+#: src/ui/o42-window.c:7190
 msgid "Second axis from series:"
 msgstr "Andre akse fra serien:"
 
-#: src/ui/o42-window.c:7108 src/ui/o42-window.c:7109
+#: src/ui/o42-window.c:7196 src/ui/o42-window.c:7197
 msgid "automatic"
 msgstr "automatisk"
 
-#: src/ui/o42-window.c:7115
+#: src/ui/o42-window.c:7203
 msgid "Show _legend"
 msgstr "Vis _forklaring"
 
-#: src/ui/o42-window.c:7118
+#: src/ui/o42-window.c:7206
 msgid "Show _gridlines"
 msgstr "Vis _rutenett"
 
-#: src/ui/o42-window.c:7121
+#: src/ui/o42-window.c:7209
 msgid "Show _data labels"
 msgstr "Vis _dataetiketter"
 
-#: src/ui/o42-window.c:7124
+#: src/ui/o42-window.c:7212
 msgid "Draw in three _dimensions"
 msgstr "Tegn i tre _dimensjoner"
 
-#: src/ui/o42-window.c:7129
+#: src/ui/o42-window.c:7217
 msgid "Linear"
 msgstr "Lineær"
 
-#: src/ui/o42-window.c:7129
+#: src/ui/o42-window.c:7217
 msgid "Polynomial"
 msgstr "Polynom"
 
-#: src/ui/o42-window.c:7129
+#: src/ui/o42-window.c:7217
 msgid "Exponential"
 msgstr "Eksponentiell"
 
-#: src/ui/o42-window.c:7130
+#: src/ui/o42-window.c:7218
 msgid "Logarithmic"
 msgstr "Logaritmisk"
 
-#: src/ui/o42-window.c:7130
+#: src/ui/o42-window.c:7218
 msgid "Power"
 msgstr "Potens"
 
-#: src/ui/o42-window.c:7130
+#: src/ui/o42-window.c:7218
 msgid "Moving average"
 msgstr "Glidende gjennomsnitt"
 
-#: src/ui/o42-window.c:7132
+#: src/ui/o42-window.c:7220
 msgid "Trendline:"
 msgstr "Trendlinje:"
 
-#: src/ui/o42-window.c:7141
+#: src/ui/o42-window.c:7229
 msgid "Fixed value"
 msgstr "Fast verdi"
 
-#: src/ui/o42-window.c:7141
+#: src/ui/o42-window.c:7229
 msgid "Percentage"
 msgstr "Prosent"
 
-#: src/ui/o42-window.c:7142
+#: src/ui/o42-window.c:7230
 msgid "Standard deviations"
 msgstr "Standardavvik"
 
-#: src/ui/o42-window.c:7142
+#: src/ui/o42-window.c:7230
 msgid "Standard error"
 msgstr "Standardfeil"
 
-#: src/ui/o42-window.c:7145
+#: src/ui/o42-window.c:7233
 msgid "Error bars:"
 msgstr "Feilstolper:"
 
-#: src/ui/o42-window.c:7147
+#: src/ui/o42-window.c:7235
 msgid "Error bar amount:"
 msgstr "Feilstolpestørrelse:"
 
 #. In the order of O42MarkerKind, so the row is the kind.  The
 #. * picture is named by its number, which "Insert > Picture" gives it
 #. * and office42-calc's "pictures" prints.
-#: src/ui/o42-window.c:7155
+#: src/ui/o42-window.c:7243
 msgid "Automatic"
 msgstr "Automatisk"
 
-#: src/ui/o42-window.c:7155
+#: src/ui/o42-window.c:7243
 msgid "Circle"
 msgstr "Sirkel"
 
-#: src/ui/o42-window.c:7155
+#: src/ui/o42-window.c:7243
 msgid "Square"
 msgstr "Kvadrat"
 
-#: src/ui/o42-window.c:7156
+#: src/ui/o42-window.c:7244
 msgid "Diamond"
 msgstr "Rombe"
 
-#: src/ui/o42-window.c:7156
+#: src/ui/o42-window.c:7244
 msgid "Triangle"
 msgstr "Trekant"
 
-#: src/ui/o42-window.c:7156
+#: src/ui/o42-window.c:7244
 msgid "Cross"
 msgstr "Kryss"
 
-#: src/ui/o42-window.c:7156
+#: src/ui/o42-window.c:7244
 msgid "Plus"
 msgstr "Pluss"
 
-#: src/ui/o42-window.c:7157
+#: src/ui/o42-window.c:7245
 msgid "Star"
 msgstr "Stjerne"
 
-#: src/ui/o42-window.c:7157
+#: src/ui/o42-window.c:7245
 msgid "Picture"
 msgstr "Bilde"
 
-#: src/ui/o42-window.c:7159
+#: src/ui/o42-window.c:7247
 msgid "Point marker:"
 msgstr "Punktmarkør:"
 
-#: src/ui/o42-window.c:7168
+#: src/ui/o42-window.c:7256
 msgid "Text font:"
 msgstr "Tekstskrift:"
 
-#: src/ui/o42-window.c:7169
+#: src/ui/o42-window.c:7257
 msgid "Sans"
 msgstr ""
 
-#: src/ui/o42-window.c:7523
+#: src/ui/o42-window.c:7611
 msgid "Save As"
 msgstr "Lagre som"
 
-#: src/ui/o42-window.c:7590
+#: src/ui/o42-window.c:7678
 msgid "Open"
 msgstr "Åpne"
 
-#: src/ui/o42-window.c:7654
+#: src/ui/o42-window.c:7742
 msgid "Your changes will be lost if you don't save them."
 msgstr "Endringene går tapt hvis du ikke lagrer dem."
 
 #. The sigma and the fx are letters, not pictures; Excel 5 drew them as
 #. * letters too.  They stay set in type.
-#: src/ui/o42-window.c:8067
+#: src/ui/o42-window.c:8155
 msgid "AutoSum"
 msgstr "Autosummer"
 
-#: src/ui/o42-window.c:8068
+#: src/ui/o42-window.c:8156
 msgid "Function Wizard"
 msgstr "Funksjonsveiviser"
 
-#: src/ui/o42-window.c:8184
+#: src/ui/o42-window.c:8272
 msgid "Bold"
 msgstr "Fet"
 
-#: src/ui/o42-window.c:8185
+#: src/ui/o42-window.c:8273
 msgid "Italic"
 msgstr "Kursiv"
 
-#: src/ui/o42-window.c:8186
+#: src/ui/o42-window.c:8274
 msgid "Underline"
 msgstr "Understreking"
 
-#: src/ui/o42-window.c:8287
+#: src/ui/o42-window.c:8375
 msgid "Name Box"
 msgstr "Navneboks"
 
-#: src/ui/o42-window.c:8293
+#: src/ui/o42-window.c:8381
 msgid "Enter"
 msgstr "Enter"
 
-#: src/ui/o42-window.c:8581
+#: src/ui/o42-window.c:8669
 msgid "Book1 - Office42 Spreadsheet"
 msgstr ""
 
-#: src/ui/o42-window.c:8615
+#: src/ui/o42-window.c:8703
 msgid "This book has Python scripts in it. They have not been run."
 msgstr "Denne boken inneholder Python-skript. De er ikke kjørt."
 
-#: src/ui/o42-window.c:8616
+#: src/ui/o42-window.c:8704
 msgid "_Run Scripts"
 msgstr "_Kjør skript"
 
-#: src/ui/o42-window.c:8617
+#: src/ui/o42-window.c:8705
 msgid "_Scripts..."
 msgstr "_Skript..."
 
-#: src/ui/o42-window.c:8618 data/ui/menus.ui:168 data/ui/menus.ui:173
+#: src/ui/o42-window.c:8706 data/ui/menus.ui:168 data/ui/menus.ui:173
 msgid "_Hide"
 msgstr "_Skjul"
 

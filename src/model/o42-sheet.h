@@ -440,6 +440,21 @@ O42Chart *o42_sheet_the_chart       (O42Sheet *sheet);   /* its one chart, or NU
  * whose protection is not a password on the bytes. */
 void     o42_sheet_set_protected  (O42Sheet *sheet, gboolean protect);
 gboolean o42_sheet_protected      (O42Sheet *sheet);
+
+/* The password a protected sheet asks for.  It is kept as the
+ * sixteen-bit hash Excel invented for this and every spreadsheet since
+ * has had to keep: it cannot be turned back into the password, and it
+ * cannot be relied on either -- a hash that short collides, and
+ * anything reading the file can take the protection off.  It is a
+ * guard against a slip of the hand, not a secret, and the dialog says
+ * so.  Zero means no password. */
+void     o42_sheet_set_password   (O42Sheet *sheet, const char *password);
+guint16  o42_sheet_password_hash  (O42Sheet *sheet);
+void     o42_sheet_set_password_hash (O42Sheet *sheet, guint16 hash);
+gboolean o42_sheet_password_matches (O42Sheet *sheet, const char *password);
+
+/* The hash itself, for the file formats that store one. */
+guint16  o42_password_hash (const char *password);
 /* Whether a cell may be typed into, and whether its formula shows. */
 gboolean o42_sheet_cell_editable  (O42Sheet *sheet, int row, int col);
 gboolean o42_sheet_formula_hidden (O42Sheet *sheet, int row, int col);

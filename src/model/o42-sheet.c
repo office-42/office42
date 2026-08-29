@@ -115,6 +115,7 @@ struct _O42Sheet {
                             * precedents touch that band of 64 rows on
                             * that sheet ("" for this one) */
   guint32      tab_colour;    /* O42_TAB_NO_COLOUR for a plain tab */
+  guint16      password;      /* the protection hash, 0 for none */
   gboolean     cycle_seen;    /* a formula asked for itself while evaluating */
   gboolean     recalculating; /* inside o42_sheet_recalculate */
   guint        sizes_stamp;   /* bumped whenever a width or a height moves */
@@ -7600,6 +7601,60 @@ o42_sheet_shapes (O42Sheet *sheet)
 {
   g_return_val_if_fail (sheet != NULL, NULL);
   return sheet->shapes;
+}
+
+/* Excel's password hash, which every spreadsheet has copied: the bits
+ * roll left, each character is exclusive-ored in from the back, and
+ * the length and a constant go in at the end. */
+guint16
+o42_password_hash (const char *password)
+{
+  guint16 hash = 0;
+  gsize length;
+
+  if (password == NULL || *password == 0)
+    return 0;
+  length = strlen (password);
+  for (gsize i = length; i > 0; i--)
+    {
+      hash = ((hash >> 14) & 0x01) | ((hash << 1) & 0x7FFF);
+      hash ^= (guchar) password[i - 1];
+    }
+  hash = ((hash >> 14) & 0x01) | ((hash << 1) & 0x7FFF);
+  hash ^= 0xCE4B;
+  hash ^= (guint16) length;
+  return hash;
+}
+
+void
+o42_sheet_set_password (O42Sheet *sheet, const char *password)
+{
+  g_return_if_fail (sheet != NULL);
+  sheet->password = o42_password_hash (password);
+  sheet->modified = TRUE;
+}
+
+void
+o42_sheet_set_password_hash (O42Sheet *sheet, guint16 hash)
+{
+  g_return_if_fail (sheet != NULL);
+  sheet->password = hash;
+}
+
+guint16
+o42_sheet_password_hash (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, 0);
+  return sheet->password;
+}
+
+gboolean
+o42_sheet_password_matches (O42Sheet *sheet, const char *password)
+{
+  g_return_val_if_fail (sheet != NULL, TRUE);
+  if (sheet->password == 0)
+    return TRUE;
+  return o42_password_hash (password) == sheet->password;
 }
 
 void

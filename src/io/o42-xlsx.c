@@ -461,7 +461,14 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
   g_string_append (out, "</sheetData>");
 
   if (o42_sheet_protected (sheet))
-    g_string_append (out, "<sheetProtection sheet=\"1\" objects=\"1\" scenarios=\"1\"/>");
+    {
+      guint16 hash = o42_sheet_password_hash (sheet);
+
+      g_string_append (out, "<sheetProtection sheet=\"1\" objects=\"1\" scenarios=\"1\"");
+      if (hash != 0)
+        g_string_append_printf (out, " password=\"%04X\"", hash);
+      g_string_append (out, "/>");
+    }
 
   if (o42_sheet_n_scenarios (sheet) > 0)
     {
@@ -2906,7 +2913,13 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       g_string_truncate (r->cf_formula, 0);
     }
   else if (strcmp (n, "sheetProtection") == 0)
-    o42_sheet_set_protected (r->sheet, attr_int (names, values, "sheet", 1) != 0);
+    {
+      const char *password = attr (names, values, "password");
+
+      o42_sheet_set_protected (r->sheet, attr_int (names, values, "sheet", 1) != 0);
+      if (password != NULL)
+        o42_sheet_set_password_hash (r->sheet, (guint16) g_ascii_strtoull (password, NULL, 16));
+    }
   else if (strcmp (n, "scenario") == 0)
     {
       g_free (r->scenario_name);

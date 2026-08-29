@@ -3993,18 +3993,106 @@ action_record_macro (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* ---- Tools > Protection ------------------------------------------------ */
 
+/* Format > Protect Sheet asks for a password when it is putting the
+ * protection on, and for the same one when taking it off. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *entry;
+  GtkWidget *status;
+  gboolean   locking;
+} ProtectPrompt;
+
+static void
+on_protect_ok (GtkWidget *w, gpointer data)
+{
+  ProtectPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const char *typed = gtk_editable_get_text (GTK_EDITABLE (prompt->entry));
+
+  (void) w;
+  if (prompt->locking)
+    {
+      o42_sheet_set_password (self->sheet, typed);
+      o42_sheet_set_protected (self->sheet, TRUE);
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("The sheet is protected: locked cells cannot be typed into."));
+    }
+  else
+    {
+      if (!o42_sheet_password_matches (self->sheet, typed))
+        {
+          gtk_label_set_text (GTK_LABEL (prompt->status), _("That is not the password."));
+          return;
+        }
+      o42_sheet_set_protected (self->sheet, FALSE);
+      o42_sheet_set_password (self->sheet, NULL);
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("The sheet is no longer protected."));
+    }
+  window_sync (self);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
 static void
 action_protect (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   gboolean now = !o42_sheet_protected (self->sheet);
+  ProtectPrompt *prompt;
+  GtkWidget *content, *buttons, *grid, *ok;
 
   (void) a; (void) p;
-  o42_sheet_set_protected (self->sheet, now);
-  window_sync (self);
-  gtk_label_set_text (GTK_LABEL (self->status_label),
-                      now ? "The sheet is protected: locked cells cannot be typed into."
-                          : "The sheet is no longer protected.");
+
+  /* Taking protection off a sheet that never had a password needs no
+   * dialog at all. */
+  if (!now && o42_sheet_password_hash (self->sheet) == 0)
+    {
+      o42_sheet_set_protected (self->sheet, FALSE);
+      window_sync (self);
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("The sheet is no longer protected."));
+      return;
+    }
+
+  prompt = g_new0 (ProtectPrompt, 1);
+  prompt->window = self;
+  prompt->locking = now;
+  prompt->dialog = dialog_frame (self, now ? _("Protect Sheet") : _("Unprotect Sheet"),
+                                 TRUE, &content, &buttons);
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->entry = labelled (grid, 0, _("Password:"), gtk_entry_new ());
+  gtk_entry_set_visibility (GTK_ENTRY (prompt->entry), FALSE);
+  if (now)
+    gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->entry), _("leave empty for none"));
+  gtk_box_append (GTK_BOX (content), grid);
+
+  if (now)
+    {
+      GtkWidget *hint = gtk_label_new (
+        _("A spreadsheet's password keeps a hand off the keys, not a "
+          "reader out of the file: it is kept as a short hash that anything "
+          "reading the file can ignore."));
+
+      gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
+      gtk_label_set_max_width_chars (GTK_LABEL (hint), 44);
+      gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
+      gtk_box_append (GTK_BOX (content), hint);
+    }
+
+  prompt->status = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->status), 0.0);
+  gtk_box_append (GTK_BOX (content), prompt->status);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_protect_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  g_object_set_data_full (G_OBJECT (prompt->dialog), "o42-prompt", prompt, g_free);
+  gtk_widget_grab_focus (prompt->entry);
+  (void) ok;
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
 /* ---- Tools > Solver ---------------------------------------------------- */
