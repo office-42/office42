@@ -41,6 +41,8 @@ o42_core_sources = files(
   'formula/o42-eval.c',
   'formula/o42-fn-bessel.c',
   'formula/o42-fn-random.c',
+  'formula/o42-fn-info.c',
+  'formula/o42-fn-finance.c',
   'formula/o42-fn-options.c',
 )
 

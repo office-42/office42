@@ -39,9 +39,13 @@ typedef struct {
 
 /* Each family's tables, both ended by an entry whose name is NULL.
  * o42-eval.c gathers them, sorts them and searches the lot. */
+extern const O42Function     O42_FUNCS_FINANCE[];
+extern const O42Function     O42_FUNCS_INFO[];
 extern const O42Function     O42_FUNCS_BESSEL[];
 extern const O42Function     O42_FUNCS_RANDOM[];
 extern const O42Function     O42_FUNCS_OPTIONS[];
+extern const O42FunctionHelp O42_HELP_FINANCE[];
+extern const O42FunctionHelp O42_HELP_INFO[];
 extern const O42FunctionHelp O42_HELP_BESSEL[];
 extern const O42FunctionHelp O42_HELP_RANDOM[];
 extern const O42FunctionHelp O42_HELP_OPTIONS[];
