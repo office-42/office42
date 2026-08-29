@@ -996,7 +996,28 @@ action_sort (GSimpleAction *a, GVariant *p, gpointer data)
 
 static GtkWidget *labelled (GtkWidget *grid, int row, const char *label, GtkWidget *control);
 
-static const char *PIVOT_AGGS[] = { "Sum", "Count", "Average", "Min", "Max", NULL };
+/* A drop-down over a list of strings the program owns: the widget
+ * takes the strings as they are, so the catalogue is asked before the
+ * list is built.  The strings themselves are marked with N_() where
+ * they stand, which is what puts them in the catalogue. */
+static GtkWidget *
+drop_down_of (const char *const *names)
+{
+  gsize n = 0;
+  const char **strings;
+  GtkWidget *drop;
+
+  while (names[n] != NULL)
+    n++;
+  strings = g_new0 (const char *, n + 1);
+  for (gsize i = 0; i < n; i++)
+    strings[i] = _(names[i]);
+  drop = gtk_drop_down_new_from_strings (strings);
+  g_free (strings);
+  return drop;
+}
+
+static const char *PIVOT_AGGS[] = { N_("Sum"), N_("Count"), N_("Average"), N_("Min"), N_("Max"), NULL };
 
 /* ---- Data > Advanced Filter --------------------------------------------- */
 
@@ -1191,7 +1212,7 @@ action_consolidate (GSimpleAction *a, GVariant *p, gpointer data)
   grid = gtk_grid_new ();
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
   gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
-  prompt->function = labelled (grid, 0, _("Function:"), gtk_drop_down_new_from_strings (PIVOT_AGGS));
+  prompt->function = labelled (grid, 0, _("Function:"), drop_down_of (PIVOT_AGGS));
   prompt->ranges = labelled (grid, 1, _("Ranges:"), gtk_entry_new ());
   gtk_widget_set_size_request (prompt->ranges, 320, -1);
   gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->ranges), _("A1:C4, Sheet2!A1:C4"));
@@ -1871,7 +1892,7 @@ typedef struct {
   GtkWidget *locked, *hidden;
 } FormatPrompt;
 
-static const char *BORDER_STYLE_NAMES[] = { "None", "Thin", "Medium", "Thick", "Double", "Dashed", "Dotted", NULL };
+static const char *BORDER_STYLE_NAMES[] = { N_("None"), N_("Thin"), N_("Medium"), N_("Thick"), N_("Double"), N_("Dashed"), N_("Dotted"), NULL };
 
 static const O42NumberFormat NUMBER_CHOICES[] = {
   O42_NUM_GENERAL, O42_NUM_FIXED, O42_NUM_COMMA, O42_NUM_CURRENCY,
@@ -1879,11 +1900,11 @@ static const O42NumberFormat NUMBER_CHOICES[] = {
   O42_NUM_TIME, O42_NUM_DATETIME,
 };
 static const char *NUMBER_NAMES[] = {
-  "General", "Fixed", "Comma", "Currency", "Percent", "Scientific", "Text",
-  "Date", "Time", "Date and Time", "Custom", NULL,
+  N_("General"), N_("Fixed"), N_("Comma"), N_("Currency"), N_("Percent"), N_("Scientific"), N_("Text"),
+  N_("Date"), N_("Time"), N_("Date and Time"), N_("Custom"), NULL,
 };
-static const char *HALIGN_NAMES[] = { "General", "Left", "Center", "Right", NULL };
-static const char *VALIGN_NAMES[] = { "Bottom", "Middle", "Top", NULL };
+static const char *HALIGN_NAMES[] = { N_("General"), N_("Left"), N_("Center"), N_("Right"), NULL };
+static const char *VALIGN_NAMES[] = { N_("Bottom"), N_("Middle"), N_("Top"), NULL };
 
 static void
 rgba_from_colour (guint32 colour, GdkRGBA *rgba)
@@ -2044,7 +2065,7 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
 
   /* Number */
   page = page_grid (notebook, _("Number"));
-  prompt->number = labelled (page, 0, _("Category:"), gtk_drop_down_new_from_strings (NUMBER_NAMES));
+  prompt->number = labelled (page, 0, _("Category:"), drop_down_of (NUMBER_NAMES));
   for (guint i = 0; i < G_N_ELEMENTS (NUMBER_CHOICES); i++)
     if (NUMBER_CHOICES[i] == fmt->number)
       gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->number), i);
@@ -2062,9 +2083,9 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
 
   /* Alignment */
   page = page_grid (notebook, _("Alignment"));
-  prompt->halign = labelled (page, 0, _("Horizontal:"), gtk_drop_down_new_from_strings (HALIGN_NAMES));
+  prompt->halign = labelled (page, 0, _("Horizontal:"), drop_down_of (HALIGN_NAMES));
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->halign), (guint) fmt->halign);
-  prompt->valign = labelled (page, 1, _("Vertical:"), gtk_drop_down_new_from_strings (VALIGN_NAMES));
+  prompt->valign = labelled (page, 1, _("Vertical:"), drop_down_of (VALIGN_NAMES));
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->valign),
                               fmt->valign == O42_VALIGN_MIDDLE ? 1 : fmt->valign == O42_VALIGN_TOP ? 2 : 0);
   prompt->wrap = gtk_check_button_new_with_mnemonic ( _("_Wrap text"));
@@ -2108,7 +2129,7 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
 
     for (int i = 0; i < 4; i++)
       {
-        prompt->border_style[i] = labelled (page, i, names[i], gtk_drop_down_new_from_strings (BORDER_STYLE_NAMES));
+        prompt->border_style[i] = labelled (page, i, names[i], drop_down_of (BORDER_STYLE_NAMES));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->border_style[i]), fmt->border_style[i]);
         prompt->border[i] = prompt->border_style[i];
       }
@@ -2143,13 +2164,13 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
   {
     /* In the order of O42Pattern. */
     static const char *const patterns[] = {
-      "None", "Solid", "75% grey", "50% grey", "25% grey", "12.5% grey", "6.25% grey",
-      "Horizontal", "Vertical", "Diagonal down", "Diagonal up", "Grid", "Trellis",
-      "Thin horizontal", "Thin vertical", "Thin diagonal down", "Thin diagonal up",
-      "Thin grid", "Thin trellis", NULL
+      N_("None"), N_("Solid"), N_("75% grey"), N_("50% grey"), N_("25% grey"), N_("12.5% grey"), N_("6.25% grey"),
+      N_("Horizontal"), N_("Vertical"), N_("Diagonal down"), N_("Diagonal up"), N_("Grid"), N_("Trellis"),
+      N_("Thin horizontal"), N_("Thin vertical"), N_("Thin diagonal down"), N_("Thin diagonal up"),
+      N_("Thin grid"), N_("Thin trellis"), NULL
     };
 
-    prompt->pattern = labelled (page, 2, _("Pattern:"), gtk_drop_down_new_from_strings (patterns));
+    prompt->pattern = labelled (page, 2, _("Pattern:"), drop_down_of (patterns));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->pattern), fmt->pattern);
     prompt->pattern_colour = labelled (page, 3, "Pattern colour:",
                                        colour_button (fmt->pattern_colour, _("Pattern Colour")));
@@ -2176,8 +2197,8 @@ typedef struct {
 } CondPrompt;
 
 static const char *COND_NAMES[] = {
-  "between", "not between", "equal to", "not equal to", "greater than",
-  "less than", "greater than or equal to", "less than or equal to", NULL
+  N_("between"), N_("not between"), N_("equal to"), N_("not equal to"), N_("greater than"),
+  N_("less than"), N_("greater than or equal to"), N_("less than or equal to"), NULL
 };
 
 static void
@@ -2238,7 +2259,7 @@ action_conditional (GSimpleAction *a, GVariant *p, gpointer data)
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("Cell value is")));
-  prompt->op = gtk_drop_down_new_from_strings (COND_NAMES);
+  prompt->op = drop_down_of (COND_NAMES);
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->op), O42_COND_GREATER);
   gtk_box_append (GTK_BOX (row), prompt->op);
   prompt->value = gtk_entry_new ();
@@ -2424,7 +2445,7 @@ action_pivot (GSimpleAction *a, GVariant *p, gpointer data)
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("Values:")));
-  prompt->agg = gtk_drop_down_new_from_strings (PIVOT_AGGS);
+  prompt->agg = drop_down_of (PIVOT_AGGS);
   gtk_box_append (GTK_BOX (row), prompt->agg);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("of")));
   prompt->data_field = gtk_drop_down_new_from_strings ((const char * const *) prompt->fields);
@@ -2505,7 +2526,7 @@ typedef struct {
 } ValidPrompt;
 
 static const char *VALID_KINDS[] = {
-  "Any value", "Whole number", "Decimal", "List", "Date", "Time", "Text length", NULL
+  N_("Any value"), N_("Whole number"), N_("Decimal"), N_("List"), N_("Date"), N_("Time"), N_("Text length"), NULL
 };
 
 static void
@@ -2569,14 +2590,14 @@ action_validation (GSimpleAction *a, GVariant *p, gpointer data)
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("Allow:")));
-  prompt->kind = gtk_drop_down_new_from_strings (VALID_KINDS);
+  prompt->kind = drop_down_of (VALID_KINDS);
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->kind), existing ? existing->kind : O42_VALID_WHOLE);
   gtk_box_append (GTK_BOX (row), prompt->kind);
   gtk_box_append (GTK_BOX (content), row);
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("Data:")));
-  prompt->op = gtk_drop_down_new_from_strings (COND_NAMES);
+  prompt->op = drop_down_of (COND_NAMES);
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->op), existing ? existing->op : O42_COND_BETWEEN);
   gtk_box_append (GTK_BOX (row), prompt->op);
   prompt->value = gtk_entry_new ();
@@ -3694,9 +3715,9 @@ action_analysis (GSimpleAction *a, GVariant *p, gpointer data)
   AnalysisPrompt *prompt = g_new0 (AnalysisPrompt, 1);
   GtkWidget *content, *buttons, *grid, *ok;
   static const char *const TOOLS[] = {
-    "Descriptive Statistics", "Correlation", "Covariance", "Regression",
-    "Histogram", "ANOVA: Single Factor", "Rank and Percentile",
-    "Moving Average", NULL
+    N_("Descriptive Statistics"), N_("Correlation"), N_("Covariance"), N_("Regression"),
+    N_("Histogram"), N_("ANOVA: Single Factor"), N_("Rank and Percentile"),
+    N_("Moving Average"), NULL
   };
   O42Range selection;
 
@@ -3709,7 +3730,7 @@ action_analysis (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_grid_set_column_spacing (GTK_GRID (grid), 10);
   gtk_box_append (GTK_BOX (content), grid);
 
-  prompt->tool = labelled (grid, 0, _("Tool:"), gtk_drop_down_new_from_strings (TOOLS));
+  prompt->tool = labelled (grid, 0, _("Tool:"), drop_down_of (TOOLS));
   prompt->input = labelled (grid, 1, _("Input range:"), gtk_entry_new ());
   prompt->output = labelled (grid, 2, _("Output at:"), gtk_entry_new ());
   prompt->number = labelled (grid, 3, "Bins or terms:",
@@ -3840,7 +3861,7 @@ typedef struct {
   GtkWidget *target, *goal, *value, *changing, *bounds, *status;
 } SolverPrompt;
 
-static const char *SOLVER_GOALS[] = { "Max", "Min", "Value of", NULL };
+static const char *SOLVER_GOALS[] = { N_("Max"), N_("Min"), N_("Value of"), NULL };
 
 static void
 on_solver_solve (GtkWidget *w, gpointer data)
@@ -3951,7 +3972,7 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
   gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
   prompt->target = labelled (grid, 0, _("Target cell:"), gtk_entry_new ());
-  prompt->goal = labelled (grid, 1, _("Make it:"), gtk_drop_down_new_from_strings (SOLVER_GOALS));
+  prompt->goal = labelled (grid, 1, _("Make it:"), drop_down_of (SOLVER_GOALS));
   prompt->value = labelled (grid, 2, _("Value:"), gtk_entry_new ());
   prompt->changing = labelled (grid, 3, _("By changing:"), gtk_entry_new ());
   gtk_widget_set_size_request (prompt->target, 200, -1);
@@ -6947,10 +6968,10 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content), prompt->three_d);
   {
     /* In the order of O42TrendKind, so the row is the kind. */
-    static const char *const trends[] = { "None", "Linear", "Polynomial", "Exponential",
-                                          "Logarithmic", "Power", "Moving average", NULL };
+    static const char *const trends[] = { N_("None"), N_("Linear"), N_("Polynomial"), N_("Exponential"),
+                                          N_("Logarithmic"), N_("Power"), N_("Moving average"), NULL };
 
-    prompt->trend = labelled (grid, 7, _("Trendline:"), gtk_drop_down_new_from_strings (trends));
+    prompt->trend = labelled (grid, 7, _("Trendline:"), drop_down_of (trends));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->trend), (guint) chart->trend);
     prompt->trend_order = labelled (grid, 8, "Order or period:",
                                     gtk_spin_button_new_with_range (2, 6, 1));
@@ -6959,11 +6980,11 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
   }
   {
     /* In the order of O42ErrBarKind. */
-    static const char *const bars[] = { "None", "Fixed value", "Percentage",
-                                        "Standard deviations", "Standard error", NULL };
+    static const char *const bars[] = { N_("None"), N_("Fixed value"), N_("Percentage"),
+                                        N_("Standard deviations"), N_("Standard error"), NULL };
     char *amount = g_strdup_printf ("%g", chart->err_value);
 
-    prompt->err_bars = labelled (grid, 9, _("Error bars:"), gtk_drop_down_new_from_strings (bars));
+    prompt->err_bars = labelled (grid, 9, _("Error bars:"), drop_down_of (bars));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->err_bars), (guint) chart->err_bars);
     prompt->err_value = labelled (grid, 10, _("Error bar amount:"), gtk_entry_new ());
     gtk_editable_set_text (GTK_EDITABLE (prompt->err_value), amount);
@@ -6973,11 +6994,11 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
     /* In the order of O42MarkerKind, so the row is the kind.  The
      * picture is named by its number, which "Insert > Picture" gives it
      * and office42-calc's "pictures" prints. */
-    static const char *const markers[] = { "Automatic", "None", "Circle", "Square",
-                                           "Diamond", "Triangle", "Cross", "Plus",
-                                           "Star", "Picture", NULL };
+    static const char *const markers[] = { N_("Automatic"), N_("None"), N_("Circle"), N_("Square"),
+                                           N_("Diamond"), N_("Triangle"), N_("Cross"), N_("Plus"),
+                                           N_("Star"), N_("Picture"), NULL };
 
-    prompt->marker = labelled (grid, 11, _("Point marker:"), gtk_drop_down_new_from_strings (markers));
+    prompt->marker = labelled (grid, 11, _("Point marker:"), drop_down_of (markers));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->marker), (guint) chart->marker);
     prompt->marker_size = labelled (grid, 12, "Marker size:",
                                     gtk_spin_button_new_with_range (0, 40, 1));

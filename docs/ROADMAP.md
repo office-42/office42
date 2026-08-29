@@ -8,11 +8,6 @@ section spelled out.
 
 ## Next
 
-**The rest of the translations.** The menus, dialogs and buttons go
-through gettext; the string arrays behind some drop-downs do not.
-
-## After that
-
 **Splitting the two big files.** `o42-eval.c` is 14,000 lines and
 `o42-window.c` 8,000; both split along obvious seams -- the evaluator
 by function family, the window by dialog.

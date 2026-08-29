@@ -33,11 +33,12 @@ brings an existing translation up to date after the template changes.
 
 ## What is translated
 
-The menu bar, the dialogs, the buttons, the toolbar's tooltips and the
-messages in the status bar. The lists inside some drop-downs -- the
-number categories, the border styles, the statistical tools -- are
-still English in every language: they are arrays the widgets read
-directly, and giving them the catalogue is the next piece of this work.
+The menu bar, the dialogs, the buttons, the toolbar's tooltips, the
+messages in the status bar, and the lists inside the drop-downs -- the
+number categories, the border styles, the patterns, the conditions,
+the statistical tools, the trendlines and the markers. Those lists are
+marked with `N_()` where they stand and asked of the catalogue when
+the widget is built, which is what `drop_down_of` is for.
 
 Not translated, and not to be: function names (`SUM` is `SUM` in every
 Excel), the format language's codes, and the names of file formats.
