@@ -39,7 +39,11 @@ typedef struct {
 
 /* Each family's tables, both ended by an entry whose name is NULL.
  * o42-eval.c gathers them, sorts them and searches the lot. */
+extern const O42Function     O42_FUNCS_BESSEL[];
+extern const O42Function     O42_FUNCS_RANDOM[];
 extern const O42Function     O42_FUNCS_OPTIONS[];
+extern const O42FunctionHelp O42_HELP_BESSEL[];
+extern const O42FunctionHelp O42_HELP_RANDOM[];
 extern const O42FunctionHelp O42_HELP_OPTIONS[];
 
 /* ---- The machine, for the families to lean on -------------------------- */
@@ -47,6 +51,12 @@ extern const O42FunctionHelp O42_HELP_OPTIONS[];
 /* An operand as a single value: a range gives the cell that lines up
  * with the formula, which is Excel's implicit intersection. */
 O42Value o42_operand_value (O42EvalContext *ctx, const O42Operand *operand);
+
+/* Every number in the arguments, in order, or the error that stopped
+ * the walk: where the statistical functions all start.  The array is
+ * the caller's to free. */
+gboolean o42_collect_numbers (O42EvalContext *ctx, O42Operand *args, int n,
+                              GArray **out, O42ErrorCode *error);
 
 /* The normal distribution, which half the functions here are built on. */
 double o42_normal_cdf (double z);
