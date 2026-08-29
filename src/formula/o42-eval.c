@@ -10967,6 +10967,128 @@ static O42Value fn_imarcsin (O42EvalContext *c, O42Operand *a, int n) { (void) n
 static O42Value fn_imarccos (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse_trig (c, a, 1); }
 static O42Value fn_imarctan (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse_trig (c, a, 2); }
 
+/* The inverse hyperbolic functions of a complex number, and the six
+ * that are one of those applied to 1/z.  Gnumeric has the lot; each is
+ * a logarithm once the algebra is done. */
+static void
+c_arcsinh (double re, double im, double *outr, double *outi)
+{
+  double sr, si, lr, li;
+
+  /* arcsinh z = ln (z + sqrt (z^2 + 1)) */
+  complex_sqrt (re * re - im * im + 1, 2 * re * im, &sr, &si);
+  complex_log (re + sr, im + si, &lr, &li);
+  *outr = lr; *outi = li;
+}
+
+static void
+c_arccosh (double re, double im, double *outr, double *outi)
+{
+  double sr, si, lr, li;
+
+  /* arccosh z = ln (z + sqrt (z^2 - 1)) */
+  complex_sqrt (re * re - im * im - 1, 2 * re * im, &sr, &si);
+  complex_log (re + sr, im + si, &lr, &li);
+  *outr = lr; *outi = li;
+}
+
+static void
+c_arctanh (double re, double im, double *outr, double *outi)
+{
+  double qr, qi, lr, li;
+
+  /* arctanh z = ln ((1 + z) / (1 - z)) / 2 */
+  complex_divide (1 + re, im, 1 - re, -im, &qr, &qi);
+  complex_log (qr, qi, &lr, &li);
+  *outr = lr / 2; *outi = li / 2;
+}
+
+static void
+c_arcsin (double re, double im, double *outr, double *outi)
+{
+  double sr, si, lr, li;
+
+  complex_sqrt (1 - (re * re - im * im), -(2 * re * im), &sr, &si);
+  complex_log (sr - im, si + re, &lr, &li);
+  *outr = li; *outi = -lr;
+}
+
+static void
+c_arccos (double re, double im, double *outr, double *outi)
+{
+  double sr, si, lr, li;
+
+  complex_sqrt (1 - (re * re - im * im), -(2 * re * im), &sr, &si);
+  complex_log (re - si, im + sr, &lr, &li);
+  *outr = li; *outi = -lr;
+}
+
+static void
+c_arctan (double re, double im, double *outr, double *outi)
+{
+  double qr, qi, lr, li;
+
+  complex_divide (re, 1 + im, -re, 1 - im, &qr, &qi);
+  complex_log (qr, qi, &lr, &li);
+  *outr = -li / 2; *outi = lr / 2;
+}
+
+/* `which` names the function; a `reciprocal` one is the same applied
+ * to 1/z, which is what arcsec, arccsc and arccot are. */
+static O42Value
+complex_inverse (O42EvalContext *ctx, O42Operand *args, int which, gboolean reciprocal)
+{
+  double re, im, outr = 0, outi = 0; char sfx;
+
+  ARG_COMPLEX (0, re, im, sfx);
+  if (reciprocal)
+    {
+      double qr, qi;
+
+      complex_divide (1, 0, re, im, &qr, &qi);
+      if (isnan (qr) || isnan (qi))
+        return o42_value_error (O42_ERR_DIV0);
+      re = qr; im = qi;
+    }
+  switch (which)
+    {
+    case 0: c_arcsin (re, im, &outr, &outi); break;
+    case 1: c_arccos (re, im, &outr, &outi); break;
+    case 2: c_arctan (re, im, &outr, &outi); break;
+    case 3: c_arcsinh (re, im, &outr, &outi); break;
+    case 4: c_arccosh (re, im, &outr, &outi); break;
+    default: c_arctanh (re, im, &outr, &outi); break;
+    }
+  if (isnan (outr) || isnan (outi) || isinf (outr) || isinf (outi))
+    return o42_value_error (O42_ERR_NUM);
+  return o42_value_take (complex_format (outr, outi, sfx));
+}
+
+static O42Value fn_imarcsinh (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 3, FALSE); }
+static O42Value fn_imarccosh (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 4, FALSE); }
+static O42Value fn_imarctanh (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 5, FALSE); }
+static O42Value fn_imarcsec  (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 1, TRUE); }
+static O42Value fn_imarccsc  (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 0, TRUE); }
+static O42Value fn_imarccot  (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 2, TRUE); }
+static O42Value fn_imarcsech (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 4, TRUE); }
+static O42Value fn_imarccsch (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 3, TRUE); }
+static O42Value fn_imarccoth (O42EvalContext *c, O42Operand *a, int n) { (void) n; return complex_inverse (c, a, 5, TRUE); }
+
+/* IMCOTH = cosh / sinh, the one reciprocal complex_ratio has not got. */
+static O42Value
+fn_imcoth (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double re, im, qr, qi; char sfx;
+
+  (void) n;
+  ARG_COMPLEX (0, re, im, sfx);
+  complex_divide (cosh (re) * cos (im), sinh (re) * sin (im),
+                  sinh (re) * cos (im), cosh (re) * sin (im), &qr, &qi);
+  if (isnan (qr) || isnan (qi))
+    return o42_value_error (O42_ERR_DIV0);
+  return o42_value_take (complex_format (qr, qi, sfx));
+}
+
 /* FLOOR.PRECISE and CEILING.PRECISE round towards minus and plus
  * infinity whatever the sign, which is what tells them from FLOOR and
  * CEILING. */
@@ -11792,7 +11914,198 @@ fn_randdiscrete (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (point);
 }
 
+/* ---- More of Gnumeric's random numbers -------------------------------- */
+
+/* A standard normal, which is RANDNORM(0, 1) said shorter. */
+static O42Value
+fn_randstnorm (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  (void) ctx; (void) args; (void) n;
+  return o42_value_number (rand_standard_normal ());
+}
+
+/* The tail of a normal distribution above `a`, by Marsaglia's method:
+ * drawing from the whole distribution and throwing away everything
+ * below the cut would take forever when the cut is far out. */
+static O42Value
+fn_randnormtail (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double a, sigma = 1, unused = 0;
+  double s, u, v, x;
+
+  RAND_ARGS (a, sigma, unused);
+  if (sigma <= 0 || a <= 0)
+    return o42_value_error (O42_ERR_NUM);
+  s = a / sigma;
+  do
+    {
+      u = rand_uniform_open ();
+      do
+        v = rand_uniform_open ();
+      while (v == 0);
+      x = sqrt (s * s - 2 * log (v));
+    }
+  while (x * u > s);
+  return o42_value_number (x * sigma);
+}
+
+/* The logarithmic distribution: the number of times something is
+ * counted when each further count is less likely by p. */
+static O42Value
+fn_randlogarithmic (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double p, unused = 0, unused2 = 0;
+  double c, q, u, v;
+
+  RAND_ARGS (p, unused, unused2);
+  if (p <= 0 || p >= 1)
+    return o42_value_error (O42_ERR_NUM);
+
+  c = log1p (-p);
+  u = rand_uniform_open ();
+  if (u >= p)
+    return o42_value_number (1);
+  v = rand_uniform_open ();
+  q = -expm1 (c * v);
+  if (u <= q * q)
+    {
+      double k = floor (1 + log (u) / log (q));
+
+      return o42_value_number (k < 1 ? 1 : k);
+    }
+  return o42_value_number (u <= q ? 2 : 1);
+}
+
+/* Levy's alpha-stable distribution, by the method of Chambers, Mallows
+ * and Stuck: with alpha of 2 it is the normal, with 1 Cauchy's, and
+ * between them the heavy tails that have no variance.  `beta` skews
+ * it. */
+static O42Value
+fn_randlevy (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double c, alpha, beta = 0;
+  double u, v, t, s;
+
+  RAND_ARGS (c, alpha, beta);
+  if (alpha <= 0 || alpha > 2 || beta < -1 || beta > 1)
+    return o42_value_error (O42_ERR_NUM);
+
+  do
+    u = G_PI * (rand_uniform_open () - 0.5);
+  while (u == 0);
+  do
+    v = rand_uniform_open ();
+  while (v == 0);
+  v = -log (v);            /* an exponential deviate */
+
+  if (beta == 0)
+    {
+      if (alpha == 1)
+        return o42_value_number (c * tan (u));
+      return o42_value_number (c * pow (v * cos ((1 - alpha) * u) , 1 / alpha - 1) *
+                               sin (alpha * u) / pow (cos (u), 1 / alpha));
+    }
+
+  if (fabs (alpha - 1) < 1e-12)
+    {
+      t = G_PI_2 + beta * u;
+      s = t * tan (u) - beta * log (G_PI_2 * v * cos (u) / t);
+      return o42_value_number (c * 2 / G_PI * s);
+    }
+
+  t = beta * tan (G_PI * alpha / 2);
+  s = pow (1 + t * t, 1 / (2 * alpha));
+  t = atan (t) / alpha;
+  return o42_value_number (c * s * sin (alpha * (u + t)) / pow (cos (u), 1 / alpha) *
+                           pow (cos (u - alpha * (u + t)) / v, (1 - alpha) / alpha));
+}
+
 #undef RAND_ARGS
+
+/* ---- More of what Gnumeric offers: the small ones --------------------- */
+
+/* exp(x) - 1, worked out so that a small x keeps its digits: the
+ * subtraction would take them away. */
+static O42Value
+fn_expm1 (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double x;
+
+  (void) n;
+  ARG_NUMBER (0, x);
+  return o42_value_number (expm1 (x));
+}
+
+/* log(1 + x), the same care the other way about. */
+static O42Value
+fn_ln1p (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double x;
+
+  (void) n;
+  ARG_NUMBER (0, x);
+  if (x <= -1)
+    return o42_value_error (O42_ERR_NUM);
+  return o42_value_number (log1p (x));
+}
+
+/* The beta function, and its logarithm, which is what a large
+ * argument needs. */
+static O42Value
+fn_beta (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double a, b;
+
+  (void) n;
+  ARG_NUMBER (0, a);
+  ARG_NUMBER (1, b);
+  if (a <= 0 || b <= 0)
+    return o42_value_error (O42_ERR_NUM);
+  return o42_value_number (exp (lgamma (a) + lgamma (b) - lgamma (a + b)));
+}
+
+static O42Value
+fn_betaln (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double a, b;
+
+  (void) n;
+  ARG_NUMBER (0, a);
+  ARG_NUMBER (1, b);
+  if (a <= 0 || b <= 0)
+    return o42_value_error (O42_ERR_NUM);
+  return o42_value_number (lgamma (a) + lgamma (b) - lgamma (a + b));
+}
+
+/* CEIL and FLOOR without a step: Gnumeric's plain pair. */
+static O42Value
+fn_ceil (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double x;
+
+  (void) n;
+  ARG_NUMBER (0, x);
+  return o42_value_number (ceil (x));
+}
+
+/* An error value by name, which is how a formula makes one on purpose. */
+static O42Value
+fn_error (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  char *text;
+  O42ErrorCode code = O42_ERR_NA;
+
+  (void) n;
+  ARG_TEXT (0, text);
+  if (g_ascii_strcasecmp (text, "#DIV/0!") == 0)      code = O42_ERR_DIV0;
+  else if (g_ascii_strcasecmp (text, "#VALUE!") == 0) code = O42_ERR_VALUE;
+  else if (g_ascii_strcasecmp (text, "#REF!") == 0)   code = O42_ERR_REF;
+  else if (g_ascii_strcasecmp (text, "#NAME?") == 0)  code = O42_ERR_NAME;
+  else if (g_ascii_strcasecmp (text, "#NUM!") == 0)   code = O42_ERR_NUM;
+  else if (g_ascii_strcasecmp (text, "#NULL!") == 0)  code = O42_ERR_NULL;
+  g_free (text);
+  return o42_value_error (code);
+}
 
 /* ---- CONVERT ---- */
 
@@ -12503,10 +12816,12 @@ static const O42Function FUNCTIONS[] = {
   { "BESSELJ", 2, 2, fn_besselj },
   { "BESSELK", 2, 2, fn_besselk },
   { "BESSELY", 2, 2, fn_bessely },
+  { "BETA", 2, 2, fn_beta },
   { "BETA.DIST", 4, 6, fn_beta_dist },
   { "BETA.INV", 3, 5, fn_betainv },
   { "BETADIST", 3, 5, fn_betadist },
   { "BETAINV", 3, 5, fn_betainv },
+  { "BETALN", 2, 2, fn_betaln },
   { "BIN2DEC", 1, 1, fn_bin2dec },
   { "BIN2HEX", 1, 2, fn_bin2hex },
   { "BIN2OCT", 1, 2, fn_bin2oct },
@@ -12522,6 +12837,7 @@ static const O42Function FUNCTIONS[] = {
   { "BYCOL", 2, 2, fn_let_stub },
   { "BYROW", 2, 2, fn_let_stub },
   { "CAUCHY", 2, 3, fn_cauchy },
+  { "CEIL", 1, 1, fn_ceil },
   { "CEILING", 1, 2, fn_ceiling },
   { "CEILING.MATH", 1, 3, fn_ceiling_math },
   { "CEILING.PRECISE", 1, 2, fn_ceiling_precise },
@@ -12618,10 +12934,12 @@ static const O42Function FUNCTIONS[] = {
   { "ERF.PRECISE", 1, 1, fn_erf },
   { "ERFC", 1, 1, fn_erfc },
   { "ERFC.PRECISE", 1, 1, fn_erfc },
+  { "ERROR", 1, 1, fn_error },
   { "ERROR.TYPE", 1, 1, fn_error_type },
   { "EVEN", 1, 1, fn_even },
   { "EXACT", 2, 2, fn_exact },
   { "EXP", 1, 1, fn_exp },
+  { "EXPM1", 1, 1, fn_expm1 },
   { "EXPON.DIST", 3, 3, fn_expondist },
   { "EXPONDIST", 2, 3, fn_expondist },
   { "EXPPOWDIST", 3, 3, fn_exppowdist },
@@ -12680,13 +12998,23 @@ static const O42Function FUNCTIONS[] = {
   { "IMABS", 1, 1, fn_imabs },
   { "IMAGINARY", 1, 1, fn_imaginary },
   { "IMARCCOS", 1, 1, fn_imarccos },
+  { "IMARCCOSH", 1, 1, fn_imarccosh },
+  { "IMARCCOT", 1, 1, fn_imarccot },
+  { "IMARCCOTH", 1, 1, fn_imarccoth },
+  { "IMARCCSC", 1, 1, fn_imarccsc },
+  { "IMARCCSCH", 1, 1, fn_imarccsch },
+  { "IMARCSEC", 1, 1, fn_imarcsec },
+  { "IMARCSECH", 1, 1, fn_imarcsech },
   { "IMARCSIN", 1, 1, fn_imarcsin },
+  { "IMARCSINH", 1, 1, fn_imarcsinh },
   { "IMARCTAN", 1, 1, fn_imarctan },
+  { "IMARCTANH", 1, 1, fn_imarctanh },
   { "IMARGUMENT", 1, 1, fn_imargument },
   { "IMCONJUGATE", 1, 1, fn_imconjugate },
   { "IMCOS", 1, 1, fn_imcos },
   { "IMCOSH", 1, 1, fn_imcosh },
   { "IMCOT", 1, 1, fn_imcot },
+  { "IMCOTH", 1, 1, fn_imcoth },
   { "IMCSC", 1, 1, fn_imcsc },
   { "IMCSCH", 1, 1, fn_imcsch },
   { "IMDIV", 2, 2, fn_imdiv },
@@ -12746,6 +13074,7 @@ static const O42Function FUNCTIONS[] = {
   { "LEN", 1, 1, fn_len },
   { "LET", 3, -1, fn_let_stub },
   { "LN", 1, 1, fn_ln },
+  { "LN1P", 1, 1, fn_ln1p },
   { "LOG", 1, 2, fn_log },
   { "LOG10", 1, 1, fn_log10 },
   { "LOGEST", 1, 4, fn_offset },
@@ -12874,16 +13203,20 @@ static const O42Function FUNCTIONS[] = {
   { "RANDGUMBEL2", 2, 2, fn_randgumbel2 },
   { "RANDHYPERG", 3, 3, fn_randhyperg },
   { "RANDLAPLACE", 1, 1, fn_randlaplace },
+  { "RANDLEVY", 2, 3, fn_randlevy },
   { "RANDLOG", 1, 1, fn_randlog },
+  { "RANDLOGARITHMIC", 1, 1, fn_randlogarithmic },
   { "RANDLOGISTIC", 1, 1, fn_randlogistic },
   { "RANDLOGNORM", 2, 2, fn_randlognorm },
   { "RANDNEGBINOM", 2, 2, fn_randnegbinom },
   { "RANDNORM", 2, 2, fn_randnorm },
+  { "RANDNORMTAIL", 1, 2, fn_randnormtail },
   { "RANDPARETO", 2, 2, fn_randpareto },
   { "RANDPOISSON", 1, 1, fn_randpoisson },
   { "RANDRAYLEIGH", 1, 1, fn_randrayleigh },
   { "RANDRAYLEIGHTAIL", 2, 2, fn_randrayleightail },
   { "RANDSNORM", 0, 0, fn_randsnorm },
+  { "RANDSTNORM", 0, 0, fn_randstnorm },
   { "RANDTDIST", 1, 1, fn_randtdist },
   { "RANDUNIFORM", 2, 2, fn_randuniform },
   { "RANDWEIBULL", 2, 2, fn_randweibull },
@@ -13239,10 +13572,12 @@ static const struct {
   { "BESSELJ", "BESSELJ(x, n)", "The Bessel function Jn(x)." },
   { "BESSELK", "BESSELK(x, n)", "The modified Bessel function Kn(x)." },
   { "BESSELY", "BESSELY(x, n)", "The Bessel function Yn(x)." },
+  { "BETA", "BETA(a, b)", "The beta function." },
   { "BETA.DIST", "BETA.DIST(x, alpha, beta, cumulative, A, B)", "The beta distribution, density or cumulative." },
   { "BETA.INV", "BETA.INV(probability, alpha, beta, A, B)", "The inverse of the cumulative beta distribution." },
   { "BETADIST", "BETADIST(x, alpha, beta, A, B)", "The cumulative beta distribution." },
   { "BETAINV", "BETAINV(probability, alpha, beta, A, B)", "The inverse of the cumulative beta distribution." },
+  { "BETALN", "BETALN(a, b)", "The logarithm of the beta function." },
   { "BIN2DEC", "BIN2DEC(number)", "A binary number as decimal." },
   { "BIN2HEX", "BIN2HEX(number, places)", "A binary number as hexadecimal." },
   { "BIN2OCT", "BIN2OCT(number, places)", "A binary number as octal." },
@@ -13258,6 +13593,7 @@ static const struct {
   { "BYCOL", "BYCOL(array, lambda)", "Each column of an array through a function." },
   { "BYROW", "BYROW(array, lambda)", "Each row of an array through a function." },
   { "CAUCHY", "CAUCHY(x, a, cumulative)", "The Cauchy, Lorentz or Breit-Wigner distribution." },
+  { "CEIL", "CEIL(number)", "Rounded up to the next whole number." },
   { "CEILING", "CEILING(number, significance)", "Rounds up, away from zero, to a multiple of significance." },
   { "CEILING.MATH", "CEILING.MATH(number, significance, mode)", "Rounds up to a multiple of the significance." },
   { "CEILING.PRECISE", "CEILING.PRECISE(number, significance)", "Rounded up towards plus infinity, whatever the sign." },
@@ -13354,10 +13690,12 @@ static const struct {
   { "ERF.PRECISE", "ERF.PRECISE(x)", "The error function." },
   { "ERFC", "ERFC(x)", "The complementary error function." },
   { "ERFC.PRECISE", "ERFC.PRECISE(x)", "The complementary error function." },
+  { "ERROR", "ERROR(text)", "The error value that text names." },
   { "ERROR.TYPE", "ERROR.TYPE(error)", "A number for each kind of error value." },
   { "EVEN", "EVEN(number)", "Rounds away from zero to an even integer." },
   { "EXACT", "EXACT(text1, text2)", "TRUE if two texts are identical, case included." },
   { "EXP", "EXP(number)", "e raised to a power." },
+  { "EXPM1", "EXPM1(x)", "exp(x) - 1, keeping the digits a small x would lose." },
   { "EXPON.DIST", "EXPON.DIST(x, lambda, cumulative)", "The exponential distribution." },
   { "EXPONDIST", "EXPONDIST(x, lambda, cumulative)", "The exponential distribution." },
   { "EXPPOWDIST", "EXPPOWDIST(x, a, b)", "The density of the exponential power distribution." },
@@ -13416,13 +13754,23 @@ static const struct {
   { "IMABS", "IMABS(inumber)", "The modulus of a complex number." },
   { "IMAGINARY", "IMAGINARY(inumber)", "The imaginary part of a complex number." },
   { "IMARCCOS", "IMARCCOS(complex)", "The inverse cosine of a complex number." },
+  { "IMARCCOSH", "IMARCCOSH(complex)", "The inverse hyperbolic cosine of a complex number." },
+  { "IMARCCOT", "IMARCCOT(complex)", "The inverse cotangent of a complex number." },
+  { "IMARCCOTH", "IMARCCOTH(complex)", "The inverse hyperbolic cotangent of a complex number." },
+  { "IMARCCSC", "IMARCCSC(complex)", "The inverse cosecant of a complex number." },
+  { "IMARCCSCH", "IMARCCSCH(complex)", "The inverse hyperbolic cosecant of a complex number." },
+  { "IMARCSEC", "IMARCSEC(complex)", "The inverse secant of a complex number." },
+  { "IMARCSECH", "IMARCSECH(complex)", "The inverse hyperbolic secant of a complex number." },
   { "IMARCSIN", "IMARCSIN(complex)", "The inverse sine of a complex number." },
+  { "IMARCSINH", "IMARCSINH(complex)", "The inverse hyperbolic sine of a complex number." },
   { "IMARCTAN", "IMARCTAN(complex)", "The inverse tangent of a complex number." },
+  { "IMARCTANH", "IMARCTANH(complex)", "The inverse hyperbolic tangent of a complex number." },
   { "IMARGUMENT", "IMARGUMENT(inumber)", "The argument of a complex number, in radians." },
   { "IMCONJUGATE", "IMCONJUGATE(inumber)", "The conjugate of a complex number." },
   { "IMCOS", "IMCOS(inumber)", "The cosine of a complex number." },
   { "IMCOSH", "IMCOSH(complex)", "The hyperbolic cosine of a complex number." },
   { "IMCOT", "IMCOT(complex)", "The cotangent of a complex number." },
+  { "IMCOTH", "IMCOTH(complex)", "The hyperbolic cotangent of a complex number." },
   { "IMCSC", "IMCSC(complex)", "The cosecant of a complex number." },
   { "IMCSCH", "IMCSCH(complex)", "The hyperbolic cosecant of a complex number." },
   { "IMDIV", "IMDIV(inumber1, inumber2)", "The quotient of two complex numbers." },
@@ -13482,6 +13830,7 @@ static const struct {
   { "LEN", "LEN(text)", "How many characters a text has." },
   { "LET", "LET(name1, value1, ..., calculation)", "Names values for use in a calculation." },
   { "LN", "LN(number)", "The natural logarithm." },
+  { "LN1P", "LN1P(x)", "log(1 + x), keeping the digits a small x would lose." },
   { "LOG", "LOG(number, base)", "The logarithm to a base, 10 if none is given." },
   { "LOG10", "LOG10(number)", "The logarithm to base 10." },
   { "LOGEST", "LOGEST(known_ys, known_xs, const, stats)", "The exponential curve through the points: m and b of y = b*m^x." },
@@ -13610,16 +13959,20 @@ static const struct {
   { "RANDGUMBEL2", "RANDGUMBEL2(a, b)", "A random number from Gumbel's second distribution." },
   { "RANDHYPERG", "RANDHYPERG(n1, n2, t)", "How many of the first kind in a draw from an urn." },
   { "RANDLAPLACE", "RANDLAPLACE(a)", "A random number from Laplace's distribution." },
+  { "RANDLEVY", "RANDLEVY(c, alpha, beta)", "A random number from Levy's alpha-stable distribution." },
   { "RANDLOG", "RANDLOG(p)", "A random number from the logarithmic distribution." },
+  { "RANDLOGARITHMIC", "RANDLOGARITHMIC(p)", "A random number from the logarithmic distribution." },
   { "RANDLOGISTIC", "RANDLOGISTIC(a)", "A random number from the logistic distribution." },
   { "RANDLOGNORM", "RANDLOGNORM(zeta, sigma)", "A random number from the log-normal distribution." },
   { "RANDNEGBINOM", "RANDNEGBINOM(p, failures)", "How many successes before so many failures." },
   { "RANDNORM", "RANDNORM(mean, stdev)", "A random number from the normal distribution." },
+  { "RANDNORMTAIL", "RANDNORMTAIL(a, sigma)", "A random number from the tail of a normal distribution above a." },
   { "RANDPARETO", "RANDPARETO(a, b)", "A random number from Pareto's distribution." },
   { "RANDPOISSON", "RANDPOISSON(lambda)", "A random number from Poisson's distribution." },
   { "RANDRAYLEIGH", "RANDRAYLEIGH(sigma)", "A random number from Rayleigh's distribution." },
   { "RANDRAYLEIGHTAIL", "RANDRAYLEIGHTAIL(a, sigma)", "Rayleigh's distribution from a upwards." },
   { "RANDSNORM", "RANDSNORM()", "A random number from the standard normal distribution." },
+  { "RANDSTNORM", "RANDSTNORM()", "A random number from the standard normal distribution." },
   { "RANDTDIST", "RANDTDIST(df)", "A random number from Student's t distribution." },
   { "RANDUNIFORM", "RANDUNIFORM(lower, upper)", "A random number between the two, evenly." },
   { "RANDWEIBULL", "RANDWEIBULL(a, b)", "A random number from Weibull's distribution." },

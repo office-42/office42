@@ -34,7 +34,7 @@ thing that knows what a mouse is.
 | | `o42-shape.c` | 551 | Shapes and the nine form controls | Fine |
 | | `o42-analysis.c` | 928 | The statistical analysis tools | Each writes a labelled table; no drawing |
 | formula | `o42-formula.c` | 1,662 | Lexer and parser | Handles array constants, empty arguments, 3-D and structured references |
-| | `o42-eval.c` | 14,355 | 561 functions and the array evaluator | Far too big for one file. The function table is sorted and binary-searched, which is right, but the file should be several: text, dates, money, statistics, engineering, the array frame |
+| | `o42-eval.c` | 14,708 | 581 functions and the array evaluator | Far too big for one file. The function table is sorted and binary-searched, which is right, but the file should be several: text, dates, money, statistics, engineering, the array frame |
 | io | `o42-xls.c` | 3,943 | BIFF8 both ways, BIFF5 in | Dense but commented; the record numbers are named |
 | | `o42-xlsx.c` + `-draw.c` | 4,478 | Office Open XML, on a zip of our own | The drawing half is separate, which keeps both readable |
 | | `o42-ods.c` | 3,165 | OpenDocument | Cells, styles, charts, controls, both ways |
@@ -66,7 +66,7 @@ has. The last column says what is missing, not what is there.
 |---|---:|---:|---:|---|
 | Entering and editing | 8 | 100% | 8.0 | |
 | Selecting and navigating | 5 | 100% | 5.0 | |
-| Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (561 in all) |
+| Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (581 in all) |
 | Number formats | 6 | 100% | 6.0 | |
 | Fonts, borders, colours | 8 | 100% | 8.0 | |
 | Styles and conditional formats | 6 | 100% | 6.0 | |
@@ -159,7 +159,7 @@ against.
 | Area | Weight | Here | Score | What is missing |
 |---|---:|---:|---:|---|
 | Editing and navigation | 10 | 98% | 9.8 | |
-| Formulas and functions | 18 | 86% | 15.5 | 561 of ~650 functions; the Hebrew-calendar dates and the exotic options (Black and Scholes is here) |
+| Formulas and functions | 18 | 89% | 16.0 | 581 of ~650 functions; the Hebrew-calendar dates and the exotic options (Black and Scholes is here) |
 | Formatting | 10 | 97% | 9.7 | as above |
 | Rows, columns, sheets | 8 | 97% | 7.8 | |
 | Data tools | 12 | 100% | 12.0 | |
@@ -169,7 +169,7 @@ against.
 | Printing | 6 | 98% | 5.9 | as above |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 5 | 92% | 4.6 | right-click menus |
-| **Total** | 100 | | **93.8** | |
+| **Total** | 100 | | **94.3** | |
 
 **About 94% of Gnumeric.**
 
