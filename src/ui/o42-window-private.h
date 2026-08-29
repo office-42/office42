@@ -95,6 +95,11 @@ extern const char *O42_COND_NAMES[];
 /* Shows the nth sheet of the book. */
 void o42_window_show_sheet (O42Window *self, int index);
 
+/* Runs one of the book's scripts, and takes away the bar that offers
+ * to run them. */
+gboolean o42_window_run_script (O42Window *self, const char *name, const char *code);
+void o42_scripts_bar_hide  (O42Window *self);
+
 /* Everything the toolbars and the status bar show, worked out again. */
 void o42_window_sync (O42Window *self);
 
@@ -122,5 +127,25 @@ void action_group_rows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_cols (GSimpleAction *a, GVariant *p, gpointer data);
 void action_ungroup_rows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_ungroup_cols (GSimpleAction *a, GVariant *p, gpointer data);
+
+/* The actions dialogs-tools.c answers. */
+void action_analysis (GSimpleAction *a, GVariant *p, gpointer data);
+void action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data);
+void action_custom_lists (GSimpleAction *a, GVariant *p, gpointer data);
+void action_custom_views (GSimpleAction *a, GVariant *p, gpointer data);
+void action_goal_seek (GSimpleAction *a, GVariant *p, gpointer data);
+void action_group_objects (GSimpleAction *a, GVariant *p, gpointer data);
+void action_page_breaks (GSimpleAction *a, GVariant *p, gpointer data);
+void action_protect (GSimpleAction *a, GVariant *p, gpointer data);
+void action_python_console (GSimpleAction *a, GVariant *p, gpointer data);
+void action_python_run (GSimpleAction *a, GVariant *p, gpointer data);
+void action_record_macro (GSimpleAction *a, GVariant *p, gpointer data);
+void action_scripts (GSimpleAction *a, GVariant *p, gpointer data);
+void action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data);
+void action_solver (GSimpleAction *a, GVariant *p, gpointer data);
+void action_spelling (GSimpleAction *a, GVariant *p, gpointer data);
+void action_trace_dependents (GSimpleAction *a, GVariant *p, gpointer data);
+void action_trace_precedents (GSimpleAction *a, GVariant *p, gpointer data);
+void action_ungroup_objects (GSimpleAction *a, GVariant *p, gpointer data);
 
 G_END_DECLS
