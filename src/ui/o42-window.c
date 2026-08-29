@@ -5403,6 +5403,123 @@ action_move_sheet_right (GSimpleAction *a, GVariant *p, gpointer data)
   window_move_sheet (data, 1);
 }
 
+/* A coloured tab wears its colour as a band under its name, the way
+ * Excel's does.  The colour arrives as a CSS class named after the
+ * colour itself, so one provider on the display serves every tab in
+ * every window and a colour costs one rule however often it is used. */
+static void
+tab_colour_class (GtkWidget *tab, guint32 colour)
+{
+  static GtkCssProvider *provider;
+  static GString *rules;
+  static GHashTable *seen;
+  char name[24];
+
+  g_snprintf (name, sizeof name, "o42-tab-%06X", colour & 0xFFFFFF);
+
+  if (provider == NULL)
+    {
+      GdkDisplay *display = gdk_display_get_default ();
+
+      provider = gtk_css_provider_new ();
+      rules = g_string_new (NULL);
+      seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+      if (display != NULL)
+        gtk_style_context_add_provider_for_display (display, GTK_STYLE_PROVIDER (provider),
+                                                    GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+    }
+
+  if (!g_hash_table_contains (seen, name))
+    {
+      g_hash_table_add (seen, g_strdup (name));
+      g_string_append_printf (rules, "button.%s { box-shadow: inset 0 -4px #%06X; }\n",
+                              name, colour & 0xFFFFFF);
+      gtk_css_provider_load_from_string (provider, rules->str);
+    }
+
+  gtk_widget_add_css_class (tab, name);
+}
+
+/* A tab's colour, chosen from the same colour dialog everything else
+ * uses.  Excel puts the colour behind the tab's name; so does this. */
+static void
+on_tab_colour_chosen (GObject *source, GAsyncResult *result, gpointer data)
+{
+  O42Window *self = data;
+  GdkRGBA *rgba = gtk_color_dialog_choose_rgba_finish (GTK_COLOR_DIALOG (source), result, NULL);
+
+  if (rgba == NULL)
+    return;
+  o42_sheet_set_tab_colour (self->sheet, colour_from_rgba (rgba));
+  o42_book_set_modified (self->book, TRUE);
+  window_rebuild_tabs (self);
+  gdk_rgba_free (rgba);
+}
+
+static void
+action_tab_colour (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GtkColorDialog *dialog = gtk_color_dialog_new ();
+
+  (void) a; (void) p;
+  gtk_color_dialog_set_title (dialog, "Tab Colour");
+  gtk_color_dialog_choose_rgba (dialog, GTK_WINDOW (self), NULL, NULL,
+                                on_tab_colour_chosen, self);
+  g_object_unref (dialog);
+}
+
+static void
+action_tab_colour_none (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  o42_sheet_set_tab_colour (self->sheet, O42_TAB_NO_COLOUR);
+  o42_book_set_modified (self->book, TRUE);
+  window_rebuild_tabs (self);
+}
+
+/* Dragging a tab moves the sheet: where it is let go decides where it
+ * lands, which is what a person expects of a tab that follows the
+ * pointer. */
+static void
+on_tab_drag_end (GtkGestureDrag *drag, double dx, double dy, gpointer data)
+{
+  O42Window *self = data;
+  GtkWidget *tab = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (drag));
+  int from = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (tab), "o42-sheet"));
+  double start_x = 0, start_y = 0;
+  graphene_point_t at, in_box;
+  GtkWidget *child;
+  int to = from, index = 0;
+
+  (void) dy;
+  if (fabs (dx) < 6)
+    return;   /* a click, not a drag */
+  gtk_gesture_drag_get_start_point (drag, &start_x, &start_y);
+  at = GRAPHENE_POINT_INIT ((float) (start_x + dx), (float) (start_y + dy));
+  if (!gtk_widget_compute_point (tab, self->tabs, &at, &in_box))
+    return;
+
+  for (child = gtk_widget_get_first_child (self->tabs);
+       child != NULL;
+       child = gtk_widget_get_next_sibling (child), index++)
+    {
+      graphene_rect_t bounds;
+
+      if (gtk_widget_compute_bounds (child, self->tabs, &bounds) &&
+          in_box.x >= bounds.origin.x)
+        to = index;
+    }
+
+  if (to != from)
+    {
+      window_show_sheet (self, from);
+      window_move_sheet (self, to - from);
+    }
+}
+
 /* The right button on a tab: the sheet it names becomes the current one
  * first, so every item acts on the tab that was pointed at. */
 static void
@@ -5427,6 +5544,8 @@ on_tab_secondary (GtkGestureClick *gesture, int n_press,
   g_menu_append_section (menu, NULL, G_MENU_MODEL (sheets));
   g_menu_append (move, "Move _Left", "win.move-sheet-left");
   g_menu_append (move, "Move _Right", "win.move-sheet-right");
+  g_menu_append (move, "Tab _Colour...", "win.tab-colour");
+  g_menu_append (move, "_No Tab Colour", "win.tab-colour-none");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (move));
 
   popover = gtk_popover_menu_new_from_model (G_MENU_MODEL (menu));
@@ -5471,6 +5590,8 @@ window_rebuild_tabs (O42Window *self)
       gtk_widget_add_css_class (tab, "o42-tab");
       if (sheet == self->sheet)
         gtk_widget_add_css_class (tab, "o42-tab-active");
+      if (o42_sheet_tab_colour (sheet) != O42_TAB_NO_COLOUR)
+        tab_colour_class (tab, o42_sheet_tab_colour (sheet));
       gtk_widget_set_focusable (tab, FALSE);
       g_object_set_data (G_OBJECT (tab), "o42-sheet", GINT_TO_POINTER (i));
       g_signal_connect (tab, "clicked", G_CALLBACK (on_tab_clicked), self);
@@ -5483,6 +5604,12 @@ window_rebuild_tabs (O42Window *self)
         gtk_widget_add_controller (tab, GTK_EVENT_CONTROLLER (secondary));
         g_signal_connect (twice, "pressed", G_CALLBACK (on_tab_double_click), self);
         gtk_widget_add_controller (tab, GTK_EVENT_CONTROLLER (twice));
+        {
+          GtkGesture *drag = gtk_gesture_drag_new ();
+
+          g_signal_connect (drag, "drag-end", G_CALLBACK (on_tab_drag_end), self);
+          gtk_widget_add_controller (tab, GTK_EVENT_CONTROLLER (drag));
+        }
       }
       gtk_box_append (GTK_BOX (self->tabs), tab);
     }
@@ -7528,6 +7655,8 @@ static const GActionEntry ACTIONS[] = {
   { "autoformat",     action_autoformat,     NULL, NULL, NULL, { 0 } },
   { "format-painter", action_format_painter, NULL, NULL, NULL, { 0 } },
   { "move-sheet-left",  action_move_sheet_left,  NULL, NULL, NULL, { 0 } },
+  { "tab-colour",       action_tab_colour,       NULL, NULL, NULL, { 0 } },
+  { "tab-colour-none",  action_tab_colour_none,  NULL, NULL, NULL, { 0 } },
   { "move-sheet-right", action_move_sheet_right, NULL, NULL, NULL, { 0 } },
   { "insert-chart",   action_insert_chart,   NULL, NULL, NULL, { 0 } },
   { "insert-cells",   action_insert_cells,   NULL, NULL, NULL, { 0 } },

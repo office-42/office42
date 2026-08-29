@@ -114,6 +114,7 @@ struct _O42Sheet {
   GHashTable  *dependents; /* "SHEET\001band" -> set of formula keys whose
                             * precedents touch that band of 64 rows on
                             * that sheet ("" for this one) */
+  guint32      tab_colour;    /* O42_TAB_NO_COLOUR for a plain tab */
   gboolean     cycle_seen;    /* a formula asked for itself while evaluating */
   gboolean     recalculating; /* inside o42_sheet_recalculate */
   guint        sizes_stamp;   /* bumped whenever a width or a height moves */
@@ -1143,6 +1144,7 @@ o42_sheet_new (const char *name)
   sheet->arrays = g_array_new (FALSE, FALSE, sizeof (O42Range));
   sheet->tables = g_array_new (FALSE, FALSE, sizeof (O42Table));
   sheet->queries = g_array_new (FALSE, FALSE, sizeof (O42Query));
+  sheet->tab_colour = O42_TAB_NO_COLOUR;
   sheet->scenarios = g_ptr_array_new_with_free_func (scenario_free);
   sheet->shapes = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_shape_free);
   sheet->next_shape_id = 1;
@@ -7492,6 +7494,21 @@ o42_sheet_shapes (O42Sheet *sheet)
 {
   g_return_val_if_fail (sheet != NULL, NULL);
   return sheet->shapes;
+}
+
+void
+o42_sheet_set_tab_colour (O42Sheet *sheet, guint32 colour)
+{
+  g_return_if_fail (sheet != NULL);
+  sheet->tab_colour = colour;
+  sheet->modified = TRUE;
+}
+
+guint32
+o42_sheet_tab_colour (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, O42_TAB_NO_COLOUR);
+  return sheet->tab_colour;
 }
 
 /* ---------------------------------------------------------------------- */

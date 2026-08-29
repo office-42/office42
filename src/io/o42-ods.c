@@ -249,7 +249,7 @@ typedef struct {
   GHashTable *row_styles;   /* height (px) -> "ro2" */
   GHashTable *cell_styles;  /* O42Fmt bytes -> "ce5" */
   GHashTable *num_styles;   /* number/decimals key -> "N7" */
-  int         next_co, next_ro, next_ce, next_n, next_t;
+  int         next_co, next_ro, next_ce, next_n, next_t, next_ta;
 } Styles;
 
 static char *
@@ -257,6 +257,20 @@ length_cm (int px)
 {
   char buf[G_ASCII_DTOSTR_BUF_SIZE];
   return g_strdup_printf ("%scm", g_ascii_formatd (buf, sizeof buf, "%.3f", px * 2.54 / 96.0));
+}
+
+/* A table style exists only to carry the tab's colour; ODF hangs it
+ * off table:style-name the way a column hangs off a column style. */
+static char *
+table_style (Styles *s, guint32 colour)
+{
+  char *name = g_strdup_printf ("ta%d", ++s->next_ta);
+
+  g_string_append_printf (s->styles,
+    "<style:style style:name=\"%s\" style:family=\"table\">"
+    "<style:table-properties table:display=\"true\" table:tab-color=\"#%06x\"/></style:style>",
+    name, colour & 0xFFFFFF);
+  return name;
 }
 
 static const char *
@@ -889,7 +903,19 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
     if (o42_sheet_row_height (sheet, r) != default_height || o42_sheet_row_hidden (sheet, r))
       last_row = MAX (last_row, r);
 
-  g_string_append_printf (out, "<table:table table:name=\"%s\">", name);
+  {
+    guint32 tab = o42_sheet_tab_colour (sheet);
+
+    g_string_append_printf (out, "<table:table table:name=\"%s\"", name);
+    if (tab != O42_TAB_NO_COLOUR)
+      {
+        char *style = table_style (s, tab);
+
+        g_string_append_printf (out, " table:style-name=\"%s\"", style);
+        g_free (style);
+      }
+    g_string_append (out, ">");
+  }
   g_free (name);
 
   /* Columns, in runs of the same width. */
@@ -1144,7 +1170,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   s.row_styles = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
   s.cell_styles = g_hash_table_new_full (fmt_hash, fmt_equal, g_free, g_free);
   s.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-  s.next_co = s.next_ro = s.next_ce = s.next_n = s.next_t = 0;
+  s.next_co = s.next_ro = s.next_ce = s.next_n = s.next_t = s.next_ta = 0;
 
   for (int i = 0; i < o42_book_n_sheets (book); i++)
     write_table (body, &s, o42_book_sheet (book, i), i);
@@ -1215,6 +1241,7 @@ typedef struct {
   char    *data_style;     /* number style name, resolved after all styles are read */
   int      width;          /* columns: px, or 0 */
   int      height;         /* rows: px, or 0 */
+  guint32  tab_colour;     /* tables: the tab's colour, or O42_TAB_NO_COLOUR */
 } Style;
 
 typedef struct {
@@ -2008,6 +2035,7 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       const char *sname = attr (names, values, "name");
       Style *st = g_new0 (Style, 1);
       o42_fmt_init_default (&st->fmt);
+      st->tab_colour = O42_TAB_NO_COLOUR;
       st->data_style = g_strdup (attr (names, values, "data-style-name"));
       if (st->data_style != NULL) st->has_fmt = TRUE;
       if (sname != NULL) g_hash_table_replace (r->styles, g_strdup (sname), st);
@@ -2018,7 +2046,14 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
   if (r->style != NULL)
     {
       Style *st = r->style;
-      if (strcmp (name, "table-column-properties") == 0)
+      if (strcmp (name, "table-properties") == 0)
+        {
+          const char *tab = attr (names, values, "tab-color");
+
+          if (tab != NULL)
+            st->tab_colour = colour_of (tab, O42_TAB_NO_COLOUR);
+        }
+      else if (strcmp (name, "table-column-properties") == 0)
         st->width = length_px (attr (names, values, "column-width"));
       else if (strcmp (name, "table-row-properties") == 0)
         st->height = length_px (attr (names, values, "row-height"));
@@ -2150,6 +2185,13 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else
         r->sheet = o42_book_add_sheet (r->book, tname != NULL ? tname : "Sheet", -1);
+      {
+        const char *sname = attr (names, values, "style-name");
+        Style *st = sname != NULL ? g_hash_table_lookup (r->styles, sname) : NULL;
+
+        if (st != NULL && st->tab_colour != O42_TAB_NO_COLOUR && r->sheet != NULL)
+          o42_sheet_set_tab_colour (r->sheet, st->tab_colour);
+      }
       r->n_tables++;
       r->row = 0;
       r->col = 0;

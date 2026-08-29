@@ -347,8 +347,18 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     /* Excel only fits the sheet to pages when the sheet properties
      * say so; it must be the first element. */
     const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
-    if (ps->fit_wide > 0 || ps->fit_tall > 0)
-      g_string_append (out, "<sheetPr><pageSetUpPr fitToPage=\"1\"/></sheetPr>");
+    guint32 tab = o42_sheet_tab_colour (sheet);
+    gboolean fit = ps->fit_wide > 0 || ps->fit_tall > 0;
+
+    if (fit || tab != O42_TAB_NO_COLOUR)
+      {
+        g_string_append (out, "<sheetPr>");
+        if (tab != O42_TAB_NO_COLOUR)
+          g_string_append_printf (out, "<tabColor rgb=\"FF%06X\"/>", tab & 0xFFFFFF);
+        if (fit)
+          g_string_append (out, "<pageSetUpPr fitToPage=\"1\"/>");
+        g_string_append (out, "</sheetPr>");
+      }
   }
 
   o42_sheet_used_range (sheet, &used);
@@ -2626,6 +2636,15 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
   Reader *r = user;
   const char *n = local (name);
   (void) ctx; (void) error;
+
+  if (strcmp (n, "tabColor") == 0 && r->sheet != NULL)
+    {
+      guint32 colour = rgb_attr (names, values);
+
+      if (colour != 0xFFFFFFFFu)
+        o42_sheet_set_tab_colour (r->sheet, colour);
+      return;
+    }
 
   if (strcmp (n, "chartsheet") == 0)
     o42_sheet_set_chart_sheet (r->sheet, TRUE);   /* one chart, no cells */

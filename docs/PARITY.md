@@ -136,16 +136,13 @@ shapes and controls are selected, dragged and resized with handles.
 
 **What is thin.**
 
-1. **Sheet tabs cannot be dragged.** Right-clicking one offers move
-   left and move right, and two clicks rename it, but the tab itself
-   does not follow the pointer, and there is no tab colour.
-3. **No window arranging.** Window ▸ New Window opens a second view of
+1. **No window arranging.** Window ▸ New Window opens a second view of
    the same book, and nothing tiles or cascades them -- GTK 4 took away
    the calls that would move a window, so this one is not ours to
    fix.
-4. **The longer dialogs would be better as tabs.** Format Chart has
+2. **The longer dialogs would be better as tabs.** Format Chart has
    fifteen rows in one column now; they can at least be pulled bigger.
-5. **The toolbars are fixed.** Excel 5 let them be torn off and
+3. **The toolbars are fixed.** Excel 5 let them be torn off and
    rearranged; ours are two rows of buttons.
 
 None of these is deep. The first two are a day's work each and would
@@ -197,8 +194,7 @@ In the order the work is being done, largest gap first.
 1. **The form controls in `.xls`.** `.gnumeric` and `.xlsx` carry
    them; BIFF wants them as Escher records with an OBJ apiece, which
    is the last format that cannot hold a book whole.
-2. **Sheet tabs that can be dragged**, and given a colour.
-4. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
+2. **Splitting the two big files**, `o42-eval.c` (14,000 lines) and
    `o42-window.c` (8,000): both split along obvious seams.
-5. **Translations.** `menus.ui` marks its strings translatable and
+3. **Translations.** `menus.ui` marks its strings translatable and
    nothing reads them; there is no gettext in the build and no `po/`.

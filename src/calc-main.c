@@ -193,6 +193,30 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* "tabcolour RRGGBB" paints the tab, "tabcolour none" clears it,
+       * "tabcolour" alone says what it is. */
+      if (g_str_has_prefix (text, "tabcolour") || g_str_has_prefix (text, "tabcolor"))
+        {
+          const char *arg = strchr (text, ' ');
+
+          while (arg != NULL && *arg == ' ')
+            arg++;
+          if (arg == NULL || *arg == 0)
+            {
+              guint32 c = o42_sheet_tab_colour (sheet);
+
+              if (c == O42_TAB_NO_COLOUR)
+                printf ("no tab colour\n");
+              else
+                printf ("%06X\n", c & 0xFFFFFF);
+            }
+          else if (g_ascii_strcasecmp (arg, "none") == 0)
+            o42_sheet_set_tab_colour (sheet, O42_TAB_NO_COLOUR);
+          else
+            o42_sheet_set_tab_colour (sheet, (guint32) g_ascii_strtoull (arg, NULL, 16) & 0xFFFFFF);
+          continue;
+        }
+
       if (g_str_has_prefix (text, "rename "))
         {
           if (!o42_book_rename_sheet (book, o42_book_sheet_index (book, sheet), text + 7))

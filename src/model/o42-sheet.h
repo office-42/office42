@@ -539,6 +539,14 @@ GArray    *o42_sheet_tables       (O42Sheet *sheet);   /* O42Table, owned */
  * column. */
 gboolean   o42_sheet_table_range  (O42Sheet *sheet, const char *text, int row, O42Range *out);
 
+/* ---- The tab's colour --------------------------------------------------- */
+
+/* Excel colours a sheet tab; so does Gnumeric.  O42_TAB_NO_COLOUR is
+ * the plain tab everything starts with. */
+#define O42_TAB_NO_COLOUR 0xFFFFFFFFu
+void    o42_sheet_set_tab_colour (O42Sheet *sheet, guint32 colour);
+guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
+
 /* ---- AutoFormat -------------------------------------------------------- */
 
 /* Ready-made looks for a table whose first row is its heading. */

@@ -87,7 +87,7 @@ From the top down:
   boundary between headers to resize; double-click a column boundary to
   fit the widest cell in it.
 - **The sheet tabs** along the bottom. Click to switch, double-click to
-  rename, right-click for the sheet menu.
+  rename, drag to reorder, right-click for the sheet menu.
 - **The status bar**, which shows Ready, the zoom when it is not 100%,
   and the sum and count of the selection when more than one cell is
   selected.
@@ -103,7 +103,7 @@ cut, copy, paste, paste special, insert and delete cells, clear, format
 cells, a note and a hyperlink; over a row or column heading, insert,
 delete, clear, the size, hide and unhide; over a chart, a shape or a
 control, the dialog that formats it; and over a sheet tab, insert,
-delete, rename and move left or right. Two clicks on a tab rename the
+delete, rename, move left or right, and the tab colour. Two clicks on a tab rename the
 sheet.
 
 ## 3. Moving about and selecting
@@ -320,6 +320,11 @@ content is what shows.
 Insert ▸ Worksheet adds a sheet before the current one, Format ▸ Rename
 Sheet names it, Edit ▸ Delete Sheet removes it -- and Ctrl+Z brings it
 back with everything on it. Click a tab to go to that sheet.
+
+Drag a tab sideways to move the sheet where you let it go. The tab's
+right-click menu has **Tab Colour...** and **No Tab Colour**; the colour
+shows as a band under the name, and it is kept in `.gnumeric`, `.xlsx`
+and `.ods`.
 
 ## 9. Looking at a large sheet
 
