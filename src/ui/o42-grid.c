@@ -47,6 +47,13 @@ static gboolean outline_click (O42Grid *self, double x, double y);
                              * grab it for resizing */
 #define FILTER_BTN 14       /* the AutoFilter dropdown square in a heading */
 
+/* An auditing arrow: from a rectangle a formula reads to the cell that
+ * reads it. */
+typedef struct {
+  O42Range from;
+  int      to_row, to_col;
+} AuditArrow;
+
 struct _O42Grid {
   GtkWidget      parent_instance;
 
@@ -131,6 +138,7 @@ struct _O42Grid {
   guint          hscroll_policy : 1;
   guint          vscroll_policy : 1;
   gulong         hadj_changed, vadj_changed;
+  GArray        *arrows;                  /* AuditArrow: what Trace Precedents drew */
   GArray        *extra_sel;               /* O42Range: the selections Ctrl+click added
                                            * before the one being made now */
   int            header_w;                /* the row headings' width, by the digits in them */
@@ -2442,6 +2450,63 @@ o42_grid_freeze_panes (O42Grid *self)
 /* Window > Split: two or four views of the sheet, divided above and
  * left of the active cell, each showing whatever it is scrolled to.
  * Splitting again takes the split away, as Excel's menu item does. */
+/* Tools > Auditing: an arrow from each rectangle the cell's formula
+ * reads, or from the cell to each formula that reads it. */
+void
+o42_grid_trace (O42Grid *self, gboolean precedents)
+{
+  GArray *found;
+  O42Range sel = { 0, 0, 0, 0 };
+
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->sheet == NULL)
+    return;
+  if (self->arrows == NULL)
+    self->arrows = g_array_new (FALSE, FALSE, sizeof (AuditArrow));
+
+  o42_grid_get_selection (self, &sel);
+  found = precedents ? o42_sheet_precedents (self->sheet, sel.row0, sel.col0)
+                     : o42_sheet_dependents (self->sheet, sel.row0, sel.col0);
+  for (guint i = 0; i < found->len; i++)
+    {
+      const O42Range *r = &g_array_index (found, O42Range, i);
+      AuditArrow arrow;
+
+      if (precedents)
+        {
+          arrow.from = *r;
+          arrow.to_row = sel.row0;
+          arrow.to_col = sel.col0;
+        }
+      else
+        {
+          arrow.from.row0 = arrow.from.row1 = sel.row0;
+          arrow.from.col0 = arrow.from.col1 = sel.col0;
+          arrow.to_row = r->row0;
+          arrow.to_col = r->col0;
+        }
+      g_array_append_val (self->arrows, arrow);
+    }
+  g_array_unref (found);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+void
+o42_grid_clear_arrows (O42Grid *self)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->arrows != NULL)
+    g_array_set_size (self->arrows, 0);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_has_arrows (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->arrows != NULL && self->arrows->len > 0;
+}
+
 /* View > Page Breaks: dashed lines where the printed pages divide,
  * which is Excel's page break preview without the resizing. */
 void
@@ -4534,6 +4599,40 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   for (guint i = 0; self->extra_sel != NULL && i < self->extra_sel->len; i++)
     paint_extra_selection (self, cr, &g_array_index (self->extra_sel, O42Range, i));
   paint_selection (self, cr, &sel);
+
+  /* The auditing arrows, from what a formula reads to the formula, or
+   * the other way for its dependents. */
+  for (guint i = 0; self->arrows != NULL && i < self->arrows->len; i++)
+    {
+      const AuditArrow *a = &g_array_index (self->arrows, AuditArrow, i);
+      double fx = col_x (self, a->from.col0), fy = row_y (self, a->from.row0);
+      double fx1 = col_x (self, a->from.col1 + 1), fy1 = row_y (self, a->from.row1 + 1);
+      double tx = (col_x (self, a->to_col) + col_x (self, a->to_col + 1)) / 2;
+      double ty = (row_y (self, a->to_row) + row_y (self, a->to_row + 1)) / 2;
+      double sx = (fx + fx1) / 2, sy = (fy + fy1) / 2;
+      double angle;
+
+      cairo_save (cr);
+      cairo_set_source_rgb (cr, 0.1, 0.25, 0.7);
+      cairo_set_line_width (cr, 1.5);
+
+      /* A ring round the range the arrow comes from, then the arrow. */
+      cairo_rectangle (cr, floor (fx) + 0.5, floor (fy) + 0.5,
+                       floor (fx1 - fx) - 1, floor (fy1 - fy) - 1);
+      cairo_stroke (cr);
+
+      cairo_move_to (cr, sx, sy);
+      cairo_line_to (cr, tx, ty);
+      cairo_stroke (cr);
+
+      angle = atan2 (ty - sy, tx - sx);
+      cairo_move_to (cr, tx, ty);
+      cairo_line_to (cr, tx - 9 * cos (angle - 0.4), ty - 9 * sin (angle - 0.4));
+      cairo_line_to (cr, tx - 9 * cos (angle + 0.4), ty - 9 * sin (angle + 0.4));
+      cairo_close_path (cr);
+      cairo_fill (cr);
+      cairo_restore (cr);
+    }
 
   /* Page breaks, where the printed pages would divide. */
   if (self->show_breaks && self->sheet != NULL)

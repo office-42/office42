@@ -3715,6 +3715,39 @@ on_analysis_ok (GtkWidget *w, gpointer data)
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
 }
 
+/* ---- Tools > Auditing -------------------------------------------------- */
+
+static void
+action_trace_precedents (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  o42_grid_trace (self->grid, TRUE);
+  if (!o42_grid_has_arrows (self->grid))
+    gtk_label_set_text (GTK_LABEL (self->status_label),
+                        _("That cell holds no formula, so it reads nothing."));
+}
+
+static void
+action_trace_dependents (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  o42_grid_trace (self->grid, FALSE);
+  if (!o42_grid_has_arrows (self->grid))
+    gtk_label_set_text (GTK_LABEL (self->status_label),
+                        _("No formula on this sheet reads that cell."));
+}
+
+static void
+action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  (void) a; (void) p;
+  o42_grid_clear_arrows (O42_WINDOW (data)->grid);
+}
+
 static void
 action_analysis (GSimpleAction *a, GVariant *p, gpointer data)
 {
@@ -7726,6 +7759,9 @@ static const GActionEntry ACTIONS[] = {
   { "format-painter", action_format_painter, NULL, NULL, NULL, { 0 } },
   { "move-sheet-left",  action_move_sheet_left,  NULL, NULL, NULL, { 0 } },
   { "tab-colour",       action_tab_colour,       NULL, NULL, NULL, { 0 } },
+  { "trace-precedents", action_trace_precedents, NULL, NULL, NULL, { 0 } },
+  { "trace-dependents", action_trace_dependents, NULL, NULL, NULL, { 0 } },
+  { "clear-arrows",     action_clear_arrows,     NULL, NULL, NULL, { 0 } },
   { "tab-colour-none",  action_tab_colour_none,  NULL, NULL, NULL, { 0 } },
   { "move-sheet-right", action_move_sheet_right, NULL, NULL, NULL, { 0 } },
   { "insert-chart",   action_insert_chart,   NULL, NULL, NULL, { 0 } },

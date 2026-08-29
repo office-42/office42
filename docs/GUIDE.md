@@ -439,6 +439,13 @@ with penalties.
 **Scenarios.** Tools ▸ Scenarios keeps named sets of values for the
 same cells and puts any of them back.
 
+**Auditing.** Tools ▸ Auditing ▸ Trace Precedents rings every
+rectangle the selected cell's formula reads and draws an arrow from
+each into the cell; Trace Dependents does it the other way, from the
+cell to every formula on the sheet that reads it. Remove All Arrows
+clears them. The arrows are a way of looking and are not kept in the
+file.
+
 **Statistical Analysis.** Tools ▸ Statistical Analysis is Gnumeric's
 tool of that name and Excel's Analysis ToolPak:
 

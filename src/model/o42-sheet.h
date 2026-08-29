@@ -547,6 +547,14 @@ gboolean   o42_sheet_table_range  (O42Sheet *sheet, const char *text, int row, O
 void    o42_sheet_set_tab_colour (O42Sheet *sheet, guint32 colour);
 guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
 
+/* ---- Auditing --------------------------------------------------------- */
+
+/* What a cell's formula reads, and which cells read it, both as
+ * rectangles on this sheet: what Excel's Trace Precedents and Trace
+ * Dependents draw arrows for.  Each array is the caller's to free. */
+GArray *o42_sheet_precedents (O42Sheet *sheet, int row, int col);
+GArray *o42_sheet_dependents (O42Sheet *sheet, int row, int col);
+
 /* ---- AutoFormat -------------------------------------------------------- */
 
 /* Ready-made looks for a table whose first row is its heading. */

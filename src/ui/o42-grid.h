@@ -141,6 +141,14 @@ gboolean o42_grid_has_frozen_panes (O42Grid *self);
 /* Window > Split: bands that scroll on their own rather than staying
  * pinned.  o42_grid_scroll_pane scrolls whichever band the pointer is
  * over, and says whether it did. */
+/* Excel's auditing arrows: from each rectangle a formula reads to the
+ * formula itself, or from a cell to each formula that reads it.  The
+ * arrows stay until they are cleared, and are not kept in the file --
+ * they are a way of looking, not part of the book. */
+void     o42_grid_trace            (O42Grid *self, gboolean precedents);
+void     o42_grid_clear_arrows     (O42Grid *self);
+gboolean o42_grid_has_arrows       (O42Grid *self);
+
 void     o42_grid_show_page_breaks  (O42Grid *self, gboolean show);
 gboolean o42_grid_page_breaks_shown (O42Grid *self);
 

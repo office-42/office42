@@ -738,6 +738,94 @@ deps_rebuild (O42Sheet *sheet)
     }
 }
 
+/* ---- Auditing: what a cell reads, and what reads it ------------------- */
+
+/* The rectangles a cell's formula reads.  On this sheet only: an arrow
+ * to another sheet has nowhere to point.  The array is the caller's to
+ * free. */
+GArray *
+o42_sheet_precedents (O42Sheet *sheet, int row, int col)
+{
+  GArray *out = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  O42Cell *cell;
+
+  g_return_val_if_fail (sheet != NULL, out);
+  cell = sheet_find (sheet, row, col);
+  if (cell == NULL || cell->precedents == NULL)
+    return out;
+
+  for (guint i = 0; i < cell->precedents->len; i++)
+    {
+      const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
+      O42Range r;
+
+      if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+        continue;
+      r = o42_range_normalise (p->range.row0, p->range.col0, p->range.row1, p->range.col1);
+      g_array_append_val (out, r);
+    }
+  return out;
+}
+
+/* The cells whose formulas read this one, each as a range of one cell.
+ * The dependents index holds them by band, so this looks in the band
+ * the cell falls in and keeps whichever of those really reach it. */
+GArray *
+o42_sheet_dependents (O42Sheet *sheet, int row, int col)
+{
+  GArray *out = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  O42SheetRange probe;
+  char *key;
+  GHashTable *set;
+  GHashTableIter iter;
+  gpointer stored;
+
+  g_return_val_if_fail (sheet != NULL, out);
+  memset (&probe, 0, sizeof probe);
+  probe.sheet = sheet->name;
+  key = deps_key (&probe, row / DEP_BAND);
+  set = g_hash_table_lookup (sheet->dependents, key);
+  g_free (key);
+
+  /* A formula that names no sheet is indexed under the empty one. */
+  if (set == NULL)
+    {
+      probe.sheet = NULL;
+      key = deps_key (&probe, row / DEP_BAND);
+      set = g_hash_table_lookup (sheet->dependents, key);
+      g_free (key);
+    }
+  if (set == NULL)
+    return out;
+
+  g_hash_table_iter_init (&iter, set);
+  while (g_hash_table_iter_next (&iter, &stored, NULL))
+    {
+      guint64 fkey = *(guint64 *) stored;
+      O42Cell *cell = sheet_find_key (sheet, fkey);
+      O42Range r;
+
+      if (cell == NULL || cell->precedents == NULL)
+        continue;
+      for (guint i = 0; i < cell->precedents->len; i++)
+        {
+          const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
+          O42Range n = o42_range_normalise (p->range.row0, p->range.col0,
+                                            p->range.row1, p->range.col1);
+
+          if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+            continue;
+          if (row < n.row0 || row > n.row1 || col < n.col0 || col > n.col1)
+            continue;
+          r.row0 = r.row1 = o42_key_row (fkey);
+          r.col0 = r.col1 = o42_key_col (fkey);
+          g_array_append_val (out, r);
+          break;
+        }
+    }
+  return out;
+}
+
 /* Whether a formula calls a function whose result depends on more than
  * its precedents say. */
 static gboolean

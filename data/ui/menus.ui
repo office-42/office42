@@ -210,6 +210,14 @@
         <item><attribute name="label" translatable="yes">_Protect Sheet</attribute><attribute name="action">win.protect</attribute></item>
       </section>
       <section>
+        <submenu>
+          <attribute name="label" translatable="yes">_Auditing</attribute>
+          <item><attribute name="label" translatable="yes">Trace _Precedents</attribute><attribute name="action">win.trace-precedents</attribute></item>
+          <item><attribute name="label" translatable="yes">Trace _Dependents</attribute><attribute name="action">win.trace-dependents</attribute></item>
+          <item><attribute name="label" translatable="yes">_Remove All Arrows</attribute><attribute name="action">win.clear-arrows</attribute></item>
+        </submenu>
+      </section>
+      <section>
         <item><attribute name="label" translatable="yes">_Python Console...</attribute><attribute name="action">win.python-console</attribute></item>
         <item><attribute name="label" translatable="yes">_Run Python Script...</attribute><attribute name="action">win.python-run</attribute></item>
         <item><attribute name="label" translatable="yes">_Scripts in this Book...</attribute><attribute name="action">win.scripts</attribute></item>
