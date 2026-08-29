@@ -9173,6 +9173,260 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       return TRUE;
     }
 
+  /* Gnumeric's three other matrix functions.  CHOLESKY factors a
+   * symmetric positive-definite matrix into a lower triangle times its
+   * own transpose; MPSEUDOINVERSE is Moore and Penrose's inverse, which
+   * a matrix has whether it is square or not; EIGEN gives the
+   * eigenvalues of a symmetric matrix and the vectors that go with
+   * them. */
+  if ((strcmp (node->as.call.name, "CHOLESKY") == 0 ||
+       strcmp (node->as.call.name, "MPSEUDOINVERSE") == 0 ||
+       strcmp (node->as.call.name, "EIGEN") == 0) && n_args >= 1)
+    {
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols;
+      double *m;
+      ArrayConst *a;
+      gboolean bad = FALSE;
+
+      operand_dims (&src, &rows, &cols);
+      if (rows < 1 || cols < 1)
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+
+      m = g_new0 (double, (gsize) rows * cols);
+      for (int i = 0; i < rows; i++)
+        for (int j = 0; j < cols; j++)
+          {
+            O42Value v = operand_cell (ctx, &src, i, j);
+            O42ErrorCode e = O42_ERR_VALUE;
+
+            if (!o42_value_to_number (&v, &m[i * cols + j], &e))
+              bad = TRUE;
+            o42_value_clear (&v);
+          }
+      operand_clear (&src);
+      if (bad)
+        { g_free (m); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+
+      if (strcmp (node->as.call.name, "CHOLESKY") == 0)
+        {
+          double *l;
+
+          if (rows != cols)
+            { g_free (m); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+          l = g_new0 (double, (gsize) rows * rows);
+          for (int i = 0; i < rows && !bad; i++)
+            for (int j = 0; j <= i; j++)
+              {
+                double sum = m[i * rows + j];
+
+                for (int k = 0; k < j; k++)
+                  sum -= l[i * rows + k] * l[j * rows + k];
+                if (i == j)
+                  {
+                    if (sum <= 0) { bad = TRUE; break; }
+                    l[i * rows + j] = sqrt (sum);
+                  }
+                else
+                  l[i * rows + j] = sum / l[j * rows + j];
+              }
+          if (bad)
+            { g_free (l); g_free (m); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
+          a = array_const_new (rows, rows);
+          for (int i = 0; i < rows; i++)
+            for (int j = 0; j < rows; j++)
+              a->cells[i * rows + j] = o42_value_number (l[i * rows + j]);
+          g_free (l);
+          g_free (m);
+          *out = array_operand (a);
+          return TRUE;
+        }
+
+      if (strcmp (node->as.call.name, "EIGEN") == 0)
+        {
+          /* Jacobi's rotations: the matrix must be symmetric, and each
+           * rotation kills the largest off-diagonal pair until none is
+           * left worth killing. */
+          double *v;
+          int *order;
+
+          if (rows != cols)
+            { g_free (m); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+          for (int i = 0; i < rows; i++)
+            for (int j = 0; j < i; j++)
+              if (fabs (m[i * rows + j] - m[j * rows + i]) > 1e-9 * (1 + fabs (m[i * rows + j])))
+                bad = TRUE;
+          if (bad)
+            { g_free (m); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
+
+          v = g_new0 (double, (gsize) rows * rows);
+          for (int i = 0; i < rows; i++)
+            v[i * rows + i] = 1;
+
+          for (int sweep = 0; sweep < 100; sweep++)
+            {
+              double off = 0;
+
+              for (int i = 0; i < rows; i++)
+                for (int j = i + 1; j < rows; j++)
+                  off += m[i * rows + j] * m[i * rows + j];
+              if (off < 1e-30)
+                break;
+              for (int p = 0; p < rows - 1; p++)
+                for (int q = p + 1; q < rows; q++)
+                  {
+                    double apq = m[p * rows + q];
+                    double theta, t, c, s;
+
+                    if (fabs (apq) < 1e-300)
+                      continue;
+                    theta = (m[q * rows + q] - m[p * rows + p]) / (2 * apq);
+                    t = (theta >= 0 ? 1 : -1) / (fabs (theta) + sqrt (theta * theta + 1));
+                    c = 1 / sqrt (t * t + 1);
+                    s = t * c;
+                    for (int k = 0; k < rows; k++)
+                      {
+                        double akp = m[k * rows + p], akq = m[k * rows + q];
+
+                        m[k * rows + p] = c * akp - s * akq;
+                        m[k * rows + q] = s * akp + c * akq;
+                      }
+                    for (int k = 0; k < rows; k++)
+                      {
+                        double apk = m[p * rows + k], aqk = m[q * rows + k];
+
+                        m[p * rows + k] = c * apk - s * aqk;
+                        m[q * rows + k] = s * apk + c * aqk;
+                      }
+                    for (int k = 0; k < rows; k++)
+                      {
+                        double vkp = v[k * rows + p], vkq = v[k * rows + q];
+
+                        v[k * rows + p] = c * vkp - s * vkq;
+                        v[k * rows + q] = s * vkp + c * vkq;
+                      }
+                  }
+            }
+
+          /* Smallest eigenvalue first, which is the order Gnumeric
+           * answers in. */
+          order = g_new (int, rows);
+          for (int i = 0; i < rows; i++)
+            order[i] = i;
+          for (int i = 0; i < rows; i++)
+            for (int j = i + 1; j < rows; j++)
+              if (m[order[j] * rows + order[j]] < m[order[i] * rows + order[i]])
+                { int t = order[i]; order[i] = order[j]; order[j] = t; }
+
+          /* The eigenvalues on the first row, and under each its
+           * vector. */
+          a = array_const_new (rows + 1, rows);
+          for (int j = 0; j < rows; j++)
+            {
+              int c = order[j];
+
+              a->cells[j] = o42_value_number (m[c * rows + c]);
+              for (int i = 0; i < rows; i++)
+                a->cells[(i + 1) * rows + j] = o42_value_number (v[i * rows + c]);
+            }
+          g_free (order);
+          g_free (v);
+          g_free (m);
+          *out = array_operand (a);
+          return TRUE;
+        }
+
+      /* MPSEUDOINVERSE, by the normal equations: (A'A)^-1 A' when the
+       * columns are independent, and A'(AA')^-1 when the rows are.
+       * Gnumeric's takes a tolerance it ignores for a well-conditioned
+       * matrix, and so does this. */
+      {
+        int n = rows >= cols ? cols : rows;   /* the side of the square to invert */
+        double *sq = g_new0 (double, (gsize) n * n);
+        double *inv = g_new0 (double, (gsize) n * n * 2);
+        double *result;
+        gboolean singular = FALSE;
+
+        for (int i = 0; i < n; i++)
+          for (int j = 0; j < n; j++)
+            {
+              double sum = 0;
+
+              if (rows >= cols)
+                for (int k = 0; k < rows; k++)
+                  sum += m[k * cols + i] * m[k * cols + j];      /* A'A */
+              else
+                for (int k = 0; k < cols; k++)
+                  sum += m[i * cols + k] * m[j * cols + k];      /* AA' */
+              sq[i * n + j] = sum;
+            }
+
+        for (int i = 0; i < n; i++)
+          {
+            for (int j = 0; j < n; j++)
+              inv[i * 2 * n + j] = sq[i * n + j];
+            inv[i * 2 * n + n + i] = 1;
+          }
+        for (int k = 0; k < n && !singular; k++)
+          {
+            int pivot = k;
+
+            for (int i = k + 1; i < n; i++)
+              if (fabs (inv[i * 2 * n + k]) > fabs (inv[pivot * 2 * n + k]))
+                pivot = i;
+            if (fabs (inv[pivot * 2 * n + k]) < 1e-12)
+              { singular = TRUE; break; }
+            if (pivot != k)
+              for (int j = 0; j < 2 * n; j++)
+                { double t = inv[k * 2 * n + j]; inv[k * 2 * n + j] = inv[pivot * 2 * n + j]; inv[pivot * 2 * n + j] = t; }
+            {
+              double d = inv[k * 2 * n + k];
+
+              for (int j = 0; j < 2 * n; j++)
+                inv[k * 2 * n + j] /= d;
+            }
+            for (int i = 0; i < n; i++)
+              if (i != k)
+                {
+                  double f = inv[i * 2 * n + k];
+
+                  for (int j = 0; j < 2 * n; j++)
+                    inv[i * 2 * n + j] -= f * inv[k * 2 * n + j];
+                }
+          }
+        if (singular)
+          {
+            g_free (sq); g_free (inv); g_free (m);
+            out->value = o42_value_error (O42_ERR_NUM);
+            return TRUE;
+          }
+
+        /* The pseudo-inverse is the other way up from the matrix. */
+        result = g_new0 (double, (gsize) cols * rows);
+        for (int i = 0; i < cols; i++)
+          for (int j = 0; j < rows; j++)
+            {
+              double sum = 0;
+
+              if (rows >= cols)
+                for (int k = 0; k < n; k++)
+                  sum += inv[i * 2 * n + n + k] * m[j * cols + k];
+              else
+                for (int k = 0; k < n; k++)
+                  sum += m[k * cols + i] * inv[k * 2 * n + n + j];
+              result[i * rows + j] = sum;
+            }
+
+        a = array_const_new (cols, rows);
+        for (int i = 0; i < cols; i++)
+          for (int j = 0; j < rows; j++)
+            a->cells[i * rows + j] = o42_value_number (result[i * rows + j]);
+        g_free (result); g_free (sq); g_free (inv); g_free (m);
+        *out = array_operand (a);
+        return TRUE;
+      }
+    }
+
   if (strcmp (node->as.call.name, "MINVERSE") == 0 && n_args == 1)
     {
       O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
@@ -13613,7 +13867,10 @@ static const struct {
   { "TAKE", "TAKE(array, rows, cols)", "So many rows and columns from the near end, or the far one." },
   { "DROP", "DROP(array, rows, cols)", "The rectangle with so many rows and columns left off." },
   { "TEXTSPLIT", "TEXTSPLIT(text, across, down)", "A text cut into a rectangle at its delimiters." },
-  { "MODE.MULT", "MODE.MULT(number1, number2, ...)", "Every value that turns up as often as the commonest." }
+  { "MODE.MULT", "MODE.MULT(number1, number2, ...)", "Every value that turns up as often as the commonest." },
+  { "CHOLESKY", "CHOLESKY(matrix)", "Gnumeric's: the lower triangle whose product with its transpose is the matrix." },
+  { "EIGEN", "EIGEN(matrix)", "Gnumeric's: the eigenvalues of a symmetric matrix, each with its vector under it." },
+  { "MPSEUDOINVERSE", "MPSEUDOINVERSE(matrix, tolerance)", "Gnumeric's: Moore and Penrose's inverse, which any matrix has." }
 };
 
 gboolean
