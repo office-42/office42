@@ -18,10 +18,6 @@ pointer, and Excel's tab colours are not there.
 wants them as Escher records with an OBJ record apiece, and `.xlsx` as
 `xl/ctrlProps` parts beside the legacy drawing.
 
-**A surface chart in `.xlsx`.** Excel's `surfaceChart` wants a third
-axis element that office42 does not write yet, so a surface goes out as
-the 3-D columns of the same numbers.
-
 **More of the format language.** The locale codes in `[$-409]`.
 
 **More of `.ods`.** It reads more than it writes.

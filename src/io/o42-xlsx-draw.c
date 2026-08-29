@@ -199,10 +199,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_RADAR:   element = "radarChart"; break;
     case O42_CHART_BUBBLE:  element = "bubbleChart"; break;
     case O42_CHART_STOCK:   element = "stockChart"; break;
-    /* Excel's surfaceChart wants a third axis of its own; until that
-     * is written, a surface goes out as the 3-D columns of the same
-     * numbers, which Excel draws and can be turned back by hand. */
-    case O42_CHART_SURFACE: element = "bar3DChart"; break;
+    case O42_CHART_SURFACE: element = "surface3DChart"; break;
     case O42_CHART_AREA:    element = chart->three_d ? "area3DChart" : "areaChart"; break;
     case O42_CHART_SCATTER: element = "scatterChart"; break;
     default:                element = chart->three_d ? "bar3DChart" : "barChart"; break;
@@ -229,7 +226,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_RADAR:   g_string_append (out, "<c:radarStyle val=\"marker\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_BUBBLE:  g_string_append (out, "<c:varyColors val=\"0\"/>"); break;
     case O42_CHART_STOCK:   g_string_append (out, "<c:varyColors val=\"0\"/>"); break;
-    case O42_CHART_SURFACE: g_string_append (out, "<c:barDir val=\"col\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>"); break;
+    case O42_CHART_SURFACE: g_string_append (out, "<c:wireframe val=\"0\"/>"); break;
     }
 
   /* One series per data column, or per data row when the series lie that
@@ -350,7 +347,12 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     g_string_append (out, "<c:gapWidth val=\"150\"/>");
   else if (chart->kind == O42_CHART_LINE)
     g_string_append (out, "<c:marker val=\"1\"/>");
-  if (!pie)
+  if (chart->kind == O42_CHART_SURFACE)
+    /* A surface stands on three: the categories across, the values up,
+     * and the series into the page. */
+    g_string_append (out, "<c:axId val=\"10001\"/><c:axId val=\"10002\"/>"
+                          "<c:axId val=\"10005\"/>");
+  else if (!pie)
     g_string_append_printf (out, "<c:axId val=\"%d\"/><c:axId val=\"%d\"/>",
                             group == 0 ? 10001 : 10003, group == 0 ? 10002 : 10004);
   g_string_append_printf (out, "</c:%s>", element);
@@ -387,6 +389,12 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
         minmax, bar ? "b" : "l", chart->gridlines ? "<c:majorGridlines/>" : "", yt,
         code, *code == 'G' ? 1 : 0,
         scatter ? "midCat" : "between");
+      if (chart->kind == O42_CHART_SURFACE)
+        g_string_append (out,
+          "<c:serAx><c:axId val=\"10005\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling>"
+          "<c:delete val=\"0\"/><c:axPos val=\"b\"/><c:tickLblPos val=\"nextTo\"/>"
+          "<c:crossAx val=\"10002\"/></c:serAx>");
+
       if (secondary)
         {
           /* The hidden category axis the second group needs, and the
@@ -736,6 +744,10 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
     { c->kind = O42_CHART_AREA; c->kind_known = TRUE; }
   else if (strcmp (n, "scatterChart") == 0)
     { c->kind = O42_CHART_SCATTER; c->kind_known = TRUE; }
+  else if (strcmp (n, "surfaceChart") == 0 || strcmp (n, "surface3DChart") == 0)
+    { c->kind = O42_CHART_SURFACE; c->kind_known = TRUE; }
+  else if (strcmp (n, "stockChart") == 0)
+    { c->kind = O42_CHART_STOCK; c->kind_known = TRUE; }
   else if (strcmp (n, "barDir") == 0)
     {
       const char *v = attr (names, values, "val");

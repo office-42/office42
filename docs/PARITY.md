@@ -71,14 +71,14 @@ has. The last column says what is missing, not what is there.
 | Styles and conditional formats | 6 | 100% | 6.0 | |
 | Rows, columns, sheets | 7 | 98% | 6.9 | dragging a sheet tab, and tab colours |
 | Data tools | 10 | 98% | 9.8 | Excel's own pivot parts, and its live TABLE() -- ours writes the numbers |
-| Charts | 8 | 99% | 7.9 | Excel's `surfaceChart` part in `.xlsx` |
+| Charts | 8 | 100% | 8.0 | |
 | Objects | 5 | 99% | 5.0 | the form controls are not written into `.xls` or `.xlsx` |
 | File formats | 12 | 98% | 11.8 | Excel 5 charts in `.xls` come back as pictures of themselves |
 | Printing | 6 | 100% | 6.0 | |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 6 | 97% | 5.8 | arranging windows, which GTK 4 gives a program no way to do |
 | Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice |
-| **Total** | 100 | | **99.1** | |
+| **Total** | 100 | | **99.2** | |
 
 **About 98% of Excel 2003.** Against **Excel 365** the number is nearer
 45%: dynamic arrays and tables are here, but Power Query, the modern
@@ -194,8 +194,7 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **The form controls in `.xls` and `.xlsx`**, and a surface chart
-   that goes out as Excel's own `surfaceChart` part. They are in
+1. **The form controls in `.xls` and `.xlsx`.** They are in
    `.gnumeric` and nowhere else, so a book that carries them cannot be
    handed to Excel whole.
 2. **Sheet tabs that can be dragged**, and given a colour.
