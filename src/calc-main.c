@@ -45,6 +45,7 @@
 #include "o42-book.h"
 #include "o42-eval.h"
 #include "o42-csv.h"
+#include "o42-text-formats.h"
 #include "o42-gnumeric.h"
 #include "o42-xlsx.h"
 #include "o42-xls.h"
@@ -243,6 +244,9 @@ main (int argc, char *argv[])
           gboolean xls = g_str_has_suffix (path, ".xls");
           gboolean ods = g_str_has_suffix (path, ".ods");
           gboolean html = g_str_has_suffix (path, ".html") || g_str_has_suffix (path, ".htm");
+          gboolean dif = g_str_has_suffix (path, ".dif");
+          gboolean sylk = g_str_has_suffix (path, ".slk") || g_str_has_suffix (path, ".sylk");
+          gboolean latex = g_str_has_suffix (path, ".tex");
           gboolean ok;
 
           if (text[0] == 'l')
@@ -251,6 +255,8 @@ main (int argc, char *argv[])
                : xls ? o42_xls_load (book, file, &error)
                : ods ? o42_ods_load (book, file, &error)
                : html ? o42_html_load (sheet, file, &error)
+               : dif ? o42_dif_load (sheet, file, &error)
+               : sylk ? o42_sylk_load (sheet, file, &error)
                      : o42_gnumeric_load (book, file, &error);
           else
             ok = csv ? o42_csv_save (sheet, file, &error)
@@ -258,6 +264,9 @@ main (int argc, char *argv[])
                : xls ? o42_xls_save (book, file, &error)
                : ods ? o42_ods_save (book, file, &error)
                : html ? o42_html_save (book, file, &error)
+               : dif ? o42_dif_save (sheet, file, &error)
+               : sylk ? o42_sylk_save (sheet, file, &error)
+               : latex ? o42_latex_save (sheet, file, &error)
                      : o42_gnumeric_save (book, file, &error);
 
           if (ok && xls && text[0] == 115 && o42_xls_dropped_cells > 0)
@@ -265,7 +274,7 @@ main (int argc, char *argv[])
                              "columns Excel 97 holds were not written\n",
                      path, o42_xls_dropped_cells);
 
-          if (ok && !csv && !html && text[0] == 'l')
+          if (ok && !csv && !html && !dif && !sylk && text[0] == 'l')
             sheet = o42_book_sheet (book, 0);
 
           if (!ok)

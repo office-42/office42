@@ -619,11 +619,21 @@ File ▸ Open and Save As choose the format by the name you give:
 | `.ods` | OpenDocument, LibreOffice Calc's own | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, frozen panes, pictures, shapes, charts, form controls |
 | `.html` | a table per sheet | values, fonts, fills, borders, alignments, merges, links |
 | `.csv` | comma separated | the values as shown, quoted where they need it |
+| `.dif` | VisiCalc's Data Interchange Format | one sheet: the numbers as numbers and everything else as text |
+| `.slk` | Multiplan's SYLK, which Excel still offers | one sheet: values, formulas in R1C1, column widths |
+| `.tex` | export only | a LaTeX tabular of what the cells show, bold and italic kept |
 | `.pdf` | export only (import with poppler) | the printed pages |
 
-Every one of them is read as well as written, and each has been checked
-both ways against the program it belongs to -- Excel's formats against
-LibreOffice, `.gnumeric` against Gnumeric's own documentation.
+Every one of them but LaTeX and PDF is read as well as written, and
+each has been checked both ways against the program it belongs to --
+Excel's formats against LibreOffice, `.gnumeric` against Gnumeric's own
+documentation.
+
+One wart worth knowing: LibreOffice writes a DIF number with the
+machine's decimal separator, where the format and Excel both write a
+point. office42 writes the point and reads either, so a DIF from
+LibreOffice comes in whole; a DIF from office42 opened in LibreOffice
+under a comma locale shows its decimals as text.
 
 ## 16. Python and the macro recorder
 

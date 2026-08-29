@@ -17,6 +17,7 @@ o42_core_sources = files(
   'model/o42-shape.c',
   'io/o42-pdf.c',
   'io/o42-csv.c',
+  'io/o42-text-formats.c',
   'io/o42-sql.c',
   'io/o42-gnumeric.c',
   'io/o42-zip.c',

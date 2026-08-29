@@ -37,10 +37,11 @@ thing that knows what a mouse is.
 | | `o42-eval.c` | 14,355 | 561 functions and the array evaluator | Far too big for one file. The function table is sorted and binary-searched, which is right, but the file should be several: text, dates, money, statistics, engineering, the array frame |
 | io | `o42-xls.c` | 3,943 | BIFF8 both ways, BIFF5 in | Dense but commented; the record numbers are named |
 | | `o42-xlsx.c` + `-draw.c` | 4,478 | Office Open XML, on a zip of our own | The drawing half is separate, which keeps both readable |
-| | `o42-ods.c` | 2,451 | OpenDocument | Reads more than it writes |
+| | `o42-ods.c` | 3,165 | OpenDocument | Cells, styles, charts, controls, both ways |
 | | `o42-gnumeric.c` | 3,022 | The native format | Carries everything the model holds, and office42's own additions in `o42-` attributes Gnumeric passes over |
 | | `o42-pdf.c` | 1,412 | Pages out, and pages in through poppler | Shares its layout with the printer |
-| | `o42-sql.c` | 619 | The SQLite database | The newest file, and the smallest of the io ones that does something whole |
+| | `o42-sql.c` | 619 | The SQLite database | The smallest of the io files that does something whole |
+| | `o42-text-formats.c` | 687 | DIF, SYLK and LaTeX | Three formats older than the programs that read them, and the one a paper is set in |
 | script | `o42-python.c` | 962 | CPython embedded | Optional; the API is `book` and `sheet` objects |
 | ui | `o42-window.c` | 8,004 | 106 actions, every dialog, printing | Too big by the same argument as the evaluator: the dialogs could be a file of their own |
 | | `o42-grid.c` | 4,520 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
@@ -164,13 +165,13 @@ against.
 | Data tools | 12 | 100% | 12.0 | |
 | Charts | 8 | 90% | 7.2 | Gnumeric's chart engine (GOffice) has many more plot types and styling |
 | Objects | 4 | 99% | 4.0 | |
-| File formats | 14 | 78% | 10.9 | LaTeX, DIF, SYLK, Lotus, Applix, Quattro; `.gnumeric` itself is nearly complete |
+| File formats | 14 | 88% | 12.3 | Lotus, Applix and Quattro, all of them binary and long dead; `.gnumeric` itself is nearly complete |
 | Printing | 6 | 98% | 5.9 | as above |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 5 | 92% | 4.6 | right-click menus |
-| **Total** | 100 | | **92.4** | |
+| **Total** | 100 | | **93.8** | |
 
-**About 92% of Gnumeric.**
+**About 94% of Gnumeric.**
 
 ## 5. Where office42 goes further
 

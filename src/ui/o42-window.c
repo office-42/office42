@@ -20,6 +20,7 @@
 #include "o42-pdf.h"
 #include "o42-sql.h"
 #include "o42-csv.h"
+#include "o42-text-formats.h"
 #include "o42-gnumeric.h"
 #include "o42-xlsx.h"
 #include "o42-xls.h"
@@ -7132,6 +7133,36 @@ file_is_csv (GFile *file)
   return csv;
 }
 
+/* The three text formats: DIF and SYLK hold one sheet each and LaTeX
+ * is written and never read. */
+static gboolean
+file_is_dif (GFile *file)
+{
+  char *name = g_file_get_basename (file);
+  gboolean dif = name != NULL && g_str_has_suffix (name, ".dif");
+  g_free (name);
+  return dif;
+}
+
+static gboolean
+file_is_sylk (GFile *file)
+{
+  char *name = g_file_get_basename (file);
+  gboolean sylk = name != NULL && (g_str_has_suffix (name, ".slk") ||
+                                   g_str_has_suffix (name, ".sylk"));
+  g_free (name);
+  return sylk;
+}
+
+static gboolean
+file_is_latex (GFile *file)
+{
+  char *name = g_file_get_basename (file);
+  gboolean latex = name != NULL && g_str_has_suffix (name, ".tex");
+  g_free (name);
+  return latex;
+}
+
 static gboolean
 file_is_xlsx (GFile *file)
 {
@@ -7177,10 +7208,13 @@ o42_window_open_file (O42Window *self, GFile *file)
   g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
-  if (file_is_csv (file) || file_is_html (file))
+  if (file_is_csv (file) || file_is_html (file) ||
+      file_is_dif (file) || file_is_sylk (file))
     {
-      ok = file_is_csv (file) ? o42_csv_load (self->sheet, file, &error)
-                              : o42_html_load (self->sheet, file, &error);
+      ok = file_is_csv (file)  ? o42_csv_load (self->sheet, file, &error)
+         : file_is_dif (file)  ? o42_dif_load (self->sheet, file, &error)
+         : file_is_sylk (file) ? o42_sylk_load (self->sheet, file, &error)
+                               : o42_html_load (self->sheet, file, &error);
       o42_sheet_clear_undo (self->sheet);
       o42_sheet_set_modified (self->sheet, FALSE);
     }
@@ -7233,6 +7267,12 @@ window_save_to (O42Window *self, GFile *file)
 
   if (file_is_csv (file))
     ok = o42_csv_save (self->sheet, file, &error);
+  else if (file_is_dif (file))
+    ok = o42_dif_save (self->sheet, file, &error);
+  else if (file_is_sylk (file))
+    ok = o42_sylk_save (self->sheet, file, &error);
+  else if (file_is_latex (file))
+    ok = o42_latex_save (self->sheet, file, &error);
   else if (file_is_xlsx (file))
     ok = o42_xlsx_save (self->book, file, &error);
   else if (file_is_xls (file))
@@ -7266,7 +7306,7 @@ window_save_to (O42Window *self, GFile *file)
       g_free (said);
     }
 
-  if (file_is_csv (file))
+  if (file_is_csv (file) || file_is_dif (file) || file_is_sylk (file))
     o42_sheet_set_modified (self->sheet, FALSE);
   else
     o42_book_set_modified (self->book, FALSE);
@@ -7292,6 +7332,9 @@ book_filters (void)
   g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods)", "*.ods"));
   g_list_store_append (filters, pattern_filter ("Web Pages (*.html)", "*.html"));
   g_list_store_append (filters, pattern_filter ("Comma-Separated Values (*.csv)", "*.csv"));
+  g_list_store_append (filters, pattern_filter ("Data Interchange Format (*.dif)", "*.dif"));
+  g_list_store_append (filters, pattern_filter ("SYLK (*.slk)", "*.slk"));
+  g_list_store_append (filters, pattern_filter ("LaTeX Tables (*.tex)", "*.tex"));
   g_list_store_append (filters, pattern_filter ("All Files", "*"));
 
   return G_LIST_MODEL (filters);
