@@ -233,7 +233,7 @@ The families, with a few from each:
 | Dates | `DATE`, `EDATE`, `EOMONTH`, `WEEKNUM`, `NETWORKDAYS.INTL`, `WORKDAY.INTL`, `YEARFRAC`, `DATEDIF` |
 | The Hebrew calendar | `HDATE`, `HDATE_YEAR`, `HDATE_MONTH`, `HDATE_DAY`, `HDATE_JULIAN`, `HDATE2DATE`, `HDATE2JULIAN`, `DATE2HDATE` |
 | Money | `PMT`, `IRR`, `XNPV`, `PRICE`, `YIELD`, `DURATION`, `COUPNUM`, `TBILLEQ`, `AMORLINC` |
-| Options | `OPT_BS` and its greeks, `OPT_BAW_AMER`, `OPT_BINOMIAL`, `OPT_JUMP_DIFF`, `OPT_GARMAN_KOHLHAGEN`, the lookbacks, the choosers |
+| Options | `OPT_BS` and its greeks, `OPT_BAW_AMER`, `OPT_BINOMIAL`, `OPT_JUMP_DIFF`, `OPT_GARMAN_KOHLHAGEN`, the lookbacks, the choosers, the compounds |
 | Database | `DSUM`, `DGET`, `DAVERAGE`, `DCOUNT` with a criteria table |
 | Engineering | `CONVERT`, `BESSELJ`, `DEC2HEX`, `COMPLEX`, `IMSINH`, `IMARCTAN`, `DELTA`, `ERF` |
 | Logic and information | `IF`, `IFS`, `SWITCH`, `LET`, `LAMBDA`, `ISFORMULA`, `CELL`, `INFO`, `SHEET`, `FORMULATEXT` |

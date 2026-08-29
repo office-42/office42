@@ -5001,6 +5001,345 @@ fn_opt_baw_amer (O42EvalContext *ctx, O42Operand *args, int n)
                            a * pow (spot / trigger, q));
 }
 
+/* ---- The options that want the bivariate normal ----------------------- */
+
+/* The chance that two standard normals with correlation rho are both
+ * below their limits.  Drezner and Wesolowsky's quadrature, in the
+ * arrangement Haug's book uses, which is what Gnumeric works from. */
+static double
+bivariate_normal_cdf (double a, double b, double rho)
+{
+  static const double W[] = { 0.24840615, 0.39233107, 0.21141819,
+                              0.03324666, 0.00082485334 };
+  static const double X[] = { 0.10024215, 0.48281397, 1.06094972,
+                              1.77972941, 2.66976035 };
+  double sum = 0;
+
+  if (a <= 0 && b <= 0 && rho <= 0)
+    {
+      double root = sqrt (2 * (1 - rho * rho));
+      double a1 = a / root, b1 = b / root;
+
+      for (int i = 0; i < 5; i++)
+        for (int j = 0; j < 5; j++)
+          sum += W[i] * W[j] * exp (a1 * (2 * X[i] - a1) + b1 * (2 * X[j] - b1) +
+                                    2 * rho * (X[i] - a1) * (X[j] - b1));
+      return sqrt (1 - rho * rho) / G_PI * sum;
+    }
+  if (a <= 0 && b >= 0 && rho >= 0)
+    return normal_cdf (a) - bivariate_normal_cdf (a, -b, -rho);
+  if (a >= 0 && b <= 0 && rho >= 0)
+    return normal_cdf (b) - bivariate_normal_cdf (-a, b, -rho);
+  if (a >= 0 && b >= 0 && rho <= 0)
+    return normal_cdf (a) + normal_cdf (b) - 1 + bivariate_normal_cdf (-a, -b, rho);
+  if (a * b * rho > 0)
+    {
+      double sign_a = a >= 0 ? 1 : -1;
+      double sign_b = b >= 0 ? 1 : -1;
+      double denom = sqrt (a * a - 2 * rho * a * b + b * b);
+      double rho1 = (rho * a - b) * sign_a / denom;
+      double rho2 = (rho * b - a) * sign_b / denom;
+      double delta = (1 - sign_a * sign_b) / 4;
+
+      return bivariate_normal_cdf (a, 0, rho1) + bivariate_normal_cdf (b, 0, rho2) - delta;
+    }
+  return 0;
+}
+
+/* Roll, Geske and Whaley: an American call on a share that pays one
+ * known dividend before it expires.  Exercising early, if it happens
+ * at all, happens the moment before the dividend is paid. */
+static O42Value
+fn_opt_rgw (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double spot, strike, t1, time, rate, dividend, vol;
+  double sx, ci, high, low, mid, root, rho, a1, a2, b1, b2;
+
+  (void) n;
+  ARG_NUMBER (0, spot);
+  ARG_NUMBER (1, strike);
+  ARG_NUMBER (2, t1);
+  ARG_NUMBER (3, time);
+  ARG_NUMBER (4, rate);
+  ARG_NUMBER (5, dividend);
+  ARG_NUMBER (6, vol);
+  if (spot <= 0 || strike <= 0 || t1 <= 0 || time <= t1 || vol <= 0 || dividend < 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  sx = spot - dividend * exp (-rate * t1);
+  /* A dividend too small to make up for the interest on the strike is
+   * never worth exercising for. */
+  if (dividend <= strike * (1 - exp (-rate * (time - t1))))
+    return o42_value_number (gbs (TRUE, sx, strike, time, rate, rate, vol));
+
+  /* The spot at which exercising just before the dividend is as good
+   * as holding on, by bisection. */
+  low = strike;
+  high = MAX (spot, strike) * 4 + dividend;
+  for (int i = 0; i < 200; i++)
+    {
+      double c;
+
+      mid = (low + high) / 2;
+      c = gbs (TRUE, mid, strike, time - t1, rate, rate, vol);
+      if (c - mid - dividend + strike > 0)
+        low = mid;
+      else
+        high = mid;
+      if (high - low < 1e-9 * strike)
+        break;
+    }
+  ci = (low + high) / 2;
+
+  root = vol * sqrt (time);
+  rho = -sqrt (t1 / time);
+  a1 = (log (sx / strike) + (rate + vol * vol / 2) * time) / root;
+  a2 = a1 - root;
+  b1 = (log (sx / ci) + (rate + vol * vol / 2) * t1) / (vol * sqrt (t1));
+  b2 = b1 - vol * sqrt (t1);
+
+  return o42_value_number (sx * normal_cdf (b1)
+                           + sx * bivariate_normal_cdf (a1, -b1, rho)
+                           - strike * exp (-rate * time) * bivariate_normal_cdf (a2, -b2, rho)
+                           - (strike - dividend) * exp (-rate * t1) * normal_cdf (b2));
+}
+
+/* A complex chooser: at `time` the holder takes either a call with one
+ * strike and life or a put with another. */
+static O42Value
+fn_opt_complex_chooser (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double spot, xc, xp, time, tc, tp, rate, carry, vol;
+  double i, di, d1, d2, y1, y2, rho1, rho2;
+
+  (void) n;
+  ARG_NUMBER (0, spot);
+  ARG_NUMBER (1, xc);
+  ARG_NUMBER (2, xp);
+  ARG_NUMBER (3, time);
+  ARG_NUMBER (4, tc);
+  ARG_NUMBER (5, tp);
+  ARG_NUMBER (6, rate);
+  ARG_NUMBER (7, carry);
+  ARG_NUMBER (8, vol);
+  if (spot <= 0 || xc <= 0 || xp <= 0 || time <= 0 || tc <= time || tp <= time || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  /* The spot at which the call and the put are worth the same, by
+   * bisection: monotone in the spot, so it converges from any
+   * bracket. */
+  {
+    double lo = 1e-6 * spot, hi = 1000 * spot;
+
+    for (int k = 0; k < 200; k++)
+      {
+        i = (lo + hi) / 2;
+        di = gbs (TRUE, i, xc, tc - time, rate, carry, vol) -
+             gbs (FALSE, i, xp, tp - time, rate, carry, vol);
+        if (di > 0)
+          hi = i;
+        else
+          lo = i;
+        if (hi - lo < 1e-10 * spot)
+          break;
+      }
+    i = (lo + hi) / 2;
+  }
+
+  d1 = (log (spot / i) + (carry + vol * vol / 2) * time) / (vol * sqrt (time));
+  d2 = d1 - vol * sqrt (time);
+  y1 = (log (spot / xc) + (carry + vol * vol / 2) * tc) / (vol * sqrt (tc));
+  y2 = (log (spot / xp) + (carry + vol * vol / 2) * tp) / (vol * sqrt (tp));
+  rho1 = sqrt (time / tc);
+  rho2 = sqrt (time / tp);
+
+  return o42_value_number (
+      spot * exp ((carry - rate) * tc) * bivariate_normal_cdf (d1, y1, rho1)
+    - xc * exp (-rate * tc) * bivariate_normal_cdf (d2, y1 - vol * sqrt (tc), rho1)
+    - spot * exp ((carry - rate) * tp) * bivariate_normal_cdf (-d1, -y2, rho2)
+    + xp * exp (-rate * tp) * bivariate_normal_cdf (-d2, -y2 + vol * sqrt (tp), rho2));
+}
+
+/* An option on an option: "cc" a call on a call, "cp" a call on a put,
+ * "pc" a put on a call, "pp" a put on a put. */
+static O42Value
+fn_opt_on_options (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  char *kind = NULL;
+  double spot, x1, x2, t1, t2, rate, carry, vol;
+  gboolean outer_call, inner_call;
+  double i, y1, y2, z1, z2, rho;
+
+  (void) n;
+  ARG_TEXT (0, kind);
+  if (kind == NULL || strlen (kind) < 2)
+    { g_free (kind); return o42_value_error (O42_ERR_NUM); }
+  outer_call = kind[0] == 'c' || kind[0] == 'C';
+  inner_call = kind[1] == 'c' || kind[1] == 'C';
+  g_free (kind);
+
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, x1);
+  ARG_NUMBER (3, x2);
+  ARG_NUMBER (4, t1);
+  ARG_NUMBER (5, t2);
+  ARG_NUMBER (6, rate);
+  ARG_NUMBER (7, carry);
+  ARG_NUMBER (8, vol);
+  if (spot <= 0 || x1 <= 0 || x2 <= 0 || t1 <= 0 || t2 <= t1 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  /* The spot at which the option underneath is worth exactly the
+   * strike of the one on top. */
+  {
+    double lo = 1e-6 * spot, hi = 1000 * spot;
+
+    for (int k = 0; k < 200; k++)
+      {
+        double v;
+
+        i = (lo + hi) / 2;
+        v = gbs (inner_call, i, x1, t2 - t1, rate, carry, vol) - x2;
+        if ((inner_call && v > 0) || (!inner_call && v < 0))
+          hi = i;
+        else
+          lo = i;
+        if (hi - lo < 1e-10 * spot)
+          break;
+      }
+    i = (lo + hi) / 2;
+  }
+
+  rho = sqrt (t1 / t2);
+  y1 = (log (spot / i) + (carry + vol * vol / 2) * t1) / (vol * sqrt (t1));
+  y2 = y1 - vol * sqrt (t1);
+  z1 = (log (spot / x1) + (carry + vol * vol / 2) * t2) / (vol * sqrt (t2));
+  z2 = z1 - vol * sqrt (t2);
+
+  if (inner_call && outer_call)
+    return o42_value_number (
+        spot * exp ((carry - rate) * t2) * bivariate_normal_cdf (z1, y1, rho)
+      - x1 * exp (-rate * t2) * bivariate_normal_cdf (z2, y2, rho)
+      - x2 * exp (-rate * t1) * normal_cdf (y2));
+  if (inner_call && !outer_call)
+    return o42_value_number (
+        x1 * exp (-rate * t2) * bivariate_normal_cdf (z2, -y2, -rho)
+      - spot * exp ((carry - rate) * t2) * bivariate_normal_cdf (z1, -y1, -rho)
+      + x2 * exp (-rate * t1) * normal_cdf (-y2));
+  if (!inner_call && outer_call)
+    return o42_value_number (
+        x1 * exp (-rate * t2) * bivariate_normal_cdf (-z2, -y2, rho)
+      - spot * exp ((carry - rate) * t2) * bivariate_normal_cdf (-z1, -y1, rho)
+      - x2 * exp (-rate * t1) * normal_cdf (-y2));
+  return o42_value_number (
+      spot * exp ((carry - rate) * t2) * bivariate_normal_cdf (-z1, y1, -rho)
+    - x1 * exp (-rate * t2) * bivariate_normal_cdf (-z2, y2, -rho)
+    + x2 * exp (-rate * t1) * normal_cdf (y2));
+}
+
+/* An option the writer will extend, at a second strike, if it is out
+ * of the money when it first expires. */
+static O42Value
+fn_opt_extendible_writer (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  gboolean call;
+  double spot, x1, x2, t1, t2, rate, carry, vol;
+  double rho, z1, z2;
+
+  (void) n;
+  OPT_FLAG (0, call);
+  ARG_NUMBER (1, spot);
+  ARG_NUMBER (2, x1);
+  ARG_NUMBER (3, x2);
+  ARG_NUMBER (4, t1);
+  ARG_NUMBER (5, t2);
+  ARG_NUMBER (6, rate);
+  ARG_NUMBER (7, carry);
+  ARG_NUMBER (8, vol);
+  if (spot <= 0 || x1 <= 0 || x2 <= 0 || t1 <= 0 || t2 <= t1 || vol <= 0)
+    return o42_value_error (O42_ERR_NUM);
+
+  rho = sqrt (t1 / t2);
+  z1 = (log (spot / x2) + (carry + vol * vol / 2) * t2) / (vol * sqrt (t2));
+  z2 = (log (spot / x1) + (carry + vol * vol / 2) * t1) / (vol * sqrt (t1));
+
+  if (call)
+    return o42_value_number (
+        gbs (TRUE, spot, x1, t1, rate, carry, vol)
+      + spot * exp ((carry - rate) * t2) * bivariate_normal_cdf (z1, -z2, -rho)
+      - x2 * exp (-rate * t2) * bivariate_normal_cdf (z1 - vol * sqrt (t2),
+                                                      -z2 + vol * sqrt (t1), -rho));
+  return o42_value_number (
+      gbs (FALSE, spot, x1, t1, rate, carry, vol)
+    + x2 * exp (-rate * t2) * bivariate_normal_cdf (-z1 + vol * sqrt (t2),
+                                                    z2 - vol * sqrt (t1), -rho)
+    - spot * exp ((carry - rate) * t2) * bivariate_normal_cdf (-z1, z2, -rho));
+}
+
+/* The American right to swap one asset for the other.  Under the
+ * second asset as the unit of account it is an American call on the
+ * ratio with a strike of one, which is where Barone-Adesi and Whaley
+ * can price it. */
+static O42Value
+fn_opt_amer_exchange (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho;
+  double v, s1, s2, trigger, price, v2, mm, nn, kk, q, a, root, d1;
+
+  (void) n; (void) rate;
+  ARG_NUMBER (0, spot1);
+  ARG_NUMBER (1, spot2);
+  ARG_NUMBER (2, qty1);
+  ARG_NUMBER (3, qty2);
+  ARG_NUMBER (4, time);
+  ARG_NUMBER (5, rate);
+  ARG_NUMBER (6, carry1);
+  ARG_NUMBER (7, carry2);
+  ARG_NUMBER (8, vol1);
+  ARG_NUMBER (9, vol2);
+  ARG_NUMBER (10, rho);
+  if (spot1 <= 0 || spot2 <= 0 || qty1 <= 0 || qty2 <= 0 || time <= 0 ||
+      vol1 < 0 || vol2 < 0 || rho < -1 || rho > 1)
+    return o42_value_error (O42_ERR_NUM);
+
+  v = sqrt (vol1 * vol1 + vol2 * vol2 - 2 * rho * vol1 * vol2);
+  if (v <= 0)
+    return o42_value_error (O42_ERR_NUM);
+  s1 = qty1 * spot1;
+  s2 = qty2 * spot2;
+
+  /* In the ratio's world the interest rate is the second asset's carry
+   * and the carry is the difference between the two. */
+  {
+    double r2 = carry2;
+    double b2 = carry1 - carry2;
+    double x = s1 / s2;
+
+    if (b2 >= r2)
+      {
+        /* Never exercised early: Margrabe's price. */
+        double d = (log (x) + (b2 + v * v / 2) * time) / (v * sqrt (time));
+
+        return o42_value_number (s2 * (x * exp ((b2 - r2) * time) * normal_cdf (d) -
+                                       exp (-r2 * time) * normal_cdf (d - v * sqrt (time))));
+      }
+
+    v2 = v * v;
+    mm = 2 * r2 / v2;
+    nn = 2 * b2 / v2;
+    kk = 1 - exp (-r2 * time);
+    trigger = baw_critical (TRUE, 1, time, r2, b2, v);
+    root = v * sqrt (time);
+    d1 = (log (trigger) + (b2 + v2 / 2) * time) / root;
+    q = (-(nn - 1) + sqrt ((nn - 1) * (nn - 1) + 4 * mm / kk)) / 2;
+    if (x >= trigger)
+      return o42_value_number (s1 - s2);
+    a = (trigger / q) * (1 - exp ((b2 - r2) * time) * normal_cdf (d1));
+    price = gbs (TRUE, x, 1, time, r2, b2, v) + a * pow (x / trigger, q);
+    return o42_value_number (s2 * price);
+  }
+}
+
 /* ---- Gnumeric's number theory ------------------------------------------ */
 
 /* All of these want a whole number that is not too big to take apart by
@@ -14122,6 +14461,7 @@ static const O42Function FUNCTIONS[] = {
   { "ODDLPRICE", 7, 8, fn_oddlprice },
   { "ODDLYIELD", 7, 8, fn_oddlyield },
   { "OFFSET", 3, 5, fn_offset },
+  { "OPT_AMER_EXCHANGE", 11, 11, fn_opt_amer_exchange },
   { "OPT_BAW_AMER", 7, 7, fn_opt_baw_amer },
   { "OPT_BINOMIAL", 8, 9, fn_opt_binomial },
   { "OPT_BS", 7, 7, fn_opt_bs },
@@ -14131,14 +14471,18 @@ static const O42Function FUNCTIONS[] = {
   { "OPT_BS_RHO", 7, 7, fn_opt_bs_rho },
   { "OPT_BS_THETA", 7, 7, fn_opt_bs_theta },
   { "OPT_BS_VEGA", 6, 6, fn_opt_bs_vega },
+  { "OPT_COMPLEX_CHOOSER", 9, 9, fn_opt_complex_chooser },
   { "OPT_EURO_EXCHANGE", 11, 11, fn_opt_euro_exchange },
   { "OPT_EXEC", 8, 8, fn_opt_exec },
+  { "OPT_EXTENDIBLE_WRITER", 9, 9, fn_opt_extendible_writer },
   { "OPT_FIXED_STRK_LKBK", 9, 9, fn_opt_fixed_strk_lkbk },
   { "OPT_FLOAT_STRK_LKBK", 8, 8, fn_opt_float_strk_lkbk },
   { "OPT_FORWARD_START", 8, 8, fn_opt_forward_start },
   { "OPT_FRENCH", 8, 8, fn_opt_french },
   { "OPT_GARMAN_KOHLHAGEN", 7, 7, fn_opt_garman_kohlhagen },
   { "OPT_JUMP_DIFF", 8, 8, fn_opt_jump_diff },
+  { "OPT_ON_OPTIONS", 9, 9, fn_opt_on_options },
+  { "OPT_RGW", 7, 7, fn_opt_rgw },
   { "OPT_SIMPLE_CHOOSER", 7, 7, fn_opt_simple_chooser },
   { "OPT_SPREAD_APPROX", 9, 9, fn_opt_spread_approx },
   { "OPT_TIME_SWITCH", 10, 10, fn_opt_time_switch },
@@ -14902,6 +15246,7 @@ static const struct {
   { "ODDLPRICE", "ODDLPRICE(settlement, maturity, last_interest, rate, yld, redemption, frequency, basis)", "The price of a bond with an odd last period." },
   { "ODDLYIELD", "ODDLYIELD(settlement, maturity, last_interest, rate, pr, redemption, frequency, basis)", "The yield of a bond with an odd last period." },
   { "OFFSET", "OFFSET(reference, rows, cols, height, width)", "A reference moved and resized from another." },
+  { "OPT_AMER_EXCHANGE", "OPT_AMER_EXCHANGE(spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho)", "The American right to swap one asset for another." },
   { "OPT_BAW_AMER", "OPT_BAW_AMER(call_put, spot, strike, time, rate, cost_of_carry, volatility)", "Barone-Adesi and Whaley's price for an American option." },
   { "OPT_BINOMIAL", "OPT_BINOMIAL(amer_euro, call_put, steps, spot, strike, time, rate, volatility, cost_of_carry)", "The price from a binomial tree, American or European." },
   { "OPT_BS", "OPT_BS(call_put, spot, strike, time, rate, volatility, carry)", "The Black-Scholes price of a European option." },
@@ -14911,14 +15256,18 @@ static const struct {
   { "OPT_BS_RHO", "OPT_BS_RHO(call_put, spot, strike, time, rate, volatility, carry)", "How its price moves with the interest rate." },
   { "OPT_BS_THETA", "OPT_BS_THETA(call_put, spot, strike, time, rate, volatility, carry)", "How its price falls as the time runs out." },
   { "OPT_BS_VEGA", "OPT_BS_VEGA(spot, strike, time, rate, volatility, carry)", "How its price moves with the volatility." },
+  { "OPT_COMPLEX_CHOOSER", "OPT_COMPLEX_CHOOSER(spot, strike_call, strike_put, time, time_call, time_put, rate, cost_of_carry, volatility)", "A chooser whose call and put differ in strike and life." },
   { "OPT_EURO_EXCHANGE", "OPT_EURO_EXCHANGE(spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho)", "Margrabe's: the right to swap one asset for another." },
   { "OPT_EXEC", "OPT_EXEC(call_put, spot, strike, time, rate, volatility, cost_of_carry, lambda)", "An executive option, forfeited at a rate." },
+  { "OPT_EXTENDIBLE_WRITER", "OPT_EXTENDIBLE_WRITER(call_put, spot, strike1, strike2, time1, time2, rate, cost_of_carry, volatility)", "An option the writer extends if it expires out of the money." },
   { "OPT_FIXED_STRK_LKBK", "OPT_FIXED_STRK_LKBK(call_put, spot, spot_min, spot_max, strike, time, rate, cost_of_carry, volatility)", "A lookback settled against a fixed strike." },
   { "OPT_FLOAT_STRK_LKBK", "OPT_FLOAT_STRK_LKBK(call_put, spot, spot_min, spot_max, time, rate, cost_of_carry, volatility)", "A lookback settled against the best the spot reached." },
   { "OPT_FORWARD_START", "OPT_FORWARD_START(call_put, spot, alpha, time1, time, rate, volatility, cost_of_carry)", "An option whose strike is settled later." },
   { "OPT_FRENCH", "OPT_FRENCH(call_put, spot, strike, time, ttime, rate, volatility, cost_of_carry)", "French's: the variance counted in trading time." },
   { "OPT_GARMAN_KOHLHAGEN", "OPT_GARMAN_KOHLHAGEN(call_put, spot, strike, time, domestic_rate, foreign_rate, volatility)", "A currency option." },
   { "OPT_JUMP_DIFF", "OPT_JUMP_DIFF(call_put, spot, strike, time, rate, volatility, lambda, gamma)", "Merton's jump diffusion price." },
+  { "OPT_ON_OPTIONS", "OPT_ON_OPTIONS(type, spot, strike1, strike2, time1, time2, rate, cost_of_carry, volatility)", "An option on an option: cc, cp, pc or pp." },
+  { "OPT_RGW", "OPT_RGW(spot, strike, time1, time2, rate, dividend, volatility)", "Roll, Geske and Whaley's American call on a share paying one dividend." },
   { "OPT_SIMPLE_CHOOSER", "OPT_SIMPLE_CHOOSER(spot, strike, time1, time2, rate, cost_of_carry, volatility)", "An option that becomes a call or a put later." },
   { "OPT_SPREAD_APPROX", "OPT_SPREAD_APPROX(call_put, fut_price1, fut_price2, strike, time, rate, vol1, vol2, rho)", "Kirk's approximation for an option on a spread." },
   { "OPT_TIME_SWITCH", "OPT_TIME_SWITCH(call_put, spot, strike, amount, time, m, dt, rate, cost_of_carry, volatility)", "An option paying for each interval spent in the money." },
