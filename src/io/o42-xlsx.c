@@ -2282,10 +2282,27 @@ o42_xlsx_apply_format_code (O42Fmt *fmt, const char *code)
     {
       gboolean day = strchr (code, 'y') || strchr (code, 'd') || strchr (code, 'Y') || strchr (code, 'D');
       gboolean clock = strchr (code, 'h') || strchr (code, 's') || strchr (code, 'H') || strchr (code, 'S');
+
       fmt->number = day && clock ? O42_NUM_DATETIME : day ? O42_NUM_DATE : O42_NUM_TIME;
+      /* The preset says what kind of thing this is, for everything
+       * that asks; the code itself says how it is written, which no
+       * preset can, so it is kept beside it. */
+      fmt->custom = g_intern_string (code);
     }
   else
     fmt->custom = g_intern_string (code);
+
+  /* A date whose code says more than the preset does -- another order,
+   * month names, a locale in [$-409] -- keeps the code beside the
+   * preset, and the formatter writes what the code asks for. */
+  if (is_date && fmt->custom == NULL)
+    {
+      char *canonical = o42_number_format_to_string (fmt->number, fmt->decimals);
+
+      if (canonical == NULL || g_ascii_strcasecmp (canonical, code) != 0)
+        fmt->custom = g_intern_string (code);
+      g_free (canonical);
+    }
   return is_date;
 }
 

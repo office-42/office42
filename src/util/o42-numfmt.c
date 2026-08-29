@@ -382,6 +382,154 @@ static const char *const LONG_DAYS[] = {
   "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
 };
 
+/* The month and day names of the locales an Excel format can ask for
+ * with [$-409] and its like.  The number in the brackets is a Windows
+ * LCID; its low ten bits are the language, which is what decides the
+ * names -- 0x409 and 0x809 are both English.  A locale that is not
+ * here is written in English, which is what Excel does with a language
+ * it was not installed with. */
+typedef struct {
+  guint             lang;
+  const char *const months[12];
+  const char *const days[7];      /* Monday first, as o42_date_weekday counts */
+  const char *const dated[12];    /* the form a month takes beside a day */
+} DateNames;
+
+static const DateNames DATE_NAMES[] = {
+  { 0x07,   /* German */
+    { "Januar", "Februar", "M\303\244rz", "April", "Mai", "Juni", "Juli",
+      "August", "September", "Oktober", "November", "Dezember" },
+    { "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag" },
+    { NULL } },
+  { 0x0A,   /* Spanish */
+    { "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+      "agosto", "septiembre", "octubre", "noviembre", "diciembre" },
+    { "lunes", "martes", "mi\303\251rcoles", "jueves", "viernes", "s\303\241bado", "domingo" },
+    { NULL } },
+  { 0x0B,   /* Finnish */
+    { "tammikuu", "helmikuu", "maaliskuu", "huhtikuu", "toukokuu", "kes\303\244kuu",
+      "hein\303\244kuu", "elokuu", "syyskuu", "lokakuu", "marraskuu", "joulukuu" },
+    { "maanantai", "tiistai", "keskiviikko", "torstai", "perjantai", "lauantai", "sunnuntai" },
+    { NULL } },
+  { 0x0C,   /* French */
+    { "janvier", "f\303\251vrier", "mars", "avril", "mai", "juin", "juillet",
+      "ao\303\273t", "septembre", "octobre", "novembre", "d\303\251cembre" },
+    { "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche" },
+    { NULL } },
+  { 0x10,   /* Italian */
+    { "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio",
+      "agosto", "settembre", "ottobre", "novembre", "dicembre" },
+    { "luned\303\254", "marted\303\254", "mercoled\303\254", "gioved\303\254",
+      "venerd\303\254", "sabato", "domenica" },
+    { NULL } },
+  { 0x13,   /* Dutch */
+    { "januari", "februari", "maart", "april", "mei", "juni", "juli",
+      "augustus", "september", "oktober", "november", "december" },
+    { "maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag" },
+    { NULL } },
+  { 0x14,   /* Norwegian */
+    { "januar", "februar", "mars", "april", "mai", "juni", "juli",
+      "august", "september", "oktober", "november", "desember" },
+    { "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "l\303\270rdag", "s\303\270ndag" },
+    { NULL } },
+  { 0x06,   /* Danish */
+    { "januar", "februar", "marts", "april", "maj", "juni", "juli",
+      "august", "september", "oktober", "november", "december" },
+    { "mandag", "tirsdag", "onsdag", "torsdag", "fredag", "l\303\270rdag", "s\303\270ndag" },
+    { NULL } },
+  { 0x1D,   /* Swedish */
+    { "januari", "februari", "mars", "april", "maj", "juni", "juli",
+      "augusti", "september", "oktober", "november", "december" },
+    { "m\303\245ndag", "tisdag", "onsdag", "torsdag", "fredag", "l\303\266rdag", "s\303\266ndag" },
+    { NULL } },
+  { 0x16,   /* Portuguese */
+    { "janeiro", "fevereiro", "mar\303\247o", "abril", "maio", "junho", "julho",
+      "agosto", "setembro", "outubro", "novembro", "dezembro" },
+    { "segunda-feira", "ter\303\247a-feira", "quarta-feira", "quinta-feira",
+      "sexta-feira", "s\303\241bado", "domingo" },
+    { NULL } },
+  { 0x15,   /* Polish */
+    { "stycze\305\204", "luty", "marzec", "kwiecie\305\204", "maj", "czerwiec",
+      "lipiec", "sierpie\305\204", "wrzesie\305\204", "pa\305\272dziernik",
+      "listopad", "grudzie\305\204" },
+    { "poniedzia\305\202ek", "wtorek", "\305\233roda", "czwartek", "pi\304\205tek",
+      "sobota", "niedziela" },
+    /* Polish puts the month in the genitive when a day stands beside
+     * it, and Excel and LibreOffice both write it that way. */
+    { "stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca",
+      "sierpnia", "wrze\305\233nia", "pa\305\272dziernika", "listopada", "grudnia" } }
+};
+
+/* The locale a section asks for: the hexadecimal number after the dash
+ * inside [$...-409], reduced to its language.  Zero for a section that
+ * names no locale, and so for English. */
+static guint
+section_language (const Section *s)
+{
+  for (const char *p = s->start; p + 2 < s->end; p++)
+    {
+      const char *close, *dash;
+
+      if (*p != '[' || p[1] != '$')
+        continue;
+      close = memchr (p, ']', (gsize) (s->end - p));
+      if (close == NULL)
+        break;
+      dash = memchr (p, '-', (gsize) (close - p));
+      if (dash != NULL)
+        return (guint) g_ascii_strtoull (dash + 1, NULL, 16) & 0x3FF;
+      p = close;
+    }
+  return 0;
+}
+
+/* Whether a section writes the day of the month as a number, which is
+ * what decides the form a month name takes in some languages. */
+static gboolean
+section_has_day (const Section *s)
+{
+  gboolean quoted = FALSE, bracket = FALSE;
+
+  for (const char *p = s->start; p < s->end; p++)
+    {
+      if (*p == '"') { quoted = !quoted; continue; }
+      if (quoted) continue;
+      if (*p == '[') { bracket = TRUE; continue; }
+      if (*p == ']') { bracket = FALSE; continue; }
+      if (bracket) continue;
+      if (*p == 'd' || *p == 'D')
+        {
+          int run = 0;
+
+          while (p + run < s->end && (p[run] == 'd' || p[run] == 'D'))
+            run++;
+          if (run <= 2)
+            return TRUE;
+          p += run - 1;
+        }
+    }
+  return FALSE;
+}
+
+static const DateNames *
+date_names (guint lang)
+{
+  for (gsize i = 0; i < G_N_ELEMENTS (DATE_NAMES); i++)
+    if (DATE_NAMES[i].lang == lang)
+      return &DATE_NAMES[i];
+  return NULL;
+}
+
+/* The first three characters of a name, which is how every locale here
+ * shortens one.  Characters, not bytes: "M\303\244rz" is three of them. */
+static void
+append_short (GString *out, const char *name)
+{
+  const char *end = g_utf8_offset_to_pointer (name, MIN (3, g_utf8_strlen (name, -1)));
+
+  g_string_append_len (out, name, end - name);
+}
+
 /* Writes a date or time section.  "m" is a month unless it follows an
  * hour code or precedes a second code, in which case it is minutes -- the
  * rule Excel uses and everyone else copied. */
@@ -392,6 +540,12 @@ format_date_section (GString *out, const Section *s, double n)
   gboolean ampm = FALSE;
   const char *p;
   gboolean last_was_hour = FALSE;
+  const DateNames *names = date_names (section_language (s));
+  const char *const *months = names != NULL ? names->months : LONG_MONTHS;
+  const char *const *days = names != NULL ? names->days : LONG_DAYS;
+
+  if (names != NULL && names->dated[0] != NULL && section_has_day (s))
+    months = names->dated;
 
   o42_date_from_serial (n, &y, &mo, &d);
   o42_time_from_serial (n, &h, &mi, &sec);
@@ -473,9 +627,9 @@ format_date_section (GString *out, const Section *s, double n)
             if (minutes)
               g_string_append_printf (out, run >= 2 ? "%02d" : "%d", mi);
             else if (run >= 4)
-              g_string_append (out, LONG_MONTHS[mo - 1]);
+              g_string_append (out, months[mo - 1]);
             else if (run == 3)
-              g_string_append_len (out, LONG_MONTHS[mo - 1], 3);
+              append_short (out, months[mo - 1]);
             else
               g_string_append_printf (out, run >= 2 ? "%02d" : "%d", mo);
             last_was_hour = FALSE;
@@ -483,8 +637,8 @@ format_date_section (GString *out, const Section *s, double n)
           }
 
         case 'd':
-          if (run >= 4)      g_string_append (out, LONG_DAYS[o42_date_weekday (n) - 1]);
-          else if (run == 3) g_string_append_len (out, LONG_DAYS[o42_date_weekday (n) - 1], 3);
+          if (run >= 4)      g_string_append (out, days[o42_date_weekday (n) - 1]);
+          else if (run == 3) append_short (out, days[o42_date_weekday (n) - 1]);
           else               g_string_append_printf (out, run >= 2 ? "%02d" : "%d", d);
           last_was_hour = FALSE;
           break;

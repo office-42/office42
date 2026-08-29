@@ -66,7 +66,7 @@ has. The last column says what is missing, not what is there.
 | Entering and editing | 8 | 100% | 8.0 | |
 | Selecting and navigating | 5 | 100% | 5.0 | |
 | Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (561 in all) |
-| Number formats | 6 | 98% | 5.9 | the locale codes in `[$-409]` |
+| Number formats | 6 | 100% | 6.0 | |
 | Fonts, borders, colours | 8 | 100% | 8.0 | |
 | Styles and conditional formats | 6 | 100% | 6.0 | |
 | Rows, columns, sheets | 7 | 100% | 7.0 | |

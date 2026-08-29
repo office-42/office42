@@ -258,11 +258,22 @@ type into the same box:
 | `0.00E+00` | 1.23E+03 |
 | `#,##0.00;[Red](#,##0.00)` | negatives in red brackets |
 | `dddd d mmmm yyyy` | (of a date) Saturday 29 August 2026 |
+| `[$-414]dddd d. mmmm yyyy` | (of a date) lørdag 29. august 2026 |
 | `h:mm AM/PM`, `[h]:mm` | times, the second past 24 hours |
 | `@` | the text as typed |
 
 The language is locale-independent: a file shows the same on every
-machine.
+machine. `[$-409]` and its like say which language writes the month
+and day names -- the number is the one Excel uses, and Danish, Dutch,
+English, Finnish, French, German, Italian, Norwegian, Polish,
+Portuguese, Spanish and Swedish are known. A language that is not
+known is written in English, which is what Excel does with one it was
+not installed with.
+
+A date format keeps its code in `.xlsx`, `.xls`, `.gnumeric` and
+`.ods`. OpenDocument has no place for a format string, so there the
+code becomes a `number:date-style` field by field and is read back the
+same way.
 
 **Font.** Face, size, bold, italic, underline, strikeout and colour.
 Ctrl+B, Ctrl+I and Ctrl+U are the quick ones.

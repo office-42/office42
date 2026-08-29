@@ -8,9 +8,8 @@ section spelled out.
 
 ## Next
 
-**More of the format language.** The locale codes in `[$-409]`.
-
-**More of `.ods`.** It reads more than it writes.
+**More of `.ods`.** It reads more than it writes: a boolean number
+style comes in and nothing sends one out.
 
 ## After that
 

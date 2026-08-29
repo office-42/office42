@@ -349,6 +349,175 @@ text_style (Styles *s, const O42Fmt *run, const O42Fmt *base)
 }
 
 /* A number style for a format, or NULL for General. */
+/* Whatever stood between two fields of a date code, written as ODF
+ * wants it and the buffer emptied. */
+static void
+flush_literal (GString *out, GString *literal)
+{
+  char *escaped;
+
+  if (literal->len == 0)
+    return;
+  escaped = g_markup_escape_text (literal->str, (gssize) literal->len);
+  g_string_append_printf (out, "<number:text>%s</number:text>", escaped);
+  g_free (escaped);
+  g_string_truncate (literal, 0);
+}
+
+/* The language of a Windows LCID as a two-letter tag, for the handful
+ * a date style can name.  An unknown one is left out. */
+static const char *
+language_tag (guint lang)
+{
+  switch (lang)
+    {
+    case 0x06: return "da";
+    case 0x07: return "de";
+    case 0x09: return "en";
+    case 0x0A: return "es";
+    case 0x0B: return "fi";
+    case 0x0C: return "fr";
+    case 0x10: return "it";
+    case 0x13: return "nl";
+    case 0x14: return "nb";
+    case 0x15: return "pl";
+    case 0x16: return "pt";
+    case 0x1D: return "sv";
+    default:   return "en";
+    }
+}
+
+/* A custom date or time code, written as ODF writes one: an element
+ * per field and number:text for everything between them.  ODF has no
+ * place for a format string, so the shape of the code has to become
+ * the shape of the style. */
+static void
+append_date_style (GString *out, const char *name, const char *code)
+{
+  const char *p = code;
+  gboolean last_was_hour = FALSE, clock = FALSE, ampm = FALSE;
+  guint lang = 0;
+  GString *literal = g_string_new (NULL);
+
+  for (const char *q = code; *q != 0; q++)
+    if (g_ascii_tolower (*q) == 'h')
+      clock = TRUE;
+  if (strstr (code, "AM/PM") != NULL || strstr (code, "am/pm") != NULL)
+    ampm = TRUE;
+  for (const char *q = code; (q = strchr (q, '[')) != NULL; )
+    {
+      const char *close = strchr (q, ']'), *dash = NULL;
+
+      if (close == NULL)
+        break;
+      if (q[1] == '$' && (dash = memchr (q, '-', (gsize) (close - q))) != NULL)
+        lang = (guint) g_ascii_strtoull (dash + 1, NULL, 16);
+      q = close + 1;
+    }
+
+  g_string_append_printf (out, "<number:%s-style style:name=\"%s\"",
+                          clock && !strpbrk (code, "yYdD") ? "time" : "date", name);
+  if (lang != 0)
+    g_string_append_printf (out, " number:language=\"%s\"", language_tag (lang & 0x3FF));
+  g_string_append (out, " number:automatic-order=\"false\">");
+
+  while (*p != 0)
+    {
+      char c = *p;
+      int run = 1;
+
+      if (c == '[')
+        {
+          const char *close = strchr (p, ']');
+
+          p = close != NULL ? close + 1 : p + 1;
+          continue;
+        }
+      if (c == '"')
+        {
+          p++;
+          while (*p != 0 && *p != '"')
+            g_string_append_c (literal, *p++);
+          if (*p == '"')
+            p++;
+          continue;
+        }
+      if (c == '\\')
+        {
+          if (p[1] != 0)
+            g_string_append_c (literal, p[1]);
+          p += 2;
+          continue;
+        }
+      if (g_ascii_strncasecmp (p, "AM/PM", 5) == 0 || g_ascii_strncasecmp (p, "A/P", 3) == 0)
+        {
+          flush_literal (out, literal);
+          g_string_append (out, "<number:am-pm/>");
+          p += g_ascii_strncasecmp (p, "AM/PM", 5) == 0 ? 5 : 3;
+          continue;
+        }
+      if (strchr ("yYmMdDhHsS", c) == NULL)
+        {
+          g_string_append_c (literal, c);
+          p++;
+          continue;
+        }
+
+      while (g_ascii_tolower (p[run]) == g_ascii_tolower (c))
+        run++;
+      flush_literal (out, literal);
+      switch (g_ascii_tolower (c))
+        {
+        case 'y':
+          g_string_append_printf (out, "<number:year%s/>", run >= 4 ? " number:style=\"long\"" : "");
+          last_was_hour = FALSE;
+          break;
+        case 'm':
+          {
+            const char *after = p + run;
+            gboolean minutes = last_was_hour;
+
+            while (*after == ':' || *after == ' ' || *after == '.')
+              after++;
+            if (*after == 's' || *after == 'S')
+              minutes = TRUE;
+            if (minutes)
+              g_string_append_printf (out, "<number:minutes%s/>", run >= 2 ? " number:style=\"long\"" : "");
+            else if (run >= 3)
+              g_string_append_printf (out, "<number:month number:textual=\"true\"%s/>",
+                                      run >= 4 ? " number:style=\"long\"" : "");
+            else
+              g_string_append_printf (out, "<number:month%s/>", run >= 2 ? " number:style=\"long\"" : "");
+            last_was_hour = FALSE;
+          }
+          break;
+        case 'd':
+          if (run >= 3)
+            g_string_append_printf (out, "<number:day-of-week%s/>", run >= 4 ? " number:style=\"long\"" : "");
+          else
+            g_string_append_printf (out, "<number:day%s/>", run >= 2 ? " number:style=\"long\"" : "");
+          last_was_hour = FALSE;
+          break;
+        case 'h':
+          g_string_append_printf (out, "<number:hours%s/>", run >= 2 ? " number:style=\"long\"" : "");
+          last_was_hour = TRUE;
+          break;
+        case 's':
+          g_string_append_printf (out, "<number:seconds%s/>", run >= 2 ? " number:style=\"long\"" : "");
+          last_was_hour = FALSE;
+          break;
+        default:
+          break;
+        }
+      p += run;
+    }
+  flush_literal (out, literal);
+  (void) ampm;
+  g_string_append_printf (out, "</number:%s-style>",
+                          clock && !strpbrk (code, "yYdD") ? "time" : "date");
+  g_string_free (literal, TRUE);
+}
+
 static const char *
 num_style (Styles *s, const O42Fmt *fmt)
 {
@@ -358,11 +527,25 @@ num_style (Styles *s, const O42Fmt *fmt)
 
   if (fmt->number == O42_NUM_GENERAL && fmt->custom == NULL)
     return NULL;
-  g_snprintf (key, sizeof key, "%d/%d", (int) fmt->number, decimals);
+  if (fmt->custom != NULL)
+    g_snprintf (key, sizeof key, "c:%.60s", fmt->custom);
+  else
+    g_snprintf (key, sizeof key, "%d/%d", (int) fmt->number, decimals);
   name = g_hash_table_lookup (s->num_styles, key);
   if (name != NULL)
     return name;
   name = g_strdup_printf ("N%d", ++s->next_n);
+
+  /* A code of its own, if it is one ODF can hold: a date or a time,
+   * where the shape of the code becomes the shape of the style. */
+  if (fmt->custom != NULL && (fmt->number == O42_NUM_DATE || fmt->number == O42_NUM_TIME ||
+                              fmt->number == O42_NUM_DATETIME))
+    {
+      append_date_style (s->styles, name, fmt->custom);
+      g_hash_table_insert (s->num_styles, g_strdup (key), name);
+      return name;
+    }
+
   switch (fmt->number)
     {
     case O42_NUM_FIXED:
@@ -1421,6 +1604,8 @@ typedef struct {
   O42NumberFormat number;
   int decimals;
   gboolean grouping;
+  GString *code;      /* a date or time style, rebuilt as a format code */
+  guint    lang;      /* the language it named, as an Excel LCID */
 } NumStyle;
 
 typedef struct {
@@ -1493,6 +1678,24 @@ attr_int (const char **names, const char **values, const char *want, int fallbac
 {
   const char *v = attr (names, values, want);
   return v != NULL ? atoi (v) : fallback;
+}
+
+/* The Excel language of an ODF language tag, the other way round
+ * from language_tag. */
+static guint
+language_lcid (const char *tag)
+{
+  static const struct { const char *tag; guint lang; } TAGS[] = {
+    { "da", 0x06 }, { "de", 0x07 }, { "en", 0x09 }, { "es", 0x0A },
+    { "fi", 0x0B }, { "fr", 0x0C }, { "it", 0x10 }, { "nl", 0x13 },
+    { "nb", 0x14 }, { "nn", 0x14 }, { "no", 0x14 }, { "pl", 0x15 },
+    { "pt", 0x16 }, { "sv", 0x1D }
+  };
+
+  for (gsize i = 0; i < G_N_ELEMENTS (TAGS); i++)
+    if (g_ascii_strcasecmp (TAGS[i].tag, tag) == 0)
+      return TAGS[i].lang;
+  return 0;
 }
 
 static double
@@ -1841,6 +2044,8 @@ apply_named_style (Reader *r, const char *name, int row0, int col0, int row1, in
         {
           fmt.number = ns->number == O42_NUM_FIXED && ns->grouping ? O42_NUM_COMMA : ns->number;
           fmt.decimals = ns->decimals;
+          if (ns->code != NULL && ns->code->len > 0)
+            fmt.custom = g_intern_string (ns->code->str);
         }
     }
   o42_sheet_apply_fmt (r->sheet, &range, O42_FMT_ALL, &fmt);
@@ -2497,6 +2702,16 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                  : strcmp (name, "time-style") == 0 ? O42_NUM_TIME
                  : strcmp (name, "text-style") == 0 ? O42_NUM_TEXT : O42_NUM_GENERAL;
       ns->decimals = 2;
+      if (ns->number == O42_NUM_DATE || ns->number == O42_NUM_TIME)
+        {
+          /* A date style says its shape in elements; they are put back
+           * together as the code they came from, so the format keeps
+           * the order and the names it was written with. */
+          const char *lang = attr (names, values, "language");
+
+          ns->code = g_string_new (NULL);
+          ns->lang = lang != NULL ? language_lcid (lang) : 0;
+        }
       if (sname != NULL) g_hash_table_replace (r->num_styles, g_strdup (sname), ns);
       else g_free (ns);
       r->num = sname != NULL ? ns : NULL;
@@ -2522,6 +2737,21 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "hours") == 0 && ns->number == O42_NUM_DATE)
         ns->number = O42_NUM_DATETIME;
+
+      if (ns->code != NULL)
+        {
+          gboolean long_form = g_strcmp0 (attr (names, values, "style"), "long") == 0;
+          gboolean textual = g_strcmp0 (attr (names, values, "textual"), "true") == 0;
+
+          if (strcmp (name, "year") == 0)         g_string_append (ns->code, long_form ? "yyyy" : "yy");
+          else if (strcmp (name, "month") == 0)   g_string_append (ns->code, textual ? (long_form ? "mmmm" : "mmm") : (long_form ? "mm" : "m"));
+          else if (strcmp (name, "day") == 0)     g_string_append (ns->code, long_form ? "dd" : "d");
+          else if (strcmp (name, "day-of-week") == 0) g_string_append (ns->code, long_form ? "dddd" : "ddd");
+          else if (strcmp (name, "hours") == 0)   g_string_append (ns->code, long_form ? "hh" : "h");
+          else if (strcmp (name, "minutes") == 0) g_string_append (ns->code, long_form ? "mm" : "m");
+          else if (strcmp (name, "seconds") == 0) g_string_append (ns->code, long_form ? "ss" : "s");
+          else if (strcmp (name, "am-pm") == 0)   g_string_append (ns->code, "AM/PM");
+        }
       return;
     }
 
@@ -2712,7 +2942,20 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
   if (strcmp (name, "style") == 0)
     r->style = NULL;
   else if (r->in_num_style && g_str_has_suffix (name, "-style"))
-    { r->in_num_style = FALSE; r->num = NULL; }
+    {
+      if (r->num != NULL && r->num->code != NULL && r->num->lang != 0 &&
+          r->num->code->len > 0)
+        {
+          /* Excel's LCID for the default form of a language: the
+           * sub-language is 1, which is the 0x400 above it. */
+          char *lead = g_strdup_printf ("[$-%03X]", 0x400 | r->num->lang);
+
+          g_string_prepend (r->num->code, lead);
+          g_free (lead);
+        }
+      r->in_num_style = FALSE;
+      r->num = NULL;
+    }
   else if (strcmp (name, "table-row") == 0 && r->sheet != NULL)
     row_finish (r);
   else if (strcmp (name, "forms") == 0)
@@ -2729,6 +2972,23 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
 {
   Reader *r = user;
   (void) ctx; (void) error;
+  if (r->in_num_style && r->num != NULL && r->num->code != NULL)
+    {
+      /* What stands between the fields of a date style is part of the
+       * code, quoted so that a letter in it stays a letter. */
+      char *literal = g_strndup (text, len);
+      gboolean plain = *literal != 0;
+
+      /* A separator that the code language reads as itself needs no
+       * quotes; anything with a letter in it does. */
+      for (const char *q = literal; plain && *q != 0; q++)
+        if (strchr ("/-.:, ()", *q) == NULL)
+          plain = FALSE;
+      if (*literal != 0)
+        g_string_append_printf (r->num->code, plain ? "%s" : "\"%s\"", literal);
+      g_free (literal);
+      return;
+    }
   if (r->shape != NULL && r->in_p)
     {
       /* The words inside a shape belong to the shape, not the cell it
