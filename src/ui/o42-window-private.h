@@ -72,6 +72,9 @@ void       o42_dialog_destroy_refocus (GtkWidget *w, gpointer grid);
  * comes back. */
 GtkWidget *o42_labelled (GtkWidget *grid, int row, const char *label, GtkWidget *control);
 
+/* A button that opens the colour chooser, showing the colour it holds. */
+GtkWidget *o42_colour_button (guint32 colour, const char *title);
+
 /* A page of a notebook, laid out as a grid. */
 GtkWidget *o42_page_grid (GtkWidget *notebook, const char *title);
 
@@ -147,5 +150,31 @@ void action_spelling (GSimpleAction *a, GVariant *p, gpointer data);
 void action_trace_dependents (GSimpleAction *a, GVariant *p, gpointer data);
 void action_trace_precedents (GSimpleAction *a, GVariant *p, gpointer data);
 void action_ungroup_objects (GSimpleAction *a, GVariant *p, gpointer data);
+
+/* The actions dialogs-format.c answers. */
+void action_conditional (GSimpleAction *a, GVariant *p, gpointer data);
+void action_format_cells (GSimpleAction *a, GVariant *p, gpointer data);
+
+/* The actions dialogs-format.c answers. */
+
+
+/* The actions dialogs-format.c answers. */
+void action_autoformat (GSimpleAction *a, GVariant *p, gpointer data);
+void action_format_painter (GSimpleAction *a, GVariant *p, gpointer data);
+
+/* Whether a dialog holds the window while it is open; the tests turn
+ * it off so that a screenshot catches both. */
+extern gboolean o42_dialogs_modal;
+
+void action_merge_cells (GSimpleAction *a, GVariant *p, gpointer data);
+void action_unmerge_cells (GSimpleAction *a, GVariant *p, gpointer data);
+void action_hide_rows (GSimpleAction *a, GVariant *p, gpointer data);
+void action_unhide_rows (GSimpleAction *a, GVariant *p, gpointer data);
+void action_hide_columns (GSimpleAction *a, GVariant *p, gpointer data);
+void action_unhide_columns (GSimpleAction *a, GVariant *p, gpointer data);
+void action_filter (GSimpleAction *a, GVariant *p, gpointer data);
+void action_column_width (GSimpleAction *a, GVariant *p, gpointer data);
+void action_row_height (GSimpleAction *a, GVariant *p, gpointer data);
+void action_autofit (GSimpleAction *a, GVariant *p, gpointer data);
 
 G_END_DECLS
