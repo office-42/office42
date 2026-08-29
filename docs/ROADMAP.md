@@ -8,15 +8,6 @@ section spelled out.
 
 ## Next
 
-**A grid widget the size of the window.** The sheet is now Excel
-2007's: 1,048,576 rows by 16,384 columns, and a `.xlsx` written today
-comes in whole. The widget, though, is still nominally as big as the
-sheet, and cairo rasterises in 24.8 fixed point -- so the scrollbars
-stop at about eight million pixels, which is around row 400,000. A cell
-past that is in the sheet and is reached by name. Making the widget the
-size of the window and scrolling it ourselves is what lifts the last
-of it.
-
 **Sheet tabs that can be dragged.** Right-clicking one moves it left or
 right and two clicks rename it; the tab itself does not yet follow the
 pointer, and Excel's tab colours are not there.

@@ -94,17 +94,12 @@ comments, sparklines, slicers and the ribbon are not.
 | Excel 97 to 2003 | 65,536 | 256 |
 | Excel 2007 and later | 1,048,576 | 16,384 |
 
-The grid is Excel 2007's, and a `.xlsx` written by a modern Excel comes
-in whole. Two things are worth knowing about it:
+The grid is Excel 2007's, a `.xlsx` written by a modern Excel comes in
+whole, and the scrollbars reach all of it: the grid is a widget the
+size of the window that scrolls itself and paints where the scroll
+says, so nothing is drawn at a coordinate cairo cannot address. One
+thing is worth knowing:
 
-- **The scrollbars reach about 400,000 rows.** The widget is drawn
-  through cairo, which rasterises in 24.8 fixed point and so cannot
-  address a coordinate past about eight million pixels; twenty rows to
-  the inch, that is where the bar stops. A cell past it is in the
-  sheet, calculated and saved, and is reached by name -- the Name Box,
-  Ctrl+arrow, Go To. Lifting it means making the grid widget the size
-  of the window rather than the size of the sheet and scrolling it
-  ourselves, which is the next piece of work on it.
 - **An `.xls` cannot hold it all.** Excel 97's file format stops at
   65,536 by 256; office42 writes what fits, leaves out what does not,
   and says how many cells that was rather than losing them quietly.
@@ -201,11 +196,7 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **A grid widget the size of the window.** The grid is nominally as
-   big as the sheet, which is what stops the scrollbars past 400,000
-   rows. Drawing a viewport and scrolling it ourselves lifts that.
-2. **Sheet tabs that can be dragged**, and given a colour.
-3. **Panes and page breaks that can be dragged.**
+1. **Sheet tabs that can be dragged**, and given a colour.
 4. **The form controls in `.xls` and `.xlsx`**, and a surface chart
    that goes out as Excel's own `surfaceChart` part.
 5. **Iterative calculation** for circular references, and a manual

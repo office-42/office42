@@ -33,11 +33,15 @@ static gboolean outline_click (O42Grid *self, double x, double y);
 /* The row-number and column-letter margins, widened by the outline
  * margin when the sheet has grouped rows or columns; every function
  * that uses them has `self` in scope. */
-#define HEADER_W  (42 + self->outline_w)
+/* The row headings are as wide as the numbers in them: a sheet a
+ * million rows deep writes seven digits, and 42 pixels held five. */
+#define HEADER_W  (self->header_w + self->outline_w)
 #define HEADER_H  (20 + self->outline_h)
 #define OUTLINE_STEP 13
 #define INDENT_PX 9   /* one step of indent */
 #define CELL_PAD   3
+#define DEFAULT_COL_STEP 80
+#define DEFAULT_ROW_STEP 20
 #define GRIP       4        /* pixels either side of a header boundary that
                              * grab it for resizing */
 #define FILTER_BTN 14       /* the AutoFilter dropdown square in a heading */
@@ -115,13 +119,34 @@ struct _O42Grid {
   guint          thumb_shape;             /* the scroll bar whose thumb is held */
   GHashTable    *wrap_fit;                /* row -> height, while rows are fitted */
   int            split_drag;              /* 0 none, 1 the horizontal bar, 2 the vertical */
+  /* The grid scrolls itself.  It used to be a widget as big as the
+   * sheet inside a scrolled window, which is simple and works until the
+   * sheet is a million rows deep: a render tree keeps its coordinates in
+   * floats and cairo rasterises in 24.8 fixed point, so past about eight
+   * million pixels nothing is drawn at all.  Now the widget is the size
+   * of the window, it carries the adjustments itself, and everything is
+   * drawn relative to the top left of what is on screen. */
+  GtkAdjustment *hadj, *vadj;
+  guint          hscroll_policy : 1;
+  guint          vscroll_policy : 1;
+  gulong         hadj_changed, vadj_changed;
+  int            header_w;                /* the row headings' width, by the digits in them */
   gboolean       painting;                /* the format painter is loaded */
   O42Fmt         paint_fmt;               /* ...with this look */
   int            break_drag;              /* 0 none, 1 a row break, 2 a column break */
   int            break_from;              /* the row or column it was grabbed at */
 };
 
-G_DEFINE_FINAL_TYPE (O42Grid, o42_grid, GTK_TYPE_WIDGET)
+G_DEFINE_FINAL_TYPE_WITH_CODE (O42Grid, o42_grid, GTK_TYPE_WIDGET,
+                               G_IMPLEMENT_INTERFACE (GTK_TYPE_SCROLLABLE, NULL))
+
+enum {
+  PROP_0,
+  PROP_HADJUSTMENT,
+  PROP_VADJUSTMENT,
+  PROP_HSCROLL_POLICY,
+  PROP_VSCROLL_POLICY
+};
 
 enum {
   SIGNAL_SELECTION_CHANGED,
@@ -179,6 +204,7 @@ picture_rect (O42Grid *self, const O42Picture *pic,
 }
 
 static void selection_range (O42Grid *self, O42Range *out);
+static void pin_point (O42Grid *self, double *x, double *y);
 static void sheet_changed (O42Grid *self);
 
 /* ---- The format painter ------------------------------------------------ */
@@ -268,6 +294,7 @@ show_combo_list (O42Grid *self, O42Shape *shape)
   GdkRectangle at;
 
   shape_rect (self, shape, &sx, &sy, &sw, &sh);
+  pin_point (self, &sx, &sy);
   at.x = (int) (sx * self->zoom);
   at.y = (int) (sy * self->zoom);
   at.width = (int) (sw * self->zoom);
@@ -682,18 +709,36 @@ row_boundary_at (O42Grid *self, double x, double y)
 static void
 grid_scroll (O42Grid *self, double *sx, double *sy)
 {
-  GtkWidget *sw = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_SCROLLED_WINDOW);
-
-  *sx = *sy = 0;
-  if (sw == NULL)
-    return;
-  *sx = gtk_adjustment_get_value (gtk_scrolled_window_get_hadjustment (GTK_SCROLLED_WINDOW (sw))) / self->zoom;
-  *sy = gtk_adjustment_get_value (gtk_scrolled_window_get_vadjustment (GTK_SCROLLED_WINDOW (sw))) / self->zoom;
+  *sx = self->hadj != NULL ? gtk_adjustment_get_value (self->hadj) / self->zoom : 0;
+  *sy = self->vadj != NULL ? gtk_adjustment_get_value (self->vadj) / self->zoom : 0;
 }
 
-/* A point in widget coordinates (already divided by the zoom) into sheet
- * coordinates.  The headers and the frozen panes are painted pinned to
- * the viewport, so a point in them is offset by the scroll. */
+/* The other way about: a point in the sheet, in widget coordinates, for
+ * placing something over the grid -- a popover, the cell editor.  A
+ * pinned row or column stays where it is painted. */
+static void
+pin_point (O42Grid *self, double *x, double *y)
+{
+  double sx, sy;
+  double frozen_w, frozen_h;
+
+  if (self->sheet == NULL)
+    return;
+  grid_scroll (self, &sx, &sy);
+  frozen_w = col_x (self, self->frozen_cols) - HEADER_W;
+  frozen_h = row_y (self, self->frozen_rows) - HEADER_H;
+
+  if (*y >= HEADER_H + frozen_h)
+    *y -= sy;
+  if (*x >= HEADER_W + frozen_w)
+    *x -= sx;
+}
+
+/* A point in widget coordinates (already divided by the zoom) into
+ * sheet coordinates: the scroll is added, and then the headers and the
+ * frozen panes -- which are painted pinned to the viewport -- have it
+ * taken off again, since a point in them means the row or column that
+ * is pinned there rather than the one that scrolled under it. */
 static void
 unpin_point (O42Grid *self, double *x, double *y)
 {
@@ -704,6 +749,8 @@ unpin_point (O42Grid *self, double *x, double *y)
     return;
 
   grid_scroll (self, &sx, &sy);
+  *x += sx;
+  *y += sy;
   frozen_w = col_x (self, self->frozen_cols) - HEADER_W;
   frozen_h = row_y (self, self->frozen_rows) - HEADER_H;
 
@@ -792,21 +839,130 @@ column_fit_width (O42Grid *self, int col)
 }
 
 /* ---------------------------------------------------------------------- */
+/* The adjustments: the grid scrolls itself                                */
+/* ---------------------------------------------------------------------- */
+
+/* How far the sheet reaches, in widget pixels: the used range and a
+ * screenful past it, which is what Excel's scrollbars describe.  A cell
+ * beyond is still reached by name, and typing in one brings it inside
+ * this the moment it becomes the active cell. */
+static void
+grid_extent (O42Grid *self, double *width, double *height)
+{
+  O42Range used;
+  int last_col, last_row;
+
+  *width = *height = 100;
+  if (self->sheet == NULL)
+    return;
+  o42_sheet_used_range (self->sheet, &used);
+  last_col = MIN (MAX (used.col1 + 20, MAX (self->active_col + 20, 40)), O42_MAX_COLS);
+  last_row = MIN (MAX (used.row1 + 100, MAX (self->active_row + 100, 200)), O42_MAX_ROWS);
+  *width = col_x (self, last_col) * self->zoom;
+  *height = row_y (self, last_row) * self->zoom;
+}
+
+static void
+grid_configure_adjustment (O42Grid *self, GtkAdjustment *adj, gboolean horizontal)
+{
+  double extent_w, extent_h, extent, page;
+
+  if (adj == NULL)
+    return;
+  grid_extent (self, &extent_w, &extent_h);
+  extent = horizontal ? extent_w : extent_h;
+  page = horizontal ? gtk_widget_get_width (GTK_WIDGET (self))
+                    : gtk_widget_get_height (GTK_WIDGET (self));
+  if (page <= 0)
+    page = 1;
+
+  gtk_adjustment_configure (adj,
+                            MIN (gtk_adjustment_get_value (adj), MAX (extent - page, 0)),
+                            0, MAX (extent, page),
+                            horizontal ? DEFAULT_COL_STEP : DEFAULT_ROW_STEP,
+                            page * 0.9, page);
+}
+
+static void
+grid_configure_adjustments (O42Grid *self)
+{
+  grid_configure_adjustment (self, self->hadj, TRUE);
+  grid_configure_adjustment (self, self->vadj, FALSE);
+}
+
+static void
+on_adjustment_value_changed (GtkAdjustment *adj, gpointer data)
+{
+  (void) adj;
+  gtk_widget_queue_draw (GTK_WIDGET (data));
+}
+
+static void
+grid_set_adjustment (O42Grid *self, gboolean horizontal, GtkAdjustment *adj)
+{
+  GtkAdjustment **slot = horizontal ? &self->hadj : &self->vadj;
+  gulong *handler = horizontal ? &self->hadj_changed : &self->vadj_changed;
+
+  if (*slot == adj)
+    return;
+  if (*slot != NULL)
+    {
+      g_signal_handler_disconnect (*slot, *handler);
+      g_object_unref (*slot);
+    }
+  if (adj == NULL)
+    adj = gtk_adjustment_new (0, 0, 0, 0, 0, 0);
+  *slot = g_object_ref_sink (adj);
+  *handler = g_signal_connect (adj, "value-changed",
+                              G_CALLBACK (on_adjustment_value_changed), self);
+  grid_configure_adjustment (self, adj, horizontal);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+static void
+o42_grid_get_property (GObject *object, guint id, GValue *value, GParamSpec *spec)
+{
+  O42Grid *self = O42_GRID (object);
+
+  switch (id)
+    {
+    case PROP_HADJUSTMENT: g_value_set_object (value, self->hadj); break;
+    case PROP_VADJUSTMENT: g_value_set_object (value, self->vadj); break;
+    case PROP_HSCROLL_POLICY: g_value_set_enum (value, self->hscroll_policy); break;
+    case PROP_VSCROLL_POLICY: g_value_set_enum (value, self->vscroll_policy); break;
+    default: G_OBJECT_WARN_INVALID_PROPERTY_ID (object, id, spec); break;
+    }
+}
+
+static void
+o42_grid_set_property (GObject *object, guint id, const GValue *value, GParamSpec *spec)
+{
+  O42Grid *self = O42_GRID (object);
+
+  switch (id)
+    {
+    case PROP_HADJUSTMENT: grid_set_adjustment (self, TRUE, g_value_get_object (value)); break;
+    case PROP_VADJUSTMENT: grid_set_adjustment (self, FALSE, g_value_get_object (value)); break;
+    case PROP_HSCROLL_POLICY: self->hscroll_policy = g_value_get_enum (value); break;
+    case PROP_VSCROLL_POLICY: self->vscroll_policy = g_value_get_enum (value); break;
+    default: G_OBJECT_WARN_INVALID_PROPERTY_ID (object, id, spec); break;
+    }
+}
+
+/* ---------------------------------------------------------------------- */
 /* Scrolling                                                               */
 /* ---------------------------------------------------------------------- */
 
 static void
 scroll_to_active (O42Grid *self)
 {
-  GtkWidget *sw;
   GtkAdjustment *h, *v;
   double x0, y0, x1, y1, value, page;
 
   if (self->sheet == NULL)
     return;
 
-  sw = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_SCROLLED_WINDOW);
-  if (sw == NULL)
+  if (self->hadj == NULL || self->vadj == NULL)
     return;
 
   x0 = col_x (self, self->active_col) * self->zoom;
@@ -814,8 +970,8 @@ scroll_to_active (O42Grid *self)
   y0 = row_y (self, self->active_row) * self->zoom;
   y1 = y0 + o42_sheet_row_height (self->sheet, self->active_row) * self->zoom;
 
-  h = gtk_scrolled_window_get_hadjustment (GTK_SCROLLED_WINDOW (sw));
-  v = gtk_scrolled_window_get_vadjustment (GTK_SCROLLED_WINDOW (sw));
+  h = self->hadj;
+  v = self->vadj;
 
   /* The headers are painted at the widget's origin, so they scroll away;
    * keeping the active cell clear of them means treating their size as part
@@ -859,7 +1015,8 @@ selection_changed (O42Grid *self)
   g_signal_emit (self, signals[SIGNAL_SELECTION_CHANGED], 0);
 }
 
-/* The outline margins follow the sheet's deepest groups. */
+/* The outline margins follow the sheet's deepest groups, and the row
+ * headings the number of digits the deepest row number needs. */
 static void
 outline_sync (O42Grid *self)
 {
@@ -867,11 +1024,27 @@ outline_sync (O42Grid *self)
   int cl = self->sheet ? o42_sheet_max_col_level (self->sheet) : 0;
   int w = rl > 0 ? rl * OUTLINE_STEP + 6 : 0;
   int h = cl > 0 ? cl * OUTLINE_STEP + 6 : 0;
+  int digits = 3;
+  int header_w;
 
-  if (w != self->outline_w || h != self->outline_h)
+  if (self->sheet != NULL)
+    {
+      O42Range used;
+      int deepest;
+
+      o42_sheet_used_range (self->sheet, &used);
+      deepest = MAX (used.row1, self->active_row) + 1;
+      while (deepest >= 1000)
+        { digits++; deepest /= 10; }
+      digits = MAX (digits, 3);
+    }
+  header_w = 12 + digits * 8;
+
+  if (w != self->outline_w || h != self->outline_h || header_w != self->header_w)
     {
       self->outline_w = w;
       self->outline_h = h;
+      self->header_w = header_w;
       gtk_widget_queue_resize (GTK_WIDGET (self));
     }
 }
@@ -2088,8 +2261,13 @@ show_filter_menu (O42Grid *self, int col, double x, double y)
   GtkWidget *box = gtk_list_box_new ();
   GtkWidget *row;
   char **values = o42_sheet_autofilter_values (self->sheet, col);
-  GdkRectangle at = { (int) ((x - FILTER_BTN) * self->zoom), (int) ((y - FILTER_BTN) * self->zoom),
-                      (int) (FILTER_BTN * self->zoom), (int) (FILTER_BTN * self->zoom) };
+  double px = x - FILTER_BTN, py = y - FILTER_BTN;
+  GdkRectangle at;
+
+  pin_point (self, &px, &py);
+  at.x = (int) (px * self->zoom);
+  at.y = (int) (py * self->zoom);
+  at.width = at.height = (int) (FILTER_BTN * self->zoom);
 
   g_object_set_data (G_OBJECT (box), "o42-col", GINT_TO_POINTER (col));
   gtk_list_box_set_selection_mode (GTK_LIST_BOX (box), GTK_SELECTION_NONE);
@@ -3958,7 +4136,6 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   int width = gtk_widget_get_width (widget);
   int height = gtk_widget_get_height (widget);
   cairo_t *cr;
-  GtkWidget *sw;
   double scroll_x = 0, scroll_y = 0, view_w = width, view_h = height;
   O42Range sel;
   int first_row, last_row, first_col, last_col;
@@ -3966,28 +4143,29 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   if (self->sheet == NULL || width <= 0 || height <= 0)
     return;
 
-  /* Only the part inside the viewport is painted.  The widget is nominally
-   * the whole sheet; painting all of it would take seconds. */
-  sw = gtk_widget_get_ancestor (widget, GTK_TYPE_SCROLLED_WINDOW);
-  if (sw != NULL)
+  /* Only what is on screen is painted, and it is painted where the
+   * scroll says -- the widget itself is the size of the window. */
+  if (self->hadj != NULL && self->vadj != NULL)
     {
-      GtkAdjustment *h = gtk_scrolled_window_get_hadjustment (GTK_SCROLLED_WINDOW (sw));
-      GtkAdjustment *v = gtk_scrolled_window_get_vadjustment (GTK_SCROLLED_WINDOW (sw));
-
-      scroll_x = gtk_adjustment_get_value (h);
-      scroll_y = gtk_adjustment_get_value (v);
-      view_w = gtk_adjustment_get_page_size (h);
-      view_h = gtk_adjustment_get_page_size (v);
+      scroll_x = gtk_adjustment_get_value (self->hadj);
+      scroll_y = gtk_adjustment_get_value (self->vadj);
+      view_w = width;
+      view_h = height;
     }
 
+  /* The cairo node covers the widget, which is the window's size; the
+   * drawing below is in sheet pixels, so the origin is moved to the top
+   * left of what is on screen.  Everything cairo sees is then within a
+   * screenful of zero, which is what keeps a sheet a million rows deep
+   * drawable at all. */
   cr = gtk_snapshot_append_cairo (snapshot,
-                                  &GRAPHENE_RECT_INIT (scroll_x, scroll_y,
-                                                       view_w, view_h));
+                                  &GRAPHENE_RECT_INIT (0, 0, width, height));
 
   /* From here on everything is in sheet pixels; the zoom is one scale. */
   cairo_scale (cr, self->zoom, self->zoom);
   scroll_x /= self->zoom;
   scroll_y /= self->zoom;
+  cairo_translate (cr, -scroll_x, -scroll_y);
   view_w /= self->zoom;
   view_h /= self->zoom;
   pango_cairo_update_context (cr, pango_layout_get_context (self->layout));
@@ -4475,8 +4653,13 @@ place_editor (O42Grid *self)
       }
 
     grid_scroll (self, &sx, &sy);
-    alloc.x = (int) ((col_x (self, self->active_col) + (self->active_col < self->frozen_cols ? sx : 0)) * self->zoom) + 1;
-    alloc.y = (int) ((row_y (self, self->active_row) + (self->active_row < self->frozen_rows ? sy : 0)) * self->zoom) + 1;
+    /* The widget is the window's size, so a cell's place in it is its
+     * place in the sheet less the scroll -- except in a frozen band,
+     * which is painted where it is pinned. */
+    alloc.x = (int) ((col_x (self, self->active_col) -
+                      (self->active_col < self->frozen_cols ? 0 : sx)) * self->zoom) + 1;
+    alloc.y = (int) ((row_y (self, self->active_row) -
+                      (self->active_row < self->frozen_rows ? 0 : sy)) * self->zoom) + 1;
     alloc.width = (int) (w * self->zoom) - 1;
     alloc.height = (int) (h * self->zoom) - 1;
   }
@@ -4493,6 +4676,9 @@ o42_grid_size_allocate (GtkWidget *widget, int width, int height, int baseline)
 
   (void) width; (void) height; (void) baseline;
 
+  /* The page size is the window's, so the scrollbars have to be told
+   * whenever it changes. */
+  grid_configure_adjustments (self);
   if (self->editor != NULL)
     place_editor (self);
 }
@@ -4506,48 +4692,20 @@ o42_grid_measure (GtkWidget      *widget,
                   int            *minimum_baseline,
                   int            *natural_baseline)
 {
-  O42Grid *self = O42_GRID (widget);
   double size;
 
-  (void) for_size;
+  (void) widget; (void) for_size;
 
-  /* How far the scrollbars reach.  The sheet is a million rows by
-   * sixteen thousand columns, which at the default sizes is twenty-one
-   * million pixels down -- and a widget that big cannot be drawn: the
-   * render tree keeps its coordinates in floats, which stop being whole
-   * numbers past about sixteen million, and cairo rasterises in 24.8
-   * fixed point, which stops at about eight.
+  /* The widget is the size of the window, not the size of the sheet:
+   * it scrolls itself, through the adjustments a GtkScrollable carries,
+   * and paints what is on screen.  Anything else stops working when the
+   * sheet is a million rows deep -- a render tree keeps its coordinates
+   * in floats and cairo rasterises in 24.8 fixed point, so past about
+   * eight million pixels nothing is drawn at all.
    *
-   * So the scrollbars describe what is there rather than what could be:
-   * the used range and a screenful past it, as Excel's do, and never
-   * more than PAINTABLE pixels.  A cell beyond that is still in the
-   * sheet, still calculated, still saved; it is reached by name, with
-   * the Name Box or Ctrl+arrow, rather than by dragging a bar a
-   * thousand screens long. */
-  const double PAINTABLE = 8000000.0;
-
-  if (self->sheet == NULL || o42_sheet_is_chart_sheet (self->sheet))
-    {
-      size = 100;   /* a chart sheet fills the view; there is nothing to scroll */
-    }
-  else
-    {
-      O42Range used;
-      int last;
-
-      o42_sheet_used_range (self->sheet, &used);
-      if (orientation == GTK_ORIENTATION_HORIZONTAL)
-        {
-          last = MAX (used.col1 + 20, MAX (self->active_col + 20, 40));
-          size = col_x (self, MIN (last, O42_MAX_COLS)) * self->zoom;
-        }
-      else
-        {
-          last = MAX (used.row1 + 100, MAX (self->active_row + 100, 200));
-          size = row_y (self, MIN (last, O42_MAX_ROWS)) * self->zoom;
-        }
-      size = MIN (size, PAINTABLE);
-    }
+   * What is asked for here is a decent window, and no more. */
+  (void) orientation;
+  size = orientation == GTK_ORIENTATION_HORIZONTAL ? 320 : 200;
 
   *minimum = *natural = (int) ceil (size);
   *minimum_baseline = *natural_baseline = -1;
@@ -4575,7 +4733,12 @@ static void
 show_context_menu (O42Grid *self, GMenu *menu, double x, double y)
 {
   GtkWidget *popover = gtk_popover_menu_new_from_model (G_MENU_MODEL (menu));
-  GdkRectangle at = { (int) (x * self->zoom), (int) (y * self->zoom), 1, 1 };
+  GdkRectangle at;
+
+  pin_point (self, &x, &y);
+  at.x = (int) (x * self->zoom);
+  at.y = (int) (y * self->zoom);
+  at.width = at.height = 1;
 
   gtk_popover_set_pointing_to (GTK_POPOVER (popover), &at);
   gtk_popover_set_has_arrow (GTK_POPOVER (popover), FALSE);
@@ -4800,6 +4963,15 @@ o42_grid_class_init (O42GridClass *klass)
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
 
   object_class->dispose = o42_grid_dispose;
+  object_class->get_property = o42_grid_get_property;
+  object_class->set_property = o42_grid_set_property;
+
+  /* The four a GtkScrollable must have; the scrolled window round the
+   * grid finds them by name and hands over its adjustments. */
+  g_object_class_override_property (object_class, PROP_HADJUSTMENT, "hadjustment");
+  g_object_class_override_property (object_class, PROP_VADJUSTMENT, "vadjustment");
+  g_object_class_override_property (object_class, PROP_HSCROLL_POLICY, "hscroll-policy");
+  g_object_class_override_property (object_class, PROP_VSCROLL_POLICY, "vscroll-policy");
 
   widget_class->snapshot = o42_grid_snapshot;
   widget_class->measure = o42_grid_measure;
@@ -4868,7 +5040,6 @@ on_scroll (GtkEventControllerScroll *scroll, double dx, double dy, gpointer data
 {
   O42Grid *self = data;
   double x = self->pointer_x, y = self->pointer_y;
-  GtkWidget *sw;
 
   (void) dx; (void) scroll;
   if (!o42_grid_is_split (self))
@@ -4876,11 +5047,10 @@ on_scroll (GtkEventControllerScroll *scroll, double dx, double dy, gpointer data
 
   /* The band's own size is measured from the top left of the sheet, so
    * the pointer has to be measured the same way. */
-  sw = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_SCROLLED_WINDOW);
-  if (sw != NULL)
+  if (self->hadj != NULL && self->vadj != NULL)
     {
-      GtkAdjustment *h = gtk_scrolled_window_get_hadjustment (GTK_SCROLLED_WINDOW (sw));
-      GtkAdjustment *v = gtk_scrolled_window_get_vadjustment (GTK_SCROLLED_WINDOW (sw));
+      GtkAdjustment *h = self->hadj;
+      GtkAdjustment *v = self->vadj;
 
       x -= gtk_adjustment_get_value (h);
       y -= gtk_adjustment_get_value (v);
@@ -4897,6 +5067,7 @@ o42_grid_init (O42Grid *self)
   gtk_widget_set_focusable (GTK_WIDGET (self), TRUE);
   gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "cell");
 
+  self->header_w = 42;   /* three digits and room; outline_sync grows it */
   self->layout = pango_layout_new (gtk_widget_get_pango_context (GTK_WIDGET (self)));
 
   key = gtk_event_controller_key_new ();
