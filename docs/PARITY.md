@@ -196,6 +196,16 @@ In the order the work is being done, largest gap first.
    a file of their own, the way the evaluator's function families now
    do.
 2. **The last two file formats Gnumeric reads**: Quattro Pro and
-   Applix, both binary and long dead.
+   Applix. Both are long dead, and neither can be written here with a
+   straight face: there is no file of either to read, and no program on
+   this machine that writes one, so anything built from the format's
+   description alone would go out unverified. Lotus 1-2-3 could be
+   done because LibreOffice reads it, which gave the other half of the
+   check.
 3. **Miltersen and Schwartz on commodity options**, the one formula of
-   Gnumeric's derivatives plugin that is not here.
+   Gnumeric's derivatives plugin that is not here. It prices against a
+   three-factor model -- the spot, the convenience yield and the
+   forward rate, each mean-reverting -- and checking it would mean
+   simulating all three. Everything else here was checked against
+   something outside office42, and this one has nothing to check it
+   against.

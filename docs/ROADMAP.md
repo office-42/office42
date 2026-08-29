@@ -14,6 +14,14 @@ now do.
 
 ## Not planned
 
+**Quattro Pro and Applix files.** The last two formats Gnumeric reads.
+There is no file of either here and no program on this machine that
+writes one, so a reader built from the description alone would go out
+unverified; Lotus 1-2-3 could be done because LibreOffice reads it.
+
+**Miltersen and Schwartz on commodity options.** It prices against a
+three-factor model, and there is nothing here to check it against.
+
 **Macros in Visual Basic.** Excel 5 had Excel 4 macros and the first
 Visual Basic. office42 runs Python instead, records it, and keeps it in
 the file; see [PYTHON.md](PYTHON.md).
