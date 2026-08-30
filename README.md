@@ -168,6 +168,11 @@ Early, but real. office42 today is a working spreadsheet:
   than characters, and cells put into columns by where they start — with a
   left-aligned heading over right-aligned numbers folded into one column,
   since the two never share a row.
+- **The formula bar is the edit** — not a box reporting what a cell
+  holds but the same edit as the cell, seen from the top of the window.
+  What is typed appears in both with the same coloured references, and
+  the name list, the argument tip and point mode work from either; the
+  cross throws the edit away and the tick finishes it.
 - **The name of a function, offered** — two letters into a name, `=SU`,
   the functions that begin that way are listed under the cell with a line
   each saying what they do. Up and down walk the list, Tab or Enter takes
@@ -613,7 +618,8 @@ through GSK, without a compositor or a person at the keyboard, and exits;
 brackets when it takes one, as in `zoom(150)` or `shape(checkbox)`) opens a
 dialog or fires the action first and puts it in the picture too; `--select B4` makes a cell active before that,
 and `--select B4,F40` moves on to another afterwards. `--type '=SU'` opens
-the cell editor with that in it, and `--keys down,tab,B2:B9,f4` presses keys
+the cell editor with that in it and `--bar '=SU'` types the same into the
+formula bar, a character at a time, and `--keys down,tab,B2:B9,f4` presses keys
 and clicks cells in the order given -- `enter` and `escape` finish the
 entry -- which is how point mode, F4, the function list and the argument
 tip are exercised without a person at the keyboard.

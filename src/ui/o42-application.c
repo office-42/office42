@@ -20,6 +20,7 @@ struct _O42Application {
   char *activate;        /* --activate ACTION: fire a window action first */
   char *select;          /* --select B3: make a cell active first */
   char *type_text;       /* --type "=SUM(": start typing into the cell */
+  char *bar_text;        /* --bar "=SUM(": start typing into the formula bar */
   char *point;           /* --point B2:B10: point at that while typing */
   char *keys;            /* --keys down,f4,B2: what to press and click while typing */
 };
@@ -347,6 +348,9 @@ fire_activate (gpointer data)
   if (windows != NULL && self->type_text != NULL)
     o42_window_type (O42_WINDOW (windows->data), self->type_text);
 
+  if (windows != NULL && self->bar_text != NULL)
+    o42_window_type_bar (O42_WINDOW (windows->data), self->bar_text);
+
   if (windows != NULL && self->point != NULL)
     {
       O42Range r;
@@ -388,7 +392,8 @@ arm_screenshot (O42Application *self)
   /* A second is long enough for the window to be mapped and laid out,
    * and half of one for a dialog to follow. */
   if (self->activate != NULL || self->select != NULL ||
-      self->type_text != NULL || self->point != NULL || self->keys != NULL)
+      self->type_text != NULL || self->point != NULL || self->keys != NULL ||
+      self->bar_text != NULL)
     g_timeout_add (500, fire_activate, self);
   if (self->screenshot != NULL)
     g_timeout_add (1000, take_screenshot, self);
@@ -503,6 +508,12 @@ o42_application_handle_local_options (GApplication *app, GVariantDict *options)
       self->point = g_strdup (path);
     }
 
+  if (g_variant_dict_lookup (options, "bar", "&s", &path))
+    {
+      g_free (self->bar_text);
+      self->bar_text = g_strdup (path);
+    }
+
   if (g_variant_dict_lookup (options, "keys", "&s", &path))
     {
       g_free (self->keys);
@@ -526,6 +537,7 @@ o42_application_finalize (GObject *object)
   g_free (O42_APPLICATION (object)->select);
   g_free (O42_APPLICATION (object)->type_text);
   g_free (O42_APPLICATION (object)->point);
+  g_free (O42_APPLICATION (object)->bar_text);
   g_free (O42_APPLICATION (object)->keys);
   G_OBJECT_CLASS (o42_application_parent_class)->finalize (object);
 }
@@ -561,6 +573,9 @@ o42_application_init (O42Application *self)
   g_application_add_main_option (G_APPLICATION (self), "point", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Point at a cell or range while typing (e.g. B2:B10)", "RANGE");
+  g_application_add_main_option (G_APPLICATION (self), "bar", 0,
+                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+                                 "Type into the formula bar instead of the cell", "TEXT");
   g_application_add_main_option (G_APPLICATION (self), "keys", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Keys and clicks while typing (e.g. down,tab,B2:B9,f4)", "KEYS");

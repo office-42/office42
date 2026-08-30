@@ -175,6 +175,14 @@ references, ranges, names, operators and function calls:
 and `A$1` and `$A1` pin one half. **F4** cycles the reference at the
 caret round those four, and on a range it does both halves at once.
 
+**The formula bar.** The bar along the top is not a box that reports
+what a cell holds: it is the same edit as the cell, seen from up there.
+Type in the cell and the bar follows, coloured references and all; type
+in the bar and the cell follows, and the name list, the argument tip
+and point mode all work from either. The cross throws the edit away and
+the tick finishes it. With nothing being edited it shows what the cell
+holds, and typing there starts an edit on that cell.
+
 **The name of a function, offered.** office42 knows some six hundred
 functions, and nobody remembers all of them. Two letters into a name --
 `=SU` -- the ones that begin that way are listed under the cell with a

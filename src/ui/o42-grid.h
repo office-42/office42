@@ -30,6 +30,8 @@ void o42_grid_select_range  (O42Grid *self, const O42Range *range);
 /* ---- Editing ---------------------------------------------------------- */
 
 gboolean o42_grid_is_editing    (O42Grid *self);
+void     o42_grid_set_mirror    (O42Grid *self, GtkWidget *entry);
+void     o42_grid_mirror_set_text (O42Grid *self, const char *text);
 /* As if the pointer had pressed on the rectangle's first corner and
  * been dragged to its last: a reference while a formula is being
  * typed, a selection otherwise. */

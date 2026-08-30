@@ -33,6 +33,7 @@ gboolean o42_window_is_blank (O42Window *self);
 /* Starts typing into the active cell, as --type does: the text goes
  * into the editor as if it had been typed there. */
 void o42_window_type (O42Window *self, const char *text);
+void o42_window_type_bar (O42Window *self, const char *text);
 
 /* Points at a cell or a range while a formula is being typed, as
  * clicking and dragging over the grid does. */

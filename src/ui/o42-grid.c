@@ -150,6 +150,10 @@ struct _O42Grid {
   int            complete_start;          /* where the partial name begins */
   int            complete_at;             /* which of them is highlighted */
 
+  /* The formula bar, kept in step with the cell being typed into. */
+  GtkWidget     *mirror;
+  gboolean       mirror_sync;             /* one side is writing the other */
+
   /* The signature of the call the caret is inside. */
   GtkWidget     *tip_box;
   GtkWidget     *tip_label;
@@ -249,6 +253,8 @@ static gboolean complete_key (O42Grid *self, guint keyval);
 static void editor_rect (O42Grid *self, GdkRectangle *at);
 static void place_editor_extras (O42Grid *self);
 static void tip_offer (O42Grid *self);
+static void mirror_push (O42Grid *self);
+static void begin_edit_full (O42Grid *self, const char *initial, gboolean focus);
 static void tip_hide (O42Grid *self);
 static gboolean cycle_dollars (O42Grid *self);
 static gboolean point_arrow (O42Grid *self, int drow, int dcol, gboolean extend, gboolean to_edge);
@@ -1416,6 +1422,7 @@ on_editor_changed (GtkEditable *editable, gpointer data)
   colour_editor_refs (self);
   complete_offer (self);
   tip_offer (self);
+  mirror_push (self);
   const char *typed = gtk_editable_get_text (editable);
   int caret = gtk_editable_get_position (editable);
   O42Range used;
@@ -2035,6 +2042,134 @@ tip_offer (O42Grid *self)
   gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
+/* ---- The formula bar, while the cell is being typed into --------------- */
+
+/* Excel's formula bar is not a box that shows what a cell holds; it is
+ * the same edit as the cell, seen from the top of the window.  What is
+ * typed appears in both, the references are coloured in both, and the
+ * ticks beside it belong to the edit going on.
+ *
+ * The cell's own entry stays the one that holds the text: the bar is
+ * kept in step with it both ways, and typing into the bar with no edit
+ * open starts one.  That way point mode, F4, the name list and the
+ * argument tip all go on working against a single entry, and they show
+ * themselves at the cell, which is where Excel shows them too. */
+
+/* The bar, given what the cell's entry holds. */
+static void
+mirror_push (O42Grid *self)
+{
+  const char *text;
+  int caret;
+
+  if (self->mirror == NULL || self->editor == NULL || !self->editing ||
+      self->mirror_sync)
+    return;
+
+  self->mirror_sync = TRUE;
+  text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  caret = gtk_editable_get_position (GTK_EDITABLE (self->editor));
+  if (g_strcmp0 (text, gtk_editable_get_text (GTK_EDITABLE (self->mirror))) != 0)
+    gtk_editable_set_text (GTK_EDITABLE (self->mirror), text);
+  gtk_entry_set_attributes (GTK_ENTRY (self->mirror),
+                            gtk_entry_get_attributes (GTK_ENTRY (self->editor)));
+  gtk_editable_set_position (GTK_EDITABLE (self->mirror), caret);
+  self->mirror_sync = FALSE;
+}
+
+/* Where a change to a line of text ends: the two agree up to some
+ * point and again from some point, and the caret belongs between them.
+ * The bar's own caret cannot be asked -- it does not move for text put
+ * in by anything but a key -- and this does not need it. */
+static int
+change_end (const char *was, const char *now)
+{
+  int head = 0, a = (int) strlen (was), b = (int) strlen (now);
+
+  while (was[head] != '\0' && now[head] != '\0' && was[head] == now[head])
+    head++;
+  while (a > head && b > head && was[a - 1] == now[b - 1])
+    { a--; b--; }
+  return b;
+}
+
+/* The cell's entry, given what the bar holds. */
+static void
+on_mirror_changed (GtkEditable *editable, gpointer data)
+{
+  O42Grid *self = data;
+  const char *text = gtk_editable_get_text (editable);
+  int caret;
+
+  /* Anything the window itself puts in the bar comes with the guard
+   * up, so what is left is a person typing, and that starts an edit. */
+  if (self->mirror_sync || self->sheet == NULL)
+    return;
+
+  caret = self->editing && self->editor != NULL
+    ? change_end (gtk_editable_get_text (GTK_EDITABLE (self->editor)), text)
+    : (int) strlen (text);
+
+  self->mirror_sync = TRUE;
+  if (!self->editing)
+    begin_edit_full (self, text, FALSE);
+  else if (g_strcmp0 (text, gtk_editable_get_text (GTK_EDITABLE (self->editor))) != 0)
+    gtk_editable_set_text (GTK_EDITABLE (self->editor), text);
+  if (self->editor != NULL)
+    gtk_editable_set_position (GTK_EDITABLE (self->editor), caret);
+  self->mirror_sync = FALSE;
+
+  /* Those went in with the guard up, so the colours, the name list and
+   * the tip have not been told yet. */
+  colour_editor_refs (self);
+  complete_offer (self);
+  tip_offer (self);
+  mirror_push (self);
+}
+
+/* The caret can move in the bar without the text changing, and the tip
+ * follows it there as it does in the cell. */
+static void
+on_mirror_caret (O42Grid *self)
+{
+  if (self->mirror_sync || !self->editing || self->editor == NULL)
+    return;
+
+  self->mirror_sync = TRUE;
+  gtk_editable_set_position (GTK_EDITABLE (self->editor),
+                             gtk_editable_get_position (GTK_EDITABLE (self->mirror)));
+  self->mirror_sync = FALSE;
+  tip_offer (self);
+}
+
+/* The window filling the bar in from the cell that is now active: the
+ * guard tells the bar that this is not somebody typing. */
+void
+o42_grid_mirror_set_text (O42Grid *self, const char *text)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->mirror == NULL)
+    return;
+
+  self->mirror_sync = TRUE;
+  gtk_entry_set_attributes (GTK_ENTRY (self->mirror), NULL);
+  gtk_editable_set_text (GTK_EDITABLE (self->mirror), text);
+  self->mirror_sync = FALSE;
+}
+
+void
+o42_grid_set_mirror (O42Grid *self, GtkWidget *entry)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+
+  self->mirror = entry;
+  if (entry == NULL)
+    return;
+  g_signal_connect (entry, "changed", G_CALLBACK (on_mirror_changed), self);
+  g_signal_connect_swapped (entry, "notify::cursor-position",
+                            G_CALLBACK (on_mirror_caret), self);
+}
+
 /* ---- Point mode -------------------------------------------------------- */
 
 /* Half of writing a formula is not typing it: you type "=SUM(" and then
@@ -2441,9 +2576,16 @@ o42_grid_click_range (O42Grid *self, const O42Range *range)
 void
 o42_grid_begin_edit (O42Grid *self, const char *initial)
 {
-  GtkEventController *key;
-
   g_return_if_fail (O42_IS_GRID (self));
+  begin_edit_full (self, initial, TRUE);
+}
+
+/* Typing into the formula bar opens the cell's editor too, and must not
+ * take the focus off the bar while it does it. */
+static void
+begin_edit_full (O42Grid *self, const char *initial, gboolean focus)
+{
+  GtkEventController *key;
 
   if (self->sheet == NULL || self->editing)
     return;
@@ -2496,7 +2638,8 @@ o42_grid_begin_edit (O42Grid *self, const char *initial)
   self->editing = TRUE;
   colour_editor_refs (self);
   place_editor (self);
-  gtk_widget_grab_focus (self->editor);
+  if (focus)
+    gtk_widget_grab_focus (self->editor);
 
   /* Focusing a GtkEntry selects its text; the caret belongs at the end. */
   gtk_editable_select_region (GTK_EDITABLE (self->editor), -1, -1);
@@ -2506,6 +2649,7 @@ o42_grid_begin_edit (O42Grid *self, const char *initial)
    * changed signal with the caret where it now is. */
   complete_offer (self);
   tip_offer (self);
+  mirror_push (self);
 }
 
 static void
@@ -2586,6 +2730,10 @@ o42_grid_cancel_edit (O42Grid *self)
     return;
 
   end_edit (self);
+
+  /* Nothing in the sheet changed, but the formula bar was showing the
+   * edit that has just been thrown away, and has to be told. */
+  g_signal_emit (self, signals[SIGNAL_SELECTION_CHANGED], 0);
 }
 
 void

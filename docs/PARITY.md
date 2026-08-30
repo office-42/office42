@@ -143,7 +143,8 @@ what a spreadsheet keyboard covers: F2, F5, Shift+F2, Shift+F3, Ctrl+1,
 Ctrl+arrows, Shift+Space, Ctrl+Space, Ctrl+PageUp and PageDown.
 AutoComplete offers what the column already holds, and two letters into
 a function's name the functions that begin that way are offered too,
-with the signature of the call the caret is in under the cell.
+with the signature of the call the caret is in under the cell. The
+formula bar is the same edit as the cell rather than a report of it.
 The fill handle continues a series. The status bar aggregates. Charts, pictures,
 shapes and controls are selected, dragged and resized with handles.
 

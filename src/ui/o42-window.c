@@ -1227,6 +1227,31 @@ o42_window_type (O42Window *self, const char *text)
   o42_grid_begin_edit (self->grid, text);
 }
 
+/* What a person typing into the formula bar does: the bar takes the
+ * focus, and what goes into it goes into the cell as well. */
+void
+o42_window_type_bar (O42Window *self, const char *text)
+{
+  int at = 0;
+
+  g_return_if_fail (O42_IS_WINDOW (self));
+
+  gtk_widget_grab_focus (self->formula_entry);
+  gtk_editable_set_text (GTK_EDITABLE (self->formula_entry), "");
+
+  /* A character at a time, the way a hand does it, so that the name
+   * list and the argument tip answer each keystroke rather than the
+   * finished string. */
+  for (const char *p = text; p != NULL && *p != '\0'; )
+    {
+      const char *next = g_utf8_next_char (p);
+
+      gtk_editable_insert_text (GTK_EDITABLE (self->formula_entry), p,
+                                (int) (next - p), &at);
+      p = next;
+    }
+}
+
 void
 o42_window_point (O42Window *self, const O42Range *range)
 {
@@ -4944,13 +4969,36 @@ on_formula_activate (GtkEntry *entry, gpointer data)
   O42Window *self = data;
   int row, col;
 
-  o42_grid_set_active_input (self->grid,
-                             gtk_editable_get_text (GTK_EDITABLE (entry)));
+  /* An edit begun in the bar is the grid's edit, and is finished the
+   * way the grid finishes one, undo step and all. */
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  else
+    o42_grid_set_active_input (self->grid,
+                               gtk_editable_get_text (GTK_EDITABLE (entry)));
 
   /* Enter in the formula bar commits and steps down, as in the grid. */
   o42_grid_get_active (self->grid, &row, &col);
   o42_grid_set_active (self->grid, row + 1, col);
   gtk_widget_grab_focus (GTK_WIDGET (self->grid));
+}
+
+/* The cross throws the edit away and the tick finishes it, which is
+ * what they do in Excel and what they did not do here: the cross only
+ * re-read the cell and the tick pressed a button that was not there. */
+static void
+on_formula_cancel (O42Window *self)
+{
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_cancel_edit (self->grid);
+  window_sync (self);
+  gtk_widget_grab_focus (GTK_WIDGET (self->grid));
+}
+
+static void
+on_formula_enter (O42Window *self)
+{
+  on_formula_activate (GTK_ENTRY (self->formula_entry), self);
 }
 
 static GtkWidget *
@@ -4972,9 +5020,9 @@ build_formula_bar (O42Window *self)
   cancel = text_button ("\303\227", _("Cancel"), NULL, "o42-glyph");
   enter  = text_button ("\342\234\223", _("Enter"), NULL, "o42-glyph");
   g_signal_connect_swapped (cancel, "clicked",
-                            G_CALLBACK (window_sync), self);
+                            G_CALLBACK (on_formula_cancel), self);
   g_signal_connect_swapped (enter, "clicked",
-                            G_CALLBACK (gtk_widget_activate), NULL);
+                            G_CALLBACK (on_formula_enter), self);
   gtk_box_append (GTK_BOX (bar), cancel);
   gtk_box_append (GTK_BOX (bar), enter);
 
@@ -5066,7 +5114,10 @@ o42_window_sync (O42Window *self)
     else
       input = o42_sheet_get_input (self->sheet, row, col);
   }
-  gtk_editable_set_text (GTK_EDITABLE (self->formula_entry), input);
+  /* What is being typed belongs to the grid: the bar is showing that,
+   * not what the cell held before it was started. */
+  if (!o42_grid_is_editing (self->grid))
+    o42_grid_mirror_set_text (self->grid, input);
   g_free (input);
 
   fmt = o42_grid_active_fmt (self->grid);
@@ -5320,6 +5371,9 @@ o42_window_init (O42Window *self)
 
   gtk_box_append (GTK_BOX (box), build_tabs (self));
   gtk_box_append (GTK_BOX (box), build_status_bar (self));
+
+  /* The formula bar is the same edit as the cell, seen from up here. */
+  o42_grid_set_mirror (self->grid, self->formula_entry);
 
   g_signal_connect (self->grid, "selection-changed", G_CALLBACK (on_grid_changed), self);
   g_signal_connect (self->grid, "sheet-changed",     G_CALLBACK (on_grid_changed), self);
