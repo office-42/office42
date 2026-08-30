@@ -226,6 +226,7 @@ static void selection_range (O42Grid *self, O42Range *out);
 static void selection_ranges (O42Grid *self, GArray *out);
 static void pin_point (O42Grid *self, double *x, double *y);
 static void point_end_mode (O42Grid *self);
+static gboolean cycle_dollars (O42Grid *self);
 static gboolean point_arrow (O42Grid *self, int drow, int dcol, gboolean extend, gboolean to_edge);
 static gboolean point_at (O42Grid *self, int row, int col, gboolean extend);
 static void sheet_changed (O42Grid *self);
@@ -1281,6 +1282,7 @@ on_editor_key (GtkEventControllerKey *controller,
     case GDK_KEY_Down:  case GDK_KEY_KP_Down:
     case GDK_KEY_Shift_L: case GDK_KEY_Shift_R:
     case GDK_KEY_Control_L: case GDK_KEY_Control_R:
+    case GDK_KEY_F4:
       break;
     default:
       point_end_mode (self);
@@ -1289,6 +1291,13 @@ on_editor_key (GtkEventControllerKey *controller,
 
   switch (keyval)
     {
+    case GDK_KEY_F4:
+      /* The dollars on the reference at the caret, round the four ways
+       * a reference can be written. */
+      if (cycle_dollars (self))
+        return GDK_EVENT_STOP;
+      return GDK_EVENT_PROPAGATE;
+
     case GDK_KEY_Escape:
       o42_grid_cancel_edit (self);
       return GDK_EVENT_STOP;
@@ -1604,6 +1613,135 @@ point_arrow (O42Grid *self, int drow, int dcol, gboolean extend, gboolean to_edg
   return TRUE;
 }
 
+/* ---- F4: the dollars on a reference ------------------------------------ */
+
+/* Where the reference at (or just before) `caret` begins and ends, and
+ * what it says.  A reference is a run of an optional dollar, one to
+ * three letters, an optional dollar and the digits: the caret may be
+ * anywhere in it, or just past its end, which is where it sits after
+ * one has been typed or pointed at. */
+static gboolean
+ref_at_caret (const char *text, int caret, int *start, int *end,
+              int *row, int *col, gboolean *row_abs, gboolean *col_abs)
+{
+  int n = (int) strlen (text);
+  int from, to;
+
+  for (from = MIN (caret, n); from > 0; from--)
+    {
+      char c = text[from - 1];
+
+      if (!g_ascii_isalnum (c) && c != '$')
+        break;
+    }
+  for (to = from; to < n; to++)
+    {
+      char c = text[to];
+
+      if (!g_ascii_isalnum (c) && c != '$')
+        break;
+    }
+  if (to < caret || from > caret)
+    return FALSE;
+
+  {
+    char *token = g_strndup (text + from, (gsize) (to - from));
+    gboolean ok = o42_ref_parse_full (token, row, col, row_abs, col_abs, NULL);
+
+    g_free (token);
+    if (!ok)
+      return FALSE;
+  }
+  *start = from;
+  *end = to;
+  return TRUE;
+}
+
+/* A1 -> $A$1 -> A$1 -> $A1 -> A1, which is the order Excel goes round
+ * in and the one everybody's fingers know.  A range takes its dollars
+ * on both halves at once, which is what makes F4 worth pressing on the
+ * range a formula was pointed at. */
+static gboolean
+cycle_dollars (O42Grid *self)
+{
+  const char *text;
+  int caret, start, end, row, col;
+  int other_start = -1, other_end = -1, other_row = 0, other_col = 0;
+  gboolean row_abs, col_abs, other_row_abs = FALSE, other_col_abs = FALSE;
+  gboolean second_half = FALSE;
+  char *before, *after, *ref, *whole;
+
+  if (!self->editing || self->editor == NULL)
+    return FALSE;
+
+  text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  caret = gtk_editable_get_position (GTK_EDITABLE (self->editor));
+  if (caret < 0)
+    caret = (int) strlen (text);
+  if (text[0] != '=')
+    return FALSE;
+  if (!ref_at_caret (text, caret, &start, &end, &row, &col, &row_abs, &col_abs))
+    return FALSE;
+
+  /* The other half, when the reference is one end of a range. */
+  if (start > 0 && text[start - 1] == ':' &&
+      ref_at_caret (text, start - 1, &other_start, &other_end,
+                    &other_row, &other_col, &other_row_abs, &other_col_abs))
+    second_half = TRUE;
+  else if (text[end] == ':' &&
+           ref_at_caret (text, end + 2, &other_start, &other_end,
+                         &other_row, &other_col, &other_row_abs, &other_col_abs))
+    second_half = FALSE;
+  else
+    other_start = -1;
+
+  /* The first half decides which way round the pair goes next. */
+  if (other_start >= 0 && second_half)
+    { row_abs = other_row_abs; col_abs = other_col_abs; }
+
+  if (!row_abs && !col_abs)       { row_abs = TRUE;  col_abs = TRUE;  }
+  else if (row_abs && col_abs)    { row_abs = TRUE;  col_abs = FALSE; }
+  else if (row_abs && !col_abs)   { row_abs = FALSE; col_abs = TRUE;  }
+  else                            { row_abs = FALSE; col_abs = FALSE; }
+
+  if (other_start >= 0)
+    {
+      char *a, *b;
+      int from = second_half ? other_start : start;
+      int to = second_half ? end : other_end;
+
+      a = o42_ref_name_full (second_half ? other_row : row,
+                             second_half ? other_col : col, row_abs, col_abs);
+      b = o42_ref_name_full (second_half ? row : other_row,
+                             second_half ? col : other_col, row_abs, col_abs);
+      ref = g_strconcat (a, ":", b, NULL);
+      g_free (a);
+      g_free (b);
+      start = from;
+      end = to;
+    }
+  else
+    ref = o42_ref_name_full (row, col, row_abs, col_abs);
+
+  before = g_strndup (text, (gsize) start);
+  after = g_strdup (text + end);
+  whole = g_strconcat (before, ref, after, NULL);
+
+  gtk_editable_set_text (GTK_EDITABLE (self->editor), whole);
+  gtk_editable_set_position (GTK_EDITABLE (self->editor), start + (int) strlen (ref));
+
+  /* A reference that has been given its dollars is finished with: the
+   * next arrow starts a new one rather than moving this. */
+  if (self->pointing)
+    self->point_end = start + (int) strlen (ref);
+
+  g_free (whole);
+  g_free (after);
+  g_free (before);
+  g_free (ref);
+  return TRUE;
+}
+
 gboolean
 o42_grid_point_step (O42Grid *self, const char *direction)
 {
@@ -1619,6 +1757,9 @@ o42_grid_point_step (O42Grid *self, const char *direction)
       else if (g_str_has_prefix (direction, "ctrl-")) { edge = TRUE; direction += 5; }
       else break;
     }
+  if (g_ascii_strcasecmp (direction, "f4") == 0)
+    return cycle_dollars (self);
+
   if (g_ascii_strcasecmp (direction, "left") == 0)       dcol = -1;
   else if (g_ascii_strcasecmp (direction, "right") == 0) dcol = 1;
   else if (g_ascii_strcasecmp (direction, "up") == 0)    drow = -1;

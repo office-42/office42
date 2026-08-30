@@ -172,7 +172,18 @@ references, ranges, names, operators and function calls:
 ```
 
 **References.** `A1` moves when the formula is copied, `$A$1` does not,
-and `A$1` and `$A1` pin one half. F4 is not bound; type the dollars.
+and `A$1` and `$A1` pin one half. **F4** cycles the reference at the
+caret round those four, and on a range it does both halves at once.
+
+**Pointing.** Half of writing a formula is not typing it. Type `=SUM(`
+and then click the cells you mean: the reference appears where the
+caret is, and dragging makes it a range. The arrows do the same --
+Shift with them extends the range, Ctrl with them runs to the edge of
+the data -- and the cells being pointed at are outlined while you
+choose. Pointing begins only where a reference could begin: after the
+`=`, after an operator, after a bracket or a comma. After `=A1` an
+arrow still leaves the cell, and a click while ordinary text is being
+typed still enters it.
 
 **Names.** Insert ▸ Name ▸ Define (Ctrl+F3) gives a cell or a range a
 name, which then works anywhere a reference does: `=SUM(Sales)`. The
@@ -805,6 +816,7 @@ and a line about what it does.
 | Ctrl+F, Ctrl+H | find, replace |
 | F5 | Go To |
 | F2 | edit the cell in place |
+| F4 | cycle the dollars on the reference at the caret |
 | Shift+F2 | insert a note |
 | Shift+F3 | the Function Wizard |
 | Ctrl+F3 | define a name |

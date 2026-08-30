@@ -21,6 +21,7 @@ struct _O42Application {
   char *select;          /* --select B3: make a cell active first */
   char *type_text;       /* --type "=SUM(": start typing into the cell */
   char *point;           /* --point B2:B10: point at that while typing */
+  char *keys;            /* --keys down,shift-down,f4: what to press while typing */
 };
 
 G_DEFINE_FINAL_TYPE (O42Application, o42_application, GTK_TYPE_APPLICATION)
@@ -351,22 +352,24 @@ fire_activate (gpointer data)
       O42Range r;
       gsize used = 0;
 
-      if (!o42_ref_parse (self->point, &r.row0, &r.col0, &used))
-        {
-          /* Not a reference: a run of arrow steps, "down,shift-down". */
-          char **steps = g_strsplit (self->point, ",", -1);
-
-          for (int i = 0; steps[i] != NULL; i++)
-            o42_window_point_step (O42_WINDOW (windows->data), g_strstrip (steps[i]));
-          g_strfreev (steps);
-        }
-      else
+      if (o42_ref_parse (self->point, &r.row0, &r.col0, &used))
         {
           if (self->point[used] != ':' ||
               !o42_ref_parse (self->point + used + 1, &r.row1, &r.col1, NULL))
             { r.row1 = r.row0; r.col1 = r.col0; }
           o42_window_point (O42_WINDOW (windows->data), &r);
         }
+    }
+
+  /* --keys down,shift-down,f4: the keys that mean something to a
+   * formula being typed, in the order they would be pressed. */
+  if (windows != NULL && self->keys != NULL)
+    {
+      char **steps = g_strsplit (self->keys, ",", -1);
+
+      for (int i = 0; steps[i] != NULL; i++)
+        o42_window_point_step (O42_WINDOW (windows->data), g_strstrip (steps[i]));
+      g_strfreev (steps);
     }
 
   if (windows != NULL && self->select != NULL && strchr (self->select, ',') != NULL)
@@ -385,7 +388,7 @@ arm_screenshot (O42Application *self)
   /* A second is long enough for the window to be mapped and laid out,
    * and half of one for a dialog to follow. */
   if (self->activate != NULL || self->select != NULL ||
-      self->type_text != NULL || self->point != NULL)
+      self->type_text != NULL || self->point != NULL || self->keys != NULL)
     g_timeout_add (500, fire_activate, self);
   if (self->screenshot != NULL)
     g_timeout_add (1000, take_screenshot, self);
@@ -500,6 +503,12 @@ o42_application_handle_local_options (GApplication *app, GVariantDict *options)
       self->point = g_strdup (path);
     }
 
+  if (g_variant_dict_lookup (options, "keys", "&s", &path))
+    {
+      g_free (self->keys);
+      self->keys = g_strdup (path);
+    }
+
   if (g_variant_dict_lookup (options, "select", "&s", &path))
     {
       g_free (self->select);
@@ -517,6 +526,7 @@ o42_application_finalize (GObject *object)
   g_free (O42_APPLICATION (object)->select);
   g_free (O42_APPLICATION (object)->type_text);
   g_free (O42_APPLICATION (object)->point);
+  g_free (O42_APPLICATION (object)->keys);
   G_OBJECT_CLASS (o42_application_parent_class)->finalize (object);
 }
 
@@ -551,6 +561,9 @@ o42_application_init (O42Application *self)
   g_application_add_main_option (G_APPLICATION (self), "point", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Point at a cell or range while typing (e.g. B2:B10)", "RANGE");
+  g_application_add_main_option (G_APPLICATION (self), "keys", 0,
+                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+                                 "Keys to press while typing (e.g. down,shift-down,f4)", "KEYS");
   g_application_add_main_option (G_APPLICATION (self), "select", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Make a cell active (e.g. B3) before the screenshot", "CELL");

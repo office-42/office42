@@ -35,8 +35,8 @@ gboolean o42_grid_is_editing    (O42Grid *self);
  * typed, a selection otherwise. */
 void     o42_grid_click_range (O42Grid *self, const O42Range *range);
 
-/* One arrow step in point mode: "left", "shift-down" and so on, the
- * same path the key takes. */
+/* One key of what is typed into a formula besides its text: "left",
+ * "shift-down", "ctrl-right" or "f4", each going the way the key does. */
 gboolean o42_grid_point_step (O42Grid *self, const char *direction);
 
 void     o42_grid_begin_edit    (O42Grid *self, const char *initial);
