@@ -30,6 +30,15 @@ gboolean o42_window_open_file (O42Window *self, GFile *file);
 gboolean o42_window_is_blank (O42Window *self);
 
 /* Makes a cell the active one, as the name box does. */
+/* Starts typing into the active cell, as --type does: the text goes
+ * into the editor as if it had been typed there. */
+void o42_window_type (O42Window *self, const char *text);
+
+/* Points at a cell or a range while a formula is being typed, as
+ * clicking and dragging over the grid does. */
+void o42_window_point (O42Window *self, const O42Range *range);
+gboolean o42_window_point_step (O42Window *self, const char *direction);
+
 void o42_window_select_cell (O42Window *self, int row, int col);
 
 /* Whether the small dialogs are modal.  They are, except when a picture

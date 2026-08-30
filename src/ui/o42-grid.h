@@ -30,6 +30,15 @@ void o42_grid_select_range  (O42Grid *self, const O42Range *range);
 /* ---- Editing ---------------------------------------------------------- */
 
 gboolean o42_grid_is_editing    (O42Grid *self);
+/* As if the pointer had pressed on the rectangle's first corner and
+ * been dragged to its last: a reference while a formula is being
+ * typed, a selection otherwise. */
+void     o42_grid_click_range (O42Grid *self, const O42Range *range);
+
+/* One arrow step in point mode: "left", "shift-down" and so on, the
+ * same path the key takes. */
+gboolean o42_grid_point_step (O42Grid *self, const char *direction);
+
 void     o42_grid_begin_edit    (O42Grid *self, const char *initial);
 void     o42_grid_commit_edit   (O42Grid *self);
 void     o42_grid_cancel_edit   (O42Grid *self);

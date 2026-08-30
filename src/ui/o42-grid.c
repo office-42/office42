@@ -138,6 +138,14 @@ struct _O42Grid {
   guint          hscroll_policy : 1;
   guint          vscroll_policy : 1;
   gulong         hadj_changed, vadj_changed;
+  /* Point mode: while a formula is being typed, the pointer and the
+   * arrows write a reference into it rather than moving the cursor. */
+  gboolean       pointing;
+  gboolean       point_dragging;          /* the button is down over the grid */
+  int            point_start, point_end;  /* the reference's place in the text */
+  int            point_row, point_col;    /* its anchor */
+  int            point_row2, point_col2;  /* and its far corner */
+
   GArray        *arrows;                  /* AuditArrow: what Trace Precedents drew */
   GArray        *extra_sel;               /* O42Range: the selections Ctrl+click added
                                            * before the one being made now */
@@ -217,6 +225,9 @@ picture_rect (O42Grid *self, const O42Picture *pic,
 static void selection_range (O42Grid *self, O42Range *out);
 static void selection_ranges (O42Grid *self, GArray *out);
 static void pin_point (O42Grid *self, double *x, double *y);
+static void point_end_mode (O42Grid *self);
+static gboolean point_arrow (O42Grid *self, int drow, int dcol, gboolean extend, gboolean to_edge);
+static gboolean point_at (O42Grid *self, int row, int col, gboolean extend);
 static void sheet_changed (O42Grid *self);
 
 /* ---- The format painter ------------------------------------------------ */
@@ -1260,6 +1271,22 @@ on_editor_key (GtkEventControllerKey *controller,
 
   (void) controller; (void) keycode;
 
+  /* Anything but an arrow or a modifier leaves the reference where it
+   * is: what follows belongs to the formula, not to it. */
+  switch (keyval)
+    {
+    case GDK_KEY_Left:  case GDK_KEY_KP_Left:
+    case GDK_KEY_Right: case GDK_KEY_KP_Right:
+    case GDK_KEY_Up:    case GDK_KEY_KP_Up:
+    case GDK_KEY_Down:  case GDK_KEY_KP_Down:
+    case GDK_KEY_Shift_L: case GDK_KEY_Shift_R:
+    case GDK_KEY_Control_L: case GDK_KEY_Control_R:
+      break;
+    default:
+      point_end_mode (self);
+      break;
+    }
+
   switch (keyval)
     {
     case GDK_KEY_Escape:
@@ -1302,8 +1329,20 @@ on_editor_key (GtkEventControllerKey *controller,
         return GDK_EVENT_STOP;
       }
 
+    case GDK_KEY_Left:  case GDK_KEY_KP_Left:
+    case GDK_KEY_Right: case GDK_KEY_KP_Right:
+      /* Left and right move the caret through the text, unless a
+       * reference may stand where it is: then they point. */
+      if (point_arrow (self, 0, keyval == GDK_KEY_Left || keyval == GDK_KEY_KP_Left ? -1 : 1,
+                       (state & GDK_SHIFT_MASK) != 0, (state & GDK_CONTROL_MASK) != 0))
+        return GDK_EVENT_STOP;
+      return GDK_EVENT_PROPAGATE;
+
     case GDK_KEY_Up:
     case GDK_KEY_Down:
+      if (point_arrow (self, keyval == GDK_KEY_Up ? -1 : 1, 0,
+                       (state & GDK_SHIFT_MASK) != 0, (state & GDK_CONTROL_MASK) != 0))
+        return GDK_EVENT_STOP;
       /* Arrows leave the cell in a spreadsheet, unlike in a text field;
        * within the entry they would only move a caret in one line. */
       if (!(state & GDK_CONTROL_MASK))
@@ -1379,6 +1418,239 @@ on_editor_changed (GtkEditable *editable, gpointer data)
     }
 }
 
+/* ---- Point mode -------------------------------------------------------- */
+
+/* Half of writing a formula is not typing it: you type "=SUM(" and then
+ * click the cells you mean, and the reference appears where the caret
+ * is.  Excel calls it point mode, and every spreadsheet since VisiCalc
+ * has had it.
+ *
+ * It begins where a reference could begin -- after the leading "=",
+ * after an operator, after a bracket or a comma -- and nowhere else, so
+ * that an arrow key after "=A1" still means what it always did and
+ * leaves the cell.  While it lasts, the arrows and the pointer move the
+ * reference rather than the cursor, and the text between point_start
+ * and point_end is rewritten every time it moves. */
+
+/* Whether a reference may be written at `caret`: what stands before it
+ * has to be something a reference can follow. */
+static gboolean
+ref_may_follow (const char *text, int caret)
+{
+  int i;
+
+  if (text == NULL || text[0] != '=')
+    return FALSE;
+  if (caret <= 0 || caret > (int) strlen (text))
+    return FALSE;
+
+  for (i = caret - 1; i > 0 && text[i] == ' '; i--)
+    ;
+  switch (text[i])
+    {
+    case '=': case '+': case '-': case '*': case '/': case '^': case '&':
+    case '<': case '>': case '(': case ',': case ';': case ':': case '%':
+      return TRUE;
+    default:
+      return FALSE;
+    }
+}
+
+/* The reference the pointed rectangle comes to, written into the text
+ * between point_start and point_end. */
+static void
+point_write (O42Grid *self)
+{
+  const char *text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  O42Range r = o42_range_normalise (self->point_row, self->point_col,
+                                    self->point_row2, self->point_col2);
+  char *first = o42_ref_name (r.row0, r.col0);
+  char *last = o42_ref_name (r.row1, r.col1);
+  char *ref = (r.row0 == r.row1 && r.col0 == r.col1)
+                ? g_strdup (first) : g_strdup_printf ("%s:%s", first, last);
+  char *before = g_strndup (text, (gsize) self->point_start);
+  char *after = g_strdup (text + self->point_end);
+  char *whole = g_strconcat (before, ref, after, NULL);
+
+  self->pointing = TRUE;
+  gtk_editable_set_text (GTK_EDITABLE (self->editor), whole);
+  self->point_end = self->point_start + (int) strlen (ref);
+  gtk_editable_set_position (GTK_EDITABLE (self->editor), self->point_end);
+
+  g_free (whole);
+  g_free (after);
+  g_free (before);
+  g_free (ref);
+  g_free (last);
+  g_free (first);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* Starts pointing at a cell, replacing nothing: the reference goes in
+ * at the caret. */
+static void
+point_begin (O42Grid *self, int row, int col)
+{
+  int caret = gtk_editable_get_position (GTK_EDITABLE (self->editor));
+
+  self->point_start = caret;
+  self->point_end = caret;
+  self->point_row = self->point_row2 = CLAMP (row, 0, O42_MAX_ROWS - 1);
+  self->point_col = self->point_col2 = CLAMP (col, 0, O42_MAX_COLS - 1);
+  point_write (self);
+}
+
+/* Leaves the reference where it is: the next thing typed is not part
+ * of it. */
+static void
+point_end_mode (O42Grid *self)
+{
+  if (!self->pointing)
+    return;
+  self->pointing = FALSE;
+  self->point_dragging = FALSE;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* A click or a drag over the grid while a formula is being typed. */
+static gboolean
+point_at (O42Grid *self, int row, int col, gboolean extend)
+{
+  const char *text;
+  int caret;
+
+  if (!self->editing || self->editor == NULL || row < 0 || col < 0)
+    return FALSE;
+
+  text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  caret = gtk_editable_get_position (GTK_EDITABLE (self->editor));
+  if (caret < 0)
+    caret = (int) strlen (text);
+
+  if (self->pointing && extend)
+    {
+      self->point_row2 = CLAMP (row, 0, O42_MAX_ROWS - 1);
+      self->point_col2 = CLAMP (col, 0, O42_MAX_COLS - 1);
+      point_write (self);
+      return TRUE;
+    }
+
+  if (!self->pointing && !ref_may_follow (text, caret))
+    return FALSE;
+
+  if (!self->pointing)
+    point_begin (self, row, col);
+  else
+    {
+      self->point_row = self->point_row2 = CLAMP (row, 0, O42_MAX_ROWS - 1);
+      self->point_col = self->point_col2 = CLAMP (col, 0, O42_MAX_COLS - 1);
+      point_write (self);
+    }
+  return TRUE;
+}
+
+/* An arrow key while a formula is being typed: it moves the reference
+ * when one may stand where the caret is, and otherwise means what it
+ * always did. */
+static gboolean
+point_arrow (O42Grid *self, int drow, int dcol, gboolean extend, gboolean to_edge)
+{
+  const char *text;
+  int caret, row, col;
+
+  if (!self->editing || self->editor == NULL)
+    return FALSE;
+
+  text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  caret = gtk_editable_get_position (GTK_EDITABLE (self->editor));
+
+  if (!self->pointing)
+    {
+      if (!ref_may_follow (text, caret))
+        return FALSE;
+      /* The first step is taken from the cell the formula is in. */
+      row = self->active_row + drow;
+      col = self->active_col + dcol;
+      if (to_edge)
+        {
+          row = self->active_row;
+          col = self->active_col;
+          o42_sheet_edge (self->sheet, &row, &col, drow, dcol);
+        }
+      point_begin (self, row, col);
+      return TRUE;
+    }
+
+  row = extend ? self->point_row2 : self->point_row;
+  col = extend ? self->point_col2 : self->point_col;
+  if (to_edge)
+    o42_sheet_edge (self->sheet, &row, &col, drow, dcol);
+  else
+    {
+      row += drow;
+      col += dcol;
+    }
+  row = CLAMP (row, 0, O42_MAX_ROWS - 1);
+  col = CLAMP (col, 0, O42_MAX_COLS - 1);
+
+  self->point_row2 = row;
+  self->point_col2 = col;
+  if (!extend)
+    {
+      self->point_row = row;
+      self->point_col = col;
+    }
+  point_write (self);
+  return TRUE;
+}
+
+gboolean
+o42_grid_point_step (O42Grid *self, const char *direction)
+{
+  gboolean extend = FALSE, edge = FALSE;
+  int drow = 0, dcol = 0;
+
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  if (direction == NULL)
+    return FALSE;
+  while (TRUE)
+    {
+      if (g_str_has_prefix (direction, "shift-")) { extend = TRUE; direction += 6; }
+      else if (g_str_has_prefix (direction, "ctrl-")) { edge = TRUE; direction += 5; }
+      else break;
+    }
+  if (g_ascii_strcasecmp (direction, "left") == 0)       dcol = -1;
+  else if (g_ascii_strcasecmp (direction, "right") == 0) dcol = 1;
+  else if (g_ascii_strcasecmp (direction, "up") == 0)    drow = -1;
+  else if (g_ascii_strcasecmp (direction, "down") == 0)  drow = 1;
+  else return FALSE;
+
+  return point_arrow (self, drow, dcol, extend, edge);
+}
+
+void
+o42_grid_click_range (O42Grid *self, const O42Range *range)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  if (range == NULL)
+    return;
+
+  /* The rule a click follows: point at it while a formula is being
+   * typed and a reference may stand where the caret is, and otherwise
+   * commit what is there and select. */
+  if (point_at (self, range->row0, range->col0, FALSE))
+    {
+      if (range->row1 != range->row0 || range->col1 != range->col0)
+        point_at (self, range->row1, range->col1, TRUE);
+      return;
+    }
+  if (self->editing)
+    o42_grid_commit_edit (self);
+  move_active (self, range->row0, range->col0, FALSE);
+  if (range->row1 != range->row0 || range->col1 != range->col0)
+    move_active (self, range->row1, range->col1, TRUE);
+}
+
 void
 o42_grid_begin_edit (O42Grid *self, const char *initial)
 {
@@ -1451,6 +1723,8 @@ end_edit (O42Grid *self)
     }
 
   self->editing = FALSE;
+  self->pointing = FALSE;
+  self->point_dragging = FALSE;
   gtk_widget_grab_focus (GTK_WIDGET (self));
   gtk_widget_queue_draw (GTK_WIDGET (self));
 }
@@ -2893,16 +3167,24 @@ on_click_pressed (GtkGestureClick *gesture,
   y /= self->zoom;
   unpin_point (self, &x, &y);
 
-  if (self->editing)
-    o42_grid_commit_edit (self);
-
-  gtk_widget_grab_focus (GTK_WIDGET (self));
-
   state = gtk_event_controller_get_current_event_state (
             GTK_EVENT_CONTROLLER (gesture));
 
   row = row_at_y (self, y);
   col = col_at_x (self, x);
+
+  /* A click while a formula is being typed writes the cell into it,
+   * and the button stays down to drag out a range. */
+  if (self->editing && point_at (self, row, col, (state & GDK_SHIFT_MASK) != 0))
+    {
+      self->point_dragging = TRUE;
+      return;
+    }
+
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  gtk_widget_grab_focus (GTK_WIDGET (self));
 
   /* Ctrl+click on a cell adds a rectangle to the selection, as it does
    * everywhere else: what was selected is put behind, and a new one
@@ -3193,6 +3475,7 @@ on_click_released (GtkGestureClick *gesture, int n_press,
   (void) gesture; (void) n_press; (void) x; (void) y;
 
   self->dragging = FALSE;
+  self->point_dragging = FALSE;
   self->thumb_shape = 0;
   self->split_drag = 0;
 
@@ -3301,6 +3584,12 @@ on_motion (GtkEventControllerMotion *controller,
   x /= self->zoom;
   y /= self->zoom;
   unpin_point (self, &x, &y);
+
+  if (self->point_dragging)
+    {
+      point_at (self, row_at_y (self, y), col_at_x (self, x), TRUE);
+      return;
+    }
 
   if (self->thumb_shape != 0)
     {
@@ -4599,6 +4888,26 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   for (guint i = 0; self->extra_sel != NULL && i < self->extra_sel->len; i++)
     paint_extra_selection (self, cr, &g_array_index (self->extra_sel, O42Range, i));
   paint_selection (self, cr, &sel);
+
+  /* The rectangle being pointed at, in the colour a reference is
+   * written in and with the marching border Excel gives it. */
+  if (self->pointing)
+    {
+      O42Range r = o42_range_normalise (self->point_row, self->point_col,
+                                        self->point_row2, self->point_col2);
+      double x0 = col_x (self, r.col0), y0 = row_y (self, r.row0);
+      double x1 = col_x (self, r.col1 + 1), y1 = row_y (self, r.row1 + 1);
+      static const double dashes[] = { 4, 3 };
+
+      cairo_save (cr);
+      cairo_set_source_rgb (cr, 0.13, 0.35, 0.75);
+      cairo_set_line_width (cr, 2);
+      cairo_set_dash (cr, dashes, 2, 0);
+      cairo_rectangle (cr, floor (x0) + 1, floor (y0) + 1,
+                       floor (x1 - x0) - 2, floor (y1 - y0) - 2);
+      cairo_stroke (cr);
+      cairo_restore (cr);
+    }
 
   /* The auditing arrows, from what a formula reads to the formula, or
    * the other way for its dependents. */

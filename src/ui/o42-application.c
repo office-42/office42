@@ -19,6 +19,8 @@ struct _O42Application {
   char *screenshot;      /* --screenshot FILE: render the window and exit */
   char *activate;        /* --activate ACTION: fire a window action first */
   char *select;          /* --select B3: make a cell active first */
+  char *type_text;       /* --type "=SUM(": start typing into the cell */
+  char *point;           /* --point B2:B10: point at that while typing */
 };
 
 G_DEFINE_FINAL_TYPE (O42Application, o42_application, GTK_TYPE_APPLICATION)
@@ -339,6 +341,34 @@ fire_activate (gpointer data)
       g_free (name);
     }
 
+  /* --type "=SUM(" opens the editor with that in it, and --point B2 or
+   * --point B2:B10 writes a reference into it as the pointer would. */
+  if (windows != NULL && self->type_text != NULL)
+    o42_window_type (O42_WINDOW (windows->data), self->type_text);
+
+  if (windows != NULL && self->point != NULL)
+    {
+      O42Range r;
+      gsize used = 0;
+
+      if (!o42_ref_parse (self->point, &r.row0, &r.col0, &used))
+        {
+          /* Not a reference: a run of arrow steps, "down,shift-down". */
+          char **steps = g_strsplit (self->point, ",", -1);
+
+          for (int i = 0; steps[i] != NULL; i++)
+            o42_window_point_step (O42_WINDOW (windows->data), g_strstrip (steps[i]));
+          g_strfreev (steps);
+        }
+      else
+        {
+          if (self->point[used] != ':' ||
+              !o42_ref_parse (self->point + used + 1, &r.row1, &r.col1, NULL))
+            { r.row1 = r.row0; r.col1 = r.col0; }
+          o42_window_point (O42_WINDOW (windows->data), &r);
+        }
+    }
+
   if (windows != NULL && self->select != NULL && strchr (self->select, ',') != NULL)
     {
       int row, col;
@@ -354,7 +384,8 @@ arm_screenshot (O42Application *self)
 {
   /* A second is long enough for the window to be mapped and laid out,
    * and half of one for a dialog to follow. */
-  if (self->activate != NULL || self->select != NULL)
+  if (self->activate != NULL || self->select != NULL ||
+      self->type_text != NULL || self->point != NULL)
     g_timeout_add (500, fire_activate, self);
   if (self->screenshot != NULL)
     g_timeout_add (1000, take_screenshot, self);
@@ -455,6 +486,20 @@ o42_application_handle_local_options (GApplication *app, GVariantDict *options)
       self->activate = g_strdup (path);
     }
 
+  if (g_variant_dict_lookup (options, "type", "&s", &path))
+    {
+      g_free (self->type_text);
+      self->type_text = g_strdup (path);
+      g_application_set_flags (app, g_application_get_flags (app) |
+                                    G_APPLICATION_NON_UNIQUE);
+    }
+
+  if (g_variant_dict_lookup (options, "point", "&s", &path))
+    {
+      g_free (self->point);
+      self->point = g_strdup (path);
+    }
+
   if (g_variant_dict_lookup (options, "select", "&s", &path))
     {
       g_free (self->select);
@@ -470,6 +515,8 @@ o42_application_finalize (GObject *object)
   g_free (O42_APPLICATION (object)->screenshot);
   g_free (O42_APPLICATION (object)->activate);
   g_free (O42_APPLICATION (object)->select);
+  g_free (O42_APPLICATION (object)->type_text);
+  g_free (O42_APPLICATION (object)->point);
   G_OBJECT_CLASS (o42_application_parent_class)->finalize (object);
 }
 
@@ -498,6 +545,12 @@ o42_application_init (O42Application *self)
   g_application_add_main_option (G_APPLICATION (self), "activate", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Fire a window action (e.g. format-cells) before the screenshot", "ACTION");
+  g_application_add_main_option (G_APPLICATION (self), "type", 0,
+                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+                                 "Type into the active cell (e.g. \"=SUM(\") before the screenshot", "TEXT");
+  g_application_add_main_option (G_APPLICATION (self), "point", 0,
+                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+                                 "Point at a cell or range while typing (e.g. B2:B10)", "RANGE");
   g_application_add_main_option (G_APPLICATION (self), "select", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Make a cell active (e.g. B3) before the screenshot", "CELL");

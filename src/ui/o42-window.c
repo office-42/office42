@@ -1221,6 +1221,27 @@ action_split_panes (GSimpleAction *a, GVariant *p, gpointer data)
 }
 
 void
+o42_window_type (O42Window *self, const char *text)
+{
+  g_return_if_fail (O42_IS_WINDOW (self));
+  o42_grid_begin_edit (self->grid, text);
+}
+
+void
+o42_window_point (O42Window *self, const O42Range *range)
+{
+  g_return_if_fail (O42_IS_WINDOW (self));
+  o42_grid_click_range (self->grid, range);
+}
+
+gboolean
+o42_window_point_step (O42Window *self, const char *direction)
+{
+  g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
+  return o42_grid_point_step (self->grid, direction);
+}
+
+void
 o42_window_select_cell (O42Window *self, int row, int col)
 {
   g_return_if_fail (O42_IS_WINDOW (self));
