@@ -51,6 +51,13 @@ thing that knows what a mouse is.
 | | `o42-dialogs-*.c` | 3,526 | The Data, Tools and Format menus' dialogs, a file apiece | Each is the dialogs of one menu and nothing else |
 | | `o42-grid.c` | 5,400 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
 
+**A note on this table.** The row for entering and editing read 100%
+while point mode -- building a reference by clicking cells as a formula
+is typed -- was missing altogether, and a click mid-formula committed
+the entry instead. A table of areas is only as good as the list of
+what each area contains, and that one had a hole in it. Point mode, F4
+and coloured references are there now, and the row is honest.
+
 **What the review turned up.** Three things stand out. The first is
 size: `o42-eval.c` and `o42-window.c` are each big enough that finding
 a function means grepping, and both split along obvious seams. The
