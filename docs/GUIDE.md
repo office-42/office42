@@ -175,6 +175,12 @@ references, ranges, names, operators and function calls:
 and `A$1` and `$A1` pin one half. **F4** cycles the reference at the
 caret round those four, and on a range it does both halves at once.
 
+**Coloured references.** While a formula is being typed, each
+reference in it is written in a colour of its own and the cells it
+names are outlined in the same one -- the quickest way to see that a
+formula is reading what you meant. Text in quotes and function names
+are left alone: `LOG10(` is a function, not a cell.
+
 **Pointing.** Half of writing a formula is not typing it. Type `=SUM(`
 and then click the cells you mean: the reference appears where the
 caret is, and dragging makes it a range. The arrows do the same --

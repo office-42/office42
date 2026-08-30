@@ -140,6 +140,7 @@ struct _O42Grid {
   gulong         hadj_changed, vadj_changed;
   /* Point mode: while a formula is being typed, the pointer and the
    * arrows write a reference into it rather than moving the cursor. */
+  GArray        *refs;                    /* RefSpan: the references in what is typed */
   gboolean       pointing;
   gboolean       point_dragging;          /* the button is down over the grid */
   int            point_start, point_end;  /* the reference's place in the text */
@@ -226,6 +227,7 @@ static void selection_range (O42Grid *self, O42Range *out);
 static void selection_ranges (O42Grid *self, GArray *out);
 static void pin_point (O42Grid *self, double *x, double *y);
 static void point_end_mode (O42Grid *self);
+static void colour_editor_refs (O42Grid *self);
 static gboolean cycle_dollars (O42Grid *self);
 static gboolean point_arrow (O42Grid *self, int drow, int dcol, gboolean extend, gboolean to_edge);
 static gboolean point_at (O42Grid *self, int row, int col, gboolean extend);
@@ -1384,6 +1386,8 @@ static void
 on_editor_changed (GtkEditable *editable, gpointer data)
 {
   O42Grid *self = data;
+
+  colour_editor_refs (self);
   const char *typed = gtk_editable_get_text (editable);
   int caret = gtk_editable_get_position (editable);
   O42Range used;
@@ -1425,6 +1429,123 @@ on_editor_changed (GtkEditable *editable, gpointer data)
       self->completing = FALSE;
       g_free (found);
     }
+}
+
+/* ---- The references in a formula, coloured ----------------------------- */
+
+/* While a formula is being typed, each reference in it is written in a
+ * colour of its own and the cells it names are outlined in the same
+ * one.  It is the quickest way to see that a formula is reading what
+ * you meant it to read, and every spreadsheet since Lotus has done it.
+ *
+ * The colours go round in the order Excel uses them. */
+static const guint32 REF_COLOURS[] = {
+  0x1F49BF, 0xC0392B, 0x1E8449, 0x8E44AD, 0xB9770E, 0x117A8B
+};
+
+typedef struct {
+  int      start, end;    /* where the reference stands in the text */
+  O42Range range;
+  int      colour;        /* which of REF_COLOURS */
+} RefSpan;
+
+/* Every reference a formula's text holds, in the order they are
+ * written, skipping anything inside quotes and anything that names
+ * another sheet -- an outline can only be drawn on this one. */
+static GArray *
+formula_refs (const char *text)
+{
+  GArray *found = g_array_new (FALSE, FALSE, sizeof (RefSpan));
+  int n = (int) strlen (text);
+  int i = 0, colour = 0;
+
+  while (i < n)
+    {
+      int row, col, row2, col2, start;
+      gsize used = 0;
+
+      if (text[i] == '"')
+        {
+          for (i++; i < n && text[i] != '"'; i++)
+            ;
+          i++;
+          continue;
+        }
+      /* A letter that follows one is part of a name, not the start of
+       * a reference: SUM is not S, U, M. */
+      if (!(g_ascii_isalpha (text[i]) || text[i] == '$') ||
+          (i > 0 && (g_ascii_isalnum (text[i - 1]) || text[i - 1] == '_' ||
+                     text[i - 1] == '!' || text[i - 1] == '$')))
+        { i++; continue; }
+
+      start = i;
+      if (!o42_ref_parse (text + i, &row, &col, &used) || used == 0)
+        { i++; continue; }
+      i += (int) used;
+      row2 = row;
+      col2 = col;
+      if (text[i] == ':' && o42_ref_parse (text + i + 1, &row2, &col2, &used) && used > 0)
+        i += 1 + (int) used;
+      /* Not a reference after all if a letter or a bracket follows: SUM(
+       * begins a call, and A1B is a name. */
+      if (g_ascii_isalpha (text[i]) || text[i] == '(' || text[i] == '_')
+        continue;
+
+      {
+        RefSpan span;
+
+        span.start = start;
+        span.end = i;
+        span.range = o42_range_normalise (row, col, row2, col2);
+        span.colour = colour % (int) G_N_ELEMENTS (REF_COLOURS);
+        g_array_append_val (found, span);
+        colour++;
+      }
+    }
+  return found;
+}
+
+/* The colours, put on the text of the editor. */
+static void
+colour_editor_refs (O42Grid *self)
+{
+  const char *text;
+  PangoAttrList *attrs;
+  GArray *refs;
+
+  if (!self->editing || self->editor == NULL)
+    return;
+  text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  if (text == NULL || text[0] != '=')
+    {
+      gtk_entry_set_attributes (GTK_ENTRY (self->editor), NULL);
+      if (self->refs != NULL)
+        g_array_set_size (self->refs, 0);
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+      return;
+    }
+
+  refs = formula_refs (text);
+  attrs = pango_attr_list_new ();
+  for (guint i = 0; i < refs->len; i++)
+    {
+      const RefSpan *span = &g_array_index (refs, RefSpan, i);
+      guint32 rgb = REF_COLOURS[span->colour];
+      PangoAttribute *a = pango_attr_foreground_new (((rgb >> 16) & 0xFF) * 257,
+                                                     ((rgb >> 8) & 0xFF) * 257,
+                                                     (rgb & 0xFF) * 257);
+
+      a->start_index = (guint) span->start;
+      a->end_index = (guint) span->end;
+      pango_attr_list_insert (attrs, a);
+    }
+  gtk_entry_set_attributes (GTK_ENTRY (self->editor), attrs);
+  pango_attr_list_unref (attrs);
+
+  if (self->refs != NULL)
+    g_array_unref (self->refs);
+  self->refs = refs;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 /* ---- Point mode -------------------------------------------------------- */
@@ -1846,6 +1967,7 @@ o42_grid_begin_edit (O42Grid *self, const char *initial)
   gtk_widget_add_controller (self->editor, key);
 
   self->editing = TRUE;
+  colour_editor_refs (self);
   place_editor (self);
   gtk_widget_grab_focus (self->editor);
 
@@ -1864,6 +1986,8 @@ end_edit (O42Grid *self)
     }
 
   self->editing = FALSE;
+  if (self->refs != NULL)
+    g_array_set_size (self->refs, 0);
   self->pointing = FALSE;
   self->point_dragging = FALSE;
   gtk_widget_grab_focus (GTK_WIDGET (self));
@@ -5030,6 +5154,24 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
     paint_extra_selection (self, cr, &g_array_index (self->extra_sel, O42Range, i));
   paint_selection (self, cr, &sel);
 
+  /* Every reference the formula holds, outlined in the colour it is
+   * written in. */
+  for (guint i = 0; self->editing && self->refs != NULL && i < self->refs->len; i++)
+    {
+      const RefSpan *span = &g_array_index (self->refs, RefSpan, i);
+      guint32 rgb = REF_COLOURS[span->colour];
+      double x0 = col_x (self, span->range.col0), y0 = row_y (self, span->range.row0);
+      double x1 = col_x (self, span->range.col1 + 1), y1 = row_y (self, span->range.row1 + 1);
+
+      cairo_save (cr);
+      set_rgb (cr, rgb);
+      cairo_set_line_width (cr, 2);
+      cairo_rectangle (cr, floor (x0) + 1, floor (y0) + 1,
+                       floor (x1 - x0) - 2, floor (y1 - y0) - 2);
+      cairo_stroke (cr);
+      cairo_restore (cr);
+    }
+
   /* The rectangle being pointed at, in the colour a reference is
    * written in and with the marching border Excel gives it. */
   if (self->pointing)
@@ -5605,6 +5747,8 @@ o42_grid_dispose (GObject *object)
     }
 
   g_clear_pointer (&self->extra_sel, g_array_unref);
+  g_clear_pointer (&self->refs, g_array_unref);
+  g_clear_pointer (&self->arrows, g_array_unref);
   g_clear_object (&self->layout);
   g_clear_pointer (&self->clip_text, g_free);
   self->sheet = NULL;     /* not owned */
