@@ -334,6 +334,22 @@ o42grid {
   background-color: #ffffff;
 }
 
+/* --- the signature of the call being typed ---------------------------- */
+
+.o42-argtip {
+  background-color: #ffffe1;
+  color: var(--o42-dark);
+  border: 1px solid var(--o42-dark);
+  border-radius: 0;
+  box-shadow: 1px 1px 0 var(--o42-shadow);
+}
+
+.o42-argtip label {
+  font-family: Arial, sans-serif;
+  font-size: 10pt;
+  padding: 1px 5px;
+}
+
 /* --- the function names offered while one is typed -------------------- */
 
 .o42-complete {

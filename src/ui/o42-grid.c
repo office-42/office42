@@ -149,6 +149,10 @@ struct _O42Grid {
   GPtrArray     *complete_names;          /* interned names, not owned */
   int            complete_start;          /* where the partial name begins */
   int            complete_at;             /* which of them is highlighted */
+
+  /* The signature of the call the caret is inside. */
+  GtkWidget     *tip_box;
+  GtkWidget     *tip_label;
   gboolean       pointing;
   gboolean       point_dragging;          /* the button is down over the grid */
   int            point_start, point_end;  /* the reference's place in the text */
@@ -243,7 +247,9 @@ static gboolean complete_accept (O42Grid *self);
 static gboolean complete_move (O42Grid *self, int delta);
 static gboolean complete_key (O42Grid *self, guint keyval);
 static void editor_rect (O42Grid *self, GdkRectangle *at);
-static void place_complete (O42Grid *self);
+static void place_editor_extras (O42Grid *self);
+static void tip_offer (O42Grid *self);
+static void tip_hide (O42Grid *self);
 static gboolean cycle_dollars (O42Grid *self);
 static gboolean point_arrow (O42Grid *self, int drow, int dcol, gboolean extend, gboolean to_edge);
 static gboolean point_at (O42Grid *self, int row, int col, gboolean extend);
@@ -1409,6 +1415,7 @@ on_editor_changed (GtkEditable *editable, gpointer data)
 
   colour_editor_refs (self);
   complete_offer (self);
+  tip_offer (self);
   const char *typed = gtk_editable_get_text (editable);
   int caret = gtk_editable_get_position (editable);
   O42Range used;
@@ -1801,7 +1808,7 @@ complete_offer (O42Grid *self)
 
     self->complete_box = frame;
     self->complete_list = box;
-    place_complete (self);
+    place_editor_extras (self);
     complete_highlight (self);
     gtk_widget_queue_draw (GTK_WIDGET (self));
   }
@@ -1845,6 +1852,187 @@ complete_move (O42Grid *self, int delta)
                              (int) self->complete_names->len - 1);
   complete_highlight (self);
   return TRUE;
+}
+
+/* ---- What the call being typed wants next ------------------------------ */
+
+/* Once the brackets are open, knowing the name is not enough: VLOOKUP
+ * takes four arguments and nobody remembers which is which.  While the
+ * caret stands inside a call's brackets, the call's signature is shown
+ * under the cell with the argument the caret is on in bold, and it
+ * follows the commas and the nesting -- inside SUM(A1,IF( it is IF's
+ * signature that is wanted, not SUM's.
+ *
+ * Like the name list, it is a child of the grid rather than a popover,
+ * for the same reasons. */
+
+#define CALLS_DEEP 32
+
+/* The innermost call whose brackets hold the caret: where its name
+ * stands, and how many commas the caret is past. */
+static gboolean
+enclosing_call (const char *text, int caret,
+                int *out_start, int *out_end, int *out_arg)
+{
+  struct { int start, end, arg; } open[CALLS_DEEP];
+  int depth = 0;
+
+  if (text == NULL || text[0] != '=')
+    return FALSE;
+  if (caret > (int) strlen (text))
+    caret = (int) strlen (text);
+
+  for (int i = 0; i < caret; i++)
+    {
+      char c = text[i];
+
+      if (c == '"')
+        {
+          for (i++; i < caret && text[i] != '"'; i++)
+            ;
+          continue;
+        }
+      if (c == '(')
+        {
+          int s = i;
+
+          while (s > 0 && (g_ascii_isalnum (text[s - 1]) ||
+                           text[s - 1] == '.' || text[s - 1] == '_'))
+            s--;
+          if (depth < CALLS_DEEP)
+            {
+              open[depth].start = s;
+              open[depth].end = i;
+              open[depth].arg = 0;
+            }
+          depth++;
+          continue;
+        }
+      if (c == ')')
+        {
+          if (depth > 0)
+            depth--;
+          continue;
+        }
+      if ((c == ',' || c == ';') && depth > 0 && depth <= CALLS_DEEP)
+        open[depth - 1].arg++;
+    }
+
+  if (depth <= 0 || depth > CALLS_DEEP)
+    return FALSE;
+  /* A bracket with nothing in front of it groups, it does not call. */
+  if (open[depth - 1].end == open[depth - 1].start)
+    return FALSE;
+
+  *out_start = open[depth - 1].start;
+  *out_end = open[depth - 1].end;
+  *out_arg = open[depth - 1].arg;
+  return TRUE;
+}
+
+/* Where the nth argument stands in a signature of the form
+ * NAME(a, b, ...), clamped to the last one so that SUM's third number
+ * still lands on the "...". */
+static gboolean
+argument_span (const char *signature, int nth, int *start, int *end)
+{
+  int i = 0, depth = 0, seen = 0, from = -1;
+
+  while (signature[i] != '\0' && signature[i] != '(')
+    i++;
+  if (signature[i] != '(')
+    return FALSE;
+  i++;
+  from = i;
+
+  for (; signature[i] != '\0'; i++)
+    {
+      if (signature[i] == '(')
+        depth++;
+      else if (signature[i] == ')' && depth > 0)
+        depth--;
+      else if (depth == 0 && (signature[i] == ')' || signature[i] == ','))
+        {
+          if (seen == nth || signature[i] == ')')
+            {
+              *start = from;
+              *end = i;
+              while (*start < *end && signature[*start] == ' ')
+                (*start)++;
+              return *end > *start;
+            }
+          seen++;
+          from = i + 1;
+        }
+    }
+  return FALSE;
+}
+
+static void
+tip_hide (O42Grid *self)
+{
+  if (self->tip_box != NULL)
+    {
+      gtk_widget_unparent (self->tip_box);
+      self->tip_box = NULL;
+      self->tip_label = NULL;
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+    }
+}
+
+/* The signature of the call the caret is in, or nothing. */
+static void
+tip_offer (O42Grid *self)
+{
+  const char *text, *signature = NULL, *summary = NULL;
+  int caret, start, end, arg, from = 0, to = 0;
+  char *name;
+  PangoAttrList *attrs;
+
+  if (!self->editing || self->editor == NULL)
+    { tip_hide (self); return; }
+
+  text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  caret = gtk_editable_get_position (GTK_EDITABLE (self->editor));
+  if (caret < 0)
+    caret = (int) strlen (text);
+  if (!enclosing_call (text, caret, &start, &end, &arg))
+    { tip_hide (self); return; }
+
+  name = g_strndup (text + start, (gsize) (end - start));
+  if (!o42_function_help (name, &signature, &summary) || signature == NULL)
+    { g_free (name); tip_hide (self); return; }
+  g_free (name);
+
+  if (self->tip_box == NULL)
+    {
+      GtkWidget *frame = gtk_frame_new (NULL);
+      GtkWidget *label = gtk_label_new (NULL);
+
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_widget_add_css_class (frame, "o42-argtip");
+      gtk_widget_set_can_focus (frame, FALSE);
+      gtk_frame_set_child (GTK_FRAME (frame), label);
+      gtk_widget_set_parent (frame, GTK_WIDGET (self));
+      self->tip_box = frame;
+      self->tip_label = label;
+    }
+
+  gtk_label_set_text (GTK_LABEL (self->tip_label), signature);
+  attrs = pango_attr_list_new ();
+  if (argument_span (signature, arg, &from, &to))
+    {
+      PangoAttribute *a = pango_attr_weight_new (PANGO_WEIGHT_BOLD);
+
+      a->start_index = (guint) from;
+      a->end_index = (guint) to;
+      pango_attr_list_insert (attrs, a);
+    }
+  gtk_label_set_attributes (GTK_LABEL (self->tip_label), attrs);
+  pango_attr_list_unref (attrs);
+
+  place_editor_extras (self);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
 /* ---- Point mode -------------------------------------------------------- */
@@ -2193,6 +2381,12 @@ o42_grid_point_step (O42Grid *self, const char *direction)
 
     if (keyval != 0 && complete_key (self, keyval))
       return TRUE;
+
+    /* With no list up they finish the entry, as they do at a keyboard. */
+    if (keyval == GDK_KEY_Return && self->editing)
+      { o42_grid_commit_edit (self); return TRUE; }
+    if (keyval == GDK_KEY_Escape && self->editing)
+      { o42_grid_cancel_edit (self); return TRUE; }
     if (keyval == GDK_KEY_Tab || keyval == GDK_KEY_Return ||
         keyval == GDK_KEY_Escape)
       return FALSE;
@@ -2270,6 +2464,8 @@ o42_grid_begin_edit (O42Grid *self, const char *initial)
   gtk_widget_set_parent (self->editor, GTK_WIDGET (self));
 
   g_signal_connect (self->editor, "changed", G_CALLBACK (on_editor_changed), self);
+  g_signal_connect_swapped (self->editor, "notify::cursor-position",
+                            G_CALLBACK (tip_offer), self);
 
   if (initial != NULL)
     {
@@ -2309,6 +2505,7 @@ o42_grid_begin_edit (O42Grid *self, const char *initial)
   /* The text put in by hand did not go through the editor's own
    * changed signal with the caret where it now is. */
   complete_offer (self);
+  tip_offer (self);
 }
 
 static void
@@ -2321,6 +2518,7 @@ end_edit (O42Grid *self)
     }
 
   complete_hide (self);
+  tip_hide (self);
   self->editing = FALSE;
   if (self->refs != NULL)
     g_array_set_size (self->refs, 0);
@@ -5760,6 +5958,8 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   /* The editor is a child widget; let GTK paint it over everything. */
   if (self->editor != NULL)
     gtk_widget_snapshot_child (widget, self->editor, snapshot);
+  if (self->tip_box != NULL)
+    gtk_widget_snapshot_child (widget, self->tip_box, snapshot);
   if (self->complete_box != NULL)
     gtk_widget_snapshot_child (widget, self->complete_box, snapshot);
 }
@@ -5789,35 +5989,71 @@ editor_rect (O42Grid *self, GdkRectangle *at)
   at->height = (int) (h * self->zoom);
 }
 
-/* The list sits under the cell, or over it when there is no room
- * below, and never off the right-hand edge. */
+/* One of them, put where it goes and kept off the right-hand edge. */
 static void
-place_complete (O42Grid *self)
+place_one (O42Grid *self, GtkWidget *child, int x, int y, int w, int h,
+           int view_w)
+{
+  (void) self;
+  if (view_w > 0 && x + w > view_w)
+    x = MAX (0, view_w - w);
+  gtk_widget_allocate (child, w, h, -1,
+                       gsk_transform_translate (NULL,
+                                                &GRAPHENE_POINT_INIT (x, y)));
+}
+
+/* The tip and the list stack under the cell, the tip nearest it, and
+ * go above it together when there is no room below.  Neither ever runs
+ * off the right-hand edge. */
+static void
+place_editor_extras (O42Grid *self)
 {
   GdkRectangle at;
-  GskTransform *transform;
-  int width = 0, height = 0, ignored, x, y;
   int view_w = gtk_widget_get_width (GTK_WIDGET (self));
   int view_h = gtk_widget_get_height (GTK_WIDGET (self));
+  int tip_w = 0, tip_h = 0, list_w = 0, list_h = 0, ignored, y;
+  gboolean above = FALSE;
 
-  if (self->complete_box == NULL)
+  if (self->tip_box == NULL && self->complete_box == NULL)
     return;
 
-  gtk_widget_measure (self->complete_box, GTK_ORIENTATION_HORIZONTAL, -1,
-                      &ignored, &width, NULL, NULL);
-  gtk_widget_measure (self->complete_box, GTK_ORIENTATION_VERTICAL, width,
-                      &ignored, &height, NULL, NULL);
+  if (self->tip_box != NULL)
+    {
+      gtk_widget_measure (self->tip_box, GTK_ORIENTATION_HORIZONTAL, -1,
+                          &ignored, &tip_w, NULL, NULL);
+      gtk_widget_measure (self->tip_box, GTK_ORIENTATION_VERTICAL, tip_w,
+                          &ignored, &tip_h, NULL, NULL);
+    }
+  if (self->complete_box != NULL)
+    {
+      gtk_widget_measure (self->complete_box, GTK_ORIENTATION_HORIZONTAL, -1,
+                          &ignored, &list_w, NULL, NULL);
+      gtk_widget_measure (self->complete_box, GTK_ORIENTATION_VERTICAL, list_w,
+                          &ignored, &list_h, NULL, NULL);
+    }
 
   editor_rect (self, &at);
-  x = at.x;
   y = at.y + at.height;
-  if (view_w > 0 && x + width > view_w)
-    x = MAX (0, view_w - width);
-  if (view_h > 0 && y + height > view_h && at.y - height >= 0)
-    y = at.y - height;
+  if (view_h > 0 && y + tip_h + list_h > view_h && at.y - tip_h - list_h >= 0)
+    {
+      y = at.y - tip_h - list_h;
+      above = TRUE;
+    }
 
-  transform = gsk_transform_translate (NULL, &GRAPHENE_POINT_INIT (x, y));
-  gtk_widget_allocate (self->complete_box, width, height, -1, transform);
+  /* Going down the tip comes first, going up the list does, so that
+   * whichever way they stack the tip is the one against the cell. */
+  if (above && self->complete_box != NULL)
+    {
+      place_one (self, self->complete_box, at.x, y, list_w, list_h, view_w);
+      y += list_h;
+    }
+  if (self->tip_box != NULL)
+    {
+      place_one (self, self->tip_box, at.x, y, tip_w, tip_h, view_w);
+      y += tip_h;
+    }
+  if (!above && self->complete_box != NULL)
+    place_one (self, self->complete_box, at.x, y, list_w, list_h, view_w);
 }
 
 static void
@@ -5872,8 +6108,7 @@ o42_grid_size_allocate (GtkWidget *widget, int width, int height, int baseline)
   grid_configure_adjustments (self);
   if (self->editor != NULL)
     place_editor (self);
-  if (self->complete_box != NULL)
-    place_complete (self);
+  place_editor_extras (self);
 }
 
 static void
@@ -6141,6 +6376,13 @@ o42_grid_dispose (GObject *object)
       gtk_widget_unparent (self->complete_box);
       self->complete_box = NULL;
       self->complete_list = NULL;
+    }
+
+  if (self->tip_box != NULL)
+    {
+      gtk_widget_unparent (self->tip_box);
+      self->tip_box = NULL;
+      self->tip_label = NULL;
     }
 
   if (self->editor != NULL)

@@ -185,6 +185,15 @@ list narrows; type the whole name and it goes. It appears only where a
 function could stand: after the `=`, after an operator, after a bracket
 or a comma, so `=A1+SU` offers and `SU` on its own does not.
 
+**What the call wants next.** Knowing the name is not the same as
+knowing the arguments: VLOOKUP takes four and nobody remembers which is
+which. While the caret stands inside a call's brackets the signature is
+shown under the cell with the argument you are on in bold, and it
+follows the commas and the nesting -- inside `=SUM(A1,IF(` it is IF's
+signature you are shown, not SUM's. Past the last named argument of a
+function that takes any number of them, the `...` is what is bold.
+Commas inside quotes are text, and are not counted.
+
 **Coloured references.** While a formula is being typed, each
 reference in it is written in a colour of its own and the cells it
 names are outlined in the same one -- the quickest way to see that a

@@ -174,6 +174,10 @@ Early, but real. office42 today is a working spreadsheet:
   the highlighted name and opens its bracket, Escape leaves what you had
   typed. It appears only where a function could stand, so `=A1+SU` offers
   and the text `SU` does not.
+- **What the call wants next** — while the caret is inside a call's
+  brackets the signature is shown under the cell with the argument you
+  are on in bold, following the commas and the nesting: inside
+  `=SUM(A1,IF(` it is IF's arguments you are shown, not SUM's.
 - **AutoComplete and dragging cells** — typing text into a cell offers
   the first text already in that column that begins with it, with the
   rest selected so that carrying on typing replaces it. Dragging the
@@ -610,8 +614,9 @@ brackets when it takes one, as in `zoom(150)` or `shape(checkbox)`) opens a
 dialog or fires the action first and puts it in the picture too; `--select B4` makes a cell active before that,
 and `--select B4,F40` moves on to another afterwards. `--type '=SU'` opens
 the cell editor with that in it, and `--keys down,tab,B2:B9,f4` presses keys
-and clicks cells in the order given, which is how point mode, F4 and the
-function list are exercised without a person at the keyboard.
+and clicks cells in the order given -- `enter` and `escape` finish the
+entry -- which is how point mode, F4, the function list and the argument
+tip are exercised without a person at the keyboard.
 It is how the pictures in this README are made and how a change to the
 grid can be looked at from a script.
 
