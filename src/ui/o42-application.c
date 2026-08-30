@@ -21,7 +21,7 @@ struct _O42Application {
   char *select;          /* --select B3: make a cell active first */
   char *type_text;       /* --type "=SUM(": start typing into the cell */
   char *point;           /* --point B2:B10: point at that while typing */
-  char *keys;            /* --keys down,shift-down,f4: what to press while typing */
+  char *keys;            /* --keys down,f4,B2: what to press and click while typing */
 };
 
 G_DEFINE_FINAL_TYPE (O42Application, o42_application, GTK_TYPE_APPLICATION)
@@ -361,8 +361,8 @@ fire_activate (gpointer data)
         }
     }
 
-  /* --keys down,shift-down,f4: the keys that mean something to a
-   * formula being typed, in the order they would be pressed. */
+  /* --keys down,shift-down,f4,B2:B9: the keys and clicks that mean
+   * something to a formula being typed, in the order they happen. */
   if (windows != NULL && self->keys != NULL)
     {
       char **steps = g_strsplit (self->keys, ",", -1);
@@ -563,7 +563,7 @@ o42_application_init (O42Application *self)
                                  "Point at a cell or range while typing (e.g. B2:B10)", "RANGE");
   g_application_add_main_option (G_APPLICATION (self), "keys", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
-                                 "Keys to press while typing (e.g. down,shift-down,f4)", "KEYS");
+                                 "Keys and clicks while typing (e.g. down,tab,B2:B9,f4)", "KEYS");
   g_application_add_main_option (G_APPLICATION (self), "select", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Make a cell active (e.g. B3) before the screenshot", "CELL");

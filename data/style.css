@@ -333,3 +333,40 @@ scrollbar slider {
 o42grid {
   background-color: #ffffff;
 }
+
+/* --- the function names offered while one is typed -------------------- */
+
+.o42-complete {
+  background-color: var(--o42-highlight);
+  color: var(--o42-dark);
+  border: 1px solid var(--o42-dark);
+  border-radius: 0;
+  box-shadow: 1px 1px 0 var(--o42-shadow);
+}
+
+.o42-complete list,
+.o42-complete row {
+  background-color: transparent;
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+}
+
+.o42-complete label {
+  font-family: Arial, sans-serif;
+  font-size: 10pt;
+  padding: 0 4px;
+}
+
+.o42-complete row:selected {
+  background-color: var(--o42-select);
+}
+
+.o42-complete-note {
+  color: var(--o42-shadow);
+}
+
+.o42-complete row:selected label,
+.o42-complete row:selected .o42-complete-note {
+  color: var(--o42-title-text);
+}

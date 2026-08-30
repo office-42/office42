@@ -56,7 +56,8 @@ while point mode -- building a reference by clicking cells as a formula
 is typed -- was missing altogether, and a click mid-formula committed
 the entry instead. A table of areas is only as good as the list of
 what each area contains, and that one had a hole in it. Point mode, F4
-and coloured references are there now, and the row is honest.
+and coloured references are there now, and so is the list of function
+names a formula offers while it is typed; the row is honest.
 
 **What the review turned up.** Three things stand out. The first is
 size: `o42-eval.c` and `o42-window.c` are each big enough that finding
@@ -140,8 +141,9 @@ should not, and every one of them can be opened from the command line
 with `--activate`, which is how they are checked. The keyboard covers
 what a spreadsheet keyboard covers: F2, F5, Shift+F2, Shift+F3, Ctrl+1,
 Ctrl+arrows, Shift+Space, Ctrl+Space, Ctrl+PageUp and PageDown.
-AutoComplete offers what the column already holds. The fill handle
-continues a series. The status bar aggregates. Charts, pictures,
+AutoComplete offers what the column already holds, and two letters into
+a function's name the functions that begin that way are offered too.
+The fill handle continues a series. The status bar aggregates. Charts, pictures,
 shapes and controls are selected, dragged and resized with handles.
 
 **What is thin.**

@@ -168,6 +168,12 @@ Early, but real. office42 today is a working spreadsheet:
   than characters, and cells put into columns by where they start — with a
   left-aligned heading over right-aligned numbers folded into one column,
   since the two never share a row.
+- **The name of a function, offered** — two letters into a name, `=SU`,
+  the functions that begin that way are listed under the cell with a line
+  each saying what they do. Up and down walk the list, Tab or Enter takes
+  the highlighted name and opens its bracket, Escape leaves what you had
+  typed. It appears only where a function could stand, so `=A1+SU` offers
+  and the text `SU` does not.
 - **AutoComplete and dragging cells** — typing text into a cell offers
   the first text already in that column that begins with it, with the
   rest selected so that carrying on typing replaces it. Dragging the
@@ -602,7 +608,10 @@ through GSK, without a compositor or a person at the keyboard, and exits;
 `--activate format-cells` (or any window action, with a number or a word in
 brackets when it takes one, as in `zoom(150)` or `shape(checkbox)`) opens a
 dialog or fires the action first and puts it in the picture too; `--select B4` makes a cell active before that,
-and `--select B4,F40` moves on to another afterwards.
+and `--select B4,F40` moves on to another afterwards. `--type '=SU'` opens
+the cell editor with that in it, and `--keys down,tab,B2:B9,f4` presses keys
+and clicks cells in the order given, which is how point mode, F4 and the
+function list are exercised without a person at the keyboard.
 It is how the pictures in this README are made and how a change to the
 grid can be looked at from a script.
 

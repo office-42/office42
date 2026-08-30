@@ -21,6 +21,7 @@
 #include "o42-richtext.h"
 #include "o42-pdf.h"
 #include "o42-formula.h"
+#include "o42-eval.h"
 
 #include <glib/gi18n.h>
 #include <math.h>
@@ -141,6 +142,13 @@ struct _O42Grid {
   /* Point mode: while a formula is being typed, the pointer and the
    * arrows write a reference into it rather than moving the cursor. */
   GArray        *refs;                    /* RefSpan: the references in what is typed */
+
+  /* The function names offered while one is being typed. */
+  GtkWidget     *complete_box;            /* the frame around the list */
+  GtkWidget     *complete_list;
+  GPtrArray     *complete_names;          /* interned names, not owned */
+  int            complete_start;          /* where the partial name begins */
+  int            complete_at;             /* which of them is highlighted */
   gboolean       pointing;
   gboolean       point_dragging;          /* the button is down over the grid */
   int            point_start, point_end;  /* the reference's place in the text */
@@ -228,6 +236,14 @@ static void selection_ranges (O42Grid *self, GArray *out);
 static void pin_point (O42Grid *self, double *x, double *y);
 static void point_end_mode (O42Grid *self);
 static void colour_editor_refs (O42Grid *self);
+static void complete_offer (O42Grid *self);
+static void complete_hide (O42Grid *self);
+static void complete_take_down (O42Grid *self);
+static gboolean complete_accept (O42Grid *self);
+static gboolean complete_move (O42Grid *self, int delta);
+static gboolean complete_key (O42Grid *self, guint keyval);
+static void editor_rect (O42Grid *self, GdkRectangle *at);
+static void place_complete (O42Grid *self);
 static gboolean cycle_dollars (O42Grid *self);
 static gboolean point_arrow (O42Grid *self, int drow, int dcol, gboolean extend, gboolean to_edge);
 static gboolean point_at (O42Grid *self, int row, int col, gboolean extend);
@@ -1291,6 +1307,10 @@ on_editor_key (GtkEventControllerKey *controller,
       break;
     }
 
+  /* The name list, while it is up, has the arrows, Tab and Enter. */
+  if (complete_key (self, keyval))
+    return GDK_EVENT_STOP;
+
   switch (keyval)
     {
     case GDK_KEY_F4:
@@ -1388,6 +1408,7 @@ on_editor_changed (GtkEditable *editable, gpointer data)
   O42Grid *self = data;
 
   colour_editor_refs (self);
+  complete_offer (self);
   const char *typed = gtk_editable_get_text (editable);
   int caret = gtk_editable_get_position (editable);
   O42Range used;
@@ -1546,6 +1567,284 @@ colour_editor_refs (O42Grid *self)
     g_array_unref (self->refs);
   self->refs = refs;
   gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* ---- Naming a function while it is being typed ------------------------- */
+
+/* office42 knows 610 functions, and until now the only way to reach one
+ * was to remember its name exactly or to leave the formula and open the
+ * Function Wizard.  Two letters into a name, the ones that begin that
+ * way are offered under the caret; Tab or Enter takes the highlighted
+ * one and opens its bracket, as Excel and Gnumeric both do.
+ *
+ * The list never takes the keyboard: it is an ordinary child of the
+ * grid, placed under the cell and painted over it, and nothing in it
+ * can be focused, so what is typed goes on reaching the editor and the
+ * list follows it.  A popover would have done neither: it takes a grab,
+ * and it lives in a surface the grid cannot place or paint. */
+
+#define COMPLETE_MOST 12
+
+/* Where the name being typed begins, or -1: a run of letters and dots
+ * that follows something a function may follow. */
+static int
+name_being_typed (const char *text, int caret)
+{
+  int start;
+
+  if (text == NULL || text[0] != '=' || caret < 2)
+    return -1;
+  if (caret > (int) strlen (text))
+    return -1;
+  /* A name that is already opened is finished with. */
+  if (text[caret] == '(')
+    return -1;
+
+  for (start = caret; start > 0; start--)
+    {
+      char c = text[start - 1];
+
+      if (!g_ascii_isalpha (c) && !g_ascii_isdigit (c) && c != '.' && c != '_')
+        break;
+    }
+  if (caret - start < 2)
+    return -1;
+  if (g_ascii_isdigit (text[start]))
+    return -1;
+  switch (text[start - 1])
+    {
+    case '=': case '+': case '-': case '*': case '/': case '^': case '&':
+    case '<': case '>': case '(': case ',': case ';': case ':': case '%':
+      return start;
+    default:
+      return -1;
+    }
+}
+
+/* The list goes off the screen but the names it was made from stay:
+ * offering a new list starts by taking the old one down. */
+static void
+complete_take_down (O42Grid *self)
+{
+  if (self->complete_box != NULL)
+    {
+      gtk_widget_unparent (self->complete_box);
+      self->complete_box = NULL;
+      self->complete_list = NULL;
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+    }
+}
+
+static void
+complete_hide (O42Grid *self)
+{
+  complete_take_down (self);
+  if (self->complete_names != NULL)
+    g_ptr_array_set_size (self->complete_names, 0);
+  self->complete_start = -1;
+  self->complete_at = 0;
+}
+
+/* Puts the highlight on the nth row, and nothing on the others. */
+static void
+complete_highlight (O42Grid *self)
+{
+  GtkWidget *row;
+  int i = 0;
+
+  if (self->complete_list == NULL)
+    return;
+  for (row = gtk_widget_get_first_child (self->complete_list);
+       row != NULL;
+       row = gtk_widget_get_next_sibling (row), i++)
+    {
+      if (i == self->complete_at)
+        gtk_list_box_select_row (GTK_LIST_BOX (self->complete_list),
+                                 GTK_LIST_BOX_ROW (row));
+    }
+}
+
+/* Takes the highlighted name: it replaces what has been typed of it,
+ * and its bracket is opened, which is what everybody expects and what
+ * saves the second keystroke. */
+static gboolean
+complete_accept (O42Grid *self)
+{
+  const char *text, *name;
+  char *before, *after, *whole;
+  int caret;
+
+  if (self->complete_box == NULL || self->complete_names == NULL ||
+      self->complete_names->len == 0 || self->complete_start < 0)
+    return FALSE;
+
+  name = g_ptr_array_index (self->complete_names,
+                            CLAMP (self->complete_at, 0,
+                                   (int) self->complete_names->len - 1));
+  text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  caret = gtk_editable_get_position (GTK_EDITABLE (self->editor));
+  if (caret < 0 || caret > (int) strlen (text))
+    caret = (int) strlen (text);
+
+  before = g_strndup (text, (gsize) self->complete_start);
+  after = g_strdup (text + caret);
+  whole = g_strconcat (before, name, "(", after, NULL);
+  caret = self->complete_start + (int) strlen (name) + 1;
+
+  complete_hide (self);
+  gtk_editable_set_text (GTK_EDITABLE (self->editor), whole);
+  gtk_editable_set_position (GTK_EDITABLE (self->editor), caret);
+
+  g_free (whole);
+  g_free (after);
+  g_free (before);
+  return TRUE;
+}
+
+static void
+on_complete_row_activated (GtkListBox *box, GtkListBoxRow *row, gpointer data)
+{
+  O42Grid *self = data;
+
+  (void) box;
+  self->complete_at = gtk_list_box_row_get_index (row);
+  complete_accept (self);
+  gtk_widget_grab_focus (self->editor);
+}
+
+/* The names that begin the way the one being typed does, offered under
+ * the caret. */
+static void
+complete_offer (O42Grid *self)
+{
+  const char *text;
+  int caret, start;
+  gsize length;
+  guint n_names = 0;
+  const char * const *names;
+
+  if (!self->editing || self->editor == NULL)
+    { complete_hide (self); return; }
+
+  text = gtk_editable_get_text (GTK_EDITABLE (self->editor));
+  caret = gtk_editable_get_position (GTK_EDITABLE (self->editor));
+  if (caret < 0)
+    caret = (int) strlen (text);
+  start = name_being_typed (text, caret);
+  if (start < 0)
+    { complete_hide (self); return; }
+
+  if (self->complete_names == NULL)
+    self->complete_names = g_ptr_array_new ();
+  g_ptr_array_set_size (self->complete_names, 0);
+
+  length = (gsize) (caret - start);
+  names = o42_function_names (&n_names);
+  for (guint i = 0; i < n_names && self->complete_names->len < COMPLETE_MOST; i++)
+    if (g_ascii_strncasecmp (names[i], text + start, length) == 0)
+      g_ptr_array_add (self->complete_names, (gpointer) names[i]);
+
+  if (self->complete_names->len == 0 ||
+      (self->complete_names->len == 1 &&
+       strlen (g_ptr_array_index (self->complete_names, 0)) == length))
+    { complete_hide (self); return; }
+
+  /* The list is made again each time: a dozen rows is nothing, and it
+   * keeps the highlight and the names in step by construction. */
+  complete_take_down (self);
+  self->complete_start = start;
+  self->complete_at = 0;
+
+  {
+    GtkWidget *frame = gtk_frame_new (NULL);
+    GtkWidget *box = gtk_list_box_new ();
+
+    for (guint i = 0; i < self->complete_names->len; i++)
+      {
+        const char *name = g_ptr_array_index (self->complete_names, i);
+        const char *signature = NULL, *summary = NULL;
+        GtkWidget *row = gtk_list_box_row_new ();
+        GtkWidget *line = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+        GtkWidget *label = gtk_label_new (name);
+
+        /* The name in a column of its own so the eye can run down it,
+         * and what the function does beside it, as Gnumeric shows it. */
+        gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+        gtk_label_set_width_chars (GTK_LABEL (label), 12);
+        gtk_box_append (GTK_BOX (line), label);
+
+        if (o42_function_help (name, &signature, &summary) && summary != NULL)
+          {
+            GtkWidget *note = gtk_label_new (summary);
+
+            gtk_label_set_xalign (GTK_LABEL (note), 0.0);
+            gtk_label_set_ellipsize (GTK_LABEL (note), PANGO_ELLIPSIZE_END);
+            gtk_label_set_max_width_chars (GTK_LABEL (note), 40);
+            gtk_widget_add_css_class (note, "o42-complete-note");
+            gtk_box_append (GTK_BOX (line), note);
+          }
+
+        gtk_widget_set_can_focus (row, FALSE);
+        gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), line);
+        gtk_list_box_append (GTK_LIST_BOX (box), row);
+      }
+    g_signal_connect (box, "row-activated", G_CALLBACK (on_complete_row_activated), self);
+
+    /* A child of the grid rather than a popover: a popover would take
+     * the keyboard away from the cell being typed into, and it would
+     * float in a surface of its own where the grid cannot place it. */
+    gtk_frame_set_child (GTK_FRAME (frame), box);
+    gtk_widget_add_css_class (frame, "o42-complete");
+    gtk_widget_set_can_focus (frame, FALSE);
+    gtk_widget_set_can_focus (box, FALSE);
+    gtk_widget_set_parent (frame, GTK_WIDGET (self));
+
+    self->complete_box = frame;
+    self->complete_list = box;
+    place_complete (self);
+    complete_highlight (self);
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+  }
+}
+
+/* What the list makes of a key, or FALSE for a key it has no use for
+ * -- which the editor then gets, so what is typed goes on reaching the
+ * cell and the list follows it. */
+static gboolean
+complete_key (O42Grid *self, guint keyval)
+{
+  if (self->complete_box == NULL)
+    return FALSE;
+
+  switch (keyval)
+    {
+    case GDK_KEY_Down: case GDK_KEY_KP_Down:
+      return complete_move (self, 1);
+    case GDK_KEY_Up: case GDK_KEY_KP_Up:
+      return complete_move (self, -1);
+    case GDK_KEY_Tab:
+    case GDK_KEY_Return: case GDK_KEY_KP_Enter:
+      return complete_accept (self);
+    case GDK_KEY_Escape:
+      /* The first Escape takes the list away and leaves the formula. */
+      complete_hide (self);
+      return TRUE;
+    default:
+      return FALSE;
+    }
+}
+
+/* Up and down walk the list while it is up. */
+static gboolean
+complete_move (O42Grid *self, int delta)
+{
+  if (self->complete_box == NULL || self->complete_names == NULL ||
+      self->complete_names->len == 0)
+    return FALSE;
+  self->complete_at = CLAMP (self->complete_at + delta, 0,
+                             (int) self->complete_names->len - 1);
+  complete_highlight (self);
+  return TRUE;
 }
 
 /* ---- Point mode -------------------------------------------------------- */
@@ -1881,11 +2180,43 @@ o42_grid_point_step (O42Grid *self, const char *direction)
   if (g_ascii_strcasecmp (direction, "f4") == 0)
     return cycle_dollars (self);
 
+  /* The name list answers first, exactly as it does under a real
+   * keyboard. */
+  {
+    guint keyval = 0;
+
+    if (g_ascii_strcasecmp (direction, "tab") == 0)         keyval = GDK_KEY_Tab;
+    else if (g_ascii_strcasecmp (direction, "enter") == 0)  keyval = GDK_KEY_Return;
+    else if (g_ascii_strcasecmp (direction, "escape") == 0) keyval = GDK_KEY_Escape;
+    else if (g_ascii_strcasecmp (direction, "up") == 0)     keyval = GDK_KEY_Up;
+    else if (g_ascii_strcasecmp (direction, "down") == 0)   keyval = GDK_KEY_Down;
+
+    if (keyval != 0 && complete_key (self, keyval))
+      return TRUE;
+    if (keyval == GDK_KEY_Tab || keyval == GDK_KEY_Return ||
+        keyval == GDK_KEY_Escape)
+      return FALSE;
+  }
+
   if (g_ascii_strcasecmp (direction, "left") == 0)       dcol = -1;
   else if (g_ascii_strcasecmp (direction, "right") == 0) dcol = 1;
   else if (g_ascii_strcasecmp (direction, "up") == 0)    drow = -1;
   else if (g_ascii_strcasecmp (direction, "down") == 0)  drow = 1;
-  else return FALSE;
+  else
+    {
+      /* Anything that reads as a reference is a click on it, so that a
+       * script can say what it does in the order it does it. */
+      O42Range r;
+      gsize used = 0;
+
+      if (!o42_ref_parse (direction, &r.row0, &r.col0, &used) || used == 0)
+        return FALSE;
+      if (direction[used] != ':' ||
+          !o42_ref_parse (direction + used + 1, &r.row1, &r.col1, NULL))
+        { r.row1 = r.row0; r.col1 = r.col0; }
+      o42_grid_click_range (self, &r);
+      return TRUE;
+    }
 
   return point_arrow (self, drow, dcol, extend, edge);
 }
@@ -1974,6 +2305,10 @@ o42_grid_begin_edit (O42Grid *self, const char *initial)
   /* Focusing a GtkEntry selects its text; the caret belongs at the end. */
   gtk_editable_select_region (GTK_EDITABLE (self->editor), -1, -1);
   gtk_editable_set_position (GTK_EDITABLE (self->editor), -1);
+
+  /* The text put in by hand did not go through the editor's own
+   * changed signal with the caret where it now is. */
+  complete_offer (self);
 }
 
 static void
@@ -1985,6 +2320,7 @@ end_edit (O42Grid *self)
       self->editor = NULL;
     }
 
+  complete_hide (self);
   self->editing = FALSE;
   if (self->refs != NULL)
     g_array_set_size (self->refs, 0);
@@ -5424,6 +5760,64 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   /* The editor is a child widget; let GTK paint it over everything. */
   if (self->editor != NULL)
     gtk_widget_snapshot_child (widget, self->editor, snapshot);
+  if (self->complete_box != NULL)
+    gtk_widget_snapshot_child (widget, self->complete_box, snapshot);
+}
+
+/* Where the cell being edited is on screen: what the name list and the
+ * argument tip point at. */
+static void
+editor_rect (O42Grid *self, GdkRectangle *at)
+{
+  double sx, sy;
+  double w = 80, h = 20;
+
+  at->x = at->y = 0;
+  at->width = (int) w;
+  at->height = (int) h;
+  if (self->sheet == NULL)
+    return;
+
+  w = o42_sheet_col_width (self->sheet, self->active_col);
+  h = o42_sheet_row_height (self->sheet, self->active_row);
+  grid_scroll (self, &sx, &sy);
+  at->x = (int) ((col_x (self, self->active_col) -
+                  (self->active_col < self->frozen_cols ? 0 : sx)) * self->zoom);
+  at->y = (int) ((row_y (self, self->active_row) -
+                  (self->active_row < self->frozen_rows ? 0 : sy)) * self->zoom);
+  at->width = (int) (w * self->zoom);
+  at->height = (int) (h * self->zoom);
+}
+
+/* The list sits under the cell, or over it when there is no room
+ * below, and never off the right-hand edge. */
+static void
+place_complete (O42Grid *self)
+{
+  GdkRectangle at;
+  GskTransform *transform;
+  int width = 0, height = 0, ignored, x, y;
+  int view_w = gtk_widget_get_width (GTK_WIDGET (self));
+  int view_h = gtk_widget_get_height (GTK_WIDGET (self));
+
+  if (self->complete_box == NULL)
+    return;
+
+  gtk_widget_measure (self->complete_box, GTK_ORIENTATION_HORIZONTAL, -1,
+                      &ignored, &width, NULL, NULL);
+  gtk_widget_measure (self->complete_box, GTK_ORIENTATION_VERTICAL, width,
+                      &ignored, &height, NULL, NULL);
+
+  editor_rect (self, &at);
+  x = at.x;
+  y = at.y + at.height;
+  if (view_w > 0 && x + width > view_w)
+    x = MAX (0, view_w - width);
+  if (view_h > 0 && y + height > view_h && at.y - height >= 0)
+    y = at.y - height;
+
+  transform = gsk_transform_translate (NULL, &GRAPHENE_POINT_INIT (x, y));
+  gtk_widget_allocate (self->complete_box, width, height, -1, transform);
 }
 
 static void
@@ -5478,6 +5872,8 @@ o42_grid_size_allocate (GtkWidget *widget, int width, int height, int baseline)
   grid_configure_adjustments (self);
   if (self->editor != NULL)
     place_editor (self);
+  if (self->complete_box != NULL)
+    place_complete (self);
 }
 
 static void
@@ -5740,12 +6136,20 @@ o42_grid_dispose (GObject *object)
       self->blink_id = 0;
     }
 
+  if (self->complete_box != NULL)
+    {
+      gtk_widget_unparent (self->complete_box);
+      self->complete_box = NULL;
+      self->complete_list = NULL;
+    }
+
   if (self->editor != NULL)
     {
       gtk_widget_unparent (self->editor);
       self->editor = NULL;
     }
 
+  g_clear_pointer (&self->complete_names, g_ptr_array_unref);
   g_clear_pointer (&self->extra_sel, g_array_unref);
   g_clear_pointer (&self->refs, g_array_unref);
   g_clear_pointer (&self->arrows, g_array_unref);

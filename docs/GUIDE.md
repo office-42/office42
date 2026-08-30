@@ -175,6 +175,16 @@ references, ranges, names, operators and function calls:
 and `A$1` and `$A1` pin one half. **F4** cycles the reference at the
 caret round those four, and on a range it does both halves at once.
 
+**The name of a function, offered.** office42 knows some six hundred
+functions, and nobody remembers all of them. Two letters into a name --
+`=SU` -- the ones that begin that way are listed under the cell with a
+line each saying what they do. Up and down walk the list, Tab or Enter
+takes the highlighted name and opens its bracket for you, and Escape
+takes the list away and leaves what you had typed. Go on typing and the
+list narrows; type the whole name and it goes. It appears only where a
+function could stand: after the `=`, after an operator, after a bracket
+or a comma, so `=A1+SU` offers and `SU` on its own does not.
+
 **Coloured references.** While a formula is being typed, each
 reference in it is written in a colour of its own and the cells it
 names are outlined in the same one -- the quickest way to see that a
@@ -823,6 +833,7 @@ and a line about what it does.
 | F5 | Go To |
 | F2 | edit the cell in place |
 | F4 | cycle the dollars on the reference at the caret |
+| Tab | while the function list is up, take the name it highlights |
 | Shift+F2 | insert a note |
 | Shift+F3 | the Function Wizard |
 | Ctrl+F3 | define a name |
