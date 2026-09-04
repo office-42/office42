@@ -150,6 +150,12 @@ array_operand (ArrayConst *a)
   return op;
 }
 
+/* The most cells an array a formula makes up may hold.  Excel's own
+ * limit is the grid; ours is what fits in memory with room to spare,
+ * since =SEQUENCE(1048576,16384) would ask for 270 GB and take the
+ * program down rather than answer #NUM!. */
+#define ARRAY_CELLS_MAX (10 * 1000 * 1000)
+
 static ArrayConst *
 array_const_new (int rows, int cols)
 {
@@ -478,17 +484,41 @@ fn_max (O42EvalContext *ctx, O42Operand *args, int n)
 static O42Value
 fn_count (O42EvalContext *ctx, O42Operand *args, int n)
 {
-  Accum a;
-  O42ErrorCode err = O42_ERR_VALUE;
-  O42Value result;
+  int count = 0;
 
-  accum_init (&a, FALSE);
-  if (!visit_numbers (ctx, args, n, accumulate, &a, &err))
-    { accum_clear (&a); return o42_value_error (err); }
+  /* COUNT asks how many are numbers and never complains about the rest:
+   * an error in the range is not a number, and neither is "abc" as an
+   * argument.  Only what looks like a number counts: a number, a date,
+   * or a numeric text and a boolean given directly. */
+  for (int i = 0; i < n; i++)
+    {
+      if (args[i].is_range)
+        {
+          const O42Range *r = &args[i].range;
 
-  result = o42_value_number (a.count);
-  accum_clear (&a);
-  return result;
+          for (int row = r->row0; row <= r->row1; row++)
+            for (int col = r->col0; col <= r->col1; col++)
+              {
+                O42Value v;
+
+                ctx->get_cell (ctx, args[i].sheet, row, col, &v);
+                if (v.type == O42_VALUE_NUMBER)
+                  count++;
+                o42_value_clear (&v);
+              }
+        }
+      else
+        {
+          double number;
+          O42ErrorCode e = O42_ERR_VALUE;
+
+          if (args[i].value.type != O42_VALUE_ERROR &&
+              o42_value_to_number (&args[i].value, &number, &e))
+            count++;
+        }
+    }
+
+  return o42_value_number (count);
 }
 
 static O42Value
@@ -795,6 +825,19 @@ o42_round_half_away (double x, int digits)
   double scale = pow (10.0, digits);
   double scaled = x * scale;
 
+  if (!isfinite (scaled))
+    return x;
+
+  /* 1.005 is 1.00499999999999989 as a double, and rounding that binary
+   * value gives 1.00 where every spreadsheet says 1.01: Excel decides at
+   * the fifteenth significant digit, where the number reads 1.005
+   * exactly.  A relative nudge of 1e-14 before the half is added is that
+   * decision; it moves nothing that is not already within a rounding
+   * error of the halfway point, and it is left out once the scaled
+   * number is so large that the nudge itself would cross an integer. */
+  if (fabs (scaled) < 1e13)
+    scaled += copysign (fabs (scaled) * 1e-14, scaled);
+
   /* Half away from zero, which is what a spreadsheet does and what people
    * expect; C's rint rounds half to even. */
   return (scaled >= 0 ? floor (scaled + 0.5) : ceil (scaled - 0.5)) / scale;
@@ -934,12 +977,17 @@ criterion_match (const Criterion *c, const O42Value *v)
   /* "<>" matches everything that is not equal, blanks and text included;
    * the ordered comparisons only make sense between values of one kind. */
   if (c->op == CRIT_NE)
-    return !(v->type == c->value.type && o42_value_compare (v, &c->value) == 0);
+    {
+      /* "<>" alone means "not blank". */
+      if (c->value.type == O42_VALUE_TEXT && c->value.as.text[0] == 0)
+        return v->type != O42_VALUE_EMPTY;
+      return !(v->type == c->value.type && o42_value_compare (v, &c->value) == 0);
+    }
 
   if (v->type != c->value.type)
     {
       if (v->type == O42_VALUE_EMPTY && c->value.type == O42_VALUE_TEXT &&
-          *c->value.as.text == '\0')
+          c->value.as.text[0] == 0)
         return c->op == CRIT_EQ;
       return FALSE;
     }
@@ -1305,7 +1353,7 @@ fn_index (O42EvalContext *ctx, O42Operand *args, int n)
       row = 1;
     }
 
-  if (row < 1 || col < 1 ||
+  if (row < 1 || col < 1 || row > O42_MAX_ROWS || col > O42_MAX_COLS ||
       r->row0 + (int) row - 1 > r->row1 || r->col0 + (int) col - 1 > r->col1)
     return o42_value_error (O42_ERR_REF);
 
@@ -1320,7 +1368,8 @@ fn_choose (O42EvalContext *ctx, O42Operand *args, int n)
 
   ARG_NUMBER (0, index);
 
-  if (index < 1 || (int) index >= n)
+  /* Compared as a double: cast first and 3e9 wraps to a negative index. */
+  if (index < 1 || index >= n)
     return o42_value_error (O42_ERR_VALUE);
 
   return operand_value (ctx, &args[(int) index]);
@@ -2410,6 +2459,11 @@ weekend_days (O42EvalContext *ctx, const O42Operand *operand, gboolean weekend[8
             weekend[i + 1] = pattern[i] == '1';
         }
       o42_value_clear (&value);
+      /* A week with no working day in it has no next working day, and
+       * looking for one would never stop. */
+      if (ok && weekend[1] && weekend[2] && weekend[3] && weekend[4] &&
+          weekend[5] && weekend[6] && weekend[7])
+        ok = FALSE;
       return ok;
     }
   {
@@ -4444,11 +4498,16 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
             { o42_value_clear (&v); out->value = o42_value_error (e); return TRUE; }
           o42_value_clear (&v);
         }
+      /* Checked as doubles before the casts: a height of 3e9 cast to
+       * int wraps negative and would pass as a range. */
+      if (height < 1 || width < 1 || height > O42_MAX_ROWS || width > O42_MAX_COLS ||
+          fabs (rows) > O42_MAX_ROWS || fabs (cols) > O42_MAX_COLS)
+        { operand_clear (&base); out->value = o42_value_error (O42_ERR_REF); return TRUE; }
       r.row0 = base.range.row0 + (int) rows;
       r.col0 = base.range.col0 + (int) cols;
       r.row1 = r.row0 + (int) height - 1;
       r.col1 = r.col0 + (int) width - 1;
-      if (height < 1 || width < 1 || r.row0 < 0 || r.col0 < 0 ||
+      if (r.row0 < 0 || r.col0 < 0 ||
           r.row1 >= O42_MAX_ROWS || r.col1 >= O42_MAX_COLS)
         { operand_clear (&base); out->value = o42_value_error (O42_ERR_REF); return TRUE; }
       out->is_range = TRUE;
@@ -4720,6 +4779,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       rows = floor (rows); cols = floor (cols);
       if (rows < 1 || cols < 1 || rows > O42_MAX_ROWS || cols > O42_MAX_COLS)
         { out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      if (rows * cols > ARRAY_CELLS_MAX)
+        { out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       a = array_const_new ((int) rows, (int) cols);
       for (int i = 0; i < (int) rows * (int) cols; i++)
         a->cells[i] = o42_value_number (start + i * step);
@@ -4745,6 +4806,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       rows = floor (rows); cols = floor (cols);
       if (rows < 1 || cols < 1 || rows > O42_MAX_ROWS || cols > O42_MAX_COLS || hi < lo)
         { out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      if (rows * cols > ARRAY_CELLS_MAX)
+        { out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       a = array_const_new ((int) rows, (int) cols);
       for (int i = 0; i < (int) rows * (int) cols; i++)
         {
