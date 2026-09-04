@@ -224,8 +224,8 @@
       </div>
       <figure>
         <img class="screenshot" src="images/screenshot.png" width="960" height="700"
-             alt="Office42 Spreadsheet with a small sales sheet: a heading set in two fonts in one cell, a named cell style on the headings, currency and percent formats, a conditional format, a note, a text box and a three-dimensional column chart">
-        <figcaption class="muted small"><em>Office42 with a small sales sheet, a note, a text box and a three-dimensional column chart.</em></figcaption>
+             alt="Office42 Spreadsheet showing a regional sales sheet: a title set in two fonts in one cell, a styled heading row, currency and percent formats, a total row with SUM and INDEX/MATCH formulas, conditional formats on the growth column, a note, a text box, frozen panes, a three-dimensional column chart, a pie chart with labels, and three sheet tabs">
+        <figcaption class="muted small"><em>A regional sales book: conditional formats, a note, frozen panes, a three-dimensional column chart, a pie chart and three sheet tabs.</em></figcaption>
       </figure>
     </div>
   </div>
@@ -440,8 +440,12 @@ meson compile -C builddir
         <a href="https://github.com/office-42/office42/actions/workflows/linux.yml">Linux</a>,
         <a href="https://github.com/office-42/office42/actions/workflows/macos.yml">macOS</a> and
         <a href="https://github.com/office-42/office42/actions/workflows/windows.yml">Windows</a>
-        workflows build every push with <code>--werror</code> and upload the
-        <code>office42-calc</code> terminal front-end as an artifact, kept for fourteen days.</p>
+        workflows build every push with <code>--werror</code> and smoke-test the engine. The
+        Windows job also uploads a bundle that runs without MSYS2, and the Microsoft Store
+        package made from it, as artifacts of each run. A Store listing is going through
+        certification;
+        <a href="https://github.com/office-42/office42/blob/main/docs/WINDOWS-STORE.md">docs/WINDOWS-STORE.md</a>
+        has the procedure.</p>
         <h3 style="margin-top:1.5rem">Sample books</h3>
         <p>The repository's <a href="https://github.com/office-42/office42/tree/main/samples"><code>samples/</code></a>
         folder holds books that exercise the formats and the function library in
