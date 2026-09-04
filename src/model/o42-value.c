@@ -165,6 +165,9 @@ o42_value_to_text (const O42Value *value)
     case O42_VALUE_BOOL:   return g_strdup (value->as.boolean ? "TRUE" : "FALSE");
     case O42_VALUE_ERROR:  return g_strdup (o42_error_name (value->as.error));
     case O42_VALUE_NUMBER:
+      /* Fifteen digits, as Excel's "&" gives: =1/3&"" is
+       * 0.333333333333333, not the ten General shows in a cell. */
+      return o42_number_to_text (value->as.number, FALSE);
     default:               return o42_value_display (value);
     }
 }
@@ -251,8 +254,16 @@ o42_value_compare (const O42Value *a, const O42Value *b)
   switch (a->type)
     {
     case O42_VALUE_NUMBER:
-      return (a->as.number < b->as.number) ? -1
-           : (a->as.number > b->as.number) ? 1 : 0;
+      {
+        double x = a->as.number, y = b->as.number;
+
+        /* Equal at fifteen significant digits is equal: =0.1+0.2=0.3 is
+         * TRUE in every spreadsheet, though the doubles differ in the
+         * seventeenth digit. */
+        if (x == y || fabs (x - y) <= 1e-15 * fmax (fabs (x), fabs (y)))
+          return 0;
+        return (x < y) ? -1 : 1;
+      }
 
     case O42_VALUE_TEXT:
       {

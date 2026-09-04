@@ -83,11 +83,16 @@ show_round (double n, int places)
 {
   double scale = pow (10, CLAMP (places, 0, 30));
   double scaled = n * scale;
-  double nudged = scaled + copysign (fabs (scaled) * 1e-14, scaled);
+  double nudged = scaled;
 
   if (!isfinite (scaled) || fabs (n) >= 1e15)
     return n;   /* past fifteen digits the scaling would lose more than
                  * the rounding could gain */
+  /* Once the scaled number reaches 1e13 the nudge is half a unit or
+   * more and would itself cross an integer: 12345.6 at ten places came
+   * out 12345.6000000001. */
+  if (fabs (scaled) < 1e13)
+    nudged += copysign (fabs (scaled) * 1e-14, scaled);
   return copysign (floor (fabs (nudged) + 0.5), n) / scale;
 }
 
@@ -128,6 +133,28 @@ format_general (double n)
    * library's own printf would write a decimal comma in half the world's
    * locales, and a spreadsheet's 1.5 must be 1.5 everywhere. */
   g_ascii_formatd (buffer, sizeof buffer, "%.10g", n);
+
+  return g_strdup (buffer);
+}
+
+/* The number as text with every digit that matters: fifteen significant
+ * figures, which is what Excel's General and "&" give, or the seventeen
+ * it takes to read the same double back.  The exact form is what a
+ * formula is rewritten with when it is copied, shifted or saved, where
+ * ten figures would quietly turn 3.14159265358979 into 3.141592654. */
+char *
+o42_number_to_text (double n, gboolean exact)
+{
+  char buffer[G_ASCII_DTOSTR_BUF_SIZE];
+
+  if (isnan (n) || isinf (n))
+    return g_strdup ("#NUM!");
+  if (n == floor (n) && fabs (n) < 1e15)
+    return g_strdup_printf ("%.0f", n);
+
+  g_ascii_formatd (buffer, sizeof buffer, "%.15g", n);
+  if (exact && g_ascii_strtod (buffer, NULL) != n)
+    g_ascii_formatd (buffer, sizeof buffer, "%.17g", n);
 
   return g_strdup (buffer);
 }

@@ -193,6 +193,19 @@ cell_free (gpointer data)
   g_free (cell);
 }
 
+/* The text that, typed into a cell, gives it this value.  A number is
+ * written with every digit it has, not the ten General shows: this text
+ * is what a cell is re-entered from when it is copied, sorted, shifted
+ * by an insert, undone or edited, and 3.14159265358979 must survive all
+ * of those. */
+static char *
+value_input_text (const O42Value *value)
+{
+  if (value->type == O42_VALUE_NUMBER)
+    return o42_number_to_text (value->as.number, TRUE);
+  return o42_value_display (value);
+}
+
 /* The hash table is keyed by a 64-bit value, which does not fit in a
  * pointer on every platform, so the key is stored indirectly. */
 static guint
@@ -1077,7 +1090,7 @@ snapshot_take (O42Sheet *sheet, guint64 key)
       if (cell->input != NULL)
         snap.input = g_strdup (cell->input);
       else if (cell->value.type != O42_VALUE_EMPTY)
-        snap.input = o42_value_display (&cell->value);
+        snap.input = value_input_text (&cell->value);
     }
 
   snap.array_rows = snap.array_cols = 0;
@@ -1870,7 +1883,7 @@ o42_sheet_get_input (O42Sheet *sheet, int row, int col)
   if (cell->input != NULL)
     return g_strdup (cell->input);
 
-  return o42_value_display (&cell->value);
+  return value_input_text (&cell->value);
 }
 
 void
@@ -2356,7 +2369,7 @@ autofill_value (O42Sheet *sheet, const int *rows, const int *cols, int count,
           {
             double base = (n >= count) ? last.as.number : first.as.number;
             O42Value r = o42_value_number (base + delta * step);
-            input = o42_value_display (&r);
+            input = value_input_text (&r);
           }
         }
       else
@@ -2369,7 +2382,7 @@ autofill_value (O42Sheet *sheet, const int *rows, const int *cols, int count,
             r = o42_value_number (v.as.number + step);
           else
             r = o42_value_copy (&v);
-          input = o42_value_display (&r);
+          input = value_input_text (&r);
         }
 
       o42_value_clear (&first); o42_value_clear (&last); o42_value_clear (&v);
@@ -2716,7 +2729,7 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
       else if (cell->input != NULL)
         l.input = g_strdup (cell->input);
       else if (cell->value.type != O42_VALUE_EMPTY)
-        l.input = o42_value_display (&cell->value);
+        l.input = value_input_text (&cell->value);
       else
         l.input = NULL;
 
@@ -7877,7 +7890,7 @@ o42_sheet_data_table (O42Sheet *sheet, const O42Range *range,
           }
 
         o42_sheet_get_value (sheet, formula_row, formula_col, &answer);
-        text = o42_value_display (&answer);
+        text = value_input_text (&answer);
         op_capture (sheet, row, col);
         set_input_internal (sheet, row, col,
                             answer.type == O42_VALUE_TEXT ? NULL : text);

@@ -35,6 +35,14 @@ typedef enum {
  * Caller frees. */
 char *o42_number_format (double n, O42NumberFormat format, int decimals);
 
+/* The number with every digit that matters: fifteen significant figures,
+ * as Excel's "&" and TEXT give, or with `exact` the seventeen it takes to
+ * read the same double back.  Whole numbers print without a point.  This
+ * is what a cell's input text and a rewritten formula are made from, so
+ * that copying, sorting, undoing and saving never lose a digit.  Caller
+ * frees. */
+char *o42_number_to_text (double n, gboolean exact);
+
 /* The format as Excel and Gnumeric write it -- "#,##0.00", "0%",
  * "yyyy-mm-dd" -- and back.  Reading goes by the shape of the string, so
  * "[$$-409]#,##0.00" is Currency with two decimals; the full format

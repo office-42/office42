@@ -5,6 +5,7 @@
  */
 
 #include "o42-formula.h"
+#include "o42-numfmt.h"
 
 #include <string.h>
 
@@ -737,11 +738,12 @@ parse_power (Parser *ps)
 {
   O42Node *a = parse_unary (ps);
 
-  if (op_is (ps, "^"))
+  /* Left associative, as Excel has it: 2^3^2 is (2^3)^2, 64, not the
+   * 512 mathematics would give. */
+  while (op_is (ps, "^"))
     {
       next_token (ps);
-      /* Right associative: 2^3^2 is 2^(3^2). */
-      return make_binary (O42_OP_POW, a, parse_power (ps));
+      a = make_binary (O42_OP_POW, a, parse_unary (ps));
     }
 
   return a;
@@ -1462,12 +1464,12 @@ node_write_child (const O42Node *child, const O42Node *parent,
   gboolean parens;
 
   /* A child that binds looser needs brackets.  One that binds equally
-   * needs them on the side the operator does not associate to: the right
-   * of "-" and "/", the left of "^". */
+   * needs them on the side the operator does not associate to, which
+   * in a spreadsheet is the right of every operator, "^" included. */
   if (cc < pc)
     parens = TRUE;
   else if (cc == pc && parent->type == O42_NODE_BINARY)
-    parens = (parent->as.op.op == O42_OP_POW) ? !right_side : right_side;
+    parens = right_side;
   else
     parens = FALSE;
 
@@ -1486,8 +1488,9 @@ node_write (const O42Node *node, GString *out)
     {
     case O42_NODE_NUMBER:
       {
-        O42Value v = o42_value_number (node->as.number);
-        char *text = o42_value_display (&v);
+        /* Every digit, or copying =A1*3.14159265358979 down a column
+         * would leave 3.141592654 in the copies. */
+        char *text = o42_number_to_text (node->as.number, TRUE);
         g_string_append (out, text);
         g_free (text);
         break;
