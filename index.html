@@ -415,8 +415,9 @@ docs/          the guide, the architecture, the parity review</code></pre>
 <section class="alt" id="download">
   <div class="container">
     <h2>Get Office42</h2>
-    <p class="muted">Version 1.0.0. Office42 builds from source on Linux, macOS and Windows, and
-    every push to <code>main</code> is built and smoke-tested on all three.</p>
+    <p class="muted">Version 1.0.0. On Windows it is in the Microsoft Store; on Linux, macOS and
+    Windows it builds from source, and every push to <code>main</code> is built and smoke-tested
+    on all three.</p>
     <div class="two">
       <div>
         <h3>Building</h3>
@@ -435,17 +436,19 @@ meson compile -C builddir
         (<code>librsvg2-common</code> on Debian and Ubuntu).</p>
       </div>
       <div>
-        <h3>Continuous builds</h3>
+        <h3>Windows</h3>
+        <p><a class="btn btn-solid" href="https://apps.microsoft.com/detail/9PHPZ3D7TGG5">Get it from the Microsoft&nbsp;Store</a></p>
+        <p>The Store package is made from the same source on every push;
+        <a href="https://github.com/office-42/office42/blob/main/docs/WINDOWS-STORE.md">docs/WINDOWS-STORE.md</a>
+        has the procedure.</p>
+        <h3 style="margin-top:1.5rem">Continuous builds</h3>
         <p>The
         <a href="https://github.com/office-42/office42/actions/workflows/linux.yml">Linux</a>,
         <a href="https://github.com/office-42/office42/actions/workflows/macos.yml">macOS</a> and
         <a href="https://github.com/office-42/office42/actions/workflows/windows.yml">Windows</a>
         workflows build every push with <code>--werror</code> and smoke-test the engine. The
-        Windows job also uploads a bundle that runs without MSYS2, and the Microsoft Store
-        package made from it, as artifacts of each run. A Store listing is going through
-        certification;
-        <a href="https://github.com/office-42/office42/blob/main/docs/WINDOWS-STORE.md">docs/WINDOWS-STORE.md</a>
-        has the procedure.</p>
+        Windows job also uploads a bundle that runs without MSYS2, and the Store package made
+        from it, as artifacts of each run.</p>
         <h3 style="margin-top:1.5rem">Sample books</h3>
         <p>The repository's <a href="https://github.com/office-42/office42/tree/main/samples"><code>samples/</code></a>
         folder holds books that exercise the formats and the function library in
