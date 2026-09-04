@@ -185,10 +185,29 @@ of_write (const O42Node *node, GString *out)
       }
     case O42_NODE_RANGE:
       {
-        char *a = o42_ref_name_full (node->as.range.row0, node->as.range.col0,
-                                     (node->abs & O42_ABS_ROW0) != 0, (node->abs & O42_ABS_COL0) != 0);
-        char *b = o42_ref_name_full (node->as.range.row1, node->as.range.col1,
-                                     (node->abs & O42_ABS_ROW1) != 0, (node->abs & O42_ABS_COL1) != 0);
+        char *a, *b;
+
+        /* A:A is [.A:.A] in OpenFormula, as LibreOffice writes it. */
+        if (node->abs & O42_WHOLE_COLS)
+          {
+            char letters[8];
+            o42_col_name (node->as.range.col0, letters, sizeof letters);
+            a = g_strdup_printf ("%s%s", (node->abs & O42_ABS_COL0) ? "$" : "", letters);
+            o42_col_name (node->as.range.col1, letters, sizeof letters);
+            b = g_strdup_printf ("%s%s", (node->abs & O42_ABS_COL1) ? "$" : "", letters);
+          }
+        else if (node->abs & O42_WHOLE_ROWS)
+          {
+            a = g_strdup_printf ("%s%d", (node->abs & O42_ABS_ROW0) ? "$" : "", node->as.range.row0 + 1);
+            b = g_strdup_printf ("%s%d", (node->abs & O42_ABS_ROW1) ? "$" : "", node->as.range.row1 + 1);
+          }
+        else
+          {
+            a = o42_ref_name_full (node->as.range.row0, node->as.range.col0,
+                                   (node->abs & O42_ABS_ROW0) != 0, (node->abs & O42_ABS_COL0) != 0);
+            b = o42_ref_name_full (node->as.range.row1, node->as.range.col1,
+                                   (node->abs & O42_ABS_ROW1) != 0, (node->abs & O42_ABS_COL1) != 0);
+          }
         g_string_append_c (out, '[');
         of_sheet_prefix (node->sheet, out);
         g_string_append (out, a);

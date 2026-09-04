@@ -163,6 +163,11 @@ struct _O42Sheet {
 
   O42EvalContext eval;
 
+  O42Range     used;          /* the rectangle holding every stored cell */
+  gboolean     used_valid;    /* ... when it has been worked out and no cell
+                               * on its edge has gone since */
+  gboolean     used_any;      /* ... and there is at least one cell */
+
   GPtrArray   *pictures;         /* O42Picture*, owned */
   guint        next_picture_id;
   GPtrArray   *charts;           /* O42Chart*, owned */
@@ -262,7 +267,35 @@ sheet_ensure (O42Sheet *sheet, int row, int col)
   *stored = key;
   g_hash_table_insert (sheet->cells, stored, cell);
 
+  /* A new cell can only make the used range larger. */
+  if (sheet->used_valid)
+    {
+      if (!sheet->used_any)
+        {
+          sheet->used.row0 = sheet->used.row1 = row;
+          sheet->used.col0 = sheet->used.col1 = col;
+          sheet->used_any = TRUE;
+        }
+      else
+        {
+          sheet->used.row0 = MIN (sheet->used.row0, row);
+          sheet->used.row1 = MAX (sheet->used.row1, row);
+          sheet->used.col0 = MIN (sheet->used.col0, col);
+          sheet->used.col1 = MAX (sheet->used.col1, col);
+        }
+    }
+
   return cell;
+}
+
+/* A cell is going: the used range is only in doubt if it sat on an edge. */
+static void
+sheet_used_forget (O42Sheet *sheet, int row, int col)
+{
+  if (sheet->used_valid &&
+      (row == sheet->used.row0 || row == sheet->used.row1 ||
+       col == sheet->used.col0 || col == sheet->used.col1))
+    sheet->used_valid = FALSE;
 }
 
 /* A cell that holds nothing and looks like nothing need not be stored. */
@@ -283,6 +316,7 @@ sheet_prune (O42Sheet *sheet, int row, int col)
     {
       g_hash_table_remove (sheet->formulas, &key);
       g_hash_table_remove (sheet->cells, &key);
+      sheet_used_forget (sheet, row, col);
     }
 }
 
@@ -296,6 +330,22 @@ static void set_input_internal (O42Sheet *sheet, int row, int col,
                                 const char *text);
 static void autofilter_apply (O42Sheet *sheet);
 static gboolean ranges_overlap (const O42Range *a, const O42Range *b);
+
+/* The evaluator asking how far a sheet's cells reach, so that A:A is
+ * walked as far as there is anything to walk. */
+static gboolean
+sheet_get_extent (O42EvalContext *ctx, const char *sheet_name, O42Range *used)
+{
+  O42Sheet *sheet = ctx->user_data;
+  O42Sheet *target = sheet;
+
+  if (sheet_name != NULL && g_ascii_strcasecmp (sheet_name, sheet->name) != 0)
+    target = (sheet->book != NULL) ? o42_book_find_sheet (sheet->book, sheet_name) : NULL;
+  if (target == NULL)
+    return FALSE;
+  o42_sheet_used_range (target, used);
+  return target->used_any;
+}
 
 /* The evaluator's way to a defined name: through the book. */
 /* The sheets of a 3-D reference: from `first` to `last` in tab order,
@@ -672,6 +722,12 @@ precedent_on (const O42SheetRange *p, O42Sheet *own, const char *changed)
 
 #define DEP_BAND 64
 
+/* A precedent taller than this many bands -- a whole column, or most of
+ * one -- is indexed under the one band below rather than under every
+ * band it crosses, which for A:A would be 16,384 entries a formula. */
+#define DEP_TALL_BANDS 256
+#define DEP_WHOLE (-1)
+
 static char *
 deps_key (const O42SheetRange *p, int band)
 {
@@ -679,6 +735,15 @@ deps_key (const O42SheetRange *p, int band)
   char *key = g_strdup_printf ("%s\001%d", upper, band);
   g_free (upper);
   return key;
+}
+
+static void
+deps_bands (const O42SheetRange *p, int *lo, int *hi)
+{
+  *lo = MAX (p->range.row0, 0) / DEP_BAND;
+  *hi = MIN (p->range.row1, O42_MAX_ROWS - 1) / DEP_BAND;
+  if (*hi - *lo >= DEP_TALL_BANDS)
+    *lo = *hi = DEP_WHOLE;
 }
 
 /* Every band a formula's precedents touch gets the formula's key. */
@@ -690,7 +755,9 @@ deps_add (O42Sheet *sheet, guint64 fkey, O42Cell *cell)
   for (guint i = 0; i < cell->precedents->len; i++)
     {
       const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
-      int lo = MAX (p->range.row0, 0) / DEP_BAND, hi = MIN (p->range.row1, O42_MAX_ROWS - 1) / DEP_BAND;
+      int lo, hi;
+
+      deps_bands (p, &lo, &hi);
       for (int band = lo; band <= hi; band++)
         {
           char *key = deps_key (p, band);
@@ -718,7 +785,9 @@ deps_remove (O42Sheet *sheet, guint64 fkey, O42Cell *cell)
   for (guint i = 0; i < cell->precedents->len; i++)
     {
       const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
-      int lo = MAX (p->range.row0, 0) / DEP_BAND, hi = MIN (p->range.row1, O42_MAX_ROWS - 1) / DEP_BAND;
+      int lo, hi;
+
+      deps_bands (p, &lo, &hi);
       for (int band = lo; band <= hi; band++)
         {
           char *key = deps_key (p, band);
@@ -797,45 +866,42 @@ o42_sheet_dependents (O42Sheet *sheet, int row, int col)
 
   g_return_val_if_fail (sheet != NULL, out);
   memset (&probe, 0, sizeof probe);
-  probe.sheet = sheet->name;
-  key = deps_key (&probe, row / DEP_BAND);
-  set = g_hash_table_lookup (sheet->dependents, key);
-  g_free (key);
 
-  /* A formula that names no sheet is indexed under the empty one. */
-  if (set == NULL)
+  /* A formula that names no sheet is indexed under the empty one, and
+   * one over a whole column under the whole band. */
+  for (int which = 0; which < 4; which++)
     {
-      probe.sheet = NULL;
-      key = deps_key (&probe, row / DEP_BAND);
+      probe.sheet = (which & 1) ? NULL : sheet->name;
+      key = deps_key (&probe, (which & 2) ? DEP_WHOLE : row / DEP_BAND);
       set = g_hash_table_lookup (sheet->dependents, key);
       g_free (key);
-    }
-  if (set == NULL)
-    return out;
-
-  g_hash_table_iter_init (&iter, set);
-  while (g_hash_table_iter_next (&iter, &stored, NULL))
-    {
-      guint64 fkey = *(guint64 *) stored;
-      O42Cell *cell = sheet_find_key (sheet, fkey);
-      O42Range r;
-
-      if (cell == NULL || cell->precedents == NULL)
+      if (set == NULL)
         continue;
-      for (guint i = 0; i < cell->precedents->len; i++)
-        {
-          const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
-          O42Range n = o42_range_normalise (p->range.row0, p->range.col0,
-                                            p->range.row1, p->range.col1);
 
-          if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+      g_hash_table_iter_init (&iter, set);
+      while (g_hash_table_iter_next (&iter, &stored, NULL))
+        {
+          guint64 fkey = *(guint64 *) stored;
+          O42Cell *cell = sheet_find_key (sheet, fkey);
+          O42Range r;
+
+          if (cell == NULL || cell->precedents == NULL)
             continue;
-          if (row < n.row0 || row > n.row1 || col < n.col0 || col > n.col1)
-            continue;
-          r.row0 = r.row1 = o42_key_row (fkey);
-          r.col0 = r.col1 = o42_key_col (fkey);
-          g_array_append_val (out, r);
-          break;
+          for (guint i = 0; i < cell->precedents->len; i++)
+            {
+              const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
+              O42Range n = o42_range_normalise (p->range.row0, p->range.col0,
+                                                p->range.row1, p->range.col1);
+
+              if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+                continue;
+              if (row < n.row0 || row > n.row1 || col < n.col0 || col > n.col1)
+                continue;
+              r.row0 = r.row1 = o42_key_row (fkey);
+              r.col0 = r.col1 = o42_key_col (fkey);
+              g_array_append_val (out, r);
+              break;
+            }
         }
     }
   return out;
@@ -923,32 +989,41 @@ static void
 sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
 {
   GArray *to_visit;
-  GHashTable *candidates[2] = { NULL, NULL };
+  GHashTable *candidates[4] = { NULL, NULL, NULL, NULL };
+  gboolean any_candidate = FALSE;
 
   if (g_hash_table_size (sheet->formulas) == 0)
     return;
 
   /* Only the formulas whose precedents reach this band of rows on the
    * changed sheet can be affected: the index holds them under the
-   * sheet's name, and under "" when the sheet is this one. */
+   * sheet's name, and under "" when the sheet is this one; the ones
+   * over a whole column sit under the whole band. */
   {
     char *upper = g_ascii_strup (changed, -1);
     char *key = g_strdup_printf ("%s\001%d", upper, row / DEP_BAND);
     candidates[0] = g_hash_table_lookup (sheet->dependents, key);
+    g_free (key);
+    key = g_strdup_printf ("%s\001%d", upper, DEP_WHOLE);
+    candidates[2] = g_hash_table_lookup (sheet->dependents, key);
     g_free (key);
     if (g_ascii_strcasecmp (changed, sheet->name) == 0)
       {
         key = g_strdup_printf ("\001%d", row / DEP_BAND);
         candidates[1] = g_hash_table_lookup (sheet->dependents, key);
         g_free (key);
+        key = g_strdup_printf ("\001%d", DEP_WHOLE);
+        candidates[3] = g_hash_table_lookup (sheet->dependents, key);
+        g_free (key);
       }
     g_free (upper);
   }
+  for (int which = 0; which < 4; which++)
+    any_candidate |= candidates[which] != NULL;
   /* Nothing indexed reads this band and nothing is volatile: no formula
    * can care.  (The volatile ones are checked first: a change in a band
    * no formula names is exactly what INDIRECT reads.) */
-  if (candidates[0] == NULL && candidates[1] == NULL &&
-      g_hash_table_size (sheet->volatiles) == 0)
+  if (!any_candidate && g_hash_table_size (sheet->volatiles) == 0)
     return;
 
   to_visit = g_array_new (FALSE, FALSE, sizeof (guint64));
@@ -973,7 +1048,7 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
         }
     }
 
-  for (int which = 0; which < 2; which++)
+  for (int which = 0; which < 4; which++)
     {
       GHashTableIter iter;
       gpointer key_ptr;
@@ -1276,6 +1351,7 @@ o42_sheet_new (const char *name)
   sheet->eval.get_cell_info = sheet_get_cell_info;
   sheet->eval.get_name = sheet_get_name;
   sheet->eval.sheets_between = sheet_sheets_between;
+  sheet->eval.get_extent = sheet_get_extent;
   sheet->eval.user_data = sheet;
 
   return sheet;
@@ -2809,6 +2885,7 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
     }
   g_hash_table_remove_all (sheet->formulas);
   g_hash_table_remove_all (sheet->cells);
+  sheet->used_valid = FALSE;
 
   for (guint i = 0; i < landings->len; i++)
     {
@@ -4462,6 +4539,15 @@ o42_sheet_used_range (O42Sheet *sheet, O42Range *out)
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (out != NULL);
 
+  /* Asked for on every repaint and by every formula over a whole
+   * column, so the answer is kept and grown as cells come, and only
+   * worked out again when a cell on its edge has gone. */
+  if (sheet->used_valid)
+    {
+      *out = sheet->used;
+      return;
+    }
+
   out->row0 = out->col0 = 0;
   out->row1 = out->col1 = 0;
 
@@ -4485,6 +4571,10 @@ o42_sheet_used_range (O42Sheet *sheet, O42Range *out)
       out->col0 = MIN (out->col0, col);
       out->col1 = MAX (out->col1, col);
     }
+
+  sheet->used = *out;
+  sheet->used_any = any;
+  sheet->used_valid = TRUE;
 }
 
 void

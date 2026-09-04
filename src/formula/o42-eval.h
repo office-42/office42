@@ -49,6 +49,13 @@ struct _O42EvalContext {
    * how many.  Zero when either is missing.  May be NULL. */
   int      (*sheets_between) (O42EvalContext *ctx, const char *first,
                               const char *last, const char ***names);
+
+  /* The rectangle that holds every stored cell on the named sheet (NULL
+   * for the formula's own), so that =SUM(A:A) walks the rows that have
+   * something in them and not the million the column has.  FALSE when
+   * the sheet is empty or unknown.  May be NULL, and then a whole
+   * column is walked whole. */
+  gboolean (*get_extent) (O42EvalContext *ctx, const char *sheet, O42Range *used);
 };
 
 /* An argument is either a single value or a rectangle of them.  Keeping the

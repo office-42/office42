@@ -7,6 +7,7 @@
 #include "o42-formula.h"
 #include "o42-numfmt.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------- */
@@ -405,6 +406,10 @@ o42_node_free (O42Node *node)
 /* ---------------------------------------------------------------------- */
 
 static O42Node *parse_expr (Parser *ps);
+static O42Node *parse_whole_range (Parser *ps, gboolean cols, int first, gboolean first_abs,
+                                   const char *sheet, const char *sheet_last);
+static gboolean parse_row_only (const char *text, int *row, gboolean *abs);
+static gboolean parse_col_only (const char *text, int *col, gboolean *abs);
 
 static gboolean
 op_is (Parser *ps, const char *what)
@@ -499,9 +504,16 @@ parse_primary (Parser *ps)
     {
     case TOK_NUMBER:
       {
-        O42Node *n = node_new (O42_NODE_NUMBER);
-        n->as.number = ps->tok.number;
+        O42Node *n;
+        double number = ps->tok.number;
+
         next_token (ps);
+        /* 1:1 is the whole of row 1, not a number and a stray colon. */
+        if (ps->tok.type == TOK_COLON && number >= 1 && number <= O42_MAX_ROWS &&
+            number == (int) number)
+          return parse_whole_range (ps, FALSE, (int) number - 1, FALSE, NULL, NULL);
+        n = node_new (O42_NODE_NUMBER);
+        n->as.number = number;
         return n;
       }
 
@@ -619,6 +631,12 @@ parse_primary (Parser *ps)
                     if (col > col1) { gboolean t = col_abs; col_abs = col1_abs; col1_abs = t; }
                     n->abs = (row_abs ? O42_ABS_ROW0 : 0) | (col_abs ? O42_ABS_COL0 : 0)
                            | (row1_abs ? O42_ABS_ROW1 : 0) | (col1_abs ? O42_ABS_COL1 : 0);
+                    /* A1:A1048576 is A:A, as Excel reads it too, and
+                     * files that cannot write A:A spell it that way. */
+                    if (n->as.range.row0 == 0 && n->as.range.row1 == O42_MAX_ROWS - 1)
+                      n->abs |= O42_WHOLE_COLS;
+                    if (n->as.range.col0 == 0 && n->as.range.col1 == O42_MAX_COLS - 1)
+                      n->abs |= O42_WHOLE_ROWS;
                     n->sheet = sheet;
                     n->sheet_last = sheet_last;
                     g_free (name);
@@ -642,6 +660,25 @@ parse_primary (Parser *ps)
             }
           }
 
+        /* A:A and $1:$1: a column or a row on its own before a colon is
+         * the whole of it. */
+        if (ps->tok.type == TOK_COLON)
+          {
+            int index = 0;
+            gboolean abs = FALSE;
+
+            if (parse_col_only (name, &index, &abs))
+              {
+                g_free (name);
+                return parse_whole_range (ps, TRUE, index, abs, sheet, sheet_last);
+              }
+            if (parse_row_only (name, &index, &abs))
+              {
+                g_free (name);
+                return parse_whole_range (ps, FALSE, index, abs, sheet, sheet_last);
+              }
+          }
+
         /* Anything else is a defined name -- or will be #NAME? when it is
          * looked up and is not one. */
         if (sheet != NULL)
@@ -660,6 +697,110 @@ parse_primary (Parser *ps)
       next_token (ps);
       return node_error (O42_ERR_NAME);
     }
+}
+
+/* "A", "$XFD": a column on its own, as the halves of A:A are written.
+ * TRUE with the column's index and whether it had a dollar. */
+static gboolean
+parse_col_only (const char *text, int *col, gboolean *abs)
+{
+  int value = 0, n = 0;
+
+  if (text == NULL)
+    return FALSE;
+  *abs = (*text == '$');
+  if (*abs)
+    text++;
+  for (; g_ascii_isalpha (*text); text++, n++)
+    value = value * 26 + (g_ascii_toupper (*text) - 'A' + 1);
+  if (n < 1 || n > 3 || *text != '\0' || value > O42_MAX_COLS)
+    return FALSE;
+  *col = value - 1;
+  return TRUE;
+}
+
+/* "1", "$65536": a row on its own, as the halves of 1:1 are written. */
+static gboolean
+parse_row_only (const char *text, int *row, gboolean *abs)
+{
+  long value;
+  char *end = NULL;
+
+  if (text == NULL)
+    return FALSE;
+  *abs = (*text == '$');
+  if (*abs)
+    text++;
+  if (!g_ascii_isdigit (*text))
+    return FALSE;
+  value = strtol (text, &end, 10);
+  if (end == NULL || *end != '\0' || value < 1 || value > O42_MAX_ROWS)
+    return FALSE;
+  *row = (int) value - 1;
+  return TRUE;
+}
+
+/* The second half of A:A or 1:1, which is the current token: a column
+ * or a row on its own.  A bare row lexes as a number, so both shapes
+ * are looked at. */
+static gboolean
+parse_whole_end (Parser *ps, gboolean cols, int *index, gboolean *abs)
+{
+  if (ps->tok.type == TOK_IDENT && ps->tok.sheet == NULL)
+    return cols ? parse_col_only (ps->tok.text, index, abs)
+                : parse_row_only (ps->tok.text, index, abs);
+  if (!cols && ps->tok.type == TOK_NUMBER &&
+      ps->tok.number >= 1 && ps->tok.number <= O42_MAX_ROWS &&
+      ps->tok.number == (int) ps->tok.number)
+    {
+      *index = (int) ps->tok.number - 1;
+      *abs = FALSE;
+      return TRUE;
+    }
+  return FALSE;
+}
+
+/* A:A, $A:$C, 1:1, Sheet2!B:B: the whole of some columns or rows.  The
+ * first half has been read and the colon is the current token; on
+ * success the range is returned with the token after it read. */
+static O42Node *
+parse_whole_range (Parser *ps, gboolean cols, int first, gboolean first_abs,
+                   const char *sheet, const char *sheet_last)
+{
+  int last = 0;
+  gboolean last_abs = FALSE;
+  O42Node *n;
+
+  next_token (ps);
+  if (!parse_whole_end (ps, cols, &last, &last_abs))
+    return node_error (O42_ERR_REF);
+  next_token (ps);
+
+  n = node_new (O42_NODE_RANGE);
+  if (first > last)
+    {
+      int t = first; first = last; last = t;
+      gboolean b = first_abs; first_abs = last_abs; last_abs = b;
+    }
+  if (cols)
+    {
+      n->as.range.col0 = first;
+      n->as.range.col1 = last;
+      n->as.range.row0 = 0;
+      n->as.range.row1 = O42_MAX_ROWS - 1;
+      n->abs = O42_WHOLE_COLS | (first_abs ? O42_ABS_COL0 : 0) | (last_abs ? O42_ABS_COL1 : 0);
+    }
+  else
+    {
+      n->as.range.row0 = first;
+      n->as.range.row1 = last;
+      n->as.range.col0 = 0;
+      n->as.range.col1 = O42_MAX_COLS - 1;
+      n->abs = O42_WHOLE_ROWS | (first_abs ? O42_ABS_ROW0 : 0) | (last_abs ? O42_ABS_ROW1 : 0);
+    }
+  n->sheet = sheet;
+  n->sheet_last = sheet_last;
+  return n;
 }
 
 /* Trailing % divides by a hundred, and binds tighter than anything
@@ -1003,10 +1144,12 @@ relocate_visit (O42Node *node, gpointer user)
   else
     {
       O42Range *r = &node->as.range;
-      int row0 = r->row0 + ((node->abs & O42_ABS_ROW0) ? 0 : d->drow);
-      int col0 = r->col0 + ((node->abs & O42_ABS_COL0) ? 0 : d->dcol);
-      int row1 = r->row1 + ((node->abs & O42_ABS_ROW1) ? 0 : d->drow);
-      int col1 = r->col1 + ((node->abs & O42_ABS_COL1) ? 0 : d->dcol);
+      int drow = (node->abs & O42_WHOLE_COLS) ? 0 : d->drow;
+      int dcol = (node->abs & O42_WHOLE_ROWS) ? 0 : d->dcol;
+      int row0 = r->row0 + ((node->abs & O42_ABS_ROW0) ? 0 : drow);
+      int col0 = r->col0 + ((node->abs & O42_ABS_COL0) ? 0 : dcol);
+      int row1 = r->row1 + ((node->abs & O42_ABS_ROW1) ? 0 : drow);
+      int col1 = r->col1 + ((node->abs & O42_ABS_COL1) ? 0 : dcol);
 
       if (row0 == r->row0 && col0 == r->col0 && row1 == r->row1 && col1 == r->col1)
         return FALSE;
@@ -1094,6 +1237,12 @@ shift_visit (O42Node *node, gpointer user)
   const Shift *s = user;
 
   if (!shift_applies (node, s) || !in_band (node, s))
+    return FALSE;
+
+  /* A whole column still holds every row after rows are put in or taken
+   * out, and a whole row every column. */
+  if (node->type == O42_NODE_RANGE &&
+      (node->abs & (s->rows ? O42_WHOLE_COLS : O42_WHOLE_ROWS)))
     return FALSE;
 
   if (node->type == O42_NODE_REF)
@@ -1187,6 +1336,8 @@ move_visit (O42Node *node, gpointer user)
 
   if (node->type == O42_NODE_REF)
     { r0 = r1 = node->as.ref.row; c0 = c1 = node->as.ref.col; }
+  else if (node->abs & (O42_WHOLE_COLS | O42_WHOLE_ROWS))
+    return FALSE;
   else
     { r0 = node->as.range.row0; c0 = node->as.range.col0;
       r1 = node->as.range.row1; c1 = node->as.range.col1; }
@@ -1563,12 +1714,34 @@ node_write (const O42Node *node, GString *out)
 
     case O42_NODE_RANGE:
       {
-        char *a = o42_ref_name_full (node->as.range.row0, node->as.range.col0,
-                                     (node->abs & O42_ABS_ROW0) != 0,
-                                     (node->abs & O42_ABS_COL0) != 0);
-        char *b = o42_ref_name_full (node->as.range.row1, node->as.range.col1,
-                                     (node->abs & O42_ABS_ROW1) != 0,
-                                     (node->abs & O42_ABS_COL1) != 0);
+        char *a, *b;
+
+        if (node->abs & (O42_WHOLE_COLS | O42_WHOLE_ROWS))
+          {
+            char letters0[8], letters1[8];
+
+            write_sheet_prefix (node, out);
+            if (node->abs & O42_WHOLE_COLS)
+              {
+                o42_col_name (node->as.range.col0, letters0, sizeof letters0);
+                o42_col_name (node->as.range.col1, letters1, sizeof letters1);
+                g_string_append_printf (out, "%s%s:%s%s",
+                                        (node->abs & O42_ABS_COL0) ? "$" : "", letters0,
+                                        (node->abs & O42_ABS_COL1) ? "$" : "", letters1);
+              }
+            else
+              g_string_append_printf (out, "%s%d:%s%d",
+                                      (node->abs & O42_ABS_ROW0) ? "$" : "", node->as.range.row0 + 1,
+                                      (node->abs & O42_ABS_ROW1) ? "$" : "", node->as.range.row1 + 1);
+            break;
+          }
+
+        a = o42_ref_name_full (node->as.range.row0, node->as.range.col0,
+                               (node->abs & O42_ABS_ROW0) != 0,
+                               (node->abs & O42_ABS_COL0) != 0);
+        b = o42_ref_name_full (node->as.range.row1, node->as.range.col1,
+                               (node->abs & O42_ABS_ROW1) != 0,
+                               (node->abs & O42_ABS_COL1) != 0);
         write_sheet_prefix (node, out);
         g_string_append_printf (out, "%s:%s", a, b);
         g_free (a);

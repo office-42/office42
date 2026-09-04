@@ -48,7 +48,12 @@ enum {
   O42_ABS_ROW0 = 1 << 0,
   O42_ABS_COL0 = 1 << 1,
   O42_ABS_ROW1 = 1 << 2,
-  O42_ABS_COL1 = 1 << 3
+  O42_ABS_COL1 = 1 << 3,
+  /* A:A and 1:1: a range that is whole columns or whole rows.  Its
+   * numbers span the sheet on that axis, it is written back as it was
+   * typed, and nothing that moves rows can move a whole column. */
+  O42_WHOLE_COLS = 1 << 4,
+  O42_WHOLE_ROWS = 1 << 5
 };
 
 /* A rectangle on a named sheet, or on the formula's own sheet when the

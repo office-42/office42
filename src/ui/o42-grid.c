@@ -1484,6 +1484,65 @@ typedef struct {
   int      colour;        /* which of REF_COLOURS */
 } RefSpan;
 
+/* "$A", "XFD": column letters on their own, for one half of A:A. */
+static gboolean
+whole_col_parse (const char *p, int *col, gsize *used)
+{
+  const char *start = p;
+  int value = 0, n = 0;
+
+  if (*p == '$') p++;
+  for (; g_ascii_isalpha (*p); p++, n++)
+    value = value * 26 + (g_ascii_toupper (*p) - 'A' + 1);
+  if (n < 1 || n > 3 || value > O42_MAX_COLS || g_ascii_isdigit (*p))
+    return FALSE;
+  *col = value - 1;
+  *used = (gsize) (p - start);
+  return TRUE;
+}
+
+/* "$1", "65536": a row number on its own, for one half of 1:1. */
+static gboolean
+whole_row_parse (const char *p, int *row, gsize *used)
+{
+  const char *start = p;
+  long value = 0;
+  int n = 0;
+
+  if (*p == '$') p++;
+  for (; g_ascii_isdigit (*p); p++, n++)
+    value = value * 10 + (*p - '0');
+  if (n < 1 || n > 7 || value < 1 || value > O42_MAX_ROWS || g_ascii_isalpha (*p))
+    return FALSE;
+  *row = (int) value - 1;
+  *used = (gsize) (p - start);
+  return TRUE;
+}
+
+/* A:A, $B:$D, 1:1, 3:5 at `p`: the whole of some columns or rows. */
+static gboolean
+whole_ref_parse (const char *p, int *row, int *col, int *row2, int *col2, gsize *used)
+{
+  gsize a = 0, b = 0;
+  int first, last;
+
+  if (whole_col_parse (p, &first, &a) && p[a] == ':' && whole_col_parse (p + a + 1, &last, &b))
+    {
+      *col = first; *col2 = last;
+      *row = 0; *row2 = O42_MAX_ROWS - 1;
+      *used = a + 1 + b;
+      return TRUE;
+    }
+  if (whole_row_parse (p, &first, &a) && p[a] == ':' && whole_row_parse (p + a + 1, &last, &b))
+    {
+      *row = first; *row2 = last;
+      *col = 0; *col2 = O42_MAX_COLS - 1;
+      *used = a + 1 + b;
+      return TRUE;
+    }
+  return FALSE;
+}
+
 /* Every reference a formula's text holds, in the order they are
  * written, skipping anything inside quotes and anything that names
  * another sheet -- an outline can only be drawn on this one. */
@@ -1508,19 +1567,29 @@ formula_refs (const char *text)
         }
       /* A letter that follows one is part of a name, not the start of
        * a reference: SUM is not S, U, M. */
-      if (!(g_ascii_isalpha (text[i]) || text[i] == '$') ||
+      if (!(g_ascii_isalnum (text[i]) || text[i] == '$') ||
           (i > 0 && (g_ascii_isalnum (text[i - 1]) || text[i - 1] == '_' ||
-                     text[i - 1] == '!' || text[i - 1] == '$')))
+                     text[i - 1] == '!' || text[i - 1] == '$' || text[i - 1] == '.')))
         { i++; continue; }
 
       start = i;
-      if (!o42_ref_parse (text + i, &row, &col, &used) || used == 0)
-        { i++; continue; }
-      i += (int) used;
-      row2 = row;
-      col2 = col;
-      if (text[i] == ':' && o42_ref_parse (text + i + 1, &row2, &col2, &used) && used > 0)
-        i += 1 + (int) used;
+      /* A:A and 1:1: two columns or two rows about a colon. */
+      if (whole_ref_parse (text + i, &row, &col, &row2, &col2, &used))
+        {
+          i += (int) used;
+          if (g_ascii_isalpha (text[i]) || text[i] == '(' || text[i] == '_')
+            continue;
+        }
+      else
+        {
+          if (!o42_ref_parse (text + i, &row, &col, &used) || used == 0)
+            { i++; continue; }
+          i += (int) used;
+          row2 = row;
+          col2 = col;
+          if (text[i] == ':' && o42_ref_parse (text + i + 1, &row2, &col2, &used) && used > 0)
+            i += 1 + (int) used;
+        }
       /* Not a reference after all if a letter or a bracket follows: SUM(
        * begins a call, and A1B is a name. */
       if (g_ascii_isalpha (text[i]) || text[i] == '(' || text[i] == '_')

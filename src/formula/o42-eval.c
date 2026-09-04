@@ -166,6 +166,26 @@ array_const_new (int rows, int cols)
   return a;
 }
 
+/* A:A names a million rows and 1:1 sixteen thousand columns, nearly
+ * all of them empty.  The range a formula walks is cut down to the
+ * sheet's stored cells, which is what every function that reads the
+ * range cell by cell needs; a range with nothing in it keeps its first
+ * cell so that it is still a range. */
+static void
+operand_clip_whole (O42EvalContext *ctx, O42Operand *op, const O42Node *node)
+{
+  O42Range used;
+
+  if (!(node->abs & (O42_WHOLE_COLS | O42_WHOLE_ROWS)) || ctx->get_extent == NULL)
+    return;
+  if (!ctx->get_extent (ctx, node->sheet, &used))
+    used.row0 = used.col0 = used.row1 = used.col1 = 0;
+  if (node->abs & O42_WHOLE_COLS)
+    op->range.row1 = MAX (used.row1, op->range.row0);
+  if (node->abs & O42_WHOLE_ROWS)
+    op->range.col1 = MAX (used.col1, op->range.col0);
+}
+
 /* An operand's shape: a value is one by one. */
 static void
 operand_dims (const O42Operand *op, int *rows, int *cols)
@@ -6544,6 +6564,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           out->is_range = TRUE;
           out->sheet = tree->sheet;
           out->range = tree->as.range;
+          operand_clip_whole (ctx, out, tree);
         }
       else if (tree->type == O42_NODE_NAME && ctx->get_name != NULL)
         {
@@ -9836,6 +9857,7 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
       op.sheet = node->sheet;
       op.sheet_last = node->sheet_last;
       op.range = node->as.range;
+      operand_clip_whole (ctx, &op, node);
       return op;
 
     case O42_NODE_APPLY:
@@ -9990,6 +10012,7 @@ eval_node (O42EvalContext *ctx, const O42Node *node)
         op.is_range = TRUE;
         op.sheet = node->sheet;
         op.range = node->as.range;
+        operand_clip_whole (ctx, &op, node);
         return operand_value (ctx, &op);
       }
 

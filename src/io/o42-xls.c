@@ -932,6 +932,18 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
               }
             n->as.range = o42_range_normalise (r0, c0, r1, c1);
             n->abs = a0 | (a1 << 2);
+            /* A:A in a BIFF file is an area over every row the file's
+             * grid has; it is every row of ours. */
+            if (n->as.range.row0 == 0 && n->as.range.row1 == (biff8 ? 65535 : 16383))
+              {
+                n->as.range.row1 = O42_MAX_ROWS - 1;
+                n->abs |= O42_WHOLE_COLS;
+              }
+            if (n->as.range.col0 == 0 && n->as.range.col1 == 255)
+              {
+                n->as.range.col1 = O42_MAX_COLS - 1;
+                n->abs |= O42_WHOLE_ROWS;
+              }
             push (&d, n);
           }
           break;

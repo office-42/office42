@@ -174,6 +174,12 @@ references, ranges, names, operators and function calls:
 **References.** `A1` moves when the formula is copied, `$A$1` does not,
 and `A$1` and `$A1` pin one half. **F4** cycles the reference at the
 caret round those four, and on a range it does both halves at once.
+`A:A` is the whole of column A and `2:2` the whole of row 2, `$A:$C`
+and `Sheet2!B:B` as you would expect: a formula over `A:A` reads every
+cell the column has, however many rows are added below it, and costs
+only the cells that are there. Inserting rows never moves a whole
+column, and copying `=SUM(A:A)` one column to the right gives
+`=SUM(B:B)`.
 
 **The formula bar.** The bar along the top is not a box that reports
 what a cell holds: it is the same edit as the cell, seen from up there.
