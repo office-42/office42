@@ -119,6 +119,29 @@ read_field (const char **p, char sep)
   return g_string_free (out, FALSE);
 }
 
+char *
+o42_text_to_utf8 (const char *text, gssize length)
+{
+  char *converted;
+
+  if (text == NULL)
+    return g_strdup ("");
+  if (length < 0)
+    length = (gssize) strlen (text);
+  if (g_utf8_validate (text, length, NULL))
+    return g_strndup (text, (gsize) length);
+  converted = g_locale_to_utf8 (text, length, NULL, NULL, NULL);
+  if (converted == NULL)
+    converted = g_convert (text, length, "UTF-8", "WINDOWS-1252", NULL, NULL, NULL);
+  if (converted == NULL)
+    {
+      char *copy = g_strndup (text, (gsize) length);
+      converted = g_utf8_make_valid (copy, -1);
+      g_free (copy);
+    }
+  return converted;
+}
+
 gboolean
 o42_csv_load (O42Sheet *sheet, GFile *file, GError **error)
 {
@@ -135,17 +158,15 @@ o42_csv_load (O42Sheet *sheet, GFile *file, GError **error)
   if (!g_file_load_contents (file, NULL, &contents, &length, NULL, error))
     return FALSE;
 
+  /* A stray NUL is not the end of the file: it becomes a space, so
+   * that the rest of the file is read rather than the whole refused. */
+  for (gsize i = 0; i < length; i++)
+    if (contents[i] == '\0')
+      contents[i] = ' ';
   if (!g_utf8_validate (contents, (gssize) length, NULL))
     {
-      /* Not UTF-8: most likely a Windows file in the local code page. */
-      char *converted = g_locale_to_utf8 (contents, (gssize) length, NULL, NULL, NULL);
+      char *converted = o42_text_to_utf8 (contents, (gssize) length);
       g_free (contents);
-      if (converted == NULL)
-        {
-          g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
-                       "The file is not UTF-8 text.");
-          return FALSE;
-        }
       contents = converted;
     }
 

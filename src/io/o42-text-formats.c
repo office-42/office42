@@ -5,6 +5,7 @@
  */
 
 #include "o42-text-formats.h"
+#include "o42-csv.h"
 
 #include "o42-formula.h"
 
@@ -105,6 +106,13 @@ o42_dif_load (O42Sheet *sheet, GFile *file, GError **error)
   g_return_val_if_fail (sheet != NULL, FALSE);
   if (!g_file_load_contents (file, NULL, &contents, &length, NULL, error))
     return FALSE;
+  {
+    /* These formats predate UTF-8; the file is whatever its writer's
+     * code page was. */
+    char *utf8 = o42_text_to_utf8 (contents, (gssize) length);
+    g_free (contents);
+    contents = utf8;
+  }
 
   /* The lines, with the empty ones left out: a DIF file counts
    * lines, and the blank a CRLF leaves behind would put the count
@@ -518,6 +526,13 @@ o42_sylk_load (O42Sheet *sheet, GFile *file, GError **error)
   g_return_val_if_fail (sheet != NULL, FALSE);
   if (!g_file_load_contents (file, NULL, &contents, &length, NULL, error))
     return FALSE;
+  {
+    /* These formats predate UTF-8; the file is whatever its writer's
+     * code page was. */
+    char *utf8 = o42_text_to_utf8 (contents, (gssize) length);
+    g_free (contents);
+    contents = utf8;
+  }
 
   lines = g_strsplit_set (contents, "\r\n", -1);
   o42_sheet_begin_group (sheet);

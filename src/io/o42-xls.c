@@ -2580,6 +2580,8 @@ typedef struct
 
   GArray     *fonts;          /* O42Fmt, font fields only; index 0 = default */
   GArray     *xfs;            /* O42Fmt; cell XF i is record 16 + i */
+  GHashTable *font_index;     /* FmtKey -> font index + 1 */
+  GHashTable *xf_index;       /* FmtKey -> xf index + 1 */
   GPtrArray  *formats;        /* custom format codes, id 164 + i */
   GPtrArray  *sst;
   GHashTable *sst_idx;
@@ -2633,10 +2635,62 @@ palette_index (Writer *w, guint32 colour)
   return 8;   /* out of slots: black */
 }
 
+
+/* An index of looks: O42Fmt bytes (and a style number) to the position
+ * they were given.  The bytes can be hashed because every O42Fmt is
+ * zeroed by o42_fmt_init_default before its fields are set, which is
+ * also what lets memcmp compare them.  Without this a sheet with
+ * twenty thousand distinct fills took ten seconds to save. */
+typedef struct {
+  O42Fmt fmt;
+  guint  style;
+} FmtKey;
+
+static guint
+fmt_key_hash (gconstpointer key)
+{
+  const guchar *bytes = key;
+  guint h = 5381;
+  for (gsize i = 0; i < sizeof (FmtKey); i++)
+    h = h * 33 + bytes[i];
+  return h;
+}
+
+static gboolean
+fmt_key_equal (gconstpointer a, gconstpointer b)
+{
+  return memcmp (a, b, sizeof (FmtKey)) == 0;
+}
+
+/* Where a look already is in the table, or -1. */
+static int
+fmt_table_find (GHashTable **table, const O42Fmt *fmt)
+{
+  FmtKey key;
+  gpointer found;
+
+  memset (&key, 0, sizeof key);
+  key.fmt = *fmt;
+  if (*table == NULL)
+    *table = g_hash_table_new_full (fmt_key_hash, fmt_key_equal, g_free, NULL);
+  found = g_hash_table_lookup (*table, &key);
+  return found != NULL ? (int) GPOINTER_TO_UINT (found) - 1 : -1;
+}
+
+static void
+fmt_table_add (GHashTable *table, const O42Fmt *fmt, guint index)
+{
+  FmtKey *key = g_new0 (FmtKey, 1);
+  key->fmt = *fmt;
+  g_hash_table_insert (table, key, GUINT_TO_POINTER (index + 1));
+}
+
 static guint
 font_index (Writer *w, const O42Fmt *fmt)
 {
   O42Fmt key;
+  int at;
+
   o42_fmt_init_default (&key);
   key.family = fmt->family;
   key.size = fmt->size;
@@ -2645,20 +2699,23 @@ font_index (Writer *w, const O42Fmt *fmt)
   key.underline = fmt->underline;
   key.strikeout = fmt->strikeout;
   key.colour = fmt->colour;
-  for (guint i = 0; i < w->fonts->len; i++)
-    if (memcmp (&g_array_index (w->fonts, O42Fmt, i), &key, sizeof key) == 0)
-      return i;
+  at = fmt_table_find (&w->font_index, &key);
+  if (at >= 0)
+    return (guint) at;
   g_array_append_val (w->fonts, key);
+  fmt_table_add (w->font_index, &key, w->fonts->len - 1);
   return w->fonts->len - 1;
 }
 
 static guint
 xf_index (Writer *w, const O42Fmt *fmt)
 {
-  for (guint i = 0; i < w->xfs->len; i++)
-    if (memcmp (&g_array_index (w->xfs, O42Fmt, i), fmt, sizeof *fmt) == 0)
-      return i;
+  int at = fmt_table_find (&w->xf_index, fmt);
+
+  if (at >= 0)
+    return (guint) at;
   g_array_append_val (w->xfs, *fmt);
+  fmt_table_add (w->xf_index, fmt, w->xfs->len - 1);
   font_index (w, fmt);
   if (fmt->fill != O42_FILL_NONE) palette_index (w, fmt->fill);
   if (fmt->colour != 0) palette_index (w, fmt->colour);
@@ -4161,7 +4218,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
 
   o42_fmt_init_default (&plain);
   font_index (&w, &plain);
-  g_array_append_val (w.xfs, plain);   /* cell XF 0, the default */
+  xf_index (&w, &plain);   /* cell XF 0, the default */
 
   /* Gather every sheet's cells first: the globals must know the fonts,
    * formats, strings and add-in names before they are written. */
@@ -4461,6 +4518,8 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   g_array_unref (boundsheet_at);
   g_array_unref (w.fonts);
   g_array_unref (w.xfs);
+  g_clear_pointer (&w.font_index, g_hash_table_unref);
+  g_clear_pointer (&w.xf_index, g_hash_table_unref);
   g_ptr_array_unref (w.formats);
   g_hash_table_unref (w.sst_idx);
   g_ptr_array_unref (w.sst);

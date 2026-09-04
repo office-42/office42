@@ -11,6 +11,7 @@
  */
 
 #include "o42-html.h"
+#include "o42-csv.h"
 
 #include "o42-sheet.h"
 #include "o42-date.h"
@@ -322,6 +323,14 @@ o42_html_load (O42Sheet *sheet, GFile *file, GError **error)
   g_return_val_if_fail (sheet != NULL && G_IS_FILE (file), FALSE);
   if (!g_file_load_contents (file, NULL, &text, &length, NULL, error))
     return FALSE;
+  {
+    /* A page that is not UTF-8 is read as the code page it is likely
+     * in, rather than put into the model as bytes it cannot save. */
+    char *utf8 = o42_text_to_utf8 (text, (gssize) length);
+    g_free (text);
+    text = utf8;
+    length = strlen (text);
+  }
 
   /* Tables land under whatever the sheet already holds; an empty
    * sheet still answers 0,0 for its used range, so A1 decides. */

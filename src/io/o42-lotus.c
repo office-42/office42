@@ -5,6 +5,7 @@
  */
 
 #include "o42-lotus.h"
+#include "o42-csv.h"
 
 #include <math.h>
 #include <string.h>
@@ -230,7 +231,8 @@ o42_lotus_load (O42Sheet *sheet, GFile *file, GError **error)
                 { start++; n--; }
               while (n > 0 && start[n - 1] == '\0')
                 n--;
-              text = g_strndup (start, n);
+              /* A Lotus label is in the code page of its day, not UTF-8. */
+              text = o42_text_to_utf8 (start, n);
               o42_sheet_set_input (sheet, row, col, text);
               g_free (text);
             }

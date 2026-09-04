@@ -66,6 +66,7 @@ key_equal_64 (gconstpointer a, gconstpointer b)
 typedef struct
 {
   GArray     *fmts;      /* O42Fmt, index = xf index */
+  GHashTable *fmt_index; /* FmtKey -> xf index + 1 */
   GArray     *fmt_styles;  /* guint, beside `fmts`: the cell style the xf
                             * wears, 0 for none (Excel's Normal) */
   GPtrArray  *styles;      /* the book's cell style names, 1-based here */
@@ -81,15 +82,52 @@ typedef struct
 /* An xf for this look worn under this style: two cells that look alike
  * but wear different styles need an xf each, since the style is on the
  * xf and not on the cell. */
+
+/* An index of looks: O42Fmt bytes (and a style number) to the position
+ * they were given.  The bytes can be hashed because every O42Fmt is
+ * zeroed by o42_fmt_init_default before its fields are set, which is
+ * also what lets memcmp compare them.  Without this a sheet with
+ * twenty thousand distinct fills took ten seconds to save. */
+typedef struct {
+  O42Fmt fmt;
+  guint  style;
+} FmtKey;
+
+static guint
+fmt_key_hash (gconstpointer key)
+{
+  const guchar *bytes = key;
+  guint h = 5381;
+  for (gsize i = 0; i < sizeof (FmtKey); i++)
+    h = h * 33 + bytes[i];
+  return h;
+}
+
+static gboolean
+fmt_key_equal (gconstpointer a, gconstpointer b)
+{
+  return memcmp (a, b, sizeof (FmtKey)) == 0;
+}
+
 static guint
 xf_for_style (Writer *w, const O42Fmt *fmt, guint style)
 {
-  for (guint i = 0; i < w->fmts->len; i++)
-    if (g_array_index (w->fmt_styles, guint, i) == style &&
-        memcmp (&g_array_index (w->fmts, O42Fmt, i), fmt, sizeof *fmt) == 0)
-      return i;
+  FmtKey key;
+  gpointer found;
+  FmtKey *stored;
+
+  memset (&key, 0, sizeof key);
+  key.fmt = *fmt;
+  key.style = style;
+  if (w->fmt_index == NULL)
+    w->fmt_index = g_hash_table_new_full (fmt_key_hash, fmt_key_equal, g_free, NULL);
+  found = g_hash_table_lookup (w->fmt_index, &key);
+  if (found != NULL)
+    return GPOINTER_TO_UINT (found) - 1;
   g_array_append_vals (w->fmts, fmt, 1);
   g_array_append_val (w->fmt_styles, style);
+  stored = g_memdup2 (&key, sizeof key);
+  g_hash_table_insert (w->fmt_index, stored, GUINT_TO_POINTER (w->fmts->len));
   return w->fmts->len - 1;
 }
 
@@ -933,7 +971,6 @@ write_styles (Writer *w)
       g_free (name);
     }
   g_string_append (out, "</cellStyles>");
-  g_string_append (out, "<cellStyles count=\"1\"><cellStyle name=\"Normal\" xfId=\"0\" builtinId=\"0\"/></cellStyles>");
   g_string_append_printf (out, "<dxfs count=\"%u\">", w->dxfs->len);
   for (guint i = 0; i < w->dxfs->len; i++)
     {
@@ -1527,6 +1564,7 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
   GString *extra_types = g_string_new (NULL);
   gboolean ok;
 
+  memset (&w, 0, sizeof w);
   w.fmts = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
   w.strings = g_ptr_array_new_with_free_func (g_free);
   w.string_runs = g_ptr_array_new_with_free_func ((GDestroyNotify) g_array_unref_or_null);
@@ -1543,8 +1581,7 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     guint none = 0;
 
     o42_fmt_init_default (&plain);
-    g_array_append_val (w.fmts, plain);
-    g_array_append_val (w.fmt_styles, none);
+    xf_for_style (&w, &plain, none);
   }
 
   /* The book's cell styles: each gets an xf of its own holding the
@@ -1898,6 +1935,7 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
   g_hash_table_unref (w.string_idx);
   g_ptr_array_unref (w.strings);
   g_array_unref (w.fmts);
+  g_clear_pointer (&w.fmt_index, g_hash_table_unref);
   g_array_unref (w.dxfs);
   g_array_unref (w.fmt_styles);
   g_array_unref (w.style_xf);
@@ -3321,6 +3359,12 @@ parse_part (GHashTable *parts, const char *path, const GMarkupParser *parser,
   if (bytes == NULL)
     return TRUE;   /* an optional part; nothing to read */
   xml = g_bytes_get_data (bytes, &len);
+  /* An empty part is a broken file, not a NULL for the parser. */
+  if (xml == NULL || len == 0)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "%s is empty", path);
+      return FALSE;
+    }
   ctx = g_markup_parse_context_new (parser, G_MARKUP_TREAT_CDATA_AS_TEXT | G_MARKUP_PREFIX_ERROR_POSITION, r, NULL);
   ok = g_markup_parse_context_parse (ctx, xml, (gssize) len, error) &&
        g_markup_parse_context_end_parse (ctx, error);

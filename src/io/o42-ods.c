@@ -3110,6 +3110,11 @@ parse_part (GHashTable *parts, const char *path, const GMarkupParser *parser, Re
   if (bytes == NULL)
     return TRUE;
   xml = g_bytes_get_data (bytes, &len);
+  if (xml == NULL || len == 0)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "%s is empty", path);
+      return FALSE;
+    }
   ctx = g_markup_parse_context_new (parser, G_MARKUP_TREAT_CDATA_AS_TEXT, r, NULL);
   ok = g_markup_parse_context_parse (ctx, xml, (gssize) len, error) &&
        g_markup_parse_context_end_parse (ctx, error);

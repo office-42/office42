@@ -19,6 +19,13 @@
 
 G_BEGIN_DECLS
 
+/* Text from a file that may not be UTF-8 -- a Lotus, SYLK, DIF or HTML
+ * file from a Windows of thirty years ago -- made into UTF-8: kept as it
+ * is when it already is, else read as the machine's code page, else
+ * Windows-1252, else with the bad bytes replaced.  Never NULL; the model
+ * must never hold text it cannot write out again.  Caller frees. */
+char *o42_text_to_utf8 (const char *text, gssize length);
+
 gboolean o42_csv_save (O42Sheet *sheet, GFile *file, GError **error);
 
 /* Replaces the sheet's cells with the file's, as one undo step. */

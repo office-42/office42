@@ -683,6 +683,8 @@ parse_part (GHashTable *parts, const char *path, const GMarkupParser *parser, gp
   if (bytes == NULL)
     return FALSE;
   xml = g_bytes_get_data (bytes, &len);
+  if (xml == NULL || len == 0)
+    return FALSE;
   ctx = g_markup_parse_context_new (parser, G_MARKUP_TREAT_CDATA_AS_TEXT, user, NULL);
   ok = g_markup_parse_context_parse (ctx, xml, (gssize) len, NULL) &&
        g_markup_parse_context_end_parse (ctx, NULL);

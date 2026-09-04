@@ -124,6 +124,13 @@ o42_ole2_read_stream (GBytes *file, const char *name, GError **error)
         if (s >= FREESECT - 1) break;
         g_array_append_val (fat_sectors, s);
       }
+    /* Both counts come from the header; a file that lies about them
+     * would have the loop spin for as long as it liked, so the file's
+     * own size bounds them too. */
+    if (n_fat_sectors > size / sector_size)
+      n_fat_sectors = (guint32) (size / sector_size);
+    if (n_difat > size / sector_size)
+      n_difat = (guint32) (size / sector_size);
     for (guint32 ds = first_difat, k = 0; ds < FREESECT - 1 && k < n_difat; k++)
       {
         gsize at = 512 + (gsize) ds * sector_size;
