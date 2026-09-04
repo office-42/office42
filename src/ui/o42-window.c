@@ -620,6 +620,10 @@ o42_dialog_frame (O42Window *self, const char *title, gboolean modal,
   gtk_window_set_title (GTK_WINDOW (dialog), title);
   gtk_window_set_transient_for (GTK_WINDOW (dialog), GTK_WINDOW (self));
   gtk_window_set_modal (GTK_WINDOW (dialog), modal && dialogs_modal);
+  /* A dialog holds a plain pointer to its window; with two windows on
+   * a book, closing this one must take the dialog with it, or Find
+   * Next would ask a window that is gone. */
+  gtk_window_set_destroy_with_parent (GTK_WINDOW (dialog), TRUE);
   /* Resizable: the Function Wizard, the scripts and the console are
    * all better for being pulled bigger, and a dialog that refuses is
    * an annoyance with nothing to say for it. */
@@ -5177,9 +5181,16 @@ o42_window_sync (O42Window *self)
       for (guint i = 0; i < ranges->len; i++)
         {
           O42Range one = g_array_index (ranges, O42Range, i);
+          O42Range used;
 
-          for (int r = one.row0; r <= one.row1 && r < one.row0 + 5000; r++)
-            for (int c = one.col0; c <= one.col1 && c < one.col0 + 256; c++)
+          /* A whole column selected is a million rows; the ones past
+           * the last cell hold nothing, so the walk stops there.  The
+           * sum used to stop at 5,000 rows and say nothing about it. */
+          o42_sheet_used_range (self->sheet, &used);
+          one.row1 = MIN (one.row1, used.row1);
+          one.col1 = MIN (one.col1, used.col1);
+          for (int r = one.row0; r <= one.row1; r++)
+            for (int c = one.col0; c <= one.col1; c++)
               {
                 O42Value v;
 

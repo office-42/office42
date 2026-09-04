@@ -439,6 +439,148 @@ static void array_dissolve_at (O42Sheet *sheet, int row, int col);
 static O42Value spill (O42Sheet *sheet, guint64 key, int rows, int cols, O42Value *values);
 static void spill_retract (O42Sheet *sheet, guint64 key);
 
+static void sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell);
+
+/* How deep sheet_evaluate is in itself, across every sheet. */
+static int evaluate_depth = 0;
+
+/* The dirty formula cells the given one reads, on this sheet, and
+ * theirs in turn, in an order that puts every cell after the ones it
+ * reads: worked out with a stack of our own rather than the C one.
+ * A running total, =B1+A2 filled down ten thousand rows, is a chain
+ * that deep, and asking for the bottom cell evaluated the chain by
+ * recursion, one C frame -- about a kilobyte -- per row; on a default
+ * 8 MB stack that gave out around eight thousand rows.  Evaluating the
+ * chain from the far end first leaves each cell's precedents clean by
+ * the time it is asked for, and the recursion never goes deep. */
+typedef struct {
+  guint64  key;
+  guint    next_prec;   /* the precedent range to look at next */
+  GArray  *cells;       /* keys in the current range, or NULL */
+  guint    next_cell;
+} DeepFrame;
+
+static GArray *
+dirty_formulas_in (O42Sheet *sheet, const O42Range *range)
+{
+  GArray *keys = g_array_new (FALSE, FALSE, sizeof (guint64));
+  O42Range r = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
+  double area = (double) (r.row1 - r.row0 + 1) * (double) (r.col1 - r.col0 + 1);
+
+  if (area <= 4096 && area <= (double) g_hash_table_size (sheet->cells))
+    {
+      for (int row = r.row0; row <= r.row1; row++)
+        for (int col = r.col0; col <= r.col1; col++)
+          {
+            O42Cell *cell = sheet_find (sheet, row, col);
+            if (cell != NULL && cell->ast != NULL && cell->dirty)
+              {
+                guint64 key = o42_key (row, col);
+                g_array_append_val (keys, key);
+              }
+          }
+    }
+  else
+    {
+      GHashTableIter iter;
+      gpointer key_ptr;
+
+      g_hash_table_iter_init (&iter, sheet->formulas);
+      while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
+        {
+          guint64 key = *(guint64 *) key_ptr;
+          O42Cell *cell;
+
+          if (!o42_range_contains (&r, o42_key_row (key), o42_key_col (key)))
+            continue;
+          cell = sheet_find_key (sheet, key);
+          if (cell != NULL && cell->ast != NULL && cell->dirty)
+            g_array_append_val (keys, key);
+        }
+    }
+  return keys;
+}
+
+static void
+sheet_evaluate_deep_first (O42Sheet *sheet, guint64 root)
+{
+  GArray *stack = g_array_new (FALSE, FALSE, sizeof (DeepFrame));
+  GArray *order = g_array_new (FALSE, FALSE, sizeof (guint64));
+  GHashTable *seen = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
+  DeepFrame first = { root, 0, NULL, 0 };
+  guint64 *stored = g_new (guint64, 1);
+
+  *stored = root;
+  g_hash_table_add (seen, stored);
+  g_array_append_val (stack, first);
+
+  while (stack->len > 0)
+    {
+      DeepFrame *frame = &g_array_index (stack, DeepFrame, stack->len - 1);
+      O42Cell *cell = sheet_find_key (sheet, frame->key);
+      gboolean pushed = FALSE;
+
+      while (cell != NULL && cell->precedents != NULL && !pushed)
+        {
+          if (frame->cells == NULL)
+            {
+              const O42SheetRange *p;
+
+              if (frame->next_prec >= cell->precedents->len)
+                break;
+              p = &g_array_index (cell->precedents, O42SheetRange, frame->next_prec);
+              frame->next_prec++;
+              /* Another sheet's cells are left to the recursion. */
+              if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+                continue;
+              frame->cells = dirty_formulas_in (sheet, &p->range);
+              frame->next_cell = 0;
+            }
+          while (frame->next_cell < frame->cells->len)
+            {
+              guint64 key = g_array_index (frame->cells, guint64, frame->next_cell++);
+
+              if (g_hash_table_contains (seen, &key))
+                continue;
+              stored = g_new (guint64, 1);
+              *stored = key;
+              g_hash_table_add (seen, stored);
+              {
+                DeepFrame next = { key, 0, NULL, 0 };
+                g_array_append_val (stack, next);
+              }
+              pushed = TRUE;
+              break;
+            }
+          if (pushed)
+            break;
+          g_clear_pointer (&frame->cells, g_array_unref);
+        }
+      if (pushed)
+        continue;
+
+      /* Everything this one reads has been listed: it goes after them. */
+      frame = &g_array_index (stack, DeepFrame, stack->len - 1);
+      g_clear_pointer (&frame->cells, g_array_unref);
+      g_array_append_val (order, frame->key);
+      g_array_set_size (stack, stack->len - 1);
+    }
+
+  /* The root is last in the order; it is the caller's to evaluate. */
+  for (guint i = 0; i + 1 < order->len; i++)
+    {
+      guint64 key = g_array_index (order, guint64, i);
+      O42Cell *cell = sheet_find_key (sheet, key);
+
+      if (cell != NULL && cell->dirty)
+        sheet_evaluate (sheet, key, cell);
+    }
+
+  g_hash_table_unref (seen);
+  g_array_unref (order);
+  g_array_unref (stack);
+}
+
 static void
 sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
 {
@@ -468,6 +610,18 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
       cell->value.type != O42_VALUE_EMPTY)
     return;
 
+  /* The first cell asked for evaluates what it reads from the far end
+   * of the chain first, so that the recursion below stays shallow. */
+  if (evaluate_depth == 0 && cell->precedents != NULL && cell->precedents->len > 0)
+    {
+      evaluate_depth++;
+      sheet_evaluate_deep_first (sheet, key);
+      evaluate_depth--;
+      cell = sheet_find_key (sheet, key);
+      if (cell == NULL || !cell->dirty)
+        return;
+    }
+
   if (cell->visiting)
     {
       /* Something this cell depends on is asking for this cell.  With
@@ -488,6 +642,7 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
     }
 
   cell->visiting = 1;
+  evaluate_depth++;
   {
     /* Evaluating pulls on other cells, which evaluate in turn, so the
      * calling cell is saved and put back around each one. */
@@ -554,12 +709,14 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
   if (cell == NULL)
     {
       o42_value_clear (&result);
+      evaluate_depth--;
       return;
     }
 
   o42_value_clear (&cell->value);
   cell->value = result;
   cell->dirty = 0;
+  evaluate_depth--;
 }
 
 /* What CELL() asks about a cell's looks, which only the sheet knows:

@@ -352,6 +352,9 @@ fire_activate (gpointer data)
       o42_window_set_dialogs_modal (FALSE);
       g_action_group_activate_action (G_ACTION_GROUP (windows->data), name, param);
       g_free (name);
+      /* The action may have closed the window: the list is asked for
+       * again rather than read after the fact. */
+      windows = gtk_application_get_windows (GTK_APPLICATION (self));
     }
 
   /* --type "=SUM(" opens the editor with that in it, and --point B2 or

@@ -115,6 +115,8 @@ struct _O42Grid {
   O42Range       move_source;
   int            move_row, move_col;      /* where its top-left would land */
   gboolean       completing;              /* inside an AutoComplete change */
+  gsize          typed_length;            /* the text's length at the last keystroke,
+                                           * so that a deletion is not completed again */
   GArray        *edit_fmt;                /* O42Fmt per byte of the text being
                                            * edited, once part of it has been
                                            * given a look of its own */
@@ -1414,6 +1416,8 @@ o42_grid_is_editing (O42Grid *self)
 /* AutoComplete: while a word is being typed into a cell, the first
  * text already in the column that begins with it is offered, with the
  * part not yet typed selected so that typing on replaces it. */
+static void autocomplete_offer (O42Grid *self);
+
 static void
 on_editor_changed (GtkEditable *editable, gpointer data)
 {
@@ -1423,8 +1427,15 @@ on_editor_changed (GtkEditable *editable, gpointer data)
   complete_offer (self);
   tip_offer (self);
   mirror_push (self);
-  const char *typed = gtk_editable_get_text (editable);
-  int caret = gtk_editable_get_position (editable);
+  autocomplete_offer (self);
+}
+
+static void
+autocomplete_offer (O42Grid *self)
+{
+  GtkEditable *editable = self->editor != NULL ? GTK_EDITABLE (self->editor) : NULL;
+  const char *typed = editable != NULL ? gtk_editable_get_text (editable) : NULL;
+  int caret = editable != NULL ? gtk_editable_get_position (editable) : 0;
   O42Range used;
   char *found = NULL;
   gsize length;
@@ -1432,36 +1443,55 @@ on_editor_changed (GtkEditable *editable, gpointer data)
   if (self->completing || self->sheet == NULL || typed == NULL)
     return;
   length = strlen (typed);
-  if (length == 0 || typed[0] == '=' || caret != (int) length)
+  /* Only text that has grown, at its end, is completed: after
+   * Backspace has taken the offered tail away, offering it again would
+   * leave the text unable to get any shorter.  The caret is still at
+   * the point of insertion while "changed" is being told, so typing at
+   * the end shows as the caret standing where the text ended before. */
+  {
+    gsize before = self->typed_length;
+    self->typed_length = length;
+    if (length <= before || (caret != (int) before && caret != (int) length))
+      return;
+  }
+  if (length == 0 || typed[0] == '=')
     return;
   if (g_ascii_isdigit (typed[0]))
     return;
 
+  /* The block of cells the active one sits in, as Excel looks: up and
+   * down until an empty cell, not the whole column, which on a long
+   * one cost a walk of every row at every keystroke. */
   o42_sheet_used_range (self->sheet, &used);
-  for (int row = used.row0; row <= used.row1 && found == NULL; row++)
-    {
-      char *shown;
+  for (int step = -1; step <= 1 && found == NULL; step += 2)
+    for (int row = self->active_row + step, n = 0;
+         row >= used.row0 && row <= used.row1 && n < 10000 && found == NULL;
+         row += step, n++)
+      {
+        char *shown;
 
-      if (row == self->active_row)
-        continue;
-      shown = o42_sheet_get_display (self->sheet, row, self->active_col);
-      if (strlen (shown) > length && g_ascii_strncasecmp (shown, typed, length) == 0)
-        {
-          O42Value v;
-          o42_sheet_get_value (self->sheet, row, self->active_col, &v);
-          if (v.type == O42_VALUE_TEXT)
-            found = g_strdup (shown);
-          o42_value_clear (&v);
-        }
-      g_free (shown);
-    }
+        if (o42_sheet_is_empty (self->sheet, row, self->active_col))
+          break;
+        shown = o42_sheet_get_display (self->sheet, row, self->active_col);
+        if (strlen (shown) > length && g_ascii_strncasecmp (shown, typed, length) == 0)
+          {
+            O42Value v;
+            o42_sheet_get_value (self->sheet, row, self->active_col, &v);
+            if (v.type == O42_VALUE_TEXT)
+              found = g_strdup (shown);
+            o42_value_clear (&v);
+          }
+        g_free (shown);
+      }
 
   if (found != NULL)
     {
+      /* The whole entry, in its own case, as Excel offers it. */
       self->completing = TRUE;
       gtk_editable_set_text (editable, found);
       gtk_editable_select_region (editable, (int) length, -1);
       self->completing = FALSE;
+      self->typed_length = length;   /* the offered tail is not typed */
       g_free (found);
     }
 }
@@ -2596,6 +2626,37 @@ o42_grid_point_step (O42Grid *self, const char *direction)
       return FALSE;
   }
 
+  /* A single character is typed at the caret, as a key would put it,
+   * and "backspace" takes the selection or the character before the
+   * caret away: the path AutoComplete lives on. */
+  if (g_utf8_strlen (direction, -1) == 1 || g_ascii_strcasecmp (direction, "backspace") == 0)
+    {
+      GtkEditable *editable;
+      int start, end;
+
+      if (!self->editing)
+        {
+          if (g_ascii_strcasecmp (direction, "backspace") == 0)
+            return FALSE;
+          o42_grid_begin_edit (self, direction);
+          return TRUE;
+        }
+      editable = GTK_EDITABLE (self->editor);
+      if (g_ascii_strcasecmp (direction, "backspace") == 0)
+        {
+          if (gtk_editable_get_selection_bounds (editable, &start, &end))
+            gtk_editable_delete_text (editable, start, end);
+          else if ((start = gtk_editable_get_position (editable)) > 0)
+            gtk_editable_delete_text (editable, start - 1, start);
+          return TRUE;
+        }
+      if (gtk_editable_get_selection_bounds (editable, &start, &end))
+        gtk_editable_delete_selection (editable);
+      start = gtk_editable_get_position (editable);
+      gtk_editable_insert_text (editable, direction, -1, &start);
+      return TRUE;
+    }
+
   if (g_ascii_strcasecmp (direction, "left") == 0)       dcol = -1;
   else if (g_ascii_strcasecmp (direction, "right") == 0) dcol = 1;
   else if (g_ascii_strcasecmp (direction, "up") == 0)    drow = -1;
@@ -2684,15 +2745,22 @@ begin_edit_full (O42Grid *self, const char *initial, gboolean focus)
        * to an entry that did not exist when the key went down, so it has to
        * be put in by hand.  It also has to be put in *before* the entry is
        * focused, or focus-in selects the whole text and the next character
-       * replaces it. */
+       * replaces it.  AutoComplete waits until the caret is placed
+       * below, or the offered tail would be deselected there and the
+       * next character typed would land after the whole word. */
+      self->completing = TRUE;
       gtk_editable_set_text (GTK_EDITABLE (self->editor), initial);
+      self->completing = FALSE;
+      self->typed_length = 0;   /* the first character is typed text */
     }
   else
     {
       char *current = o42_sheet_get_input (self->sheet,
                                            self->active_row, self->active_col);
+      self->typed_length = G_MAXSIZE;   /* what is there is not typed: no offer */
       gtk_editable_set_text (GTK_EDITABLE (self->editor), current);
       gtk_editable_set_position (GTK_EDITABLE (self->editor), -1);
+      self->typed_length = strlen (current);
       g_free (current);
     }
 
@@ -2719,6 +2787,8 @@ begin_edit_full (O42Grid *self, const char *initial, gboolean focus)
   complete_offer (self);
   tip_offer (self);
   mirror_push (self);
+  if (initial != NULL)
+    autocomplete_offer (self);
 }
 
 static void
@@ -3195,6 +3265,10 @@ o42_grid_insert_picture (O42Grid    *self,
     }
 
   self->selected_picture = pic->id;
+  /* A picture, not whatever shape or chart was selected before: the
+   * two flags said otherwise and Delete took the wrong object. */
+  self->selected_is_chart = FALSE;
+  self->selected_is_shape = FALSE;
   sheet_changed (self);
 }
 
@@ -3255,6 +3329,7 @@ o42_grid_insert_chart (O42Grid *self, O42ChartKind kind, const char *title,
 
   self->selected_picture = chart->id;
   self->selected_is_chart = TRUE;
+  self->selected_is_shape = FALSE;
   sheet_changed (self);
 }
 
@@ -3563,7 +3638,10 @@ show_custom_filter (O42Grid *self, int col)
   gtk_window_set_modal (GTK_WINDOW (cf->window), TRUE);
   gtk_window_set_resizable (GTK_WINDOW (cf->window), FALSE);
   if (GTK_IS_WINDOW (root))
-    gtk_window_set_transient_for (GTK_WINDOW (cf->window), GTK_WINDOW (root));
+    {
+      gtk_window_set_transient_for (GTK_WINDOW (cf->window), GTK_WINDOW (root));
+      gtk_window_set_destroy_with_parent (GTK_WINDOW (cf->window), TRUE);
+    }
 
   gtk_widget_set_margin_start (box, 12); gtk_widget_set_margin_end (box, 12);
   gtk_widget_set_margin_top (box, 12); gtk_widget_set_margin_bottom (box, 12);
@@ -4206,7 +4284,8 @@ on_click_pressed (GtkGestureClick *gesture,
    * everywhere else: what was selected is put behind, and a new one
    * starts where the pointer is.  A plain click forgets them all. */
   if ((state & GDK_CONTROL_MASK) && row >= 0 && col >= 0 &&
-      o42_sheet_get_link (self->sheet, row, col) == NULL)
+      o42_sheet_get_link (self->sheet, row, col) == NULL &&
+      shape_at (self, x, y) == NULL)   /* Ctrl+click on a control takes hold of it */
     {
       O42Range current;
 
@@ -4752,16 +4831,25 @@ on_motion (GtkEventControllerMotion *controller,
       double was_dx = 0, was_dy = 0;
       O42Chart *chart = self->selected_is_chart
                         ? o42_sheet_find_chart (self->sheet, self->selected_picture) : NULL;
-      O42Picture *pic = self->selected_is_chart
+      /* Shapes have ids of their own, so a shape is looked for as a
+       * shape: looked for as a picture it was not found, or a picture
+       * with the same number moved instead. */
+      O42Shape *shape = self->selected_is_shape
+                        ? o42_sheet_find_shape (self->sheet, self->selected_picture) : NULL;
+      O42Picture *pic = (self->selected_is_chart || self->selected_is_shape)
                         ? NULL : o42_sheet_find_picture (self->sheet, self->selected_picture);
 
       if (chart != NULL)
         { was_row = chart->row; was_col = chart->col; was_dx = chart->dx; was_dy = chart->dy; }
+      else if (shape != NULL)
+        { was_row = shape->row; was_col = shape->col; was_dx = shape->dx; was_dy = shape->dy; }
       else if (pic != NULL)
         { was_row = pic->row; was_col = pic->col; was_dx = pic->dx; was_dy = pic->dy; }
 
       if (chart != NULL)
         anchor_place (self, &chart->row, &chart->col, &chart->dx, &chart->dy, nx, ny);
+      else if (shape != NULL)
+        anchor_place (self, &shape->row, &shape->col, &shape->dx, &shape->dy, nx, ny);
       else if (pic != NULL)
         picture_place (self, pic, nx, ny);
 
@@ -4769,6 +4857,9 @@ on_motion (GtkEventControllerMotion *controller,
       if (chart != NULL)
         move_group_with (self, chart->id, chart->row - was_row, chart->col - was_col,
                          chart->dx - was_dx, chart->dy - was_dy);
+      else if (shape != NULL)
+        move_group_with (self, shape->id, shape->row - was_row, shape->col - was_col,
+                         shape->dx - was_dx, shape->dy - was_dy);
       else if (pic != NULL)
         move_group_with (self, pic->id, pic->row - was_row, pic->col - was_col,
                          pic->dx - was_dx, pic->dy - was_dy);
