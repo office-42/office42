@@ -107,8 +107,10 @@ None of the three is ours to choose. The Package Family Name is derived
 from the name and the publisher, so a package that renames either is
 refused on upload. The prefix `29567TheFreecivProject` and the
 publisher display name `Nordstjernen` belong to the Partner Center
-account rather than to this product; the name a customer sees is the
-`DisplayName`, which is **Office42 Spreadsheet**.
+account rather than to this product. The `DisplayName` has to be a
+name reserved in Partner Center as well, and the reserved one is
+**Office42**: a package that says "Office42 Spreadsheet" is refused on
+upload with "uses a display name that you have not reserved".
 
 Calculated from those, and worth checking a package against:
 
@@ -204,7 +206,7 @@ writes or explicitly chooses to run.
 
 ## The listing, ready to paste
 
-**Display name:** Office42 Spreadsheet
+**Display name:** Office42
 
 **Short description:** A spreadsheet in the shape of Excel 5, with 610
 functions, charts, pivot tables and Python.

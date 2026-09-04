@@ -55,7 +55,7 @@ msix_version=${O42_MSIX_VERSION:-$(awk -F. '{printf "%d.%d.%d.0", $1, $2, $3}' <
 identity_name=${O42_MSIX_IDENTITY_NAME:-29567TheFreecivProject.Office42}
 publisher=${O42_MSIX_PUBLISHER:-CN=631F98F7-2280-49EE-8EF8-534CC36D09CF}
 publisher_display=${O42_MSIX_PUBLISHER_DISPLAY:-Nordstjernen}
-display_name=${O42_MSIX_DISPLAY_NAME:-Office42 Spreadsheet}
+display_name=${O42_MSIX_DISPLAY_NAME:-Office42}
 
 template=$root/data/msix/AppxManifest.xml.in
 svg=$root/data/icons/scalable/apps/net.office42.office42.svg
