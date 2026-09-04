@@ -11,6 +11,7 @@
 #include "o42-book.h"
 #include "o42-eval.h"
 #include "o42-date.h"
+#include "o42-entry.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -930,7 +931,11 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
       }
     g_free (upper);
   }
-  if (candidates[0] == NULL && candidates[1] == NULL)
+  /* Nothing indexed reads this band and nothing is volatile: no formula
+   * can care.  (The volatile ones are checked first: a change in a band
+   * no formula names is exactly what INDIRECT reads.) */
+  if (candidates[0] == NULL && candidates[1] == NULL &&
+      g_hash_table_size (sheet->volatiles) == 0)
     return;
 
   to_visit = g_array_new (FALSE, FALSE, sizeof (guint64));
@@ -1535,7 +1540,8 @@ o42_sheet_name_changed (O42Sheet *sheet, const char *upper)
  * none, which is what Excel does on entry and what makes =TODAY() show a
  * date rather than 46261. */
 static void
-cell_take_date_format (O42Sheet *sheet, O42Cell *cell, O42NumberFormat which)
+cell_take_format (O42Sheet *sheet, O42Cell *cell, O42NumberFormat which,
+                  int decimals)
 {
   O42Fmt fmt = *o42_fmt_table_get (sheet->formats, cell->fmt);
 
@@ -1543,6 +1549,7 @@ cell_take_date_format (O42Sheet *sheet, O42Cell *cell, O42NumberFormat which)
     return;
 
   fmt.number = which;
+  fmt.decimals = decimals;
   cell->fmt = o42_fmt_table_intern (sheet->formats, &fmt);
 }
 
@@ -1777,7 +1784,7 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
 
           date_fmt = formula_date_format (cell->ast);
           if (date_fmt != O42_NUM_GENERAL)
-            cell_take_date_format (sheet, cell, date_fmt);
+            cell_take_format (sheet, cell, date_fmt, 0);
 
           stored = g_new (guint64, 1);
           *stored = key;
@@ -1801,10 +1808,7 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
             }
           else
             {
-              O42Value probe = o42_value_text (text);
-              double n;
-              O42ErrorCode err = O42_ERR_VALUE;
-              gboolean has_date = FALSE, has_time = FALSE;
+              O42Entry entry;
 
               /* TRUE and FALSE typed into a cell are the values, not
                * the words: it is what Excel does, and it is what a
@@ -1813,19 +1817,17 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
                 cell->value = o42_value_bool (TRUE);
               else if (g_ascii_strcasecmp (text, "FALSE") == 0)
                 cell->value = o42_value_bool (FALSE);
-              else if (o42_value_to_number (&probe, &n, &err))
-                cell->value = o42_value_number (n);
-              else if (o42_date_parse (text, &n, &has_date, &has_time))
+              else if (o42_entry_parse (text, &entry))
                 {
-                  cell->value = o42_value_number (n);
-                  cell_take_date_format (sheet, cell,
-                                         (has_date && has_time) ? O42_NUM_DATETIME
-                                         : has_date ? O42_NUM_DATE : O42_NUM_TIME);
+                  /* 5%, $1,000, 1/2/2026 and 3:45 PM are numbers, and
+                   * the way they were typed is the way the cell shows
+                   * them from now on, unless it already had a format. */
+                  cell->value = o42_value_number (entry.number);
+                  if (entry.format != O42_NUM_GENERAL)
+                    cell_take_format (sheet, cell, entry.format, entry.decimals);
                 }
               else
                 cell->value = o42_value_text (text);
-
-              o42_value_clear (&probe);
             }
         }
     }
@@ -4240,7 +4242,6 @@ o42_sheet_merge (O42Sheet *sheet, const O42Range *range)
         i++;
     }
 
-  op_begin (sheet);
   for (int row = r.row0; row <= r.row1; row++)
     for (int col = r.col0; col <= r.col1; col++)
       if ((row != r.row0 || col != r.col0) && !o42_sheet_is_empty (sheet, row, col))

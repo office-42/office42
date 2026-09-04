@@ -8,6 +8,7 @@
 
 #include "o42-pattern.h"
 
+#include "o42-entry.h"
 #include "o42-date.h"
 #include "o42-image.h"
 
@@ -2332,19 +2333,9 @@ finish_cell (Reader *r)
   switch (r->cell_type)
     {
     case 60:
-      {
-        /* Text that would read as a number or a date has to be forced. */
-        O42Value probe = o42_value_text (text);
-        double n;
-        O42ErrorCode err = O42_ERR_VALUE;
-
-        if (*text == '=' || *text == '\'' ||
-            o42_value_to_number (&probe, &n, &err) ||
-            o42_date_parse (text, NULL, NULL, NULL))
-          forced = g_strconcat ("'", text, NULL);
-        o42_value_clear (&probe);
-        break;
-      }
+      /* Text that would read as a number or a date has to be forced. */
+      forced = o42_entry_quote_text (text);
+      break;
 
     case 20:
       forced = g_strconcat ("=", text, NULL);

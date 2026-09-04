@@ -119,22 +119,279 @@ o42_date_now (void)
   return serial;
 }
 
+/* A month written as a word: "jan", "January", "sept".  Three letters or
+ * more, and every letter given must belong to the name. */
 static gboolean
-read_int (const char **p, int digits_min, int digits_max, int *out)
+read_month_name (const char **p, int *month)
 {
-  int n = 0, count = 0;
+  static const char *const NAMES[12] = {
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+  };
+  const char *q = *p;
+  size_t len = 0;
 
-  while (g_ascii_isdigit (**p) && count < digits_max)
-    {
-      n = n * 10 + (**p - '0');
-      (*p)++;
-      count++;
-    }
-
-  if (count < digits_min)
+  while (g_ascii_isalpha (q[len]))
+    len++;
+  if (len < 3)
     return FALSE;
 
+  for (int m = 0; m < 12; m++)
+    if (strlen (NAMES[m]) >= len && g_ascii_strncasecmp (q, NAMES[m], len) == 0)
+      {
+        *month = m + 1;
+        *p += len;
+        return TRUE;
+      }
+
+  return FALSE;
+}
+
+/* Two digits of year mean what Excel takes them to mean: 00 to 29 are
+ * this century and 30 to 99 the last. */
+static int
+widen_year (int y, int digits)
+{
+  if (digits > 2)
+    return y;
+  return y < 30 ? 2000 + y : 1900 + y;
+}
+
+static int
+this_year (void)
+{
+  GDateTime *now = g_date_time_new_now_local ();
+  int y = g_date_time_get_year (now);
+
+  g_date_time_unref (now);
+  return y;
+}
+
+/* The digits at `p`, and how many of them there were. */
+static gboolean
+read_number (const char **p, int *out, int *digits)
+{
+  const char *q = *p;
+  int n = 0, count = 0;
+
+  while (g_ascii_isdigit (*q) && count < 9)
+    {
+      n = n * 10 + (*q - '0');
+      q++;
+      count++;
+    }
+  if (count == 0 || g_ascii_isdigit (*q))
+    return FALSE;
+
+  *p = q;
   *out = n;
+  *digits = count;
+  return TRUE;
+}
+
+static void
+skip_spaces (const char **p)
+{
+  while (**p == ' ')
+    (*p)++;
+}
+
+/* The calendar date at `p`, in any of the ways people write one:
+ *
+ *   2026-01-02   2026/01/02   2026.01.02          year first, any separator
+ *   1/2/2026     1/2/26       1/2                 month/day[/year] -- 14/2 is day/month, as it can be nothing else
+ *   1-2-2026     1-2-26       1-2                 the same, with dashes
+ *   2.1.2026     2.1.26                           day.month.year, as most of Europe writes it
+ *   2 Jan 2026   2-Jan-26     2 January           day, month, [year]
+ *   Jan 2, 2026  January 2    Jan 26    Jan 2026  month, then a day if it fits in one, else a year
+ *   Jan-26                                        the first of that month
+ *
+ * A year left out is this year.  The day is checked against the month, so
+ * 30 February is not a date and 31/6 is text. */
+static gboolean
+read_date (const char **p, double *serial)
+{
+  const char *q = *p;
+  int a, b, c, da, db, dc;
+  int y = -1, mo = 0, d = 0;
+
+  if (read_number (&q, &a, &da))
+    {
+      char sep = *q;
+
+      if (sep == '/' || sep == '-' || sep == '.')
+        {
+          q++;
+          if (da == 4)
+            {
+              /* yyyy-mm-dd */
+              if (!read_number (&q, &b, &db) || *q != sep)
+                return FALSE;
+              q++;
+              if (!read_number (&q, &c, &dc))
+                return FALSE;
+              y = a; mo = b; d = c;
+            }
+          else if (read_number (&q, &b, &db))
+            {
+              gboolean day_first = (sep == '.');
+
+              if (*q == sep)
+                {
+                  const char *r = q + 1;
+
+                  if (!read_number (&r, &c, &dc))
+                    return FALSE;
+                  q = r;
+                  y = widen_year (c, dc);
+                }
+              if (!day_first && a > 12 && b <= 12)
+                day_first = TRUE;
+              if (day_first) { d = a; mo = b; }
+              else           { mo = a; d = b; }
+            }
+          else if (sep != '.' && read_month_name (&q, &mo))
+            {
+              /* 2-Jan[-2026] */
+              d = a;
+              if (*q == sep)
+                {
+                  const char *r = q + 1;
+
+                  if (!read_number (&r, &c, &dc))
+                    return FALSE;
+                  q = r;
+                  y = widen_year (c, dc);
+                }
+            }
+          else
+            return FALSE;
+        }
+      else if (sep == ' ')
+        {
+          /* 2 Jan [2026] */
+          skip_spaces (&q);
+          if (!read_month_name (&q, &mo))
+            return FALSE;
+          d = a;
+          {
+            const char *r = q;
+
+            skip_spaces (&r);
+            if (*r == ',') { r++; skip_spaces (&r); }
+            if (read_number (&r, &c, &dc))
+              {
+                y = widen_year (c, dc);
+                q = r;
+              }
+          }
+        }
+      else
+        return FALSE;
+    }
+  else if (read_month_name (&q, &mo))
+    {
+      /* Jan 2[, 2026]   Jan 2026   Jan-26 */
+      const char *r = q;
+      gboolean dashed = FALSE;
+
+      skip_spaces (&r);
+      if (*r == '-' || *r == '/') { r++; dashed = TRUE; }
+      skip_spaces (&r);
+      if (!read_number (&r, &b, &db))
+        return FALSE;
+      q = r;
+      if (db == 4 || (dashed && db == 2) || b > 31)
+        {
+          y = widen_year (b, db);
+          d = 1;
+        }
+      else
+        {
+          d = b;
+          r = q;
+          skip_spaces (&r);
+          if (*r == ',') { r++; skip_spaces (&r); }
+          if (read_number (&r, &c, &dc))
+            {
+              y = widen_year (c, dc);
+              q = r;
+            }
+        }
+    }
+  else
+    return FALSE;
+
+  if (y < 0)
+    y = this_year ();
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 1 || y > 9999)
+    return FALSE;
+
+  {
+    double s = o42_date_serial (y, mo, d);
+    int y2, m2, d2;
+
+    if (s < 0 || !o42_date_from_serial (s, &y2, &m2, &d2) ||
+        y2 != y || m2 != mo || d2 != d)
+      return FALSE;
+    *serial = s;
+  }
+  *p = q;
+  return TRUE;
+}
+
+/* h:mm[:ss][ AM|PM], or a bare hour with AM or PM after it. */
+static gboolean
+read_time (const char **p, double *fraction)
+{
+  const char *q = *p;
+  int h, mi = 0, s = 0, dh, dm, ds;
+  gboolean colon;
+
+  if (!read_number (&q, &h, &dh) || dh > 2)
+    return FALSE;
+  colon = (*q == ':');
+  if (colon)
+    {
+      q++;
+      if (!read_number (&q, &mi, &dm) || dm > 2)
+        return FALSE;
+      if (*q == ':')
+        {
+          q++;
+          if (!read_number (&q, &s, &ds) || ds > 2)
+            return FALSE;
+        }
+    }
+
+  {
+    const char *r = q;
+    gboolean meridian = FALSE;
+
+    skip_spaces (&r);
+    if ((r[0] == 'a' || r[0] == 'A' || r[0] == 'p' || r[0] == 'P') &&
+        (r[1] == 'm' || r[1] == 'M') && !g_ascii_isalpha (r[2]))
+      {
+        gboolean pm = (r[0] == 'p' || r[0] == 'P');
+
+        if (h < 1 || h > 12)
+          return FALSE;
+        if (h == 12)
+          h = 0;
+        if (pm)
+          h += 12;
+        q = r + 2;
+        meridian = TRUE;
+      }
+    if (!colon && !meridian)
+      return FALSE;
+  }
+
+  if (h > 23 || mi > 59 || s > 59)
+    return FALSE;
+
+  *fraction = o42_time_fraction (h, mi, s);
+  *p = q;
   return TRUE;
 }
 
@@ -143,8 +400,7 @@ o42_date_parse (const char *text, double *serial,
                 gboolean *has_date, gboolean *has_time)
 {
   const char *p = text;
-  int y, mo, d, h, mi, s = 0;
-  double result = 0;
+  double result = 0, fraction;
   gboolean date = FALSE, time = FALSE;
 
   g_return_val_if_fail (text != NULL, FALSE);
@@ -152,44 +408,18 @@ o42_date_parse (const char *text, double *serial,
   while (g_ascii_isspace (*p))
     p++;
 
-  /* yyyy-mm-dd */
-  {
-    const char *q = p;
+  if (read_date (&p, &result))
+    {
+      date = TRUE;
+      while (*p == ' ' || *p == 'T')
+        p++;
+    }
 
-    if (read_int (&q, 4, 4, &y) && *q == '-' && (q++, read_int (&q, 1, 2, &mo)) &&
-        *q == '-' && (q++, read_int (&q, 1, 2, &d)))
-      {
-        if (mo < 1 || mo > 12 || d < 1 || d > 31)
-          return FALSE;
-        result = o42_date_serial (y, mo, d);
-        if (result < 0)
-          return FALSE;
-        date = TRUE;
-        p = q;
-        while (*p == ' ' || *p == 'T')
-          p++;
-      }
-  }
-
-  /* hh:mm[:ss] */
-  {
-    const char *q = p;
-
-    if (read_int (&q, 1, 2, &h) && *q == ':' && (q++, read_int (&q, 2, 2, &mi)))
-      {
-        if (*q == ':')
-          {
-            q++;
-            if (!read_int (&q, 2, 2, &s))
-              return FALSE;
-          }
-        if (h > 23 || mi > 59 || s > 59)
-          return FALSE;
-        result += o42_time_fraction (h, mi, s);
-        time = TRUE;
-        p = q;
-      }
-  }
+  if (read_time (&p, &fraction))
+    {
+      result += fraction;
+      time = TRUE;
+    }
 
   while (g_ascii_isspace (*p))
     p++;

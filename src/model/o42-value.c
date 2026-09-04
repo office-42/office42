@@ -6,6 +6,7 @@
 
 #include "o42-value.h"
 
+#include "o42-entry.h"
 #include "o42-numfmt.h"
 
 #include <math.h>
@@ -129,36 +130,21 @@ o42_value_to_number (const O42Value *value, double *out, O42ErrorCode *error)
 
     case O42_VALUE_TEXT:
       {
-        const char *s = value->as.text;
-        char *end = NULL;
-        double n;
+        O42Entry entry;
 
-        while (g_ascii_isspace (*s))
-          s++;
-
-        if (*s == '\0')
-          {
-            /* Empty text is not zero: "" + 1 is an error in Excel, and the
-             * distinction is the difference between a blank cell and a cell
-             * holding a blank string. */
-            if (error) *error = O42_ERR_VALUE;
-            return FALSE;
-          }
-
-        n = g_ascii_strtod (s, &end);
-
-        while (end != NULL && g_ascii_isspace (*end))
-          end++;
-
-        /* Only a string that is *entirely* a number counts.  "12abc" is
-         * text, not twelve. */
-        if (end == NULL || *end != '\0')
+        /* Text counts when the whole of it reads as a number the way it
+         * would if typed into a cell: "12" and " 12 " do, and so do
+         * "5%", "$1,000" and "1/2/2026", as they do in Excel.  "12abc" is
+         * text, and so is "": "" + 1 is an error, which is the
+         * difference between a blank cell and a cell holding a blank
+         * string. */
+        if (!o42_entry_parse (value->as.text, &entry))
           {
             if (error) *error = O42_ERR_VALUE;
             return FALSE;
           }
 
-        *out = n;
+        *out = entry.number;
         return TRUE;
       }
 

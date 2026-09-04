@@ -17,6 +17,7 @@
 #include "o42-zip.h"
 #include "o42-sheet.h"
 #include "o42-formula.h"
+#include "o42-entry.h"
 #include "o42-date.h"
 
 #include <string.h>
@@ -2131,15 +2132,7 @@ cell_finish (Reader *r)
     }
   if (input == NULL && r->text != NULL && r->text->len > 0)
     {
-      const char *text = r->text->str;
-      O42Value probe = o42_value_text (text);
-      double n;
-      O42ErrorCode err = O42_ERR_VALUE;
-      if (*text == '=' || *text == '\'' || o42_value_to_number (&probe, &n, &err) || o42_date_parse (text, NULL, NULL, NULL))
-        input = g_strconcat ("'", text, NULL);
-      else
-        input = g_strdup (text);
-      o42_value_clear (&probe);
+      input = o42_entry_quote_text (r->text->str);
     }
 
   for (int k = 0; k < repeat && r->cell_col + k < O42_MAX_COLS; k++)

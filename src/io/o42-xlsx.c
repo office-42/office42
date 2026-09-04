@@ -28,6 +28,7 @@ append_border_side (GString *out, const char *side, O42BorderStyle style, guint3
 }
 #include <stdlib.h>
 
+#include "o42-entry.h"
 #include "o42-zip.h"
 #include "o42-xlsx-draw.h"
 #include "o42-formula.h"
@@ -2985,13 +2986,13 @@ finish_cell (Reader *r)
     {
       char *plain = strip_xlfn (r->f->str);
       input = g_strconcat ("=", plain, NULL);
-      g_free (plain);
       if (r->shared_si != NULL)
         {
           /* The master of a shared formula: remember where it sits. */
           char *rec = g_strdup_printf ("%d,%d,%s", r->row, r->col, plain);
           g_hash_table_insert (r->shared, g_strdup (r->shared_si), rec);
         }
+      g_free (plain);
     }
   else if (r->has_f && r->shared_si != NULL)
     {
@@ -3026,7 +3027,9 @@ finish_cell (Reader *r)
               GArray *runs = (idx < r->string_runs->len)
                              ? g_ptr_array_index (r->string_runs, idx) : NULL;
 
-              input = g_strdup (g_ptr_array_index (r->strings, idx));
+              /* Text stays text: "00123" is not 123 and "1/2" is not
+               * a date when the file says it is a string. */
+              input = o42_entry_quote_text (g_ptr_array_index (r->strings, idx));
               /* The runs go on after the text: setting the text takes
                * them off again, as typing into a cell does. */
               if (runs != NULL && runs->len > 0)
@@ -3034,9 +3037,9 @@ finish_cell (Reader *r)
             }
         }
       else if (strcmp (t, "inlineStr") == 0)
-        input = g_strdup (r->is->str);
+        input = o42_entry_quote_text (r->is->str);
       else if (strcmp (t, "str") == 0)
-        input = g_strdup (r->v->str);
+        input = o42_entry_quote_text (r->v->str);
       else if (strcmp (t, "b") == 0)
         input = g_strdup (strcmp (r->v->str, "1") == 0 ? "TRUE" : "FALSE");
       else if (strcmp (t, "e") == 0)

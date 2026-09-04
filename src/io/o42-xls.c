@@ -52,6 +52,7 @@ xls_border_style (guint code)
 
 #include "o42-ole2.h"
 #include "o42-escher.h"
+#include "o42-entry.h"
 #include "o42-image.h"
 #include "o42-chart.h"
 #include "o42-xlsx.h"
@@ -480,18 +481,22 @@ read_sst (Reader *r, GPtrArray *segs)
       guint32 ext = 0;
       GString *s;
 
+      /* A string's header is never split across a CONTINUE, so a
+       * segment too short to hold one is a broken file: stop, keeping
+       * the strings read so far. */
       if (p >= end) NEXT_SEG ();
-      if (end - p < 3) { NEXT_SEG (); }
+      if (end - p < 3) { NEXT_SEG (); if (end - p < 3) return; }
       n = rd16 (p); p += 2;
       flags = *p++;
-      if (flags & 0x08) { runs = rd16 (p); p += 2; }
-      if (flags & 0x04) { ext = rd32 (p); p += 4; }
+      if (flags & 0x08) { if (end - p < 2) return; runs = rd16 (p); p += 2; }
+      if (flags & 0x04) { if (end - p < 4) return; ext = rd32 (p); p += 4; }
       s = g_string_new (NULL);
       for (guint i = 0; i < n; i++)
         {
           if (p >= end)
             {
               NEXT_SEG ();
+              if (p >= end) break;
               flags = (*p++ & 0x01) | (flags & ~0x01u);
             }
           if (flags & 0x01)
@@ -1951,7 +1956,11 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         {
           guint idx = rd32 (p + 6);
           if (idx < r->sst->len)
-            set_cell (r, rd16 (p), rd16 (p + 2), rd16 (p + 4), g_ptr_array_index (r->sst, idx));
+            {
+              char *text = o42_entry_quote_text (g_ptr_array_index (r->sst, idx));
+              set_cell (r, rd16 (p), rd16 (p + 2), rd16 (p + 4), text);
+              g_free (text);
+            }
         }
       break;
     case R_LABEL:
@@ -1959,9 +1968,11 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
       if (len >= 8)
         {
           const guchar *q = p + 6;
-          char *text = read_str (r, &q, p + len, TRUE);
+          char *raw = read_str (r, &q, p + len, TRUE);
+          char *text = o42_entry_quote_text (raw);
           set_cell (r, rd16 (p), rd16 (p + 2), rd16 (p + 4), text);
           g_free (text);
+          g_free (raw);
         }
       break;
     case R_BOOLERR:
@@ -1989,10 +2000,12 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
       if (r->pending && len >= 3)
         {
           const guchar *q = p;
-          char *text = read_str (r, &q, p + len, TRUE);
-          if (r->sheet && text[0] != '\0')
+          char *raw = read_str (r, &q, p + len, TRUE);
+          char *text = o42_entry_quote_text (raw);
+          if (r->sheet && raw[0] != '\0')
             o42_sheet_set_input (r->sheet, r->pending_row, r->pending_col, text);
           g_free (text);
+          g_free (raw);
           r->pending = FALSE;
         }
       break;

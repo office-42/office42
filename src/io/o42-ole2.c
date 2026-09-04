@@ -62,7 +62,9 @@ read_chain (const guchar *base, gsize base_len, gsize sector_size,
             guint32 start, gsize size)
 {
   GArray *sectors = chain (fat, n_fat, start);
-  GByteArray *out = g_byte_array_sized_new (size);
+  /* `size` comes from the file and can say anything; the chain cannot
+   * hold more than the file does, so that is all that is reserved. */
+  GByteArray *out = g_byte_array_sized_new ((guint) MIN (size, base_len));
 
   for (guint i = 0; i < sectors->len && out->len < size; i++)
     {

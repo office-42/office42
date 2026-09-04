@@ -135,7 +135,28 @@ fn_trim (O42EvalContext *ctx, O42Operand *args, int n)
 
   (void) n;
   ARG_TEXT (0, s);
-  result = g_strstrip (g_strdup (s));
+
+  /* The spaces at the ends go, and a run of spaces inside becomes one:
+   * that is what TRIM has meant since Lotus, and it is why it is used
+   * on text pasted from somewhere with columns lined up by spacing. */
+  {
+    GString *out = g_string_new (NULL);
+    gboolean pending = FALSE;
+
+    for (const char *p = s; *p != '\0'; p++)
+      {
+        if (*p == ' ')
+          pending = TRUE;
+        else
+          {
+            if (pending && out->len > 0)
+              g_string_append_c (out, ' ');
+            pending = FALSE;
+            g_string_append_c (out, *p);
+          }
+      }
+    result = g_string_free (out, FALSE);
+  }
   g_free (s);
   return o42_value_take (result);
 }
@@ -228,21 +249,51 @@ static O42Value
 fn_substitute (O42EvalContext *ctx, O42Operand *args, int n)
 {
   char *hay = NULL, *needle = NULL, *with = NULL;
-  char **parts;
+  double instance = 0;
   char *result;
 
-  (void) n;
   ARG_TEXT (0, hay);
   ARG_TEXT (1, needle);
   ARG_TEXT (2, with);
+  if (n >= 4)
+    {
+      O42Value v = operand_value (ctx, &args[3]);
+      O42ErrorCode err = O42_ERR_VALUE;
+      gboolean ok = o42_value_to_number (&v, &instance, &err);
+      o42_value_clear (&v);
+      if (!ok || instance < 1)
+        { g_free (hay); g_free (needle); g_free (with); return o42_value_error (ok ? O42_ERR_VALUE : err); }
+      instance = floor (instance);
+    }
 
   if (*needle == '\0')
     { g_free (needle); g_free (with); return o42_value_take (hay); }
 
-  parts = g_strsplit (hay, needle, -1);
-  result = g_strjoinv (with, parts);
+  /* Every occurrence, or only the nth when an instance is asked for. */
+  {
+    GString *out = g_string_new (NULL);
+    size_t nlen = strlen (needle);
+    const char *p = hay;
+    int seen = 0;
 
-  g_strfreev (parts);
+    for (;;)
+      {
+        const char *found = strstr (p, needle);
+
+        if (found == NULL)
+          break;
+        seen++;
+        g_string_append_len (out, p, found - p);
+        if (instance == 0 || seen == (int) instance)
+          g_string_append (out, with);
+        else
+          g_string_append (out, needle);
+        p = found + nlen;
+      }
+    g_string_append (out, p);
+    result = g_string_free (out, FALSE);
+  }
+
   g_free (hay);
   g_free (needle);
   g_free (with);
@@ -603,7 +654,7 @@ const O42Function O42_FUNCS_TEXT[] = {
   { "REPT", 2, 2, fn_rept },
   { "RIGHT", 1, 2, fn_right },
   { "ROWS", 1, 1, fn_rows },
-  { "SUBSTITUTE", 3, 3, fn_substitute },
+  { "SUBSTITUTE", 3, 4, fn_substitute },
   { "TRIM", 1, 1, fn_trim },
   { "UPPER", 1, 1, fn_upper },
   { "VALUE", 1, 1, fn_value },
@@ -632,8 +683,8 @@ const O42FunctionHelp O42_HELP_TEXT[] = {
   { "REPT", "REPT(text, count)", "A text repeated." },
   { "RIGHT", "RIGHT(text, count)", "The last characters of a text." },
   { "ROWS", "ROWS(range)", "How many rows a range spans." },
-  { "SUBSTITUTE", "SUBSTITUTE(text, old_text, new_text)", "Replaces text by content." },
-  { "TRIM", "TRIM(text)", "Text without leading and trailing spaces." },
+  { "SUBSTITUTE", "SUBSTITUTE(text, old_text, new_text, [instance])", "Replaces old_text with new_text, every time or only the nth." },
+  { "TRIM", "TRIM(text)", "Text without spaces at the ends, and one between words." },
   { "UPPER", "UPPER(text)", "Text in upper case." },
   { "VALUE", "VALUE(text)", "Text read as a number." },
   { "CHAR", "CHAR(number)", "The character with a given code." },

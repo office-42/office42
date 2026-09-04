@@ -10,6 +10,7 @@ o42_core_sources = files(
   'util/o42-spell.c',
   'util/o42-types.c',
   'util/o42-date.c',
+  'util/o42-entry.c',
   'util/o42-hdate.c',
   'util/o42-numfmt.c',
   'util/o42-image.c',
