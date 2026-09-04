@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office42 Spreadsheet — a spreadsheet in the shape of Excel 5</title>
+<meta name="description" content="Office42 Spreadsheet is a spreadsheet in the shape of Excel 5 and at parity with Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. 610 functions, charts, pivot tables, Python scripting, and .gnumeric, .xlsx, .xls, .ods and CSV files. Free software, GPL-3.0-or-later.">
+<link rel="canonical" href="https://office42.net/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Office42 Spreadsheet — a spreadsheet in the shape of Excel 5">
+<meta property="og:description" content="A spreadsheet in the shape of Excel 5 and at parity with Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. Free software, GPL-3.0-or-later.">
+<meta property="og:url" content="https://office42.net/">
+<meta property="og:image" content="https://office42.net/images/screenshot.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#4a9be6">
+<link rel="icon" type="image/svg+xml" href="images/icon.svg">
+<link rel="apple-touch-icon" href="images/icon-128.png">
+<style>
+  :root {
+    --o42-blue: #4a9be6;
+    --o42-blue-dark: #2f7fca;
+    --o42-blue-pale: #d6eaff;
+    --o42-blue-faint: #eef6ff;
+    --o42-rule: #c0bfbc;
+    --o42-ink: #1f2328;
+    --o42-muted: #5c6670;
+    --o42-ground: #ffffff;
+    --o42-ground-alt: #f6f8fa;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+                 "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--o42-ink);
+    background: var(--o42-ground);
+  }
+  a { color: var(--o42-blue-dark); }
+  a:hover { color: var(--o42-blue); }
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace;
+    font-size: .92em;
+    background: var(--o42-ground-alt);
+    padding: .05em .3em;
+    border-radius: 3px;
+  }
+  pre {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace;
+    font-size: .88rem;
+    line-height: 1.45;
+    background: #fbfcfd;
+    border: 1px solid var(--o42-rule);
+    border-radius: 4px;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+    margin: 0;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  .container { max-width: 1140px; margin: 0 auto; padding: 0 1.25rem; }
+  h1, h2, h3 { line-height: 1.2; margin: 0 0 .5rem; }
+  h2 { font-size: 1.85rem; font-weight: 700; }
+  h3 { font-size: 1.1rem; font-weight: 700; color: var(--o42-blue-dark); }
+  .muted { color: var(--o42-muted); }
+  .small { font-size: .9rem; }
+  p { margin: 0 0 1rem; }
+  ul { margin: 0 0 1rem; padding-left: 1.25rem; }
+  li { margin-bottom: .3rem; }
+
+  /* Navigation */
+  nav.top {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--o42-ground);
+    border-bottom: 1px solid var(--o42-rule);
+  }
+  nav.top .container {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 60px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: .6rem;
+    font-weight: 700; font-size: 1.35rem; color: var(--o42-blue);
+    text-decoration: none; letter-spacing: -.01em;
+  }
+  .brand img { width: 34px; height: 34px; }
+  nav.top ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 1.4rem; }
+  nav.top li { margin: 0; }
+  nav.top a.link { color: var(--o42-ink); text-decoration: none; white-space: nowrap; }
+  nav.top a.link:hover { color: var(--o42-blue); }
+  @media (max-width: 520px) {
+    .brand span { display: none; }
+    nav.top ul { gap: .8rem; }
+    nav.top a.link { font-size: .95rem; }
+  }
+  @media (max-width: 380px) {
+    nav.top ul { gap: .6rem; }
+    nav.top a.link { font-size: .85rem; }
+  }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(180deg, #ffffff 0%, var(--o42-blue-faint) 100%);
+    border-bottom: 1px solid var(--o42-rule);
+    padding: 3.5rem 0 3rem;
+  }
+  .hero .row {
+    display: grid; grid-template-columns: 5fr 7fr; gap: 2.5rem; align-items: center;
+  }
+  @media (max-width: 900px) { .hero .row { grid-template-columns: 1fr; } }
+  .hero .logo { width: 100%; max-width: 440px; height: auto; display: block; margin-bottom: 1.25rem; }
+  .lead { font-size: 1.2rem; }
+  .btn {
+    display: inline-block; padding: .65rem 1.3rem; border-radius: 4px;
+    font-size: 1.05rem; font-weight: 600; text-decoration: none;
+    border: 2px solid var(--o42-blue); margin: 0 .5rem .5rem 0;
+    transition: background-color .12s, color .12s;
+  }
+  .btn-solid { background: var(--o42-blue); color: #fff; }
+  .btn-solid:hover { background: var(--o42-blue-dark); border-color: var(--o42-blue-dark); color: #fff; }
+  .btn-outline { background: transparent; color: var(--o42-blue-dark); }
+  .btn-outline:hover { background: var(--o42-blue); color: #fff; }
+  .screenshot {
+    width: 100%; height: auto; display: block;
+    border: 1px solid var(--o42-rule); border-radius: 4px;
+    box-shadow: 0 .5rem 2rem rgba(0, 0, 0, .12);
+    background: #fff;
+  }
+  figure { margin: 0; }
+  figcaption { text-align: center; margin-top: .6rem; }
+
+  /* Numbers strip */
+  .numbers {
+    border-bottom: 1px solid var(--o42-rule);
+    background: var(--o42-ground);
+  }
+  .numbers .container {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    text-align: center; padding-top: 1.5rem; padding-bottom: 1.5rem;
+  }
+  @media (max-width: 720px) {
+    .numbers .container { grid-template-columns: repeat(2, 1fr); row-gap: 1.25rem; }
+    .numbers strong { font-size: 1.4rem; }
+  }
+  .numbers strong { display: block; font-size: 1.7rem; color: var(--o42-blue); font-weight: 700; line-height: 1.1; }
+  .numbers span { display: block; font-size: .9rem; color: var(--o42-muted); margin-top: .2rem; }
+
+  /* Sections */
+  section { padding: 3.5rem 0; }
+  section.alt { background: var(--o42-ground-alt); border-top: 1px solid var(--o42-rule); border-bottom: 1px solid var(--o42-rule); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.75rem 2.25rem; margin-top: 1.5rem; }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  .grid ul { margin-bottom: 0; }
+  .grid > div, .two > div, .numbers .container > div, .hero .row > *, .sister > div { min-width: 0; }
+  code { overflow-wrap: anywhere; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem; align-items: start; margin-top: 1.5rem; }
+  @media (max-width: 800px) { .two { grid-template-columns: 1fr; } }
+  .tree { font-size: .85rem; }
+  .goals { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1.5rem; }
+  @media (max-width: 720px) { .goals { grid-template-columns: 1fr; } }
+  .goal {
+    border-left: 4px solid var(--o42-blue); padding: .25rem 0 .25rem 1.25rem;
+  }
+  .goal p:last-child { margin-bottom: 0; }
+
+  /* Word42 sister card */
+  .sister {
+    display: grid; grid-template-columns: auto 1fr; gap: 1.5rem; align-items: center;
+    border: 1px solid var(--o42-rule); border-radius: 6px; background: #fff;
+    padding: 1.5rem 1.75rem; margin-top: 1.5rem;
+  }
+  @media (max-width: 560px) { .sister { grid-template-columns: 1fr; } }
+  .sister .w42 {
+    width: 72px; height: 72px; border-radius: 10px;
+    border: 4px solid #1a5fb4; color: #1a5fb4; background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Times New Roman", "Liberation Serif", Tinos, Times, serif;
+    font-weight: 700; font-size: 1.35rem;
+  }
+  .sister p:last-child { margin-bottom: 0; }
+
+  /* Footer */
+  footer { border-top: 1px solid var(--o42-rule); padding: 2rem 0; }
+  footer p { margin-bottom: .6rem; }
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="container">
+    <a class="brand" href="./">
+      <img src="images/icon.svg" alt="" width="34" height="34">
+      <span>Office42</span>
+    </a>
+    <ul>
+      <li><a class="link" href="#features">Features</a></li>
+      <li><a class="link" href="#download">Get it</a></li>
+      <li><a class="link" href="#docs">Docs</a></li>
+      <li><a class="link" href="https://word42.org/">Word42</a></li>
+      <li><a class="link" href="https://github.com/office-42/office42">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <div class="row">
+      <div>
+        <h1>
+          <img class="logo" src="images/logo.svg" width="520" height="150"
+               alt="Office42 Spreadsheet: a sheet of cells marked 42, beside the name in light blue with one rule under it">
+        </h1>
+        <p class="lead">A spreadsheet in the shape of Excel&nbsp;5 and at parity with Gnumeric,
+        written from scratch in C on GTK&nbsp;4, Pango and Cairo. A grid, a formula bar, a name
+        box, two toolbars and sheet tabs along the bottom. No ribbon.</p>
+        <p>The sister project of <a href="https://word42.org/">Word42</a>, built on the same
+        principles: a small, honest codebase that does one thing well.</p>
+        <p style="margin-top:1.5rem">
+          <a class="btn btn-solid" href="#download">Get it</a>
+          <a class="btn btn-outline" href="https://github.com/office-42/office42">View on GitHub</a>
+        </p>
+      </div>
+      <figure>
+        <img class="screenshot" src="images/screenshot.png" width="960" height="700"
+             alt="Office42 Spreadsheet with a small sales sheet: a heading set in two fonts in one cell, a named cell style on the headings, currency and percent formats, a conditional format, a note, a text box and a three-dimensional column chart">
+        <figcaption class="muted small"><em>Office42 with a small sales sheet, a note, a text box and a three-dimensional column chart.</em></figcaption>
+      </figure>
+    </div>
+  </div>
+</header>
+
+<div class="numbers">
+  <div class="container">
+    <div><strong>610</strong><span>functions, every one Excel 2003 has and Gnumeric's own besides</span></div>
+    <div><strong>1,048,576 × 16,384</strong><span>rows by columns, and an empty cell costs nothing</span></div>
+    <div><strong>17</strong><span>kinds of chart, in two or three dimensions</span></div>
+    <div><strong>3</strong><span>platforms built on every push: Linux, macOS and Windows</span></div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="container">
+    <h2>What it does</h2>
+    <p class="muted">A working spreadsheet, not a demo. Everything below ships today, and
+    <a href="https://github.com/office-42/office42/blob/main/docs/PARITY.md">docs/PARITY.md</a>
+    is an honest estimate of how far it is from Excel and from Gnumeric.</p>
+    <div class="grid">
+      <div>
+        <h3>The window</h3>
+        <ul>
+          <li>Excel's keys: Enter steps down, Tab steps right, Tab-Tab-Enter returns to the column the row began in</li>
+          <li>The formula bar is the same edit as the cell, every reference in its own colour</li>
+          <li>Function names offered as you type, and the signature of the call the caret is in</li>
+          <li>Point mode, F4 on the dollars, the fill handle, drag-and-drop, AutoComplete</li>
+          <li>Zoom, freeze and split panes, custom views, outline groups, a second window on the same book</li>
+          <li>Undo of everything, deleting a sheet included</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Formatting</h3>
+        <ul>
+          <li>Excel 5's tabbed Format Cells dialog</li>
+          <li>Number formats in Excel's own code language: <code>#,##0.00;[Red](#,##0.00)</code>, <code>[h]:mm</code></li>
+          <li>Rich text with several fonts in one cell</li>
+          <li>Borders of every style and colour, pattern fills, indent, rotation, merged cells</li>
+          <li>Named cell styles that restyle every cell wearing them, and conditional formats</li>
+          <li>Formats are interned, so a thousand bold cells share one record</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Formulas</h3>
+        <ul>
+          <li>Excel's precedence, <code>A1</code> and <code>$A$1</code>, whole rows and columns, 3-D references, names</li>
+          <li>Structured references into tables, array constants, <code>LET</code> and <code>LAMBDA</code></li>
+          <li>Array formulas with Ctrl+Shift+Enter, and dynamic arrays that spill</li>
+          <li>Demand-driven recalculation with dirty flags; circular references reported, not followed</li>
+          <li>Statistics in two passes so they are accurate; the distributions on regularised incomplete gamma and beta functions</li>
+          <li>Bond arithmetic on the five day-count bases, the <code>.INTL</code> dates, the Excel 365 text and array functions</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Charts and objects</h3>
+        <ul>
+          <li>Column, bar, line, area, pie, doughnut, radar, bubble, stock, surface, box and whiskers, histogram, polar, contour and XY scatter</li>
+          <li>Trendlines, error bars, a second value axis, chart sheets</li>
+          <li>Redrawn from the cells every time they are painted</li>
+          <li>Pictures, shapes, text boxes, grouped objects, notes and hyperlinks</li>
+          <li>The nine form controls of Excel's Forms toolbar, each bound to a cell</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Data</h3>
+        <ul>
+          <li>Sort, Find and Replace, AutoFilter and Advanced Filter, Text to Columns, Remove Duplicates</li>
+          <li>Subtotals, Consolidate, Scenarios, Data Validation, Tables</li>
+          <li>Pivot Tables with calculated fields and page filters</li>
+          <li>Goal Seek and a Solver</li>
+          <li>Descriptive statistics, correlation, covariance, regression, histogram, ANOVA, rank and percentile, moving average</li>
+          <li>Each one is a single undo step</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Files</h3>
+        <ul>
+          <li>Gnumeric's <code>.gnumeric</code>, which carries everything</li>
+          <li>Excel's <code>.xlsx</code> and <code>.xls</code>, with formulas, styles, charts, shapes, tables, names and notes</li>
+          <li>OpenDocument <code>.ods</code>, checked against LibreOffice both ways</li>
+          <li>HTML, CSV, DIF, SYLK, LaTeX and Lotus 1-2-3</li>
+          <li>Printing, print preview, page setup with headers and footers, PDF out and in</li>
+          <li>The zip and OLE2 containers are a few hundred lines each; no library was added</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Automation</h3>
+        <ul>
+          <li>Python instead of Visual Basic: a console with <code>book</code> and <code>sheet</code> bound</li>
+          <li>Scripts kept in the file, and a macro recorder that writes Python</li>
+          <li><code>=PY("expression")</code> in a cell; functions defined in Python appear in the Function Wizard</li>
+          <li>A book that arrives with scripts offers to run them and never runs them by itself</li>
+          <li>A SQLite database beside the book or inside it, asked from Data ▸ Get Data or <code>=SQLVALUE(...)</code></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Beyond Excel</h3>
+        <ul>
+          <li>Gnumeric's functions that Excel leaves out: the complex functions, twenty-eight random distributions, number theory</li>
+          <li><code>FOURIER</code>, <code>HPFILTER</code>, <code>INTERPOLATION</code>, <code>PERIODOGRAM</code></li>
+          <li>The movable feasts, and Black and Scholes with its Greeks</li>
+          <li>Spelling with Hunspell</li>
+        </ul>
+      </div>
+      <div>
+        <h3>The terminal</h3>
+        <ul>
+          <li><code>office42-calc</code> drives the whole engine from standard input</li>
+          <li>The model and the formula engine never include GTK, so the engine builds as a library of its own</li>
+          <li><code>office42 --screenshot</code> renders the window to a PNG with nobody at the keyboard</li>
+          <li>It is how every change is checked</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="engine">
+  <div class="container">
+    <h2>How it works</h2>
+    <div class="two">
+      <div>
+        <p>The sheet is sparse: cells live in a hash table keyed by a packed row and column, and an
+        empty cell costs nothing. Formulas are parsed once and kept as trees. Each formula cell
+        records the rectangles it reads; when a cell changes the sheet marks stale every formula
+        whose rectangles contain it, and theirs in turn, and nothing is recomputed until something
+        asks.</p>
+        <p>The evaluator does not know what a sheet is. It reads values through a callback, which
+        is why the engine builds as a library of its own and can be driven from a terminal:</p>
+        <pre><code>$ ./builddir/src/office42-calc
+A1 = 10
+A2 = 20
+B1 = =SUM(A1:A2)*2
+B1
+B1      60      (=SUM(A1:A2)*2)
+dump
+      A             B
+1     10            60
+2     20</code></pre>
+      </div>
+      <div>
+        <p>Six layers, each of which may only see the ones below it. <code>formula/</code> never
+        includes <code>model/</code>, and neither includes GTK. Those two rules are the whole
+        architecture.</p>
+        <pre class="tree"><code>src/util/      cell addresses, values, number formats, dates
+src/model/     the sheet, the book, charts, shapes, undo
+src/formula/   the parser, the evaluator, the function library
+src/io/        .gnumeric, .xlsx, .xls, .ods, CSV and the rest, PDF, SQLite
+src/script/    Python: the office42 module, the interpreter
+src/ui/        the grid, the window, the dialogs
+src/main.c        the window's entry point
+src/calc-main.c   the terminal front-end
+data/          menus, icons, stylesheet
+docs/          the guide, the architecture, the parity review</code></pre>
+        <p class="small muted" style="margin-top:1rem">
+          <a href="https://github.com/office-42/office42/blob/main/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a>
+          goes into detail.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="goals">
+  <div class="container">
+    <h2>Two programs to aim at</h2>
+    <div class="goals">
+      <div class="goal">
+        <h3>Gnumeric</h3>
+        <p>For what a free spreadsheet should be able to do and for how to do it right. Gnumeric was
+        built by people who cared about numerical correctness more than about features, and that
+        is the standard to hold to.</p>
+      </div>
+      <div class="goal">
+        <h3>Microsoft Excel 5 (1993)</h3>
+        <p>For what it should look like and how it should behave: a grid, a formula bar, a name box,
+        two toolbars and sheet tabs along the bottom. No ribbon.</p>
+      </div>
+    </div>
+    <p style="margin-top:1.5rem">Not planned: the ribbon, Visual Basic, co-authoring, Power Query and
+    the Quattro Pro and Applix formats.
+    <a href="https://github.com/office-42/office42/blob/main/docs/ROADMAP.md">docs/ROADMAP.md</a>
+    says why.</p>
+  </div>
+</section>
+
+<section class="alt" id="download">
+  <div class="container">
+    <h2>Get Office42</h2>
+    <p class="muted">Version 1.0.0. Office42 builds from source on Linux, macOS and Windows, and
+    every push to <code>main</code> is built and smoke-tested on all three.</p>
+    <div class="two">
+      <div>
+        <h3>Building</h3>
+        <p>Office42 needs a C11 compiler, Meson, Ninja, and GTK&nbsp;4.10 or newer with Pango, Cairo
+        and gdk-pixbuf. Python, Hunspell, SQLite and poppler-glib are used if they are there.</p>
+        <pre><code>git clone https://github.com/office-42/office42.git
+cd office42
+meson setup builddir
+meson compile -C builddir
+./builddir/src/office42        # the window
+./builddir/src/office42-calc   # the engine, from a terminal</code></pre>
+        <p class="small muted" style="margin-top:1rem">Per-platform dependency lists are the same as
+        Word42's; see its
+        <a href="https://github.com/office-42/word42/blob/main/docs/BUILD.md">docs/BUILD.md</a>.
+        The toolbar icons are SVG, so gdk-pixbuf wants its SVG loader at run time
+        (<code>librsvg2-common</code> on Debian and Ubuntu).</p>
+      </div>
+      <div>
+        <h3>Continuous builds</h3>
+        <p>The
+        <a href="https://github.com/office-42/office42/actions/workflows/linux.yml">Linux</a>,
+        <a href="https://github.com/office-42/office42/actions/workflows/macos.yml">macOS</a> and
+        <a href="https://github.com/office-42/office42/actions/workflows/windows.yml">Windows</a>
+        workflows build every push with <code>--werror</code> and upload the
+        <code>office42-calc</code> terminal front-end as an artifact, kept for fourteen days.</p>
+        <h3 style="margin-top:1.5rem">Sample books</h3>
+        <p>The repository's <a href="https://github.com/office-42/office42/tree/main/samples"><code>samples/</code></a>
+        folder holds books that exercise the formats and the function library in
+        <code>.xlsx</code>, <code>.xls</code> and <code>.fods</code>.</p>
+        <p><a class="btn btn-solid" href="https://github.com/office-42/office42">Source on GitHub</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="docs">
+  <div class="container">
+    <h2>Documentation</h2>
+    <div class="grid">
+      <div>
+        <h3><a href="https://github.com/office-42/office42/blob/main/docs/GUIDE.md">The user guide</a></h3>
+        <p>Every menu, every dialog, the number-format codes, the keyboard and the terminal front-end.</p>
+      </div>
+      <div>
+        <h3><a href="https://github.com/office-42/office42/blob/main/docs/PARITY.md">The parity review</a></h3>
+        <p>A review of the code, module by module, and an honest estimate of how far it is from Excel and from Gnumeric.</p>
+      </div>
+      <div>
+        <h3><a href="https://github.com/office-42/office42/blob/main/docs/ARCHITECTURE.md">Architecture</a></h3>
+        <p>The layers, the sparse sheet, the dependency graph, interned formats and the undo records.</p>
+      </div>
+      <div>
+        <h3><a href="https://github.com/office-42/office42/blob/main/docs/PYTHON.md">Python</a></h3>
+        <p>The console, the <code>office42</code> module, the macro recorder and <code>=PY()</code>.</p>
+      </div>
+      <div>
+        <h3><a href="https://github.com/office-42/office42/blob/main/docs/DATABASE.md">The database</a></h3>
+        <p>A SQLite database beside the book or inside it, and how a cell asks it a question.</p>
+      </div>
+      <div>
+        <h3><a href="https://github.com/office-42/office42/blob/main/docs/ROADMAP.md">Roadmap</a></h3>
+        <p>What is left, in the order it is being done, and what is not planned and why.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="word42">
+  <div class="container">
+    <h2>The sister project: Word42</h2>
+    <div class="sister">
+      <div class="w42" aria-hidden="true">W42</div>
+      <div>
+        <p><a href="https://word42.org/"><strong>Word42</strong></a> is a classic word processor, written
+        from scratch in C on GTK&nbsp;4, Pango and Cairo: a menu bar, two toolbars, a ruler, a status
+        bar and a page. Inspired by classic Microsoft Word and by AbiWord, on a modern text stack.
+        Office42 is built on the same principles, shares its build recipe and its platform lists,
+        and borrows its interned formatting and symmetric undo records.</p>
+        <p><a href="https://word42.org/">word42.org</a> ·
+        <a href="https://github.com/office-42/word42">github.com/office-42/word42</a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p class="small muted">Office42 is free software, licensed
+    <a href="https://github.com/office-42/office42/blob/main/LICENSE">GPL-3.0-or-later</a>;
+    contributions are welcome. See the
+    <a href="https://github.com/office-42/office42/blob/main/CONTRIBUTING.md">contributing guide</a>.</p>
+    <p class="small muted">Office42 is an independent program. It is not affiliated with, endorsed by
+    or derived from Microsoft, the GNOME Foundation or The Document Foundation, and no code, artwork
+    or resource of theirs is in it. Microsoft, Excel and Office Open XML are trademarks of Microsoft
+    Corporation; Gnumeric and GTK belong to the GNOME Foundation; the other names used here belong
+    to their owners, and are used only to say what Office42 reads, writes or resembles.
+    <a href="https://github.com/office-42/office42/blob/main/NOTICE.md">NOTICE.md</a> lists them
+    and gives the terms of every library Office42 links against.</p>
+    <p class="small muted">This site sets no cookies and runs no scripts or analytics.</p>
+    <p class="small muted">
+      <a href="https://github.com/office-42/office42">github.com/office-42/office42</a> ·
+      <a href="https://word42.org/">word42.org</a> · office42.net
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

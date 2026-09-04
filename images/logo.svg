@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="150" viewBox="0 0 520 150">
+  <!-- Office42 Spreadsheet: the wordmark
+       Copyright (C) 2026 The office42 authors
+       SPDX-License-Identifier: GPL-3.0-or-later
+
+       Light blue on white.  "Office42" is one word: one weight, one
+       size, one colour, and one rule under the whole of it.
+       "SPREADSHEET" sits beneath as the product line.  The sheet at the
+       left is the application icon.
+  -->
+  <rect width="520" height="150" fill="#ffffff"/>
+  <!-- the icon, reduced -->
+  <g transform="translate(12,16) scale(0.92)">
+    <rect x="8" y="8" width="112" height="112" rx="14" fill="#ffffff" stroke="#4a9be6" stroke-width="6"/>
+    <rect x="16" y="16" width="96" height="16" fill="#d6eaff"/>
+    <rect x="16" y="16" width="16" height="96" fill="#d6eaff"/>
+    <g stroke="#9cc9f5" stroke-width="2" fill="none">
+      <path d="M16 32h96M16 52h96M16 72h96M16 92h96"/>
+      <path d="M32 16v96M52 16v96M72 16v96M92 16v96"/>
+    </g>
+    <rect x="33" y="53" width="19" height="19" fill="#bfe0ff"/>
+    <text x="72" y="98" text-anchor="middle" font-family="DejaVu Sans, Liberation Sans, Arial, Helvetica, sans-serif"
+          font-weight="bold" font-size="60" fill="#4a9be6" stroke="#ffffff" stroke-width="6" paint-order="stroke">42</text>
+  </g>
+  <!-- the name, one word -->
+  <text x="150" y="82" font-family="DejaVu Sans, Liberation Sans, Arial, Helvetica, sans-serif"
+        font-weight="bold" font-size="62" fill="#4a9be6" letter-spacing="-1">Office42</text>
+  <rect x="152" y="92" width="284" height="6" fill="#4a9be6"/>
+  <!-- the product line -->
+  <text x="152" y="130" font-family="DejaVu Sans, Liberation Sans, Arial, Helvetica, sans-serif"
+        font-weight="normal" font-size="30" fill="#7fb8f0" letter-spacing="6">SPREADSHEET</text>
+</svg>

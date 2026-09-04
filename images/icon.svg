@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Office42 Spreadsheet: the application icon
+       Copyright (C) 2026 The office42 authors
+       SPDX-License-Identifier: GPL-3.0-or-later
+
+       A sheet of cells in light blue on white, with the "42" of
+       Office42 set across it.  The wordmark itself is
+       docs/images/logo.svg; at icon sizes the name would not be
+       readable, so the sheet and the number stand for it.
+  -->
+  <rect x="8" y="8" width="112" height="112" rx="14" fill="#ffffff" stroke="#4a9be6" stroke-width="6"/>
+  <!-- the grid: a header row and column in pale blue, cells in white -->
+  <rect x="16" y="16" width="96" height="16" fill="#d6eaff"/>
+  <rect x="16" y="16" width="16" height="96" fill="#d6eaff"/>
+  <g stroke="#9cc9f5" stroke-width="2" fill="none">
+    <path d="M16 32h96M16 52h96M16 72h96M16 92h96"/>
+    <path d="M32 16v96M52 16v96M72 16v96M92 16v96"/>
+  </g>
+  <!-- a highlighted cell, as the selection cursor draws it -->
+  <rect x="33" y="53" width="19" height="19" fill="#bfe0ff"/>
+  <!-- the number, one piece, over the sheet -->
+  <text x="72" y="98" text-anchor="middle" font-family="DejaVu Sans, Liberation Sans, Arial, Helvetica, sans-serif"
+        font-weight="bold" font-size="60" fill="#4a9be6" stroke="#ffffff" stroke-width="6" paint-order="stroke">42</text>
+</svg>
