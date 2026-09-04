@@ -1,0 +1,102 @@
+# The book on the README's screenshot.  From the repository root:
+#   office42-calc < samples/regional-sales.txt
+#   office42 --screenshot docs/images/screenshot.png --select F10 samples/regional-sales.gnumeric
+A1 = Regional Sales 2026
+font A1 bold,size=14
+rich A1 15 19 colour=1F497D,font=Georgia
+A2 = Thousands of US dollars, by region and quarter. Growth is Q4 over Q1.
+font A2 italic,colour=595959
+A3 = Region
+B3 = Q1
+C3 = Q2
+D3 = Q3
+E3 = Q4
+F3 = Total
+G3 = Share
+H3 = Growth
+font A3:H3 bold,colour=FFFFFF,fill=1F497D
+border A3:H3 bottom medium #1F497D
+A4 = North
+B4 = 1240
+C4 = 1315
+D4 = 1402
+E4 = 1498
+A5 = South
+B5 = 980
+C5 = 1010
+D5 = 995
+E5 = 1120
+A6 = East
+B6 = 1560
+C6 = 1490
+D6 = 1610
+E6 = 1725
+A7 = West
+B7 = 870
+C7 = 905
+D7 = 940
+E7 = 890
+A8 = Central
+B8 = 640
+C8 = 720
+D8 = 760
+E8 = 815
+A9 = Export
+B9 = 410
+C9 = 455
+D9 = 530
+E9 = 605
+F4 = =SUM(B4:E4)
+filldown F4:F9
+G4 = =F4/F$10
+filldown G4:G9
+H4 = =(E4-B4)/B4
+filldown H4:H9
+A10 = Total
+B10 = =SUM(B4:B9)
+fillright B10:F10
+G10 = =SUM(G4:G9)
+H10 = =(E10-B10)/B10
+font A10:H10 bold
+border A10:H10 top double #1F497D
+border A10:H10 bottom thin #1F497D
+format B4:F10 $#,##0
+format G4:H10 0.0%
+font A4:H4 fill=EEF2F8
+font A6:H6 fill=EEF2F8
+font A8:H8 fill=EEF2F8
+cond H4:H9 < 0 red bold
+cond H4:H9 > 0.2 bold fill
+note E7 The Denver office closed in Q4; the drop is expected.
+A12 = Best quarter
+C12 = =INDEX(B3:E3,MATCH(MAX(B10:E10),B10:E10,0))
+A13 = Top region
+C13 = =INDEX(A4:A9,MATCH(MAX(F4:F9),F4:F9,0))
+A14 = Mean growth
+C14 = =AVERAGE(H4:H9)
+format C14 0.0%
+font A12:A14 bold
+chart column A3:E9 headings stubs Sales by region and quarter
+chartset 1 3d on
+chartset 1 at A15
+chartset 1 size 400 205
+chartset 1 ytitle Thousand USD
+J3 = Region
+K3 = Total
+font J3:K3 bold,colour=FFFFFF,fill=1F497D
+J4 = =A4
+K4 = =F4
+filldown J4:J9
+filldown K4:K9
+format K4:K9 $#,##0
+chart pie J3:K9 headings stubs Share of the year
+chartset 2 at F15
+chartset 2 size 300 205
+chartset 2 labels on
+shape textbox H12 Q4 up 12.7% on Q1; Export is the fastest-growing region.
+freeze A4
+rename Sales
+sheet Budget
+sheet Notes
+sheet Sales
+save samples/regional-sales.gnumeric

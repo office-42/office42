@@ -47,6 +47,8 @@ jobs:
             python:p
             sqlite3:p
             hunspell:p
+            librsvg:p
+            hunspell-en:p
 
       - name: Show toolchain
         run: |
@@ -83,10 +85,35 @@ jobs:
           grep -q '^42$' out.txt
           ./builddir/src/office42-calc.exe --version | grep -q '^office42-calc '
 
-      - name: Upload binary
+      # The bundle runs without MSYS2: the two exes, every DLL they need,
+      # the pixbuf loaders, Python's library, the dictionaries and GTK's
+      # data.  It is the tree the Store package is made from.
+      - name: Bundle
+        run: |
+          bash build-aux/bundle-windows.sh builddir dist
+          cp README.md LICENSE dist/ 2>/dev/null || true
+
+      - name: Upload bundle
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: office42-windows
-          path: builddir/src/office42-calc.exe
-          retention-days: 14
+          path: dist
+          retention-days: 30
+
+      # The Store package.  The runner image carries the Windows SDK, so
+      # makeappx and makepri are there; the package comes out unsigned,
+      # which is what a Store submission wants.  A successful pack is also
+      # a check of the manifest, which makeappx validates.
+      - name: MSIX package
+        run: |
+          bash build-aux/pack-msix.sh builddir dist msix
+          ls -l msix
+
+      - name: Upload MSIX
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: office42-windows-msix
+          path: msix/*.msix
+          retention-days: 30

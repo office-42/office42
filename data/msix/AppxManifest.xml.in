@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AppxManifest.xml.in - the MSIX manifest for the Microsoft Store package.
+     The @PLACEHOLDERS@ are filled in by build-aux/pack-msix.sh; the values
+     that matter for a real submission come from Partner Center's Product
+     Identity page and are the script's defaults.  See docs/WINDOWS-STORE.md.
+
+     Copyright (C) 2026 The office42 authors
+     SPDX-License-Identifier: GPL-3.0-or-later -->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+    xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+    IgnorableNamespaces="uap uap3 desktop rescap">
+
+  <!-- Name, Publisher and PublisherDisplayName are Partner Center's, not
+       ours: the package family name is derived from them, and a package
+       that renames either is refused. -->
+  <Identity
+      Name="@IDENTITY_NAME@"
+      Publisher="@PUBLISHER@"
+      Version="@MSIX_VERSION@"
+      ProcessorArchitecture="x64"/>
+
+  <Properties>
+    <DisplayName>@DISPLAY_NAME@</DisplayName>
+    <PublisherDisplayName>@PUBLISHER_DISPLAY_NAME@</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <!-- 10.0.17763 is Windows 10 1809, the floor for MSIX-packaged desktop
+       applications. -->
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop"
+                        MinVersion="10.0.17763.0"
+                        MaxVersionTested="10.0.22631.0"/>
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US"/>
+  </Resources>
+
+  <!-- A packaged Win32 program: it is an ordinary process, not a
+       sandboxed app, and needs to say so. -->
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust"/>
+  </Capabilities>
+
+  <Applications>
+    <Application Id="Office42"
+                 Executable="bin\office42.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+          DisplayName="@DISPLAY_NAME@"
+          Description="Office42 Spreadsheet is a spreadsheet in the shape of Excel 5: a grid, a formula bar, two toolbars and sheet tabs, with 610 functions, charts, pivot tables and Python, reading and writing .xlsx, .xls, .ods, .gnumeric and CSV."
+          BackgroundColor="transparent"
+          Square150x150Logo="Assets\Square150x150Logo.png"
+          Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+            Square71x71Logo="Assets\Square71x71Logo.png"
+            Wide310x150Logo="Assets\Wide310x150Logo.png"
+            Square310x310Logo="Assets\Square310x310Logo.png"/>
+      </uap:VisualElements>
+      <Extensions>
+        <!-- The formats Office42 both reads and writes.  Declaring them
+             puts it in the Open with list and in Settings > Default apps;
+             it does not take the association from whatever holds it. -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="excelworkbook">
+            <uap:DisplayName>Excel Workbook</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.xlsx</uap:FileType>
+              <uap:FileType>.xls</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="opendocumentspreadsheet">
+            <uap:DisplayName>OpenDocument Spreadsheet</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.ods</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="gnumericspreadsheet">
+            <uap:DisplayName>Gnumeric Spreadsheet</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.gnumeric</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="csv">
+            <uap:DisplayName>Comma-Separated Values</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.csv</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="oldspreadsheets">
+            <uap:DisplayName>Spreadsheet</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.wk1</uap:FileType>
+              <uap:FileType>.wks</uap:FileType>
+              <uap:FileType>.slk</uap:FileType>
+              <uap:FileType>.sylk</uap:FileType>
+              <uap:FileType>.dif</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <!-- So that `office42` and `office42-calc` work in a console
+             whatever the install path is; a packaged program has no fixed
+             one. -->
+        <uap3:Extension Category="windows.appExecutionAlias"
+                        Executable="bin\office42.exe"
+                        EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="office42.exe"/>
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

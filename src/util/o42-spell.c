@@ -43,6 +43,19 @@ dictionary_paths (void)
 
   if (env != NULL)
     g_ptr_array_add (dirs, g_strdup (env));
+#ifdef G_OS_WIN32
+  {
+    /* A Windows build is copied about whole, the Store package
+     * included: the dictionaries it brought are in share/hunspell
+     * beside its bin. */
+    char *base = g_win32_get_package_installation_directory_of_module (NULL);
+    if (base != NULL)
+      {
+        g_ptr_array_add (dirs, g_build_filename (base, "share", "hunspell", NULL));
+        g_free (base);
+      }
+  }
+#endif
   if (prefix != NULL)
     g_ptr_array_add (dirs, g_build_filename (prefix, "share", "hunspell", NULL));
   g_ptr_array_add (dirs, g_strdup ("C:/msys64/mingw64/share/hunspell"));

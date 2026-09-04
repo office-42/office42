@@ -18,7 +18,10 @@ install_data('icons/128x128/apps/net.office42.office42.png',
   install_dir: get_option('datadir') / 'icons/hicolor/128x128/apps')
 
 # So that the menu and the icon theme learn of the program on install,
-# where there is a menu to tell: Windows and macOS keep their own.
+# where there is a menu to tell: Windows and macOS keep their own, and a
+# machine without the two tools (a build box) is not held up over them.
 if host_machine.system() not in ['windows', 'darwin']
-  gnome.post_install(gtk_update_icon_cache: true, update_desktop_database: true)
+  gnome.post_install(
+    gtk_update_icon_cache: find_program('gtk-update-icon-cache', 'gtk4-update-icon-cache', required: false).found(),
+    update_desktop_database: find_program('update-desktop-database', required: false).found())
 endif

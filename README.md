@@ -7,12 +7,13 @@ Office42) is a spreadsheet in the shape of Excel 5 and at parity with
 Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. It is the
 sister project of [word42](https://github.com/office-42/word42), built on
 the same principles: a small, honest codebase that does one thing well.
+The site is [office42.net](https://office42.net/).
 
 [![Linux](https://github.com/office-42/office42/actions/workflows/linux.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/linux.yml)
 [![macOS](https://github.com/office-42/office42/actions/workflows/macos.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/macos.yml)
 [![Windows](https://github.com/office-42/office42/actions/workflows/windows.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/windows.yml)
 
-![Office42 Spreadsheet with a small sales sheet: a heading set in two fonts in one cell, a named cell style on the headings, currency and percent formats, a conditional format, a note, a text box and a three-dimensional column chart](docs/images/screenshot.png)
+![Office42 Spreadsheet showing a regional sales sheet: a title set in two fonts in one cell, a styled heading row, currency and percent formats, a total row with SUM and INDEX/MATCH formulas, conditional formats on the growth column, a note, a text box, frozen panes, a three-dimensional column chart, a pie chart with labels, and three sheet tabs](docs/images/screenshot.png)
 
 [docs/GUIDE.md](docs/GUIDE.md) is the user guide: every
 menu, every dialog, the number-format codes, the keyboard and the terminal
@@ -137,6 +138,10 @@ meson compile -C builddir
 
 Per-platform dependency lists are the same as word42's; see its
 [docs/BUILD.md](https://github.com/office-42/word42/blob/main/docs/BUILD.md).
+On Windows, `build-aux/bundle-windows.sh` gathers a tree that runs
+without MSYS2 and `build-aux/pack-msix.sh` makes the Microsoft Store
+package from it; [docs/WINDOWS-STORE.md](docs/WINDOWS-STORE.md) has the
+procedure.
 
 `office42 --screenshot out.png book.gnumeric` renders the window to a PNG
 without a compositor or a person at the keyboard; `--activate ACTION`,
