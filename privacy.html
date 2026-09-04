@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — Office42 Spreadsheet</title>
+<meta name="description" content="The privacy policy of Office42 Spreadsheet and of office42.net: no data collection, no telemetry, no cookies, no tracking.">
+<link rel="canonical" href="https://office42.net/privacy">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Privacy — Office42 Spreadsheet">
+<meta property="og:description" content="The privacy policy of Office42 Spreadsheet and of office42.net: no data collection, no telemetry, no cookies, no tracking.">
+<meta property="og:url" content="https://office42.net/privacy">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#4a9be6">
+<link rel="icon" type="image/svg+xml" href="images/icon.svg">
+<link rel="apple-touch-icon" href="images/icon-128.png">
+<style>
+  :root {
+    --o42-blue: #4a9be6;
+    --o42-blue-dark: #2f7fca;
+    --o42-rule: #c0bfbc;
+    --o42-ink: #1f2328;
+    --o42-muted: #5c6670;
+    --o42-ground: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+                 "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--o42-ink);
+    background: var(--o42-ground);
+  }
+  a { color: var(--o42-blue-dark); }
+  a:hover { color: var(--o42-blue); }
+  code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", "DejaVu Sans Mono", Menlo, monospace;
+    font-size: .92em;
+    background: #f6f8fa;
+    padding: .05em .3em;
+    border-radius: 3px;
+  }
+  .container { max-width: 1140px; margin: 0 auto; padding: 0 1.25rem; }
+  h1 { font-size: 2.2rem; font-weight: 700; color: var(--o42-blue); line-height: 1.2; margin: 0 0 .5rem; }
+  h2 { font-size: 1.4rem; font-weight: 700; line-height: 1.2; margin: 2.5rem 0 .75rem; }
+  .muted { color: var(--o42-muted); }
+  .small { font-size: .9rem; }
+  p { margin: 0 0 1rem; }
+  ul { margin: 0 0 1rem; padding-left: 1.25rem; }
+  li { margin-bottom: .4rem; }
+
+  nav.top {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--o42-ground);
+    border-bottom: 1px solid var(--o42-rule);
+  }
+  nav.top .container {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 60px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: .6rem;
+    font-weight: 700; font-size: 1.35rem; color: var(--o42-blue);
+    text-decoration: none; letter-spacing: -.01em;
+  }
+  .brand img { width: 34px; height: 34px; }
+  nav.top ul { list-style: none; margin: 0; padding: 0; display: flex; gap: 1.4rem; }
+  nav.top li { margin: 0; }
+  nav.top a.link { color: var(--o42-ink); text-decoration: none; white-space: nowrap; }
+  nav.top a.link:hover { color: var(--o42-blue); }
+  @media (max-width: 520px) {
+    .brand span { display: none; }
+    nav.top ul { gap: .8rem; }
+    nav.top a.link { font-size: .95rem; }
+  }
+  @media (max-width: 380px) {
+    nav.top ul { gap: .6rem; }
+    nav.top a.link { font-size: .85rem; }
+  }
+
+  main { padding: 3.5rem 0; }
+  main .container { max-width: 46rem; }
+  footer { border-top: 1px solid var(--o42-rule); padding: 2rem 0; }
+  footer p { margin-bottom: .6rem; }
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="container">
+    <a class="brand" href="./">
+      <img src="images/icon.svg" alt="" width="34" height="34">
+      <span>Office42</span>
+    </a>
+    <ul>
+      <li><a class="link" href="./#features">Features</a></li>
+      <li><a class="link" href="./#download">Get it</a></li>
+      <li><a class="link" href="./#docs">Docs</a></li>
+      <li><a class="link" href="https://word42.org/">Word42</a></li>
+      <li><a class="link" href="https://github.com/office-42/office42">GitHub</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main>
+  <div class="container">
+    <h1>Privacy</h1>
+    <p class="muted">Last updated: September 4, 2026</p>
+
+    <h2>Office42, the program</h2>
+    <p>Office42 Spreadsheet is free software, licensed under the GPL, that runs entirely on
+    your own computer.</p>
+    <ul>
+      <li>Office42 collects no personal data.</li>
+      <li>Office42 does not send your books, your cells or anything else over the network. It
+      has no telemetry, no analytics, no crash reporting and no update checks, and no
+      networking code at all.</li>
+      <li>Your books stay on your computer, in files you control. A SQLite database kept
+      beside a book or inside it is a file on your disk like any other.</li>
+      <li>A hyperlink in a cell opens in your browser only when you click it. A book that
+      arrives with Python scripts offers to run them and never runs them by itself; what a
+      script you choose to run does is up to the script.</li>
+    </ul>
+
+    <h2>office42.net, the website</h2>
+    <p>This website is a set of static pages with no cookies, no analytics and no tracking,
+    and it loads nothing from third-party servers: every page, stylesheet and image is
+    served from office42.net itself. It is hosted on
+    <a href="https://pages.github.com/">GitHub Pages</a>, and GitHub may record basic
+    technical information about visits, such as IP addresses, in its server logs, as
+    described in the
+    <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub
+    Privacy Statement</a>. We do not receive or store any of that information ourselves.</p>
+
+    <h2>Contact</h2>
+    <p>Office42 is developed in the open at
+    <a href="https://github.com/office-42/office42">github.com/office-42/office42</a>.
+    Questions about this policy can be raised on the project's
+    <a href="https://github.com/office-42/office42/issues">issue tracker</a>.</p>
+  </div>
+</main>
+
+<footer>
+  <div class="container">
+    <p class="small muted">Office42 is free software, licensed
+    <a href="https://github.com/office-42/office42/blob/main/LICENSE">GPL-3.0-or-later</a>.</p>
+    <p class="small muted">
+      <a href="https://github.com/office-42/office42">github.com/office-42/office42</a> ·
+      <a href="https://word42.org/">word42.org</a> ·
+      <a href="privacy">Privacy</a> · office42.net
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
