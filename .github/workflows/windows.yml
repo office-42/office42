@@ -44,6 +44,9 @@ jobs:
             glib2:p
             gdk-pixbuf2:p
             poppler:p
+            python:p
+            sqlite3:p
+            hunspell:p
 
       - name: Show toolchain
         run: |
@@ -72,9 +75,13 @@ jobs:
 
       - name: Smoke test
         run: |
-          printf 'A1 = 10\nA2 = 20\nB1 = =SUM(A1:A2)*2\nB1\n' \
+          printf 'A1 = 10\nA2 = 20\nB1 = =SUM(A1:A2)*2\nB1\nC1 = =SUM(A:A)\nC1\npy print(1+1)\ndbembed\nsqlprint SELECT 6*7\n' \
             | ./builddir/src/office42-calc.exe | tee out.txt
           grep -q 'B1	60' out.txt
+          grep -q 'C1	30' out.txt
+          grep -q '^2$' out.txt
+          grep -q '^42$' out.txt
+          ./builddir/src/office42-calc.exe --version | grep -q '^office42-calc '
 
       - name: Upload binary
         if: success()

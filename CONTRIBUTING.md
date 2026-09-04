@@ -57,12 +57,14 @@ stubs without `-Dpython`.
 
 ## Adding a function
 
-Write `fn_yourname` in `o42-eval.c` following the ones around it, then add a
-row to `FUNCTIONS` **in sorted position** — the lookup is a binary search and
-an out-of-order entry is one that can never be found. Use `ARG_NUMBER` and
-`ARG_TEXT` for scalar arguments and `visit_numbers` for anything that walks a
-range, so that your function gets the literal-versus-range distinction right
-for free.
+Write `fn_yourname` in the family it belongs to — `o42-fn-text.c`,
+`o42-fn-dates.c`, `o42-fn-finance.c` and the rest, or `o42-eval.c` for the
+core — following the ones around it, and add a row to that file's table and
+a line to its help table; the tables are gathered and sorted at start-up, so
+order does not matter. Use `ARG_NUMBER` and `ARG_TEXT` for scalar arguments
+and `visit_numbers` for anything that walks a range, so that your function
+gets the literal-versus-range distinction right for free. Check the answers
+against Excel or LibreOffice with `office42-calc`, and say so in the commit.
 
 ## Commit messages
 

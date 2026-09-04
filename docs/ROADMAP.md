@@ -8,12 +8,12 @@ section spelled out.
 
 ## Next
 
-**Splitting `o42-sheet.c`.** It is 8,580 lines and the biggest file
-now that the evaluator and the window have come apart: cells and their
+**Splitting `o42-sheet.c`.** It is 9,197 lines, the biggest file but
+the evaluator now that the window has come apart: cells and their
 formats, recalculation and the dependency graph, and the objects that
 float over the grid are three subjects in one file.
 
-**Splitting `o42-grid.c`.** 5,400 lines: drawing, editing, selection
+**Splitting `o42-grid.c`.** 6,948 lines: drawing, editing, selection
 and dragging objects.
 
 ## Not planned

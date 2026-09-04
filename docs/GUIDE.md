@@ -826,18 +826,19 @@ prints the used range. The commands, by family:
 
 | Family | Commands |
 |---|---|
-| Cells | `dump`, `copy`, `paste`, `filldown`, `fillright`, `autofill`, `moverange`, `merge`, `merges`, `insertrows`, `deleterows`, `insertcols`, `deletecols`, `insertcells` |
-| Formats | `format`, `font`, `fontinfo`, `border`, `pattern`, `rich`, `runs`, `indent`, `rotate`, `fmtinfo`, `style`, `defstyle`, `styleat`, `autoformat`, `cond`, `conds`, `uncond` |
-| Sheets | `sheet`, `rename`, `delsheet`, `freeze`, `split`, `hiderows`, `levels`, `group`, `protect`, `lock`, `hide`, `editable`, `chartsheet` |
-| Data | `sort`, `find`, `replace`, `filter`, `advfilter`, `subtotal`, `dedupe`, `consolidate`, `table`, `pivot`, `refresh`, `validate`, `validations`, `goalseek`, `solve`, `scenario`, `analyse`, `whatif` |
+| Cells | `dump`, `copy`, `paste`, `filldown`, `fillright`, `autofill`, `moverange`, `merge`, `unmerge`, `merges`, `insertrows`, `deleterows`, `insertcols`, `deletecols`, `insertcells`, `deletecells`, `array` |
+| Formats | `format`, `font`, `fontinfo`, `border`, `pattern`, `rich`, `runs`, `indent`, `rotate`, `fmtinfo`, `style`, `styles`, `defstyle`, `styleat`, `autoformat`, `cond`, `conds`, `uncond`, `customlist`, `customlists` |
+| Sheets | `sheet`, `rename`, `delsheet`, `tabcolour`, `freeze`, `split`, `hiderows`, `unhiderows`, `hidecols`, `unhidecols`, `levels`, `group`, `ungroup`, `protect`, `lock`, `hide`, `editable`, `chartsheet` |
+| Data | `sort`, `find`, `replace`, `filter`, `advfilter`, `subtotal`, `unsubtotal`, `dedupe`, `consolidate`, `table`, `tables`, `untable`, `pivot`, `refresh`, `validate`, `validations`, `unvalidate`, `goalseek`, `solve`, `scenario`, `scenarios`, `showscenario`, `delscenario`, `analyse`, `whatif` |
 | Objects | `chart`, `charts`, `chartset`, `chartinfo`, `shape`, `shapes`, `controlset`, `click`, `picture`, `pictures`, `objgroup`, `objungroup`, `note`, `link`, `links` |
-| Files | `load`, `save`, `pdf`, `pdfbook`, `printarea`, `printscale`, `printsetup`, `printopt`, `pagebreak`, `margin` |
+| Files | `load`, `save`, `pdf`, `pdfbook`, `printarea`, `printscale`, `printsetup`, `printopt`, `pagebreak`, `margin`, `header`, `footer`, `titlerows` |
 | Python | `py`, `pyfile`, `script`, `scripts`, `runscript`, `delscript`, `record` |
 | Database | `db`, `dbembed`, `dbtables`, `dbcols`, `dbexec`, `sql`, `sqlprint`, `dbput`, `dbrefresh`, `queries` |
-| Other | `undo`, `redo`, `name`, `names`, `unname`, `spell`, `view`, `views`, `calcmode`, `iterate`, `recalc` |
+| Other | `undo`, `redo`, `name`, `names`, `unname`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc` |
 
 `office42-calc --functions` prints every function with its signature
-and a line about what it does.
+and a line about what it does; `--help` prints the commands by family
+and `--version` the version.
 
 ## 20. Keyboard reference
 

@@ -148,6 +148,52 @@ main (int argc, char *argv[])
 
   (void) argc; (void) argv;
 
+  if (argc > 1 && (strcmp (argv[1], "--version") == 0 || strcmp (argv[1], "-V") == 0))
+    {
+      printf ("office42-calc %s\n", O42_VERSION);
+      o42_book_free (book);
+      return 0;
+    }
+
+  if (argc > 1 && (strcmp (argv[1], "--help") == 0 || strcmp (argv[1], "-h") == 0))
+    {
+      printf ("usage: office42-calc [--functions | --help | --version] < SCRIPT\n"
+              "\n"
+              "Drives the spreadsheet engine from standard input, a command a line:\n"
+              "  A1 = 10            sets a cell; a formula starts with =\n"
+              "  A1                 shows a cell's value and formula\n"
+              "  dump               prints the used range\n"
+              "\n"
+              "Cells     copy paste filldown fillright autofill moverange merge merges\n"
+              "          insertrows deleterows insertcols deletecols insertcells deletecells\n"
+              "Formats   format font fontinfo border pattern rich runs indent rotate fmtinfo\n"
+              "          style defstyle styleat autoformat cond conds uncond\n"
+              "Sheets    sheet rename delsheet freeze split hiderows levels group protect\n"
+              "          lock hide editable chartsheet\n"
+              "Data      sort find replace filter advfilter subtotal dedupe consolidate\n"
+              "          table pivot refresh validate validations goalseek solve scenario\n"
+              "          analyse whatif\n"
+              "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
+              "          picture pictures objgroup objungroup note link links\n"
+              "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
+              "          pagebreak margin\n"
+              "Python    py pyfile script scripts runscript delscript record\n"
+              "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
+              "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
+              "\n"
+              "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
+              "section 19 says what each does; --functions lists every function.\n");
+      o42_book_free (book);
+      return 0;
+    }
+
+  if (argc > 1 && argv[1][0] == '-' && strcmp (argv[1], "--functions") != 0)
+    {
+      fprintf (stderr, "office42-calc: unknown option %s (try --help)\n", argv[1]);
+      o42_book_free (book);
+      return 2;
+    }
+
   if (argc > 1 && strcmp (argv[1], "--functions") == 0)
     {
       guint n = 0;

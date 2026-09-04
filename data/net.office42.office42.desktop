@@ -7,5 +7,5 @@ Exec=office42 %F
 Icon=net.office42.office42
 Terminal=false
 Categories=Office;Spreadsheet;GTK;
-MimeType=application/x-gnumeric;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.ms-excel;text/csv;
+MimeType=application/x-gnumeric;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.ms-excel;application/vnd.oasis.opendocument.spreadsheet;text/csv;
 StartupNotify=true

@@ -876,6 +876,7 @@ ensure_interpreter (void)
     }
   module = loaded;
   error_class = PyObject_GetAttrString (module, "Error");
+  PyModule_AddStringConstant (module, "__version__", O42_VERSION);
   return TRUE;
 }
 

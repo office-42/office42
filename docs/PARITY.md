@@ -16,7 +16,7 @@ running program.
 
 ## 1. The code
 
-68,000 lines of C11 in six layers, each of which may only see the ones
+78,000 lines of C11 in six layers, each of which may only see the ones
 below it. `util` and `model` and `formula` and `io` never include GTK,
 so the engine builds as a library of its own and the window is the only
 thing that knows what a mouse is.
@@ -24,12 +24,12 @@ thing that knows what a mouse is.
 | Layer | Module | Lines | What is in it | How it reads |
 |---|---|---:|---|---|
 | util | `o42-types.c` | 129 | A1 addresses, ranges, the cell key | Small and total; the key packs a row and a column into 64 bits, so the grid can grow without touching it |
-| | `o42-numfmt.c` | 797 | The number-format language | The biggest thing in `util`, and the one most worth reading: it parses Excel's codes rather than matching them |
+| | `o42-numfmt.c` | 1,057 | The number-format language | The biggest thing in `util`, and the one most worth reading: it parses Excel's codes rather than matching them |
 | | `o42-date.c` | 241 | Serial dates, the 1900 leap-year bug included | Deliberately bug-compatible, and says so |
 | | `o42-image.c` | 156 | Decoding a picture's bytes | A thin cover over gdk-pixbuf |
 | | `o42-spell.c` | 348 | Hunspell, when it is there | Optional; without it every word passes |
-| model | `o42-sheet.c` | 8,580 | Cells, formats, recalculation, undo, objects, filters, tables, queries | The largest file after the evaluator, and the one that would gain most from being split: cells, recalculation and objects are three subjects in one file |
-| | `o42-book.c` | 980 | Sheets, names, styles, scripts, the database, the undo stack they share | Clean |
+| model | `o42-sheet.c` | 9,197 | Cells, formats, recalculation, undo, objects, filters, tables, queries | The largest file after the evaluator, and the one that would gain most from being split: cells, recalculation and objects are three subjects in one file |
+| | `o42-book.c` | 1,101 | Sheets, names, styles, scripts, the database, the undo stack they share | Clean |
 | | `o42-chart.c` | 2,521 | Seventeen kinds of chart, drawn in cairo | One long draw per family; the axis arithmetic is repeated in four of them |
 | | `o42-shape.c` | 551 | Shapes and the nine form controls | Fine |
 | | `o42-analysis.c` | 928 | The statistical analysis tools | Each writes a labelled table; no drawing |
@@ -46,10 +46,10 @@ thing that knows what a mouse is.
 | | `o42-text-formats.c` | 687 | DIF, SYLK and LaTeX | Three formats older than the programs that read them, and the one a paper is set in |
 | | `o42-lotus.c` | 247 | Lotus 1-2-3, both ways | The oldest format here, and the smallest reader |
 | script | `o42-python.c` | 962 | CPython embedded | Optional; the API is `book` and `sheet` objects |
-| ui | `o42-window.c` | 5,373 | The window itself: title bar, toolbars, actions, files, printing, tabs | Was 8,825 and held every dialog too |
+| ui | `o42-window.c` | 5,479 | The window itself: title bar, toolbars, actions, files, printing, tabs | Was 8,825 and held every dialog too |
 | | `o42-window-private.h` | 130 | The seam between the window and its dialogs | The frame a dialog is built in, and what a dialog may ask of the window |
 | | `o42-dialogs-*.c` | 3,526 | The Data, Tools and Format menus' dialogs, a file apiece | Each is the dialogs of one menu and nothing else |
-| | `o42-grid.c` | 5,400 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
+| | `o42-grid.c` | 6,948 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
 
 **A note on this table.** The row for entering and editing read 100%
 while point mode -- building a reference by clicking cells as a formula
@@ -67,6 +67,23 @@ is at this y", and was a widget as big as the sheet: the sheet answers
 that question by binary search now, and the grid scrolls itself. The
 third is that nothing in the program is translated: `menus.ui`
 marks its strings translatable and no gettext ever reads them.
+
+**The 1.0 review.** A second pass over the whole tree before 1.0.0,
+layer by layer and checked against the running program, found the
+kind of thing a table of features cannot: a cell's input text was made
+from its ten-digit display, so copying, sorting, undoing or editing a
+number quietly lost its last five digits, and so did a formula's own
+literals when it was copied or saved to `.xlsx`; `A:A` and `1:1` did
+not parse at all, and `=SUM(A:A)` went into `.xlsx` as `SUM(A)`;
+formatting a whole column made a cell for every one of its million
+rows; a `=PY()` cell in a file ran on opening once Python was up; a
+running total of eight thousand rows would overflow the stack on
+Linux; and inserting a row anywhere turned every spill on the sheet
+into `#SPILL!`. All of it is fixed, with the checks in the commit
+messages. What it says about the code is that the model's seams are
+sound -- each of these was one mistake in one place -- and that the
+next review should again be of behaviour under load rather than of
+the list of features, which is complete.
 
 ---
 
@@ -205,8 +222,8 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **Splitting `o42-sheet.c`** (8,580 lines), which is the biggest file
-   now that the evaluator and the window have come apart: cells and
+1. **Splitting `o42-sheet.c`** (9,197 lines), the biggest file but the
+   evaluator now that the window has come apart: cells and
    their formats, recalculation and the dependency graph, and the
    objects that float over the grid are three subjects in one file.
 2. **The last two file formats Gnumeric reads**: Quattro Pro and
