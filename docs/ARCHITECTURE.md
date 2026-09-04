@@ -188,6 +188,15 @@ Number formatting goes through `g_ascii_formatd`, never the C library's
 `printf`, which would write a decimal comma in half the world's locales. A
 spreadsheet's `1.5` must be `1.5` everywhere, and its `#,##0` means a comma.
 
+A whole column or row can wear a format of its own. Applying a format to
+a range that spans every row goes onto the columns (`col_fmts`, an index
+per column), not onto a million cells; a cell with no record of its own
+shows its column's format, then its row's, then the sheet's default, and
+a cell made in a formatted column starts from that format. `.xlsx` keeps
+them as Excel does, `style` on a `<col>` and `s` with `customFormat` on
+a `<row>`; `.gnumeric` as a `StyleRegion` over every row of the column,
+written before the cells' own so that the cells are made on top of it.
+
 ## Pictures
 
 A picture floats above the grid, anchored to a cell with an offset inside

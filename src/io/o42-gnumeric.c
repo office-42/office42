@@ -695,6 +695,35 @@ write_sheet (GString *out, O42Sheet *sheet)
     append_style (w.out, o42_fmt_table_get (table, w.default_fmt), &all);
   }
 
+  /* The format a whole column or row wears: a region over every row of
+   * the column, neighbours that wear the same one joined into a single
+   * region as Gnumeric would write them.  Before the cells' own, so
+   * that on reading the cells are made on top of their column's. */
+  for (int lines = 0; lines < 2; lines++)
+    {
+      GArray *which = o42_sheet_line_fmts (sheet, lines == 1);
+
+      for (guint i = 0; i < which->len; )
+        {
+          int first = g_array_index (which, int, i);
+          int last = first;
+          int idx = o42_sheet_line_fmt_idx (sheet, lines == 1, first);
+          O42Range region;
+
+          while (i + 1 < which->len &&
+                 g_array_index (which, int, i + 1) == last + 1 &&
+                 o42_sheet_line_fmt_idx (sheet, lines == 1, last + 1) == idx)
+            { i++; last++; }
+          i++;
+          if (lines == 1)
+            { region.row0 = first; region.row1 = last; region.col0 = 0; region.col1 = O42_MAX_COLS - 1; }
+          else
+            { region.col0 = first; region.col1 = last; region.row0 = 0; region.row1 = O42_MAX_ROWS - 1; }
+          append_style (w.out, o42_fmt_table_get (table, (O42FmtIdx) idx), &region);
+        }
+      g_array_free (which, TRUE);
+    }
+
   o42_sheet_foreach_cell (sheet, collect_key, &w);
   g_array_sort (w.keys, compare_keys);
 
@@ -1820,15 +1849,23 @@ start_element (GMarkupParseContext *context, const char *element,
           if (preset)
             {
               r->fmt.number = number;
-              r->fmt.decimals = decimals;
               r->fmt.custom = NULL;
+              /* General shows no decimals, so a count for it is only
+               * what the decimal buttons would start from; keeping
+               * the sheet's own keeps "General" equal to the default
+               * format, which is what a whole-sheet region is. */
+              if (number != O42_NUM_GENERAL)
+                {
+                  r->fmt.decimals = decimals;
+                  r->mask |= O42_FMT_DECIMALS;
+                }
             }
           else
             {
               r->fmt.number = O42_NUM_GENERAL;
               r->fmt.custom = g_intern_string (v);
             }
-          r->mask |= O42_FMT_NUMBER | O42_FMT_DECIMALS;
+          r->mask |= O42_FMT_NUMBER;
         }
       return;
     }
@@ -2661,19 +2698,48 @@ end_element (GMarkupParseContext *context, const char *element,
       r->region_is_conditional = FALSE;
       if (conditional_only)
         return;
-      region.col1 = MIN (region.col1, O42_MAX_COLS - 1);
-      region.row1 = MIN (region.row1, O42_MAX_ROWS - 1);
+      /* Bounds a file may have got wrong: a negative start once made
+       * the clamp below overflow and the load walk two billion rows. */
+      region.col0 = CLAMP (region.col0, 0, O42_MAX_COLS - 1);
+      region.row0 = CLAMP (region.row0, 0, O42_MAX_ROWS - 1);
+      region.col1 = CLAMP (region.col1, region.col0, O42_MAX_COLS - 1);
+      region.row1 = CLAMP (region.row1, region.row0, O42_MAX_ROWS - 1);
 
-      /* A region over the whole sheet is the default style; applying it
-       * cell by cell would create four million cells.  It becomes the
-       * table's default instead -- but only if it differs from ours. */
-      if (region.col0 == 0 && region.row0 == 0 &&
-          region.col1 == O42_MAX_COLS - 1 && region.row1 == O42_MAX_ROWS - 1)
-        return;
+      /* A region over whole columns, or whole rows, is the format those
+       * lines wear: the cells in them are made on top of it as they are
+       * read.  Gnumeric's own grid is 256 by 65,536, so a region to its
+       * edge is to the edge of ours.  A region over the whole sheet is
+       * the file's default style, which is ours unless it says
+       * otherwise. */
+      if (r->mask != 0 && region.row0 == 0 && region.row1 >= 65535)
+        {
+          O42FmtTable *table = o42_sheet_fmt_table (r->sheet);
+          O42Fmt fmt = *o42_fmt_table_get (table, o42_fmt_table_default (table));
+          O42FmtIdx idx;
 
-      /* Whole columns and rows would be sixteen thousand cells apiece; the
-       * cells they affect are the ones that hold something, and those are
-       * formatted as they are read.  Clamp to a workable rectangle. */
+          o42_fmt_apply_mask (&fmt, r->mask, &r->fmt);
+          idx = o42_fmt_table_intern (table, &fmt);
+          if (idx != o42_fmt_table_default (table))
+            for (int c = region.col0; c <= region.col1; c++)
+              o42_sheet_set_line_fmt_idx (r->sheet, FALSE, c, (int) idx);
+          return;
+        }
+      if (r->mask != 0 && region.col0 == 0 && region.col1 >= 255)
+        {
+          O42FmtTable *table = o42_sheet_fmt_table (r->sheet);
+          O42Fmt fmt = *o42_fmt_table_get (table, o42_fmt_table_default (table));
+          O42FmtIdx idx;
+
+          o42_fmt_apply_mask (&fmt, r->mask, &r->fmt);
+          idx = o42_fmt_table_intern (table, &fmt);
+          if (idx != o42_fmt_table_default (table))
+            for (int rr = region.row0; rr <= region.row1; rr++)
+              o42_sheet_set_line_fmt_idx (r->sheet, TRUE, rr, (int) idx);
+          return;
+        }
+
+      /* Anything else tall or wide is clamped to a workable rectangle:
+       * the cells it affects are the ones that hold something. */
       if (region.row1 - region.row0 > 2000)
         region.row1 = region.row0 + 2000;
       if (region.col1 - region.col0 > 255)

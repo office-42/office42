@@ -85,7 +85,9 @@ From the top down:
 - **The grid**, with column letters across the top and row numbers down
   the side. Click a header to select the whole column or row; drag a
   boundary between headers to resize; double-click a column boundary to
-  fit the widest cell in it.
+  fit the widest cell in it. A format applied to a whole column or row
+  is the column's own: every cell in it wears it, the ones typed later
+  included, and the sheet is no bigger for it.
 - **The sheet tabs** along the bottom. Click to switch, double-click to
   rename, drag to reorder, right-click for the sheet menu.
 - **The status bar**, which shows Ready, the zoom when it is not 100%,

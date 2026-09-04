@@ -398,7 +398,8 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
         int width = o42_sheet_col_width (sheet, col);
         gboolean hidden = o42_sheet_col_hidden (sheet, col);
         int level = o42_sheet_col_level (sheet, col);
-        if (width == default_width && !hidden && level == 0)
+        int line_fmt = o42_sheet_line_fmt_idx (sheet, FALSE, col);
+        if (width == default_width && !hidden && level == 0 && line_fmt < 0)
           continue;
         /* A hidden column has no width of its own to speak of; give it
          * the default so it comes back sensible when unhidden. */
@@ -407,6 +408,10 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
                                 hidden ? " hidden=\"1\"" : "");
         if (level > 0)
           g_string_append_printf (cols, " outlineLevel=\"%d\"", level);
+        /* The format the whole column wears, as Excel keeps it. */
+        if (line_fmt >= 0)
+          g_string_append_printf (cols, " style=\"%u\"",
+                                  xf_for (w, o42_fmt_table_get (table, (O42FmtIdx) line_fmt)));
         g_string_append (cols, "/>");
       }
     if (cols->len > 0)
@@ -427,7 +432,8 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
         int height = o42_sheet_row_height (sheet, row);
         gboolean hidden = o42_sheet_row_hidden_by_hand (sheet, row);
         int level = o42_sheet_row_level (sheet, row);
-        gboolean own = height != default_height || hidden || level > 0;
+        int line_fmt = o42_sheet_line_fmt_idx (sheet, TRUE, row);
+        gboolean own = height != default_height || hidden || level > 0 || line_fmt >= 0;
 
         if (row < next_key_row && !own)
           {
@@ -444,6 +450,9 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
           g_string_append (out, " hidden=\"1\"");
         if (level > 0)
           g_string_append_printf (out, " outlineLevel=\"%d\"", level);
+        if (line_fmt >= 0)
+          g_string_append_printf (out, " s=\"%u\" customFormat=\"1\"",
+                                  xf_for (w, o42_fmt_table_get (table, (O42FmtIdx) line_fmt)));
         g_string_append_c (out, '>');
         while (i < keys->len && o42_key_row (g_array_index (keys, guint64, i)) == row)
           {
@@ -2732,7 +2741,13 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       gboolean hidden = attr_flag (names, values, "hidden");
       gboolean custom = attr_flag (names, values, "customWidth") || width > 0;
       int level = attr_int (names, values, "outlineLevel", 0);
+      int style = attr_int (names, values, "style", 0);
+      int line_fmt = -1;
       if (max >= O42_MAX_COLS) max = O42_MAX_COLS - 1;
+      /* The format the whole column wears. */
+      if (style > 0 && (guint) style < r->xfs->len)
+        line_fmt = (int) o42_fmt_table_intern (o42_sheet_fmt_table (r->sheet),
+                                               &g_array_index (r->xfs, O42Fmt, style));
       for (int c = MAX (min, 0); c <= max; c++)
         {
           if (custom && width > 0)
@@ -2741,6 +2756,8 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
             o42_sheet_set_col_hidden (r->sheet, c, TRUE);
           if (level > 0)
             o42_sheet_set_col_level (r->sheet, c, level);
+          if (line_fmt >= 0)
+            o42_sheet_set_line_fmt_idx (r->sheet, FALSE, c, line_fmt);
         }
     }
   else if (strcmp (n, "row") == 0)
@@ -2757,6 +2774,14 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
             o42_sheet_set_row_hidden (r->sheet, row, TRUE);
           if (attr_int (names, values, "outlineLevel", 0) > 0)
             o42_sheet_set_row_level (r->sheet, row, attr_int (names, values, "outlineLevel", 0));
+          if (attr_flag (names, values, "customFormat"))
+            {
+              int style = attr_int (names, values, "s", 0);
+              if (style > 0 && (guint) style < r->xfs->len)
+                o42_sheet_set_line_fmt_idx (r->sheet, TRUE, row,
+                                            (int) o42_fmt_table_intern (o42_sheet_fmt_table (r->sheet),
+                                                                        &g_array_index (r->xfs, O42Fmt, style)));
+            }
         }
     }
   else if (strcmp (n, "c") == 0)

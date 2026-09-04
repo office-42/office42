@@ -250,6 +250,16 @@ int o42_sheet_replace (O42Sheet *sheet, const O42Range *range,
 /* ---- Formatting ------------------------------------------------------- */
 
 O42FmtIdx      o42_sheet_get_fmt_idx (O42Sheet *sheet, int row, int col);
+
+/* A whole column or row can wear a format of its own, which every cell
+ * in it without a record of its own shows: applying a format to a range
+ * that spans every row puts it on the columns rather than on a million
+ * cells.  The index it wears, or -1; the columns (rows) that wear one,
+ * sorted, in an array the caller frees; and giving one, as a file that
+ * carries them is read, which is one undo step. */
+int            o42_sheet_line_fmt_idx     (O42Sheet *sheet, gboolean rows, int index);
+GArray        *o42_sheet_line_fmts        (O42Sheet *sheet, gboolean rows);
+void           o42_sheet_set_line_fmt_idx (O42Sheet *sheet, gboolean rows, int index, int idx);
 const O42Fmt  *o42_sheet_get_fmt     (O42Sheet *sheet, int row, int col);
 void           o42_sheet_apply_fmt   (O42Sheet *sheet, const O42Range *range,
                                       O42FmtMask mask, const O42Fmt *value);

@@ -73,6 +73,7 @@ typedef enum {
   OBJ_COL_WIDTH, OBJ_ROW_HEIGHT, OBJ_ROW_HIDDEN, OBJ_COL_HIDDEN,
   OBJ_MERGES, OBJ_NOTE, OBJ_LINK, OBJ_NOTES, OBJ_LINKS, OBJ_PICTURE, OBJ_CHART, OBJ_SHAPE,
   OBJ_ROW_LEVEL, OBJ_COL_LEVEL,
+  OBJ_COL_FMT, OBJ_ROW_FMT,   /* the format a whole column or row wears */
   OBJ_SHEET_NAME,       /* the sheet's name */
   OBJ_SHEET_PRESENT     /* whether the sheet is in its book, and where */
 } ObjKind;
@@ -129,6 +130,10 @@ struct _O42Sheet {
   GHashTable  *hidden_rows;   /* set of int, hidden by hand */
   GHashTable  *row_levels;    /* int -> outline level, absent for 0 */
   GHashTable  *col_levels;
+  GHashTable  *col_fmts;      /* int col -> O42FmtIdx + 1: the format every
+                               * cell in the column wears until it is given
+                               * one of its own; absent for the default */
+  GHashTable  *row_fmts;
   int          max_row_level, max_col_level;
   GHashTable  *filtered_rows; /* set of int, hidden by the AutoFilter */
 
@@ -176,6 +181,7 @@ struct _O42Sheet {
 };
 
 static void sizes_changed (O42Sheet *sheet);
+static int compare_ints (gconstpointer a, gconstpointer b);
 
 /* ---------------------------------------------------------------------- */
 /* Cells                                                                   */
@@ -249,6 +255,21 @@ sheet_find_key (O42Sheet *sheet, guint64 key)
   return g_hash_table_lookup (sheet->cells, &key);
 }
 
+/* The format a cell with no record of its own wears: its column's,
+ * else its row's, else the sheet's default.  Select a column and press
+ * Bold and this is where the bold goes, rather than into a million
+ * cells made for the purpose. */
+static O42FmtIdx
+sheet_line_fmt (O42Sheet *sheet, int row, int col)
+{
+  gpointer found = g_hash_table_lookup (sheet->col_fmts, GINT_TO_POINTER (col));
+
+  if (found == NULL)
+    found = g_hash_table_lookup (sheet->row_fmts, GINT_TO_POINTER (row));
+  return found != NULL ? (O42FmtIdx) (GPOINTER_TO_INT (found) - 1)
+                       : o42_fmt_table_default (sheet->formats);
+}
+
 static O42Cell *
 sheet_ensure (O42Sheet *sheet, int row, int col)
 {
@@ -261,7 +282,7 @@ sheet_ensure (O42Sheet *sheet, int row, int col)
 
   cell = g_new0 (O42Cell, 1);
   cell->value = o42_value_empty ();
-  cell->fmt = o42_fmt_table_default (sheet->formats);
+  cell->fmt = sheet_line_fmt (sheet, row, col);
 
   stored = g_new (guint64, 1);
   *stored = key;
@@ -312,7 +333,7 @@ sheet_prune (O42Sheet *sheet, int row, int col)
       cell->value.type == O42_VALUE_EMPTY &&
       cell->input == NULL &&
       cell->runs == NULL &&
-      cell->fmt == o42_fmt_table_default (sheet->formats))
+      cell->fmt == sheet_line_fmt (sheet, row, col))
     {
       g_hash_table_remove (sheet->formulas, &key);
       g_hash_table_remove (sheet->cells, &key);
@@ -1316,6 +1337,8 @@ o42_sheet_new (const char *name)
   sheet->hidden_rows = g_hash_table_new (g_direct_hash, g_direct_equal);
   sheet->row_levels = g_hash_table_new (g_direct_hash, g_direct_equal);
   sheet->col_levels = g_hash_table_new (g_direct_hash, g_direct_equal);
+  sheet->col_fmts = g_hash_table_new (g_direct_hash, g_direct_equal);
+  sheet->row_fmts = g_hash_table_new (g_direct_hash, g_direct_equal);
   sheet->filtered_rows = g_hash_table_new (g_direct_hash, g_direct_equal);
   sheet->filter_choice = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
   sheet->merges = g_array_new (FALSE, FALSE, sizeof (O42Range));
@@ -1378,6 +1401,8 @@ o42_sheet_free (O42Sheet *sheet)
   g_hash_table_destroy (sheet->hidden_rows);
   g_hash_table_destroy (sheet->row_levels);
   g_hash_table_destroy (sheet->col_levels);
+  g_hash_table_destroy (sheet->col_fmts);
+  g_hash_table_destroy (sheet->row_fmts);
   g_hash_table_destroy (sheet->filtered_rows);
   g_hash_table_destroy (sheet->filter_choice);
   g_array_free (sheet->merges, TRUE);
@@ -3087,13 +3112,14 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
   /* Sizes and pictures move with the cells.  Neither is in the undo
    * history yet. */
   {
-    GHashTable *tables[3];
+    GHashTable *tables[4];
     int n_tables = 0;
 
     sizes_changed (sheet);
     tables[n_tables++] = rows ? sheet->row_heights : sheet->col_widths;
     tables[n_tables++] = rows ? sheet->hidden_rows : sheet->hidden_cols;
     tables[n_tables++] = rows ? sheet->row_levels : sheet->col_levels;
+    tables[n_tables++] = rows ? sheet->row_fmts : sheet->col_fmts;
 
     for (int t = 0; t < n_tables; t++)
       {
@@ -3576,7 +3602,125 @@ o42_sheet_get_fmt_idx (O42Sheet *sheet, int row, int col)
   g_return_val_if_fail (sheet != NULL, 0);
 
   cell = sheet_find (sheet, row, col);
-  return (cell != NULL) ? cell->fmt : o42_fmt_table_default (sheet->formats);
+  return (cell != NULL) ? cell->fmt : sheet_line_fmt (sheet, row, col);
+}
+
+/* The format a whole column (or row) wears, or -1 for none. */
+int
+o42_sheet_line_fmt_idx (O42Sheet *sheet, gboolean rows, int index)
+{
+  gpointer found;
+
+  g_return_val_if_fail (sheet != NULL, -1);
+  found = g_hash_table_lookup (rows ? sheet->row_fmts : sheet->col_fmts, GINT_TO_POINTER (index));
+  return found != NULL ? GPOINTER_TO_INT (found) - 1 : -1;
+}
+
+/* Every column (or row) that wears a format, in order.  Caller frees. */
+GArray *
+o42_sheet_line_fmts (O42Sheet *sheet, gboolean rows)
+{
+  GArray *out = g_array_new (FALSE, FALSE, sizeof (int));
+  GHashTableIter iter;
+  gpointer key_ptr;
+
+  g_return_val_if_fail (sheet != NULL, out);
+  g_hash_table_iter_init (&iter, rows ? sheet->row_fmts : sheet->col_fmts);
+  while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
+    {
+      int index = GPOINTER_TO_INT (key_ptr);
+      g_array_append_val (out, index);
+    }
+  g_array_sort (out, compare_ints);
+  return out;
+}
+
+static void
+line_fmt_store (O42Sheet *sheet, gboolean rows, int index, int idx)
+{
+  GHashTable *table = rows ? sheet->row_fmts : sheet->col_fmts;
+
+  if (idx < 0 || idx == (int) o42_fmt_table_default (sheet->formats))
+    g_hash_table_remove (table, GINT_TO_POINTER (index));
+  else
+    g_hash_table_insert (table, GINT_TO_POINTER (index), GINT_TO_POINTER (idx + 1));
+}
+
+/* Gives a whole column (or row) a format, as a file that carries one
+ * is read: cells already in it are left as they are. */
+void
+o42_sheet_set_line_fmt_idx (O42Sheet *sheet, gboolean rows, int index, int idx)
+{
+  g_return_if_fail (sheet != NULL);
+  if (index < 0 || index >= (rows ? O42_MAX_ROWS : O42_MAX_COLS))
+    return;
+  op_begin (sheet);
+  obj_capture (sheet, rows ? OBJ_ROW_FMT : OBJ_COL_FMT, index, 0);
+  line_fmt_store (sheet, rows, index, idx);
+  op_end (sheet);
+}
+
+/* A format applied to every row of some columns, or every column of
+ * some rows: the columns take the format, and the cells that exist in
+ * them take it each into their own. */
+static void
+apply_fmt_to_lines (O42Sheet *sheet, gboolean rows, int lo, int hi,
+                    O42FmtMask mask, const O42Fmt *value)
+{
+  GHashTableIter iter;
+  gpointer key_ptr, cell_ptr;
+  GArray *keys = g_array_new (FALSE, FALSE, sizeof (guint64));
+
+  for (int index = lo; index <= hi; index++)
+    {
+      O42Fmt fmt = *o42_fmt_table_get (sheet->formats,
+                                       sheet_line_fmt (sheet, rows ? index : 0, rows ? 0 : index));
+      O42FmtIdx idx;
+
+      /* A row's format under a column's: the row is asked for as
+       * itself, not through a column that happens to be set. */
+      if (rows)
+        {
+          gpointer found = g_hash_table_lookup (sheet->row_fmts, GINT_TO_POINTER (index));
+          fmt = *o42_fmt_table_get (sheet->formats,
+                                    found != NULL ? (O42FmtIdx) (GPOINTER_TO_INT (found) - 1)
+                                                  : o42_fmt_table_default (sheet->formats));
+        }
+      o42_fmt_apply_mask (&fmt, mask, value);
+      idx = o42_fmt_table_intern (sheet->formats, &fmt);
+      obj_capture (sheet, rows ? OBJ_ROW_FMT : OBJ_COL_FMT, index, 0);
+      line_fmt_store (sheet, rows, index, (int) idx);
+    }
+
+  /* The cells already there, each from its own format.  The keys are
+   * taken first: capturing a cell for undo does not add cells, but
+   * walking a table while it may change is not worth the risk. */
+  g_hash_table_iter_init (&iter, sheet->cells);
+  while (g_hash_table_iter_next (&iter, &key_ptr, &cell_ptr))
+    {
+      guint64 key = *(guint64 *) key_ptr;
+      int index = rows ? o42_key_row (key) : o42_key_col (key);
+      if (index >= lo && index <= hi)
+        g_array_append_val (keys, key);
+    }
+  for (guint i = 0; i < keys->len; i++)
+    {
+      guint64 key = g_array_index (keys, guint64, i);
+      O42Cell *cell = sheet_find_key (sheet, key);
+      O42Fmt fmt;
+      O42FmtIdx idx;
+
+      if (cell == NULL)
+        continue;
+      fmt = *o42_fmt_table_get (sheet->formats, cell->fmt);
+      o42_fmt_apply_mask (&fmt, mask, value);
+      idx = o42_fmt_table_intern (sheet->formats, &fmt);
+      if (idx == cell->fmt)
+        continue;
+      op_capture (sheet, o42_key_row (key), o42_key_col (key));
+      cell->fmt = idx;
+    }
+  g_array_free (keys, TRUE);
 }
 
 const O42Fmt *
@@ -3602,6 +3746,23 @@ o42_sheet_apply_fmt (O42Sheet   *sheet,
   g_return_if_fail (value != NULL);
 
   op_begin (sheet);
+
+  /* Whole columns, or whole rows: the format goes on the line, not on
+   * a cell for every row of it. */
+  if (range->row0 <= 0 && range->row1 >= O42_MAX_ROWS - 1)
+    {
+      apply_fmt_to_lines (sheet, FALSE, MAX (range->col0, 0), MIN (range->col1, O42_MAX_COLS - 1),
+                          mask, value);
+      op_end (sheet);
+      return;
+    }
+  if (range->col0 <= 0 && range->col1 >= O42_MAX_COLS - 1)
+    {
+      apply_fmt_to_lines (sheet, TRUE, MAX (range->row0, 0), MIN (range->row1, O42_MAX_ROWS - 1),
+                          mask, value);
+      op_end (sheet);
+      return;
+    }
 
   for (int row = range->row0; row <= range->row1; row++)
     for (int col = range->col0; col <= range->col1; col++)
@@ -5480,6 +5641,8 @@ obj_snap_take (O42Sheet *sheet, ObjKind kind, int index, guint64 key)
     case OBJ_COL_HIDDEN: snap.flag = o42_sheet_col_hidden (sheet, index); break;
     case OBJ_ROW_LEVEL:  snap.number = o42_sheet_row_level (sheet, index); break;
     case OBJ_COL_LEVEL:  snap.number = o42_sheet_col_level (sheet, index); break;
+    case OBJ_COL_FMT:    snap.number = o42_sheet_line_fmt_idx (sheet, FALSE, index); break;
+    case OBJ_ROW_FMT:    snap.number = o42_sheet_line_fmt_idx (sheet, TRUE, index); break;
     case OBJ_MERGES:
       snap.ranges = g_array_new (FALSE, FALSE, sizeof (O42Range));
       g_array_append_vals (snap.ranges, sheet->merges->data, sheet->merges->len);
@@ -5567,6 +5730,12 @@ obj_snap_apply (const ObjSnap *snap)
       break;
     case OBJ_COL_LEVEL:
       level_store (sheet, FALSE, snap->index, snap->number);
+      break;
+    case OBJ_COL_FMT:
+      line_fmt_store (sheet, FALSE, snap->index, snap->number);
+      break;
+    case OBJ_ROW_FMT:
+      line_fmt_store (sheet, TRUE, snap->index, snap->number);
       break;
     case OBJ_MERGES:
       g_array_set_size (sheet->merges, 0);

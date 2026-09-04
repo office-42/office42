@@ -309,7 +309,18 @@ fire_activate (gpointer data)
   if (windows != NULL && self->select != NULL)
     {
       int row, col;
-      if (o42_ref_parse (self->select, &row, &col, NULL))
+      gsize used = 0;
+      /* A range, B2:B9 or A1:A1048576, is selected whole, as a drag or
+       * a click on a column's header would. */
+      if (o42_ref_parse (self->select, &row, &col, &used) && self->select[used] == ':')
+        {
+          char *range = g_strdup (self->select);
+          char *comma = strchr (range, ',');
+          if (comma != NULL) *comma = '\0';
+          o42_window_point_step (O42_WINDOW (windows->data), range);
+          g_free (range);
+        }
+      else if (o42_ref_parse (self->select, &row, &col, NULL))
         o42_window_select_cell (O42_WINDOW (windows->data), row, col);
     }
 
