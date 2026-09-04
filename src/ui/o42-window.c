@@ -4527,9 +4527,10 @@ action_about (GSimpleAction *a, GVariant *p, gpointer data)
                          "version", O42_VERSION,
                          "logo", logo,
                          "comments", "A spreadsheet in the shape of Excel 5 and Gnumeric, "
-                                     "written in C on GTK 4, Pango and Cairo.",
-                         "website", "https://github.com/office-42/office42",
-                         "website-label", "github.com/office-42/office42",
+                                     "written in C on GTK 4, Pango and Cairo.\n"
+                                     "Source: github.com/office-42/office42",
+                         "website", "https://office42.net",
+                         "website-label", "office42.net",
                          "copyright", "Copyright \302\251 2026 The office42 authors",
                          "license-type", GTK_LICENSE_GPL_3_0,
                          "authors", authors,
