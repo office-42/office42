@@ -965,6 +965,56 @@ tree_is_volatile (const O42Node *node)
     }
 }
 
+static gboolean
+tree_calls (const O42Node *node, const char *name)
+{
+  if (node == NULL)
+    return FALSE;
+  switch (node->type)
+    {
+    case O42_NODE_UNARY:
+    case O42_NODE_BINARY:
+      return tree_calls (node->as.op.a, name) || tree_calls (node->as.op.b, name);
+    case O42_NODE_CALL:
+      if (strcmp (node->as.call.name, name) == 0)
+        return TRUE;
+      if (node->as.call.args != NULL)
+        for (guint i = 0; i < node->as.call.args->len; i++)
+          if (tree_calls (g_ptr_array_index (node->as.call.args, i), name))
+            return TRUE;
+      return FALSE;
+    default:
+      return FALSE;
+    }
+}
+
+gboolean
+o42_sheet_calls_function (O42Sheet *sheet, const char *name)
+{
+  GHashTableIter iter;
+  gpointer key_ptr;
+
+  g_return_val_if_fail (sheet != NULL && name != NULL, FALSE);
+  g_hash_table_iter_init (&iter, sheet->formulas);
+  while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
+    {
+      O42Cell *cell = sheet_find_key (sheet, *(guint64 *) key_ptr);
+      if (cell != NULL && tree_calls (cell->ast, name))
+        return TRUE;
+    }
+  return FALSE;
+}
+
+void
+o42_sheet_touch_volatiles (O42Sheet *sheet)
+{
+  g_return_if_fail (sheet != NULL);
+  if (g_hash_table_size (sheet->volatiles) == 0)
+    return;
+  /* A change at a cell no formula names stales only the volatiles. */
+  sheet_invalidate (sheet, O42_MAX_ROWS - 1, O42_MAX_COLS - 1);
+}
+
 /* Whether a formula could produce an array: it names a range, holds an
  * array constant, or calls a function that returns one. */
 static gboolean

@@ -128,6 +128,13 @@ gboolean  o42_book_record_sheet (O42Book *book, const char *sheet_name);
  * name, as Excel keeps macros.  The book only stores them; running is
  * the script layer's business, and never happens on opening. */
 int         o42_book_n_scripts     (O42Book *book);
+
+/* Whether the book's Python may run: a script in it, or =PY() in a
+ * cell.  A new book's may; a book read from a file may not until the
+ * user runs its scripts, as Excel's "Enable content" has it, so that a
+ * file from elsewhere cannot run code by being opened. */
+gboolean    o42_book_scripts_trusted     (O42Book *book);
+void        o42_book_set_scripts_trusted (O42Book *book, gboolean trusted);
 const char *o42_book_script_name   (O42Book *book, int index);
 const char *o42_book_script_code   (O42Book *book, const char *name);   /* NULL if none */
 void        o42_book_set_script    (O42Book *book, const char *name, const char *code);

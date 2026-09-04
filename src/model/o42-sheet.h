@@ -420,6 +420,14 @@ void o42_sheet_stale_formulas (O42Sheet *sheet);
  * iteration does. */
 void o42_sheet_recalculate (O42Sheet *sheet);
 
+/* Whether any formula on the sheet calls the function, PY for one. */
+gboolean o42_sheet_calls_function (O42Sheet *sheet, const char *name);
+
+/* Stales every volatile formula, and what depends on them, as a change
+ * would: for when the world they read has changed and the sheet has
+ * not. */
+void o42_sheet_touch_volatiles (O42Sheet *sheet);
+
 /* ---- Grouped objects ----------------------------------------------------- */
 
 /* Pictures, shapes and charts anchored inside the range are put in a

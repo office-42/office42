@@ -4086,9 +4086,26 @@ o42_window_open_file (O42Window *self, GFile *file)
   window_rebuild_tabs (self);
   window_sync (self);
   window_tell_book (self, "sheets");
+  /* Nothing the file brought runs until the user says so: the bar
+   * offers, for scripts in the book and for =PY() in its cells alike. */
+  if (ok)
+    o42_book_set_scripts_trusted (self->book, FALSE);
   gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar),
-                                 ok && o42_book_n_scripts (self->book) > 0 && o42_python_available ());
+                                 ok && o42_python_available () &&
+                                 (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY")));
   return ok;
+}
+
+/* Whether any sheet of the book has a formula calling the function. */
+gboolean
+window_book_calls (O42Window *self, const char *name)
+{
+  int n = o42_book_n_sheets (self->book);
+
+  for (int i = 0; i < n; i++)
+    if (o42_sheet_calls_function (o42_book_sheet (self->book, i), name))
+      return TRUE;
+  return FALSE;
 }
 
 gboolean
@@ -5244,6 +5261,9 @@ o42_window_dispose (GObject *object)
   if (self->book != NULL)
     {
       o42_book_unwatch (self->book, on_book_changed, self);
+      /* The database first: an embedded one is a temporary file the
+       * book deletes as it goes, which it cannot while it is open. */
+      g_clear_pointer (&self->db, o42_db_close);
       o42_book_unref (self->book);
       self->book = NULL;
     }

@@ -404,6 +404,9 @@ action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data)
   GPtrArray *names = g_ptr_array_new_with_free_func (g_free);
 
   (void) a; (void) p;
+  /* This is the user saying the book's Python may run: the scripts
+   * now, and the =PY() cells, which are worked out again. */
+  o42_book_set_scripts_trusted (self->book, TRUE);
   /* The names first: a script may add or remove scripts. */
   for (int i = 0; i < n; i++)
     g_ptr_array_add (names, g_strdup (o42_book_script_name (self->book, i)));
@@ -414,6 +417,9 @@ action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data)
         break;
     }
   g_ptr_array_unref (names);
+  for (int i = 0; i < o42_book_n_sheets (self->book); i++)
+    o42_sheet_touch_volatiles (o42_book_sheet (self->book, i));
+  o42_window_tell_book (self, "cells");
   scripts_bar_hide (self);
 }
 

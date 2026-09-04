@@ -548,11 +548,17 @@ m_get_format (PyObject *self, PyObject *args)
   int index, row, col;
   O42Sheet *sheet;
   const O42Fmt *f;
+  PyObject *fill;
   (void) self;
   if (!PyArg_ParseTuple (args, "iii", &index, &row, &col) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
     return NULL;
   f = o42_sheet_get_fmt (sheet, row, col);
-  return Py_BuildValue ("{s:s,s:d,s:O,s:O,s:O,s:O,s:O,s:O,s:I,s:O,s:s,s:s,s:s,s:i}",
+  /* The fill is a new object, handed over with N so that it is not
+   * leaked; None is borrowed and gets its own reference first. */
+  fill = f->fill == O42_FILL_NONE ? Py_None : PyLong_FromUnsignedLong (f->fill);
+  if (fill == Py_None)
+    Py_INCREF (fill);
+  return Py_BuildValue ("{s:s,s:d,s:O,s:O,s:O,s:O,s:O,s:O,s:I,s:N,s:s,s:s,s:s,s:i}",
                         "family", f->family, "size", f->size / 2.0,
                         "bold", f->bold ? Py_True : Py_False,
                         "italic", f->italic ? Py_True : Py_False,
@@ -561,7 +567,7 @@ m_get_format (PyObject *self, PyObject *args)
                         "wrap", f->wrap ? Py_True : Py_False,
                         "borders", (f->border_top && f->border_bottom && f->border_left && f->border_right) ? Py_True : Py_False,
                         "colour", (unsigned int) f->colour,
-                        "fill", f->fill == O42_FILL_NONE ? Py_None : PyLong_FromUnsignedLong (f->fill),
+                        "fill", fill,
                         "halign", HALIGNS[f->halign], "valign", VALIGNS[f->valign],
                         "number", f->custom != NULL ? f->custom : NUMBERS[f->number],
                         "decimals", f->decimals);
@@ -580,6 +586,16 @@ python_function (O42EvalContext *ctx, const char *name, O42Operand *args, int n_
   /* The formula's sheet is the script's sheet while it runs. */
   current_sheet = ctx->user_data;
   current_book = current_sheet != NULL ? o42_sheet_get_book (current_sheet) : current_book;
+
+  /* =PY() in a cell is code from the file, and it runs only once the
+   * user has said the book's Python may: until then it is no function
+   * at all, as it is where Python is off. */
+  if (strcmp (name, "PY") == 0 && !o42_book_scripts_trusted (current_book))
+    {
+      current_sheet = saved_sheet;
+      current_book = saved_book;
+      return o42_value_error (O42_ERR_NAME);
+    }
 
   list = PyList_New (n_args);
   for (int i = 0; i < n_args; i++)
@@ -881,11 +897,13 @@ o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *fi
   O42Sheet *saved_sheet = current_sheet;
   O42Book *saved_book = current_book;
   gboolean saved_touched = book_touched, saved_sheets = sheets_touched;
+  gboolean was_trusted;
   PyObject *result;
   gboolean ok = FALSE;
   const char *text = "";
 
   g_return_val_if_fail (book != NULL && code != NULL, FALSE);
+  was_trusted = o42_book_scripts_trusted (book);
   if (!ensure_interpreter ())
     {
       if (output != NULL)
@@ -896,11 +914,22 @@ o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *fi
   current_book = book;
   current_sheet = sheet != NULL ? sheet : o42_book_sheet (book, 0);
   book_touched = sheets_touched = FALSE;
+  /* Running Python against the book is the user saying its Python may
+   * run, =PY() cells included. */
+  o42_book_set_scripts_trusted (book, TRUE);
   if (current_sheet != NULL)
     o42_sheet_begin_group (current_sheet);
   result = PyObject_CallMethod (module, "_run", "ss", code, filename != NULL ? filename : "<console>");
-  if (current_sheet != NULL && o42_book_sheet_index (book, current_sheet) >= 0)
-    o42_sheet_end_group (current_sheet);
+  /* The group is the book's, so it is ended on whichever sheet is still
+   * there: a script that removed its own sheet once left it open, and
+   * every edit after that fell into it. */
+  if (current_sheet != NULL)
+    {
+      O42Sheet *still = o42_book_sheet_index (book, current_sheet) >= 0
+                        ? current_sheet : o42_book_sheet (book, 0);
+      if (still != NULL)
+        o42_sheet_end_group (still);
+    }
   if (result != NULL && PyTuple_Check (result) && PyTuple_Size (result) == 2)
     {
       ok = PyObject_IsTrue (PyTuple_GetItem (result, 0));
@@ -914,6 +943,14 @@ o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *fi
   if (output != NULL)
     *output = g_strdup (text != NULL ? text : "");
   Py_XDECREF (result);
+  /* The book's Python became runnable just now: the =PY() cells that
+   * were #NAME? are worked out again. */
+  if (!was_trusted)
+    {
+      for (int i = 0; i < o42_book_n_sheets (book); i++)
+        o42_sheet_touch_volatiles (o42_book_sheet (book, i));
+      book_touched = TRUE;
+    }
   if (sheets_touched)
     o42_book_changed (book, "sheets");
   else if (book_touched)

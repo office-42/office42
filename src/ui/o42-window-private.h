@@ -102,6 +102,7 @@ void o42_window_show_sheet (O42Window *self, int index);
  * to run them. */
 gboolean o42_window_run_script (O42Window *self, const char *name, const char *code);
 void o42_scripts_bar_hide  (O42Window *self);
+gboolean window_book_calls (O42Window *self, const char *name);
 
 /* Everything the toolbars and the status bar show, worked out again. */
 void o42_window_sync (O42Window *self);

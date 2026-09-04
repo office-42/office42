@@ -104,10 +104,13 @@ are written to `.gnumeric` (a `gnm:o42-Scripts` element Gnumeric
 passes over) and `.xlsx` (a part `xl/o42/scripts.xml` Excel and
 LibreOffice pass over); `.xls` does not carry them.
 
-A book that arrives with scripts never runs them on opening. A bar
-under the formula bar says they are there, with Run Scripts (all of
-them, in order), Scripts… and Hide — the counterpart of Excel's
-"Enable content". From Python, `book.scripts`, `book.script(name)`,
+A book that arrives with Python in it never runs any of it on opening:
+not its scripts, and not `=PY()` in its cells, which show `#NAME?`
+until you say so. A bar under the formula bar says the Python is
+there, with Run Scripts (all of them, in order, and the `=PY()` cells
+worked out), Scripts… and Hide — the counterpart of Excel's "Enable
+content". Running anything from the console or Tools ▸ Run Python
+Script against the book says so too. From Python, `book.scripts`, `book.script(name)`,
 `book.set_script(name, code)`, `book.remove_script(name)` and
 `book.run_script(name)`; in `office42-calc`, `scripts`,
 `script NAME PATH`, `runscript NAME` and `delscript NAME`.
@@ -128,5 +131,5 @@ GTK.
 
 ## Not there
 
-A macro recorder; VBA; sandboxing — a script can do what the user can do, so run
-only scripts you trust.
+VBA; sandboxing — a script can do what the user can do, so run only
+scripts you trust.

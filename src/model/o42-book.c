@@ -6,6 +6,8 @@
 
 #include "o42-book.h"
 
+#include <glib/gstdio.h>
+
 #include "o42-pyquote.h"
 #include <string.h>
 
@@ -41,6 +43,9 @@ struct _O42Book {
   GPtrArray    *custom_lists; /* GStrv: the runs the fill handle continues */
   char         *db_path;      /* the database beside the book, or NULL */
   gboolean      db_embedded;  /* ...and whether it lives inside it */
+  gboolean      scripts_trusted; /* the user has said the book's Python may
+                                  * run: a new book's may, a file's may not
+                                  * until they run its scripts */
 };
 
 typedef struct {
@@ -192,6 +197,7 @@ o42_book_new (void)
   book->stack = o42_undo_stack_new ();
   book->names = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   book->refs = 1;
+  book->scripts_trusted = TRUE;
   book->watchers = g_array_new (FALSE, FALSE, sizeof (Watcher));
   book->scripts = g_ptr_array_new_with_free_func (script_free);
   book->styles = g_array_new (FALSE, FALSE, sizeof (Style));
@@ -219,6 +225,10 @@ o42_book_free (O42Book *book)
   if (book->recording != NULL)
     g_string_free (book->recording, TRUE);
   g_free (book->recorded_sheet);
+  /* An embedded database lives in a temporary file while the book is
+   * open; the book going is the end of it. */
+  if (book->db_embedded && book->db_path != NULL)
+    g_unlink (book->db_path);
   g_free (book->db_path);
   if (book->custom_lists != NULL)
     g_ptr_array_unref (book->custom_lists);
@@ -591,10 +601,25 @@ void
 o42_book_set_database (O42Book *book, const char *path, gboolean embedded)
 {
   g_return_if_fail (book != NULL);
+  if (book->db_embedded && book->db_path != NULL && g_strcmp0 (book->db_path, path) != 0)
+    g_unlink (book->db_path);
   g_free (book->db_path);
   book->db_path = (path != NULL && *path != '\0') ? g_strdup (path) : NULL;
   book->db_embedded = book->db_path != NULL && embedded;
   book->scripts_modified = TRUE;   /* the book, not a sheet, has changed */
+}
+
+gboolean
+o42_book_scripts_trusted (O42Book *book)
+{
+  return book != NULL && book->scripts_trusted;
+}
+
+void
+o42_book_set_scripts_trusted (O42Book *book, gboolean trusted)
+{
+  g_return_if_fail (book != NULL);
+  book->scripts_trusted = trusted;
 }
 
 const char *

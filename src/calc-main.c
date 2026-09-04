@@ -280,6 +280,10 @@ main (int argc, char *argv[])
 
           if (ok && !csv && !html && !dif && !sylk && !wk1 && text[0] == 'l')
             sheet = o42_book_sheet (book, 0);
+          /* What a file brought in may not run until the user says so:
+           * "py", "pyfile" or "runscript" says so. */
+          if (ok && text[0] == 'l')
+            o42_book_set_scripts_trusted (book, FALSE);
 
           if (!ok)
             {
@@ -1200,11 +1204,12 @@ main (int argc, char *argv[])
                 path = g_strdup (text + 3);
 
               o42_db_close (db);
+              db = NULL;
+              if (path != NULL)
+                o42_book_set_database (book, path, embedded);
               db = path != NULL ? o42_db_open (path, &error) : NULL;
               if (db == NULL)
                 fprintf (stderr, "%s\n", error != NULL ? error->message : "no database");
-              else
-                o42_book_set_database (book, path, embedded);
               g_clear_error (&error);
               g_free (path);
               continue;
@@ -2226,6 +2231,9 @@ main (int argc, char *argv[])
           gboolean ok = code != NULL && o42_python_run (book, sheet, code, text + 10, &output);
           fputs (output != NULL ? output : (code == NULL ? "no such script\n" : ""), ok ? stdout : stderr);
           g_free (output);
+          /* A script may have removed the sheet this was working on. */
+          if (o42_book_sheet_index (book, sheet) < 0)
+            sheet = o42_book_sheet (book, 0);
           continue;
         }
       if (g_str_has_prefix (text, "delscript "))
@@ -2253,6 +2261,8 @@ main (int argc, char *argv[])
           fputs (output != NULL ? output : "", ok ? stdout : stderr);
           fflush (stdout);
           g_free (output);
+          if (o42_book_sheet_index (book, sheet) < 0)
+            sheet = o42_book_sheet (book, 0);
           continue;
         }
 
@@ -2799,6 +2809,9 @@ main (int argc, char *argv[])
         }
     }
 
+  /* The database before the book: an embedded one is a temporary file
+   * the book deletes, which it cannot while the file is open. */
+  o42_db_close (db);
   o42_book_free (book);
   return 0;
 }
