@@ -155,6 +155,8 @@ struct _O42Sheet {
   GArray      *row_breaks;    /* int, sorted: manual page breaks */
   GArray      *col_breaks;
   gboolean     placing_array; /* an array block is being set: no spilling on entry */
+  gboolean     shifting;      /* cells are landing after an insert or delete: the
+                               * blocks are moved whole afterwards, not dissolved */
   GArray      *pivots;        /* O42Pivot */
   int          frozen_rows, frozen_cols;
 
@@ -347,6 +349,7 @@ sheet_prune (O42Sheet *sheet, int row, int col)
 
 static void sheet_get_cell_value (O42EvalContext *ctx, const char *sheet_name,
                                   int row, int col, O42Value *out);
+static const O42Range *array_at (O42Sheet *sheet, int row, int col);
 static void set_input_internal (O42Sheet *sheet, int row, int col,
                                 const char *text);
 static void autofilter_apply (O42Sheet *sheet);
@@ -866,8 +869,27 @@ sheet_get_cell_value (O42EvalContext *ctx, const char *sheet_name,
   cell = sheet_find_key (sheet, key);
   if (cell == NULL)
     {
-      *out = o42_value_empty ();
-      return;
+      /* An empty cell inside an array or spill block whose head has
+       * not been worked out yet -- after a load, or after the block
+       * moved with an insert -- is the head's to fill: asking the head
+       * puts the block's values in place, this one included. */
+      const O42Range *block = sheet->arrays->len > 0 ? array_at (sheet, row, col) : NULL;
+
+      if (block != NULL && (block->row0 != row || block->col0 != col))
+        {
+          O42Cell *head = sheet_find (sheet, block->row0, block->col0);
+
+          if (head != NULL && head->ast != NULL && head->dirty)
+            {
+              sheet_evaluate (sheet, o42_key (block->row0, block->col0), head);
+              cell = sheet_find_key (sheet, key);
+            }
+        }
+      if (cell == NULL)
+        {
+          *out = o42_value_empty ();
+          return;
+        }
     }
 
   sheet_evaluate (sheet, key, cell);
@@ -1375,6 +1397,21 @@ undo_new (void)
   return undo;
 }
 
+/* Whether a cell holds a value that is a formula's, spilled or spread
+ * over a block from its head: such a cell has no input of its own, and
+ * recording its value as one would put a constant in the head's way
+ * the next time the head spills. */
+static gboolean
+cell_is_block_member (O42Sheet *sheet, int row, int col, const O42Cell *cell)
+{
+  const O42Range *a;
+
+  if (cell != NULL && cell->spilled)
+    return TRUE;
+  a = array_at (sheet, row, col);
+  return a != NULL && (a->row0 != row || a->col0 != col);
+}
+
 static O42Snapshot
 snapshot_take (O42Sheet *sheet, guint64 key)
 {
@@ -1388,7 +1425,7 @@ snapshot_take (O42Sheet *sheet, guint64 key)
   snap.style = (cell != NULL) ? cell->style : NULL;
   snap.input = NULL;
 
-  if (cell != NULL)
+  if (cell != NULL && !cell_is_block_member (sheet, o42_key_row (key), o42_key_col (key), cell))
     {
       if (cell->input != NULL)
         snap.input = g_strdup (cell->input);
@@ -2070,7 +2107,31 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
 {
   if (o42_book_recording (sheet->book))
     record_input (sheet, row, col, text);
-  array_dissolve_at (sheet, row, col);
+  /* Emptying a cell that a block's head fills is no change to the
+   * block -- undo lands such cells empty, and their head fills them
+   * again -- so the block stays and the head is asked again.  Anything
+   * else put into a block dissolves it, as does clearing its head. */
+  if ((text == NULL || *text == 0) && !sheet->shifting)
+    {
+      const O42Range *block = sheet->arrays->len > 0 ? array_at (sheet, row, col) : NULL;
+
+      if (block != NULL && (block->row0 != row || block->col0 != col))
+        {
+          O42Cell *head = sheet_find (sheet, block->row0, block->col0);
+
+          if (head != NULL)
+            {
+              head->dirty = 1;
+              sheet_invalidate (sheet, block->row0, block->col0);
+            }
+          sheet->shifting = TRUE;   /* past the dissolve below, this once */
+          set_input_internal (sheet, row, col, NULL);
+          sheet->shifting = FALSE;
+          return;
+        }
+    }
+  if (!sheet->shifting)
+    array_dissolve_at (sheet, row, col);
   {
     O42Cell *was = sheet_find (sheet, row, col);
     if (was != NULL) was->spilled = 0;
@@ -3034,6 +3095,8 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
           g_free (text);
           o42_node_free (tree);
         }
+      else if (cell_is_block_member (sheet, o42_key_row (key), o42_key_col (key), cell))
+        l.input = NULL;   /* the head's to fill again where it lands */
       else if (cell->input != NULL)
         l.input = g_strdup (cell->input);
       else if (cell->value.type != O42_VALUE_EMPTY)
@@ -3119,6 +3182,29 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
   g_hash_table_remove_all (sheet->cells);
   sheet->used_valid = FALSE;
 
+  /* The array and spill blocks are moved whole below, after the cells;
+   * a cell landing must not dissolve them on the way, nor a head spill
+   * into cells that have not landed yet.  A shift within a band cannot
+   * move a block, so a spill there is let go and made again. */
+  if (whole)
+    sheet->placing_array = sheet->shifting = TRUE;
+  else
+    {
+      for (guint i = 0; i < sheet->arrays->len; )
+        {
+          const O42Range *a = &g_array_index (sheet->arrays, O42Range, i);
+          guint64 head = o42_key (a->row0, a->col0);
+
+          if (g_hash_table_contains (sheet->dynamic, &head))
+            {
+              g_hash_table_remove (sheet->dynamic, &head);
+              g_array_remove_index (sheet->arrays, i);
+            }
+          else
+            i++;
+        }
+    }
+
   for (guint i = 0; i < landings->len; i++)
     {
       Landing *l = &g_array_index (landings, Landing, i);
@@ -3134,6 +3220,7 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
         }
       g_free (l->input);
     }
+  sheet->placing_array = sheet->shifting = FALSE;
 
   /* The other sheets' formulas that point here are rewritten inside the
    * same group, so that one undo puts everything back. */
@@ -3239,6 +3326,56 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
       else
         i++;
     }
+
+  /* The heads of the spills go where their blocks went, and spill
+   * again over the cells that landed empty. */
+  {
+    GHashTable *moved = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
+    GHashTableIter diter;
+    gpointer dkey;
+
+    g_hash_table_iter_init (&diter, sheet->dynamic);
+    while (g_hash_table_iter_next (&diter, &dkey, NULL))
+      {
+        guint64 old = *(guint64 *) dkey;
+        int idx = rows ? o42_key_row (old) : o42_key_col (old);
+        int other = rows ? o42_key_col (old) : o42_key_row (old);
+        int to;
+
+        if (count > 0)
+          to = (idx >= at) ? idx + count : idx;
+        else if (idx >= at - count)
+          to = idx + count;
+        else if (idx >= at)
+          continue;
+        else
+          to = idx;
+        if (to >= limit)
+          continue;
+        {
+          guint64 *stored = g_new (guint64, 1);
+          O42Cell *head;
+
+          *stored = rows ? o42_key (to, other) : o42_key (other, to);
+          g_hash_table_add (moved, stored);
+          head = sheet_find_key (sheet, *stored);
+          if (head != NULL)
+            {
+              head->dirty = 1;
+              sheet_invalidate (sheet, o42_key_row (*stored), o42_key_col (*stored));
+            }
+        }
+      }
+    g_hash_table_remove_all (sheet->dynamic);
+    g_hash_table_iter_init (&diter, moved);
+    while (g_hash_table_iter_next (&diter, &dkey, NULL))
+      {
+        guint64 *stored = g_new (guint64, 1);
+        *stored = *(guint64 *) dkey;
+        g_hash_table_add (sheet->dynamic, stored);
+      }
+    g_hash_table_unref (moved);
+  }
 
   /* And validation rules'. */
   for (guint i = 0; i < sheet->validations->len; )
