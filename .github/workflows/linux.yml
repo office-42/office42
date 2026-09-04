@@ -28,7 +28,7 @@ jobs:
             ccache gcc pkg-config meson ninja-build \
             libgtk-4-dev libpango1.0-dev libcairo2-dev libglib2.0-dev \
             libgdk-pixbuf-2.0-dev libpoppler-glib-dev \
-            python3-dev libsqlite3-dev libhunspell-dev
+            python3-dev libsqlite3-dev libhunspell-dev desktop-file-utils
 
       - name: Restore ccache
         uses: actions/cache@v4

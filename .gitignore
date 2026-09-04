@@ -1,5 +1,6 @@
 # Meson / Ninja
 /build*/
+!/build-aux/
 /builddir/
 *.o
 *.a
@@ -19,6 +20,13 @@ compile_commands.json
 # Generated
 *.gresource.c
 *.gresource.h
+
+# The Windows bundle and the Store package, and what the SDK tools
+# drop beside them when run from an MSYS shell
+/dist/
+/msix/
+/installer/
+/%SystemDrive%/
 
 # Local Claude Code settings
 .claude/settings.local.json
