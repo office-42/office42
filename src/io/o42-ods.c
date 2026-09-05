@@ -495,13 +495,13 @@ length_cm (int px)
  * the sheet prints on; ODF hangs it off table:style-name the way a
  * column hangs off a column style. */
 static char *
-table_style (Styles *s, guint32 colour, int index)
+table_style (Styles *s, guint32 colour, int index, gboolean shown)
 {
   char *name = g_strdup_printf ("ta%d", ++s->next_ta);
 
   g_string_append_printf (s->styles,
     "<style:style style:name=\"%s\" style:family=\"table\" style:master-page-name=\"MP%d\">"
-    "<style:table-properties table:display=\"true\"", name, index + 1);
+    "<style:table-properties table:display=\"%s\"", name, index + 1, shown ? "true" : "false");
   if (colour != O42_TAB_NO_COLOUR)
     g_string_append_printf (s->styles, " table:tab-color=\"#%06x\"", colour & 0xFFFFFF);
   g_string_append (s->styles, "/></style:style>");
@@ -1559,7 +1559,7 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
   {
     guint32 tab = o42_sheet_tab_colour (sheet);
     const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
-    char *style = table_style (s, tab, sheet_index);
+    char *style = table_style (s, tab, sheet_index, !o42_sheet_hidden (sheet));
 
     write_page_style (s, sheet, sheet_index);
     g_string_append_printf (out, "<table:table table:name=\"%s\" table:style-name=\"%s\"", name, style);
@@ -1975,6 +1975,7 @@ typedef struct {
   int      width;          /* columns: px, or 0 */
   int      height;         /* rows: px, or 0 */
   guint32  tab_colour;     /* tables: the tab's colour, or O42_TAB_NO_COLOUR */
+  gboolean table_hidden;   /* tables: table:display="false" */
   gboolean page_break;     /* rows and columns: fo:break-before="page" */
   char    *master_page;    /* tables: the master page they print on */
 
@@ -3329,9 +3330,11 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       if (strcmp (name, "table-properties") == 0)
         {
           const char *tab = attr (names, values, "tab-color");
+          const char *display = attr (names, values, "display");
 
           if (tab != NULL)
             st->tab_colour = colour_of (tab, O42_TAB_NO_COLOUR);
+          st->table_hidden = display != NULL && strcmp (display, "false") == 0;
         }
       else if (strcmp (name, "table-column-properties") == 0)
         {
@@ -3591,6 +3594,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
 
         if (st != NULL && st->tab_colour != O42_TAB_NO_COLOUR && r->sheet != NULL)
           o42_sheet_set_tab_colour (r->sheet, st->tab_colour);
+        if (st != NULL && st->table_hidden && r->sheet != NULL)
+          o42_sheet_set_hidden (r->sheet, TRUE);
         if (pl != NULL && r->sheet != NULL)
           {
             /* The header band takes the body down from the paper's edge

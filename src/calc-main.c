@@ -465,6 +465,25 @@ main (int argc, char *argv[])
           continue;
         }
 
+      if (g_str_has_prefix (text, "hidesheet ") || g_str_has_prefix (text, "unhidesheet "))
+        {
+          const char *nm = text[0] == 'h' ? text + 10 : text + 12;
+          O42Sheet *target = o42_book_find_sheet (book, nm);
+          if (target == NULL)
+            fprintf (stderr, "no sheet %s\n", nm);
+          else
+            o42_sheet_set_hidden (target, text[0] == 'h');
+          continue;
+        }
+
+      if (strcmp (text, "sheets") == 0)
+        {
+          for (int i = 0; i < o42_book_n_sheets (book); i++)
+            printf ("%s%s\n", o42_sheet_get_name (o42_book_sheet (book, i)),
+                    o42_sheet_hidden (o42_book_sheet (book, i)) ? " (hidden)" : "");
+          continue;
+        }
+
       if (strcmp (text, "delsheet") == 0)
         {
           if (o42_book_remove_sheet (book, o42_book_sheet_index (book, sheet)))

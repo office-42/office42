@@ -118,6 +118,7 @@ struct _O42Sheet {
                             * precedents touch that band of 64 rows on
                             * that sheet ("" for this one) */
   guint32      tab_colour;    /* O42_TAB_NO_COLOUR for a plain tab */
+  gboolean     hidden;        /* Format > Sheet > Hide */
   guint16      password;      /* the protection hash, 0 for none */
   gboolean     cycle_seen;    /* a formula asked for itself while evaluating */
   gboolean     recalculating; /* inside o42_sheet_recalculate */
@@ -10090,6 +10091,23 @@ o42_sheet_tab_colour (O42Sheet *sheet)
 {
   g_return_val_if_fail (sheet != NULL, O42_TAB_NO_COLOUR);
   return sheet->tab_colour;
+}
+
+void
+o42_sheet_set_hidden (O42Sheet *sheet, gboolean hidden)
+{
+  g_return_if_fail (sheet != NULL);
+  if (sheet->hidden == hidden)
+    return;
+  sheet->hidden = hidden;
+  sheet->modified = TRUE;
+}
+
+gboolean
+o42_sheet_hidden (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, FALSE);
+  return sheet->hidden;
 }
 
 /* ---------------------------------------------------------------------- */

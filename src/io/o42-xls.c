@@ -385,6 +385,7 @@ typedef struct
   guint32     palette[64];
   GPtrArray  *sheet_names;
   GArray     *sheet_offsets; /* guint32 */
+  GArray     *sheet_hidden;  /* guint: the BOUNDSHEET state, 0 shown */
   GArray     *xti;           /* guint16 triples: supbook, first, last */
   GPtrArray  *supbook_names; /* GPtrArray* of char* per supbook, add-in names */
   GPtrArray  *supbook_self;  /* GINT: 1 if the supbook is this workbook */
@@ -2940,6 +2941,9 @@ read_workbook (Reader *r, GError **error)
                       }
                     else
                       r->sheet = o42_book_add_sheet (r->book, name, -1);
+                    if ((guint) next_sheet < r->sheet_hidden->len &&
+                        g_array_index (r->sheet_hidden, guint, next_sheet) != 0)
+                      o42_sheet_set_hidden (r->sheet, TRUE);
                     r->sheet_index = next_sheet;
                   }
                 else
@@ -3033,7 +3037,9 @@ read_workbook (Reader *r, GError **error)
               const guchar *q = body + 6;
               char *name = read_str (r, &q, body + len, FALSE);
               guint type = body[5];
+              guint state = body[4] & 0x03;   /* 1 hidden, 2 very hidden */
               g_array_append_val (r->sheet_offsets, offset);
+              g_array_append_val (r->sheet_hidden, state);
               (void) type;
               g_ptr_array_add (r->sheet_names, name);
             }
@@ -3193,6 +3199,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.xfs = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
   r.sheet_names = g_ptr_array_new_with_free_func (g_free);
   r.sheet_offsets = g_array_new (FALSE, FALSE, sizeof (guint32));
+  r.sheet_hidden = g_array_new (FALSE, FALSE, sizeof (guint));
   r.xti = g_array_new (FALSE, FALSE, sizeof (guint16));
   r.supbook_names = g_ptr_array_new_with_free_func ((GDestroyNotify) g_ptr_array_unref);
   r.supbook_self = g_ptr_array_new ();
@@ -3320,6 +3327,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   g_array_unref (r.xfs);
   g_ptr_array_unref (r.sheet_names);
   g_array_unref (r.sheet_offsets);
+  g_array_unref (r.sheet_hidden);
   g_array_unref (r.xti);
   g_ptr_array_unref (r.supbook_names);
   g_ptr_array_unref (r.supbook_self);
@@ -5421,7 +5429,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         g_array_append_val (boundsheet_at, at);
       }
       put32 (w.out, 0);
-      put8 (w.out, 0);
+      put8 (w.out, o42_sheet_hidden (o42_book_sheet (book, i)) ? 0x01 : 0);          /* hidden */
       put8 (w.out, o42_sheet_is_chart_sheet (o42_book_sheet (book, i)) ? 0x02 : 0);   /* the sheet's type */
       put_ustr8 (w.out, o42_sheet_get_name (o42_book_sheet (book, i)));
       end_record (&w);

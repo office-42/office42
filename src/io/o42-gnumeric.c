@@ -691,11 +691,12 @@ write_sheet (GString *out, O42Sheet *sheet)
   g_string_append_printf (w.out,
     "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"0\" HideGrid=\"0\" HideColHeader=\"0\" "
     "HideRowHeader=\"0\" DisplayOutlines=\"1\" OutlineSymbolsBelow=\"1\" OutlineSymbolsRight=\"1\" "
-    "Visibility=\"GNM_SHEET_VISIBILITY_VISIBLE\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
+    "Visibility=\"%s\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
     "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\">\n"
     "      <gnm:Name>%s</gnm:Name>\n"
     "      <gnm:MaxCol>%d</gnm:MaxCol>\n      <gnm:MaxRow>%d</gnm:MaxRow>\n"
     "      <gnm:Zoom>1</gnm:Zoom>\n",
+    o42_sheet_hidden (sheet) ? "GNM_SHEET_VISIBILITY_HIDDEN" : "GNM_SHEET_VISIBILITY_VISIBLE",
     o42_sheet_protected (sheet) ? 1 : 0, o42_sheet_is_chart_sheet (sheet) ? 1 : 0,
     o42_sheet_tab_colour (sheet), o42_sheet_password_hash (sheet),
     name, used.col1, used.row1);
@@ -1958,6 +1959,11 @@ start_element (GMarkupParseContext *context, const char *element,
       if (r->sheet != NULL)
         {
           o42_sheet_set_protected (r->sheet, attr_int (names, values, "o42-Protected", 0) != 0);
+          {
+            const char *vis = attr (names, values, "Visibility");
+            if (vis != NULL && strcmp (vis, "GNM_SHEET_VISIBILITY_VISIBLE") != 0)
+              o42_sheet_set_hidden (r->sheet, TRUE);
+          }
           o42_sheet_set_chart_sheet (r->sheet, attr_int (names, values, "o42-chart-sheet", 0) != 0);
           {
             const char *tab = attr (names, values, "o42-tab-colour");

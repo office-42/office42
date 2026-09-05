@@ -2871,6 +2871,8 @@ on_tab_secondary (GtkGestureClick *gesture, int n_press,
   g_menu_append (sheets, _("_Insert Sheet"), "win.insert-sheet");
   g_menu_append (sheets, _("_Delete Sheet"), "win.delete-sheet");
   g_menu_append (sheets, _("_Rename Sheet..."), "win.rename-sheet");
+  g_menu_append (sheets, _("_Hide Sheet"), "win.hide-sheet");
+  g_menu_append (sheets, _("_Unhide Sheet..."), "win.unhide-sheet");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (sheets));
   g_menu_append (move, _("Move _Left"), "win.move-sheet-left");
   g_menu_append (move, _("Move _Right"), "win.move-sheet-right");
@@ -2915,8 +2917,11 @@ window_rebuild_tabs (O42Window *self)
   for (int i = 0; i < o42_book_n_sheets (self->book); i++)
     {
       O42Sheet *sheet = o42_book_sheet (self->book, i);
-      GtkWidget *tab = gtk_button_new_with_label (o42_sheet_get_name (sheet));
+      GtkWidget *tab;
 
+      if (o42_sheet_hidden (sheet) && sheet != self->sheet)
+        continue;
+      tab = gtk_button_new_with_label (o42_sheet_get_name (sheet));
       gtk_widget_add_css_class (tab, "o42-tab");
       if (sheet == self->sheet)
         gtk_widget_add_css_class (tab, "o42-tab-active");
@@ -2968,8 +2973,9 @@ action_next_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   int index = o42_book_sheet_index (self->book, self->sheet);
   (void) a; (void) p;
-  if (index + 1 < o42_book_n_sheets (self->book))
-    window_show_sheet (self, index + 1);
+  for (int i = index + 1; i < o42_book_n_sheets (self->book); i++)
+    if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      { window_show_sheet (self, i); return; }
 }
 
 static void
@@ -2978,8 +2984,108 @@ action_prev_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   int index = o42_book_sheet_index (self->book, self->sheet);
   (void) a; (void) p;
-  if (index > 0)
-    window_show_sheet (self, index - 1);
+  for (int i = index - 1; i >= 0; i--)
+    if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      { window_show_sheet (self, i); return; }
+}
+
+/* Format > Sheet > Hide: the sheet loses its tab and the nearest shown
+ * one takes its place; the last shown sheet cannot be hidden. */
+static void
+action_hide_sheet (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  int index = o42_book_sheet_index (self->book, self->sheet);
+  int other = -1;
+
+  (void) a; (void) p;
+  for (int i = index + 1; i < o42_book_n_sheets (self->book) && other < 0; i++)
+    if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      other = i;
+  for (int i = index - 1; i >= 0 && other < 0; i--)
+    if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      other = i;
+  if (other < 0)
+    return;
+  o42_sheet_set_hidden (self->sheet, TRUE);
+  window_show_sheet (self, other);
+  window_tell_book (self, "sheets");
+}
+
+/* Format > Sheet > Unhide...: the hidden sheets listed, one chosen. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+  GArray    *indices;
+} UnhidePrompt;
+
+static void
+on_unhide_ok (GtkWidget *w, gpointer data)
+{
+  UnhidePrompt *prompt = data;
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+
+  (void) w;
+  if (row != NULL)
+    {
+      int which = gtk_list_box_row_get_index (row);
+      if (which >= 0 && which < (int) prompt->indices->len)
+        {
+          int index = g_array_index (prompt->indices, int, which);
+          o42_sheet_set_hidden (o42_book_sheet (prompt->window->book, index), FALSE);
+          window_show_sheet (prompt->window, index);
+          window_tell_book (prompt->window, "sheets");
+        }
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_unhide_destroy (GtkWidget *w, gpointer data)
+{
+  UnhidePrompt *prompt = data;
+  (void) w;
+  g_array_unref (prompt->indices);
+  g_free (prompt);
+}
+
+static void
+action_unhide_sheet (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  UnhidePrompt *prompt = g_new0 (UnhidePrompt, 1);
+  GtkWidget *content, *buttons, *ok, *scroller;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->indices = g_array_new (FALSE, FALSE, sizeof (int));
+  prompt->dialog = dialog_frame (self, _("Unhide"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Unhide sheet:")));
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  for (int i = 0; i < o42_book_n_sheets (self->book); i++)
+    if (o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      {
+        GtkWidget *label = gtk_label_new (o42_sheet_get_name (o42_book_sheet (self->book, i)));
+        gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+        gtk_list_box_append (GTK_LIST_BOX (prompt->list), label);
+        g_array_append_val (prompt->indices, i);
+      }
+  if (prompt->indices->len > 0)
+    gtk_list_box_select_row (GTK_LIST_BOX (prompt->list),
+                             gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), 0));
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_widget_set_size_request (scroller, 260, 160);
+  gtk_box_append (GTK_BOX (content), scroller);
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_unhide_ok), prompt);
+  gtk_widget_set_sensitive (ok, prompt->indices->len > 0);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_unhide_destroy), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
 /* Insert > Worksheet puts the new sheet before the current one, as Excel
@@ -5275,6 +5381,8 @@ static const GActionEntry ACTIONS[] = {
   { "delete-sheet",   action_delete_sheet,   NULL, NULL, NULL, { 0 } },
   { "rename-sheet",   action_rename_sheet,   NULL, NULL, NULL, { 0 } },
   { "next-sheet",     action_next_sheet,     NULL, NULL, NULL, { 0 } },
+  { "hide-sheet",     action_hide_sheet,     NULL, NULL, NULL, { 0 } },
+  { "unhide-sheet",   action_unhide_sheet,   NULL, NULL, NULL, { 0 } },
   { "prev-sheet",     action_prev_sheet,     NULL, NULL, NULL, { 0 } },
   { "print",          action_print,          NULL, NULL, NULL, { 0 } },
   { "print-book",     action_print_book,     NULL, NULL, NULL, { 0 } },

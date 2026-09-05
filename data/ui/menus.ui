@@ -200,6 +200,8 @@
         <item><attribute name="label" translatable="yes">Rename _Sheet...</attribute><attribute name="action">win.rename-sheet</attribute></item>
         <item><attribute name="label" translatable="yes">Move Sheet _Left</attribute><attribute name="action">win.move-sheet-left</attribute></item>
         <item><attribute name="label" translatable="yes">Move Sheet _Right</attribute><attribute name="action">win.move-sheet-right</attribute></item>
+        <item><attribute name="label" translatable="yes">_Hide Sheet</attribute><attribute name="action">win.hide-sheet</attribute></item>
+        <item><attribute name="label" translatable="yes">_Unhide Sheet...</attribute><attribute name="action">win.unhide-sheet</attribute></item>
       </section>
       <section>
         <submenu>

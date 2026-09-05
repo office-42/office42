@@ -1789,7 +1789,8 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
   for (int i = 0; i < n_sheets; i++)
     {
       char *name = g_markup_escape_text (o42_sheet_get_name (o42_book_sheet (book, i)), -1);
-      g_string_append_printf (s, "<sheet name=\"%s\" sheetId=\"%d\" r:id=\"rId%d\"/>", name, i + 1, i + 1);
+      g_string_append_printf (s, "<sheet name=\"%s\" sheetId=\"%d\"%s r:id=\"rId%d\"/>", name, i + 1,
+                              o42_sheet_hidden (o42_book_sheet (book, i)) ? " state=\"hidden\"" : "", i + 1);
       g_free (name);
     }
   g_string_append (s, "</sheets>");
@@ -2064,6 +2065,7 @@ typedef struct
   /* Workbook */
   GPtrArray  *sheet_names;
   GPtrArray  *sheet_rids;
+  GArray     *sheet_hidden;     /* guint per sheet: state="hidden" */
   GPtrArray  *names;        /* name, text pairs */
   GString    *name_text;
   char       *name_name;
@@ -2171,8 +2173,11 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       const char *sname = attr (names, values, "name");
       const char *rid = attr (names, values, "id");
+      const char *state = attr (names, values, "state");
+      guint hidden = state != NULL && strcmp (state, "visible") != 0;
       g_ptr_array_add (r->sheet_names, g_strdup (sname ? sname : "Sheet"));
       g_ptr_array_add (r->sheet_rids, g_strdup (rid ? rid : ""));
+      g_array_append_val (r->sheet_hidden, hidden);
     }
   else if (strcmp (n, "workbookPr") == 0)
     {
@@ -3545,6 +3550,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   r.rels = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.sheet_names = g_ptr_array_new_with_free_func (g_free);
   r.sheet_rids = g_ptr_array_new_with_free_func (g_free);
+  r.sheet_hidden = g_array_new (FALSE, FALSE, sizeof (guint));
   r.names = g_ptr_array_new_with_free_func (g_free);
   r.name_text = g_string_new (NULL);
   r.strings = g_ptr_array_new_with_free_func (g_free);
@@ -3611,6 +3617,8 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
             }
           else
             r.sheet = o42_book_add_sheet (book, sname, -1);
+          if (i < r.sheet_hidden->len && g_array_index (r.sheet_hidden, guint, i) != 0)
+            o42_sheet_set_hidden (r.sheet, TRUE);
 
           r.row = -1;
           r.col = -1;
@@ -3812,6 +3820,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_hash_table_unref (r.rels);
   g_ptr_array_unref (r.sheet_names);
   g_ptr_array_unref (r.sheet_rids);
+  g_array_unref (r.sheet_hidden);
   g_ptr_array_unref (r.names);
   g_string_free (r.name_text, TRUE);
   g_free (r.script_name);

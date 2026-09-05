@@ -671,6 +671,11 @@ gboolean   o42_sheet_table_range  (O42Sheet *sheet, const char *text, int row, O
 void    o42_sheet_set_tab_colour (O42Sheet *sheet, guint32 colour);
 guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
 
+/* Format > Sheet > Hide: the sheet keeps everything, formulas still
+ * reach it, but it has no tab.  Every file format carries it. */
+void     o42_sheet_set_hidden (O42Sheet *sheet, gboolean hidden);
+gboolean o42_sheet_hidden     (O42Sheet *sheet);
+
 /* ---- Auditing --------------------------------------------------------- */
 
 /* What a cell's formula reads, and which cells read it, both as
