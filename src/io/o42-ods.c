@@ -1062,6 +1062,16 @@ write_cell_drawings (GString *out, O42Sheet *sheet, int sheet_index, int row, in
           "svg:x2=\"%.3fcm\" svg:y2=\"%.3fcm\"><text:p/></draw:line>",
           name, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           (shape->dx + shape->width) * PX_TO_CM, (shape->dy + shape->height) * PX_TO_CM);
+      else if (o42_shape_ods_type (shape) != NULL)
+        /* An AutoShape is a custom shape whose enhanced geometry names
+         * the outline; LibreOffice draws it from the name. */
+        g_string_append_printf (out,
+          "<draw:custom-shape draw:name=\"%s\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\"><text:p>%s</text:p>"
+          "<draw:enhanced-geometry draw:type=\"%s\"/></draw:custom-shape>",
+          name, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+          shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
+          o42_shape_ods_type (shape));
       else
         g_string_append_printf (out,
           "<draw:%s draw:name=\"%s\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
@@ -2539,11 +2549,14 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                 }
             }
         }
+      else if (strcmp (name, "enhanced-geometry") == 0 && r->shape != NULL)
+        o42_shape_apply_ods_type (r->shape, attr (names, values, "type"));
       else if (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
-               strcmp (name, "circle") == 0 || strcmp (name, "line") == 0)
+               strcmp (name, "circle") == 0 || strcmp (name, "line") == 0 ||
+               strcmp (name, "custom-shape") == 0)
         {
           O42ShapeKind kind = strcmp (name, "line") == 0 ? O42_SHAPE_LINE
-                              : (name[0] == 'r' ? O42_SHAPE_RECT : O42_SHAPE_OVAL);
+                              : (name[0] == 'r' || name[1] == 'u') ? O42_SHAPE_RECT : O42_SHAPE_OVAL;
           O42Shape *shape = o42_sheet_add_shape (r->sheet, kind, r->row, r->cell_col);
 
           if (shape != NULL)
@@ -2953,7 +2966,8 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
 
   if (r->shape != NULL &&
       (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
-       strcmp (name, "circle") == 0 || strcmp (name, "line") == 0))
+       strcmp (name, "circle") == 0 || strcmp (name, "line") == 0 ||
+       strcmp (name, "custom-shape") == 0))
     r->shape = NULL;
 
   if (r->in_cell)

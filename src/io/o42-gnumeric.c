@@ -950,9 +950,10 @@ write_sheet (GString *out, O42Sheet *sheet)
           }
 
         g_string_append_printf (w.out,
-          "      <gnm:o42-Shape Kind=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
+          "      <gnm:o42-Shape Kind=\"%s\" Geom=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
           "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\"%s>%s</gnm:o42-Shape>\n",
-          o42_shape_kind_name (sh->kind), at, sh->dx, sh->dy, sh->width, sh->height,
+          o42_shape_kind_name (sh->kind), o42_shape_geom_name (sh->geom), at,
+          sh->dx, sh->dy, sh->width, sh->height,
           (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group,
           control != NULL ? control : "", body);
         g_free (control);
@@ -1979,6 +1980,7 @@ start_element (GMarkupParseContext *context, const char *element,
           r->shape->line = (guint32) attr_int (names, values, "Line", 0);
           r->shape->line_width = attr_double (names, values, "LineWidth", 1.5);
           r->shape->group = (guint) attr_int (names, values, "Group", 0);
+          o42_shape_geom_parse (attr (names, values, "Geom"), &r->shape->geom);
           if (o42_shape_is_control (kind))
             {
               const char *link = attr (names, values, "Link");

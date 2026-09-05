@@ -3414,11 +3414,15 @@ action_shape (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   O42ShapeKind kind = O42_SHAPE_RECT;
+  O42ShapeGeom geom = O42_GEOM_RECT;
   const char *name = p != NULL ? g_variant_get_string (p, NULL) : "rectangle";
   const char *caption = "";
 
   (void) a;
-  o42_shape_kind_parse (name, &kind);
+  /* The target names a kind ("oval") or one of the AutoShape outlines
+   * a rectangle can wear ("star5"). */
+  if (!o42_shape_kind_parse (name, &kind))
+    o42_shape_geom_parse (name, &geom);
   /* A new control says what it is until it is given a caption of its
    * own; the ones that show no caption start empty. */
   switch (kind)
@@ -3431,7 +3435,7 @@ action_shape (GSimpleAction *a, GVariant *p, gpointer data)
     case O42_SHAPE_GROUPBOX: caption = "Group Box"; break;
     default:                 break;
     }
-  o42_grid_insert_shape (self->grid, kind, caption);
+  o42_grid_insert_shape (self->grid, kind, geom, caption);
   window_sync (self);
 }
 

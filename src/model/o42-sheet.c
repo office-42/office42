@@ -5903,17 +5903,10 @@ picture_copy (const O42Picture *pic)
 static O42Shape *
 shape_copy (const O42Shape *shape)
 {
-  O42Shape *copy = o42_shape_new (shape->kind);
+  O42Shape *copy = o42_shape_copy (shape);
 
   copy->id = shape->id;
-  copy->row = shape->row; copy->col = shape->col;
-  copy->dx = shape->dx; copy->dy = shape->dy;
-  copy->width = shape->width; copy->height = shape->height;
-  g_free (copy->text);
-  copy->text = g_strdup (shape->text != NULL ? shape->text : "");
-  copy->fill = shape->fill;
-  copy->line = shape->line;
-  copy->line_width = shape->line_width;
+  copy->group = shape->group;
   return copy;
 }
 

@@ -41,10 +41,41 @@ typedef enum {
   O42_SHAPE_GROUPBOX
 } O42ShapeKind;
 
+/* The outline a rectangle-kind shape is drawn with: Excel's AutoShapes,
+ * by the names Office Open XML gives them.  A shape of kind
+ * O42_SHAPE_RECT or O42_SHAPE_TEXT wears one; the other kinds have
+ * their own outline and ignore it. */
+typedef enum {
+  O42_GEOM_RECT = 0,
+  O42_GEOM_ROUND_RECT,
+  O42_GEOM_TRIANGLE,
+  O42_GEOM_RT_TRIANGLE,
+  O42_GEOM_DIAMOND,
+  O42_GEOM_PENTAGON,
+  O42_GEOM_HEXAGON,
+  O42_GEOM_OCTAGON,
+  O42_GEOM_PLUS,
+  O42_GEOM_STAR4,
+  O42_GEOM_STAR5,
+  O42_GEOM_STAR8,
+  O42_GEOM_RIGHT_ARROW,
+  O42_GEOM_LEFT_ARROW,
+  O42_GEOM_UP_ARROW,
+  O42_GEOM_DOWN_ARROW,
+  O42_GEOM_LEFT_RIGHT_ARROW,
+  O42_GEOM_RECT_CALLOUT,
+  O42_GEOM_ELLIPSE_CALLOUT,
+  O42_GEOM_FLOW_PROCESS,
+  O42_GEOM_FLOW_DECISION,
+  O42_GEOM_FLOW_TERMINATOR,
+  O42_N_GEOMS
+} O42ShapeGeom;
+
 typedef struct {
   guint         id;         /* stable for the shape's lifetime */
   guint         group;      /* objects grouped together share one; 0 for none */
   O42ShapeKind  kind;
+  O42ShapeGeom  geom;       /* the outline of a rectangle kind */
   int           row;        /* the anchor cell */
   int           col;
   double        dx;         /* offset inside the anchor cell, pixels */
@@ -105,5 +136,31 @@ O42ControlPart o42_shape_control_part (const O42Shape *shape,
 
 const char *o42_shape_kind_name  (O42ShapeKind kind);   /* "rectangle", "oval"... */
 gboolean    o42_shape_kind_parse (const char *name, O42ShapeKind *kind);
+
+/* A copy with a fresh identity: everything but the id and the group. */
+O42Shape   *o42_shape_copy (const O42Shape *shape);
+
+/* The outlines, by four names each: office42's own ("roundrect"), the
+ * label a menu shows ("Rounded Rectangle"), Office Open XML's
+ * ("roundRect") and OpenDocument's ("round-rectangle"). */
+const char *o42_shape_geom_name  (O42ShapeGeom geom);
+const char *o42_shape_geom_label (O42ShapeGeom geom);
+gboolean    o42_shape_geom_parse (const char *name, O42ShapeGeom *geom);
+
+/* What a file calls this shape's outline, and the reverse: the kind and
+ * the geometry from the name Office Open XML ("ellipse", "star5"),
+ * OpenDocument ("round-callout") or Escher (a shape type number) uses.
+ * A name none of them knows comes back as a rectangle. */
+const char *o42_shape_prst        (const O42Shape *shape);
+void        o42_shape_apply_prst  (O42Shape *shape, const char *prst);
+const char *o42_shape_ods_type    (const O42Shape *shape);   /* NULL for a plain rect, ellipse or line */
+gboolean    o42_shape_apply_ods_type (O42Shape *shape, const char *type);
+int         o42_shape_spt         (const O42Shape *shape);
+gboolean    o42_shape_apply_spt   (O42Shape *shape, int spt);
+
+/* Adds the outline of a rectangle-kind shape to the current path, in
+ * the box (0, 0, width, height) less `inset` all round. */
+void        o42_shape_geom_path   (O42ShapeGeom geom, cairo_t *cr,
+                                   double width, double height, double inset);
 
 G_END_DECLS

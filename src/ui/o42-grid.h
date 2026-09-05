@@ -94,7 +94,7 @@ void o42_grid_insert_chart (O42Grid *self, O42ChartKind kind, const char *title,
                             gboolean first_row_labels, gboolean first_col_labels);
 
 /* Puts a shape near the active cell and selects it. */
-void o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, const char *text);
+void o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, const char *text);
 
 /* The shape selected by clicking it, or NULL. */
 O42Shape *o42_grid_selected_shape (O42Grid *self);

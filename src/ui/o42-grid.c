@@ -6915,7 +6915,7 @@ o42_grid_selected_chart (O42Grid *self)
 }
 
 void
-o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, const char *text)
+o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, const char *text)
 {
   O42Shape *shape;
   int row = 0, col = 0;
@@ -6925,6 +6925,7 @@ o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, const char *text)
   shape = o42_sheet_add_shape (self->sheet, kind, row, col);
   if (shape == NULL)
     return;
+  shape->geom = geom;
   shape->dx = 8;
   shape->dy = 8;
   if (text != NULL)

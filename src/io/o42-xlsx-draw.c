@@ -551,7 +551,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
         shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : "Shape", i + 1,
         sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
         sh->width * EMU_PER_PX, sh->height * EMU_PER_PX,
-        sh->kind == O42_SHAPE_OVAL ? "ellipse" : stroke ? "line" : "rect");
+        o42_shape_prst (sh));
       if (sh->fill == O42_FILL_NONE || stroke)
         g_string_append (dr, "<a:noFill/>");
       else
@@ -1231,9 +1231,7 @@ finish_anchor (DrawReader *d)
       O42ShapeKind kind = O42_SHAPE_RECT;
       O42Shape *sh;
 
-      if (strcmp (d->geom, "ellipse") == 0)
-        kind = O42_SHAPE_OVAL;
-      else if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
+      if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
         kind = d->arrow ? O42_SHAPE_ARROW : O42_SHAPE_LINE;
       else if (d->text_box || d->body->len > 0)
         kind = O42_SHAPE_TEXT;   /* Excel says txBox; others just write in it */
@@ -1241,6 +1239,9 @@ finish_anchor (DrawReader *d)
       sh = o42_sheet_add_shape (d->sheet, kind, row, col);
       if (sh != NULL)
         {
+          /* The preset outline: an ellipse is a kind of its own, the
+           * AutoShapes are outlines a rectangle wears. */
+          o42_shape_apply_prst (sh, d->geom);
           sh->dx = dx;
           sh->dy = dy;
           sh->width = width;

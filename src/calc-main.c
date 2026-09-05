@@ -1169,8 +1169,10 @@ main (int argc, char *argv[])
                 {
                   const O42Shape *sh = g_ptr_array_index (shapes, i);
                   char *at = o42_ref_name (sh->row, sh->col);
-                  printf ("shape %u: %s at %s %gx%g group %u fill ", sh->id,
-                          o42_shape_kind_name (sh->kind), at, sh->width, sh->height,
+                  printf ("shape %u: %s", sh->id, o42_shape_kind_name (sh->kind));
+                  if (sh->geom != O42_GEOM_RECT)
+                    printf ("/%s", o42_shape_geom_name (sh->geom));
+                  printf (" at %s %gx%g group %u fill ", at, sh->width, sh->height,
                           sh->group);
                   if (sh->fill == O42_FILL_NONE)
                     printf ("none");
@@ -1197,20 +1199,28 @@ main (int argc, char *argv[])
           else
             {
               char **words = g_strsplit (text + 6, " ", 3);
-              O42ShapeKind kind;
+              O42ShapeKind kind = O42_SHAPE_RECT;
+              O42ShapeGeom geom = O42_GEOM_RECT;
               int srow, scol;
 
-              if (g_strv_length (words) >= 2 && o42_shape_kind_parse (words[0], &kind) &&
+              if (g_strv_length (words) >= 2 &&
+                  (o42_shape_kind_parse (words[0], &kind) || o42_shape_geom_parse (words[0], &geom)) &&
                   o42_ref_parse (words[1], &srow, &scol, NULL))
                 {
                   O42Shape *sh = o42_sheet_add_shape (sheet, kind, srow, scol);
+                  if (sh != NULL)
+                    sh->geom = geom;
                   if (sh != NULL && g_strv_length (words) >= 3)
                     { g_free (sh->text); sh->text = g_strdup (words[2]); }
                 }
               else
                 fprintf (stderr, "usage: shape rectangle|oval|line|arrow|textbox|"
                                  "button|checkbox|option|spinner|scrollbar|listbox|"
-                                 "combo|label|groupbox A1 [TEXT]\n");
+                                 "combo|label|groupbox|roundrect|triangle|rttriangle|"
+                                 "diamond|pentagon|hexagon|octagon|plus|star4|star5|star8|"
+                                 "rightarrow|leftarrow|uparrow|downarrow|leftrightarrow|"
+                                 "rectcallout|ellipsecallout|flowprocess|flowdecision|"
+                                 "flowterminator A1 [TEXT]\n");
               g_strfreev (words);
             }
           continue;
