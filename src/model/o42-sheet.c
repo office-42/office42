@@ -725,6 +725,114 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
 /* What CELL() asks about a cell's looks, which only the sheet knows:
  * its number format in Excel's letter codes, its column's width, and
  * whether it is locked or aligned. */
+/* What CELL("format") says of a custom code, from Excel's table: the
+ * first section's kind and its decimals -- F2, ",0", C2, P0, S2 --
+ * or one of the nine D codes for a date or time, with "-" added when
+ * the negative section wears a colour. */
+static void
+custom_format_code (const char *custom, char *code, gsize size)
+{
+  const char *end = custom;
+  const char *neg;
+  gboolean quoted = FALSE, bracket = FALSE;
+  gboolean has_y = FALSE, has_d = FALSE, has_h = FALSE, has_s = FALSE, has_ampm = FALSE;
+  gboolean seen_point = FALSE, percent = FALSE, exponent = FALSE, money = FALSE;
+  gboolean grouping = FALSE, fraction = FALSE, digits = FALSE;
+  int month_run = 0, decimals = 0;
+
+  /* The first section, and whether the second names a colour. */
+  for (; *end != '\0'; end++)
+    {
+      if (*end == '"') quoted = !quoted;
+      else if (*end == '\\' && end[1] != '\0') end++;
+      else if (!quoted && *end == ';') break;
+    }
+  neg = *end == ';' ? end + 1 : NULL;
+  quoted = FALSE;
+
+  for (const char *p = custom; p < end; p++)
+    {
+      char c = g_ascii_tolower (*p);
+
+      if (*p == '"') { quoted = !quoted; continue; }
+      if (quoted) continue;
+      if (*p == '\\') { p++; continue; }
+      if (*p == '[')
+        {
+          if (p[1] == '$') money = TRUE;
+          bracket = TRUE;
+          continue;
+        }
+      if (*p == ']') { bracket = FALSE; continue; }
+      if (bracket) continue;
+      if (c == '_' || c == '*') { p++; continue; }
+      if (g_ascii_strncasecmp (p, "am/pm", 5) == 0 || g_ascii_strncasecmp (p, "a/p", 3) == 0)
+        { has_ampm = TRUE; p += g_ascii_strncasecmp (p, "am/pm", 5) == 0 ? 4 : 2; continue; }
+      switch (c)
+        {
+        case 'y': has_y = TRUE; break;
+        case 'd': has_d = TRUE; break;
+        case 'h': has_h = TRUE; break;
+        case 's': has_s = TRUE; break;
+        case 'm':
+          {
+            int run = 0;
+            while (p + run < end && g_ascii_tolower (p[run]) == 'm') run++;
+            month_run = MAX (month_run, run);
+            p += run - 1;
+            break;
+          }
+        case '0': case '#': case '?':
+          digits = TRUE;
+          if (seen_point && !exponent) decimals++;
+          break;
+        case '.': seen_point = TRUE; break;
+        case '%': percent = TRUE; break;
+        case '$': money = TRUE; break;
+        case '/': fraction = TRUE; break;
+        case 'e': if (p + 1 < end && (p[1] == '+' || p[1] == '-')) exponent = TRUE; break;
+        case ',': if (digits && !seen_point) grouping = TRUE; break;
+        default: break;
+        }
+    }
+
+  if (has_y || has_d || has_h || has_s || month_run > 0)
+    {
+      const char *d;
+
+      if (has_y && has_d)          d = month_run == 3 ? "D1" : "D4";
+      else if (has_d && month_run >= 3) d = "D2";
+      else if (has_y && month_run > 0)  d = "D3";
+      else if (has_d && month_run > 0)  d = "D5";
+      else if (has_h || has_s || (month_run > 0 && !has_y && !has_d))
+        d = has_ampm ? (has_s ? "D6" : "D7") : (has_s ? "D8" : "D9");
+      else                         d = "D4";
+      g_strlcpy (code, d, size);
+      return;
+    }
+
+  if (fraction || !digits)
+    g_strlcpy (code, "G", size);
+  else if (percent)
+    g_snprintf (code, size, "P%d", decimals);
+  else if (exponent)
+    g_snprintf (code, size, "S%d", decimals);
+  else if (money)
+    g_snprintf (code, size, "C%d", decimals);
+  else if (grouping)
+    g_snprintf (code, size, ",%d", decimals);
+  else
+    g_snprintf (code, size, "F%d", decimals);
+
+  if (neg != NULL && strchr (neg, '[') != NULL)
+    {
+      /* [Red] or another colour on the negative section. */
+      const char *open = strchr (neg, '[');
+      if (open[1] != '$' && g_ascii_isalpha (open[1]))
+        g_strlcat (code, "-", size);
+    }
+}
+
 static gboolean
 sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int col,
                      const char *what, O42Value *out)
@@ -752,6 +860,12 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
        * scientific, D for the date and time formats. */
       char code[8];
 
+      if (fmt->custom != NULL && *fmt->custom != '\0')
+        {
+          custom_format_code (fmt->custom, code, sizeof code);
+          *out = o42_value_text (code);
+          return TRUE;
+        }
       switch (fmt->number)
         {
         case O42_NUM_FIXED:      g_snprintf (code, sizeof code, "F%d", fmt->decimals); break;
