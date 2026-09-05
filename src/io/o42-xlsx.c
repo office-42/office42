@@ -1722,9 +1722,18 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
           const char *sname = o42_book_script_name (book, i);
           char *ename = g_markup_escape_text (sname, -1);
           char *ecode = g_markup_escape_text (o42_book_script_code (book, sname), -1);
-          g_string_append_printf (sx, "<script name=\"%s\" language=\"python\">%s</script>", ename, ecode);
+          char shortcut = o42_book_script_shortcut (book, sname);
+          const char *about = o42_book_script_description (book, sname);
+          char *eabout = g_markup_escape_text (about, -1);
+          g_string_append_printf (sx, "<script name=\"%s\" language=\"python\"", ename);
+          if (shortcut != 0)
+            g_string_append_printf (sx, " shortcut=\"%c\"", shortcut);
+          if (*about != '\0')
+            g_string_append_printf (sx, " description=\"%s\"", eabout);
+          g_string_append_printf (sx, ">%s</script>", ecode);
           g_free (ename);
           g_free (ecode);
+          g_free (eabout);
         }
       g_string_append (sx, "</scripts>");
       o42_zip_writer_add (zip, "xl/o42/scripts.xml", sx->str, sx->len);
@@ -2001,6 +2010,8 @@ typedef struct
   char       *scenario_comment;
   gboolean    in_script;        /* xl/o42/scripts.xml */
   char       *script_name;
+  char        script_shortcut;
+  char       *script_description;
   GString    *script_code;
 
   /* Relationships: Id -> Target */
@@ -3317,8 +3328,12 @@ scripts_start (GMarkupParseContext *ctx, const char *name, const char **names,
   (void) ctx; (void) error;
   if (strcmp (name, "script") == 0)
     {
+      const char *shortcut = attr (names, values, "shortcut");
       g_free (r->script_name);
       r->script_name = g_strdup (attr (names, values, "name") != NULL ? attr (names, values, "name") : "Script");
+      r->script_shortcut = shortcut != NULL ? shortcut[0] : 0;
+      g_free (r->script_description);
+      r->script_description = g_strdup (attr (names, values, "description"));
       if (r->script_code == NULL) r->script_code = g_string_new (NULL);
       g_string_truncate (r->script_code, 0);
       r->in_script = TRUE;
@@ -3333,6 +3348,8 @@ scripts_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError *
   if (strcmp (name, "script") == 0 && r->in_script)
     {
       o42_book_set_script (r->book, r->script_name, r->script_code->str);
+      if (r->script_shortcut != 0 || r->script_description != NULL)
+        o42_book_set_script_options (r->book, r->script_name, r->script_shortcut, r->script_description);
       r->in_script = FALSE;
     }
 }
@@ -3666,6 +3683,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_ptr_array_unref (r.names);
   g_string_free (r.name_text, TRUE);
   g_free (r.script_name);
+  g_free (r.script_description);
   g_free (r.scenario_name);
   g_free (r.scenario_comment);
   if (r.script_code != NULL) g_string_free (r.script_code, TRUE);

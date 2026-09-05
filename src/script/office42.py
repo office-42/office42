@@ -597,9 +597,18 @@ class Book:
         """The code of a stored script."""
         return _c.get_script(name)
 
-    def set_script(self, name, code):
-        """Stores code in the book under a name; saved with the file."""
+    def set_script(self, name, code, shortcut=None, description=None):
+        """Stores code in the book under a name; saved with the file.
+        `shortcut` is a letter for Ctrl+Shift+letter, "" for none."""
         _c.set_script(name, code)
+        if shortcut is not None or description is not None:
+            key, about = _c.script_info(name)
+            _c.script_options(name, key if shortcut is None else shortcut,
+                              about if description is None else description)
+
+    def script_info(self, name):
+        """A stored script's (shortcut letter or "", description)."""
+        return _c.script_info(name)
 
     def remove_script(self, name):
         return _c.remove_script(name)

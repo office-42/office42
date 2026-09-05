@@ -1326,9 +1326,18 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
           const char *sname = o42_book_script_name (book, i);
           char *ename = g_markup_escape_text (sname, -1);
           char *ecode = g_markup_escape_text (o42_book_script_code (book, sname), -1);
-          g_string_append_printf (out, "    <gnm:o42-Script Name=\"%s\">%s</gnm:o42-Script>\n", ename, ecode);
+          char shortcut = o42_book_script_shortcut (book, sname);
+          const char *about = o42_book_script_description (book, sname);
+          char *eabout = g_markup_escape_text (about, -1);
+          g_string_append_printf (out, "    <gnm:o42-Script Name=\"%s\"", ename);
+          if (shortcut != 0)
+            g_string_append_printf (out, " Shortcut=\"%c\"", shortcut);
+          if (*about != '\0')
+            g_string_append_printf (out, " Description=\"%s\"", eabout);
+          g_string_append_printf (out, ">%s</gnm:o42-Script>\n", ecode);
           g_free (ename);
           g_free (ecode);
+          g_free (eabout);
         }
       g_string_append (out, "  </gnm:o42-Scripts>\n");
     }
@@ -1368,6 +1377,8 @@ typedef struct {
   O42FmtMask  style_mask;
   gboolean    in_names;         /* inside gnm:Names */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
+  char        script_shortcut;
+  char       *script_description;
   gboolean    in_database;      /* gnm:o42-Database with the file inside it */
   gboolean    in_custom_list;   /* gnm:o42-CustomList, whose text is the list */
   GString    *custom_list;
@@ -1644,12 +1655,19 @@ start_element (GMarkupParseContext *context, const char *element,
 
   if (strcmp (name, "o42-Script") == 0)
     {
-      const char *sname = NULL;
+      const char *sname = NULL, *shortcut = NULL, *about = NULL;
       for (int i = 0; names[i] != NULL; i++)
-        if (strcmp (names[i], "Name") == 0) sname = values[i];
+        {
+          if (strcmp (names[i], "Name") == 0) sname = values[i];
+          if (strcmp (names[i], "Shortcut") == 0) shortcut = values[i];
+          if (strcmp (names[i], "Description") == 0) about = values[i];
+        }
       r->in_script = TRUE;
       g_free (r->script_name);
       r->script_name = g_strdup (sname != NULL ? sname : "Script");
+      r->script_shortcut = shortcut != NULL ? shortcut[0] : 0;
+      g_free (r->script_description);
+      r->script_description = g_strdup (about);
       if (r->script_code == NULL) r->script_code = g_string_new (NULL);
       g_string_truncate (r->script_code, 0);
       return;
@@ -2550,6 +2568,8 @@ end_element (GMarkupParseContext *context, const char *element,
   if (r->in_script && strcmp (name, "o42-Script") == 0)
     {
       o42_book_set_script (r->book, r->script_name, r->script_code->str);
+      if (r->script_shortcut != 0 || r->script_description != NULL)
+        o42_book_set_script_options (r->book, r->script_name, r->script_shortcut, r->script_description);
       r->in_script = FALSE;
       return;
     }
@@ -3083,6 +3103,7 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
        g_markup_parse_context_end_parse (context, error);
   g_markup_parse_context_free (context);
   g_free (r.script_name);
+  g_free (r.script_description);
   g_free (r.style_link);
   g_free (r.style_name);
   g_free (r.cell_style);

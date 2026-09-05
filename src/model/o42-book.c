@@ -55,6 +55,8 @@ struct _O42Book {
 typedef struct {
   char *name;
   char *code;
+  char  shortcut;      /* Ctrl+Shift and this letter runs it; 0 for none */
+  char *description;   /* or NULL */
 } Script;
 
 typedef struct {
@@ -71,6 +73,7 @@ script_free (gpointer data)
   Script *s = data;
   g_free (s->name);
   g_free (s->code);
+  g_free (s->description);
   g_free (s);
 }
 
@@ -143,6 +146,65 @@ o42_book_remove_script (O42Book *book, const char *name)
   book->scripts_modified = TRUE;
   o42_book_changed (book, "scripts");
   return TRUE;
+}
+
+void
+o42_book_set_script_options (O42Book *book, const char *name, char shortcut, const char *description)
+{
+  Script *s;
+  g_return_if_fail (book != NULL);
+  s = find_script (book, name);
+  if (s == NULL)
+    return;
+  shortcut = (char) g_ascii_toupper (shortcut);
+  if (!g_ascii_isalpha (shortcut))
+    shortcut = 0;
+  /* One macro to a key: the one that had it loses it. */
+  for (guint i = 0; shortcut != 0 && i < book->scripts->len; i++)
+    {
+      Script *other = g_ptr_array_index (book->scripts, i);
+      if (other != s && other->shortcut == shortcut)
+        other->shortcut = 0;
+    }
+  if (s->shortcut == shortcut && g_strcmp0 (s->description, description) == 0)
+    return;
+  s->shortcut = shortcut;
+  g_free (s->description);
+  s->description = description != NULL && *description != '\0' ? g_strdup (description) : NULL;
+  book->scripts_modified = TRUE;
+  o42_book_changed (book, "scripts");
+}
+
+char
+o42_book_script_shortcut (O42Book *book, const char *name)
+{
+  Script *s;
+  g_return_val_if_fail (book != NULL, 0);
+  s = find_script (book, name);
+  return s != NULL ? s->shortcut : 0;
+}
+
+const char *
+o42_book_script_description (O42Book *book, const char *name)
+{
+  Script *s;
+  g_return_val_if_fail (book != NULL, "");
+  s = find_script (book, name);
+  return s != NULL && s->description != NULL ? s->description : "";
+}
+
+const char *
+o42_book_script_for_shortcut (O42Book *book, char shortcut)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  shortcut = (char) g_ascii_toupper (shortcut);
+  for (guint i = 0; shortcut != 0 && i < book->scripts->len; i++)
+    {
+      Script *s = g_ptr_array_index (book->scripts, i);
+      if (s->shortcut == shortcut)
+        return s->name;
+    }
+  return NULL;
 }
 
 /* The styles a new book starts with, as Excel's are named. */

@@ -550,11 +550,18 @@ on_scripts_delete (GtkWidget *w, gpointer data)
 void
 action_scripts (GSimpleAction *a, GVariant *p, gpointer data)
 {
-  O42Window *self = data;
+  (void) a; (void) p;
+  o42_window_edit_script (data, NULL);
+}
+
+/* The Scripts dialog, opened on `which` (or the first script). */
+void
+o42_window_edit_script (O42Window *self, const char *which)
+{
   ScriptsPrompt *prompt = g_new0 (ScriptsPrompt, 1);
   GtkWidget *content, *buttons, *columns, *left, *scroller, *row, *new_button, *run;
+  int index = 0;
 
-  (void) a; (void) p;
   prompt->window = self;
   prompt->dialog = dialog_frame (self, _("Scripts in this Book"), FALSE, &content, &buttons);
   gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
@@ -607,10 +614,13 @@ action_scripts (GSimpleAction *a, GVariant *p, gpointer data)
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
   g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
 
-  scripts_fill_list (prompt, o42_book_script_name (self->book, 0));
+  for (int i = 0; which != NULL && i < o42_book_n_scripts (self->book); i++)
+    if (strcmp (o42_book_script_name (self->book, i), which) == 0)
+      index = i;
+  scripts_fill_list (prompt, o42_book_script_name (self->book, index));
   if (o42_book_n_scripts (self->book) > 0)
     on_scripts_row_selected (GTK_LIST_BOX (prompt->list),
-                             gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), 0), prompt);
+                             gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), index), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
@@ -1279,7 +1289,36 @@ action_ungroup_objects (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* Excel records a macro by writing down what you do; office42 writes
  * the Python that does it again.  Recording stops into a script in the
- * book, where Tools > Scripts can run or edit it. */
+ * book, where Tools > Macro > Macros can run, edit or key it. */
+void
+action_stop_recording (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  char *script, *name = NULL, *said;
+
+  (void) a; (void) p;
+  if (!o42_book_recording (self->book))
+    return;
+  script = o42_book_record_stop (self->book);
+  for (int i = 1; name == NULL; i++)
+    {
+      char *candidate = g_strdup_printf ("Macro%d", i);
+
+      if (o42_book_script_code (self->book, candidate) == NULL)
+        name = candidate;
+      else
+        g_free (candidate);
+    }
+  o42_book_set_script (self->book, name, script != NULL ? script : "");
+  said = g_strdup_printf (_("Recorded %s: Tools > Macro > Macros runs it."), name);
+  o42_book_set_modified (self->book, TRUE);
+  window_sync (self);
+  gtk_label_set_text (GTK_LABEL (self->status_label), said);
+  g_free (said);
+  g_free (name);
+  g_free (script);
+}
+
 void
 action_record_macro (GSimpleAction *a, GVariant *p, gpointer data)
 {
@@ -1287,39 +1326,264 @@ action_record_macro (GSimpleAction *a, GVariant *p, gpointer data)
 
   (void) a; (void) p;
 
-  if (!o42_book_recording (self->book))
+  if (o42_book_recording (self->book))
     {
-      o42_book_record_start (self->book);
-      window_sync (self);
-      gtk_label_set_text (GTK_LABEL (self->status_label), _("Recording. Tools > Record Macro again to stop."));
+      /* Asked again while recording, as the old single item was. */
+      action_stop_recording (a, p, data);
       return;
     }
-  else
-    {
-      char *script = o42_book_record_stop (self->book);
-      char *name = NULL;
-      char *said;
-
-      for (int i = 1; name == NULL; i++)
-        {
-          char *candidate = g_strdup_printf ("Macro%d", i);
-
-          if (o42_book_script_code (self->book, candidate) == NULL)
-            name = candidate;
-          else
-            g_free (candidate);
-        }
-      o42_book_set_script (self->book, name, script != NULL ? script : "");
-      said = g_strdup_printf ("Recorded %s: Tools > Scripts runs it.", name);
-      o42_book_set_modified (self->book, TRUE);
-      window_sync (self);
-      gtk_label_set_text (GTK_LABEL (self->status_label), said);
-      g_free (said);
-      g_free (name);
-      g_free (script);
-      return;
-    }
+  o42_book_record_start (self->book);
   window_sync (self);
+  gtk_label_set_text (GTK_LABEL (self->status_label), _("Recording. Tools > Macro > Stop Recording ends it."));
+}
+
+/* ---- Tools > Macro > Macros (Alt+F8) --------------------------------- */
+
+/* Excel's Macro dialog: the book's macros by name, and Run, Edit,
+ * Delete and Options -- the shortcut key and a line about it. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+  GtkWidget *about;       /* the chosen macro's description and key */
+} MacrosPrompt;
+
+static const char *
+macros_chosen (MacrosPrompt *prompt)
+{
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+  return row != NULL ? g_object_get_data (G_OBJECT (row), "o42-script") : NULL;
+}
+
+static void
+macros_fill (MacrosPrompt *prompt, const char *choose)
+{
+  GtkWidget *child;
+  int chosen = -1;
+
+  while ((child = gtk_widget_get_first_child (prompt->list)) != NULL)
+    gtk_list_box_remove (GTK_LIST_BOX (prompt->list), child);
+  for (int i = 0; i < o42_book_n_scripts (prompt->window->book); i++)
+    {
+      const char *sname = o42_book_script_name (prompt->window->book, i);
+      char letter = o42_book_script_shortcut (prompt->window->book, sname);
+      GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      GtkWidget *name = gtk_label_new (sname);
+      GtkWidget *key = gtk_label_new ("");
+      GtkWidget *list_row;
+
+      gtk_label_set_xalign (GTK_LABEL (name), 0.0);
+      gtk_widget_set_hexpand (name, TRUE);
+      gtk_box_append (GTK_BOX (row), name);
+      if (letter != 0)
+        {
+          char *text = g_strdup_printf ("Ctrl+Shift+%c", letter);
+          gtk_label_set_text (GTK_LABEL (key), text);
+          gtk_widget_add_css_class (key, "dim-label");
+          g_free (text);
+        }
+      gtk_box_append (GTK_BOX (row), key);
+      gtk_widget_set_margin_start (row, 6);
+      gtk_widget_set_margin_end (row, 6);
+      gtk_widget_set_margin_top (row, 3);
+      gtk_widget_set_margin_bottom (row, 3);
+      gtk_list_box_append (GTK_LIST_BOX (prompt->list), row);
+      list_row = gtk_widget_get_parent (row);
+      g_object_set_data_full (G_OBJECT (list_row), "o42-script", g_strdup (sname), g_free);
+      if (choose != NULL && strcmp (choose, sname) == 0)
+        chosen = i;
+    }
+  if (chosen < 0 && o42_book_n_scripts (prompt->window->book) > 0)
+    chosen = 0;
+  if (chosen >= 0)
+    gtk_list_box_select_row (GTK_LIST_BOX (prompt->list),
+                             gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), chosen));
+}
+
+static void
+on_macros_row_selected (GtkListBox *list, GtkListBoxRow *row, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  const char *sname = row != NULL ? g_object_get_data (G_OBJECT (row), "o42-script") : NULL;
+  (void) list;
+  gtk_label_set_text (GTK_LABEL (prompt->about),
+                      sname != NULL ? o42_book_script_description (prompt->window->book, sname) : "");
+}
+
+static void
+on_macros_run (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  const char *sname = macros_chosen (prompt);
+  const char *code = sname != NULL ? o42_book_script_code (prompt->window->book, sname) : NULL;
+  O42Window *self = prompt->window;
+  (void) w;
+  if (code == NULL)
+    return;
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+  window_run_script (self, sname, code);
+}
+
+static void
+on_macros_edit (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  char *sname = g_strdup (macros_chosen (prompt));
+  (void) w;
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+  o42_window_edit_script (self, sname);
+  g_free (sname);
+}
+
+static void
+on_macros_delete (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  const char *sname = macros_chosen (prompt);
+  (void) w;
+  if (sname != NULL && o42_book_remove_script (prompt->window->book, sname))
+    {
+      macros_fill (prompt, NULL);
+      window_sync (prompt->window);
+    }
+}
+
+/* Options: the key and the description. */
+typedef struct {
+  MacrosPrompt *macros;
+  GtkWidget    *dialog;
+  GtkWidget    *key;
+  GtkWidget    *about;
+  char         *name;
+} MacroOptionsPrompt;
+
+static void
+on_macro_options_ok (GtkWidget *w, gpointer data)
+{
+  MacroOptionsPrompt *prompt = data;
+  const char *key = gtk_editable_get_text (GTK_EDITABLE (prompt->key));
+  (void) w;
+  o42_book_set_script_options (prompt->macros->window->book, prompt->name,
+                               key[0], gtk_editable_get_text (GTK_EDITABLE (prompt->about)));
+  o42_book_set_modified (prompt->macros->window->book, TRUE);
+  o42_window_bind_macro_keys (prompt->macros->window);
+  macros_fill (prompt->macros, prompt->name);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_macro_options_free (GtkWidget *w, gpointer data)
+{
+  MacroOptionsPrompt *prompt = data;
+  (void) w;
+  g_free (prompt->name);
+  g_free (prompt);
+}
+
+static void
+on_macros_options (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *macros = data;
+  const char *sname = macros_chosen (macros);
+  MacroOptionsPrompt *prompt;
+  GtkWidget *content, *buttons, *grid, *ok, *hint;
+  char letter;
+  (void) w;
+
+  if (sname == NULL)
+    return;
+  prompt = g_new0 (MacroOptionsPrompt, 1);
+  prompt->macros = macros;
+  prompt->name = g_strdup (sname);
+  prompt->dialog = dialog_frame (macros->window, _("Macro Options"), TRUE, &content, &buttons);
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  labelled (grid, 0, _("Macro name:"), gtk_label_new (sname));
+  prompt->key = labelled (grid, 1, _("Shortcut key:  Ctrl+Shift+"), gtk_entry_new ());
+  gtk_entry_set_max_length (GTK_ENTRY (prompt->key), 1);
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->key), 3);
+  gtk_widget_set_halign (prompt->key, GTK_ALIGN_START);
+  letter = o42_book_script_shortcut (macros->window->book, sname);
+  if (letter != 0)
+    {
+      char text[2] = { letter, 0 };
+      gtk_editable_set_text (GTK_EDITABLE (prompt->key), text);
+    }
+  prompt->about = labelled (grid, 2, _("Description:"), gtk_entry_new ());
+  gtk_widget_set_size_request (prompt->about, 300, -1);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->about), o42_book_script_description (macros->window->book, sname));
+  gtk_box_append (GTK_BOX (content), grid);
+  hint = gtk_label_new (_("A letter, or nothing for no key.  The key is the book's, and saved with it."));
+  gtk_widget_add_css_class (hint, "dim-label");
+  gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
+  gtk_box_append (GTK_BOX (content), hint);
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_macro_options_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_macro_options_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_macros (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  MacrosPrompt *prompt = g_new0 (MacrosPrompt, 1);
+  GtkWidget *content, *buttons, *scroller, *run;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Macro"), FALSE, &content, &buttons);
+  gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 460, 380);
+
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Macros in this book:")));
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  g_signal_connect (prompt->list, "row-selected", G_CALLBACK (on_macros_row_selected), prompt);
+  g_signal_connect (prompt->list, "row-activated", G_CALLBACK (on_macros_run), prompt);
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_widget_set_hexpand (scroller, TRUE);
+  gtk_widget_add_css_class (scroller, "frame");
+  gtk_box_append (GTK_BOX (content), scroller);
+  prompt->about = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->about), 0.0);
+  gtk_label_set_wrap (GTK_LABEL (prompt->about), TRUE);
+  gtk_widget_add_css_class (prompt->about, "dim-label");
+  gtk_box_append (GTK_BOX (content), prompt->about);
+
+  run = dialog_button (buttons, _("_Run"), G_CALLBACK (on_macros_run), prompt);
+  gtk_widget_set_sensitive (run, o42_python_available ());
+  dialog_button (buttons, _("_Edit"), G_CALLBACK (on_macros_edit), prompt);
+  dialog_button (buttons, _("_Delete"), G_CALLBACK (on_macros_delete), prompt);
+  dialog_button (buttons, _("_Options..."), G_CALLBACK (on_macros_options), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), run);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+
+  macros_fill (prompt, NULL);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* Ctrl+Shift+letter, bound by o42_window_bind_macro_keys. */
+void
+action_run_macro (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  const char *sname = p != NULL ? g_variant_get_string (p, NULL) : NULL;
+  const char *code = sname != NULL ? o42_book_script_code (self->book, sname) : NULL;
+
+  (void) a;
+  if (code == NULL)
+    return;
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  window_run_script (self, sname, code);
 }
 
 /* ---- Tools > Protection ------------------------------------------------ */

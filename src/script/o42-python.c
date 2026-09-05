@@ -1406,6 +1406,34 @@ m_set_script (PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* script_options(name, shortcut letter or "", description) */
+static PyObject *
+m_script_options (PyObject *self, PyObject *args)
+{
+  const char *name, *key, *about;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "sss", &name, &key, &about))
+    return NULL;
+  if (current_book != NULL)
+    o42_book_set_script_options (current_book, name, key[0], about);
+  Py_RETURN_NONE;
+}
+
+/* script_info(name) -> (shortcut letter or "", description) */
+static PyObject *
+m_script_info (PyObject *self, PyObject *args)
+{
+  const char *name;
+  char key[2] = { 0, 0 };
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &name))
+    return NULL;
+  if (current_book == NULL || o42_book_script_code (current_book, name) == NULL)
+    return PyErr_Format (PyExc_KeyError, "no script named %s", name);
+  key[0] = o42_book_script_shortcut (current_book, name);
+  return Py_BuildValue ("(ss)", key, o42_book_script_description (current_book, name));
+}
+
 static PyObject *
 m_remove_script (PyObject *self, PyObject *args)
 {
@@ -1421,6 +1449,8 @@ static PyMethodDef METHODS[] = {
   { "get_script",     m_get_script,     METH_VARARGS, "A script's code." },
   { "set_script",     m_set_script,     METH_VARARGS, "Stores a script in the book." },
   { "remove_script",  m_remove_script,  METH_VARARGS, "Removes a script from the book." },
+  { "script_options", m_script_options, METH_VARARGS, "Sets a script's shortcut letter and description." },
+  { "script_info",    m_script_info,    METH_VARARGS, "A script's (shortcut letter, description)." },
   { "n_sheets",       m_n_sheets,       METH_NOARGS,  "How many sheets the book has." },
   { "sheet_name",     m_sheet_name,     METH_VARARGS, "The name of sheet i." },
   { "sheet_index",    m_sheet_index,    METH_VARARGS, "The index of the sheet named so, or -1." },

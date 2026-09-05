@@ -157,6 +157,16 @@ const char *o42_book_script_code   (O42Book *book, const char *name);   /* NULL 
 void        o42_book_set_script    (O42Book *book, const char *name, const char *code);
 gboolean    o42_book_remove_script (O42Book *book, const char *name);
 
+/* What Excel's Macro Options keeps: a shortcut key, Ctrl+Shift and a
+ * letter ('\0' for none), and a line about the macro.  Both are saved
+ * with the script. */
+void        o42_book_set_script_options (O42Book *book, const char *name,
+                                         char shortcut, const char *description);
+char        o42_book_script_shortcut    (O42Book *book, const char *name);
+const char *o42_book_script_description (O42Book *book, const char *name);   /* "" if none */
+/* The script bound to Ctrl+Shift+letter, or NULL. */
+const char *o42_book_script_for_shortcut (O42Book *book, char shortcut);
+
 /* ---- The book's database --------------------------------------------- */
 
 /* A book may have one SQLite database: a file beside it, or one carried

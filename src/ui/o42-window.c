@@ -3938,6 +3938,13 @@ on_book_changed (O42Book *book, const char *what, gpointer data)
   if (self->telling)
     return;
 
+  if (g_strcmp0 (what, "scripts") == 0)
+    {
+      o42_window_bind_macro_keys (self);
+      window_sync (self);
+      return;
+    }
+
   if (g_strcmp0 (what, "sheets") == 0 || o42_book_sheet_index (self->book, self->sheet) < 0)
     {
       if (o42_book_sheet_index (self->book, self->sheet) < 0)
@@ -4110,6 +4117,7 @@ o42_window_open_file (O42Window *self, GFile *file)
   gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar),
                                  ok && o42_python_available () &&
                                  (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY")));
+  o42_window_bind_macro_keys (self);
   return ok;
 }
 
@@ -4637,6 +4645,9 @@ static const GActionEntry ACTIONS[] = {
   { "protect",        action_protect,        NULL, NULL, NULL, { 0 } },
   { "spelling",       action_spelling,       NULL, NULL, NULL, { 0 } },
   { "record-macro",   action_record_macro,   NULL, NULL, NULL, { 0 } },
+  { "stop-recording", action_stop_recording, NULL, NULL, NULL, { 0 } },
+  { "macros",         action_macros,         NULL, NULL, NULL, { 0 } },
+  { "run-macro",      action_run_macro,      "s",  NULL, NULL, { 0 } },
   { "analysis",       action_analysis,       NULL, NULL, NULL, { 0 } },
   { "group-objects",  action_group_objects,  NULL, NULL, NULL, { 0 } },
   { "ungroup-objects", action_ungroup_objects, NULL, NULL, NULL, { 0 } },
@@ -5258,9 +5269,50 @@ o42_window_sync (O42Window *self)
     if (act) g_simple_action_set_enabled (G_SIMPLE_ACTION (act), o42_sheet_can_undo (self->sheet));
     act = g_action_map_lookup_action (G_ACTION_MAP (self), "redo");
     if (act) g_simple_action_set_enabled (G_SIMPLE_ACTION (act), o42_sheet_can_redo (self->sheet));
+    /* Record Macro and Stop Recording take turns, as Excel's do. */
+    act = g_action_map_lookup_action (G_ACTION_MAP (self), "record-macro");
+    if (act) g_simple_action_set_enabled (G_SIMPLE_ACTION (act), !o42_book_recording (self->book));
+    act = g_action_map_lookup_action (G_ACTION_MAP (self), "stop-recording");
+    if (act) g_simple_action_set_enabled (G_SIMPLE_ACTION (act), o42_book_recording (self->book));
   }
 
   self->updating = FALSE;
+}
+
+/* ---- Ctrl+Shift+letter runs a macro --------------------------------- */
+
+void
+o42_window_bind_macro_keys (O42Window *self)
+{
+  GtkShortcutController *keys;
+
+  g_return_if_fail (O42_IS_WINDOW (self));
+  if (self->macro_keys != NULL)
+    {
+      gtk_widget_remove_controller (GTK_WIDGET (self), self->macro_keys);
+      self->macro_keys = NULL;
+    }
+  keys = GTK_SHORTCUT_CONTROLLER (gtk_shortcut_controller_new ());
+  gtk_shortcut_controller_set_scope (keys, GTK_SHORTCUT_SCOPE_GLOBAL);
+  for (int i = 0; i < o42_book_n_scripts (self->book); i++)
+    {
+      const char *name = o42_book_script_name (self->book, i);
+      char letter = o42_book_script_shortcut (self->book, name);
+      char *accel;
+      GtkShortcutTrigger *trigger;
+
+      if (letter == 0)
+        continue;
+      accel = g_strdup_printf ("<Control><Shift>%c", g_ascii_tolower (letter));
+      trigger = gtk_shortcut_trigger_parse_string (accel);
+      if (trigger != NULL)
+        gtk_shortcut_controller_add_shortcut (keys,
+          gtk_shortcut_new_with_arguments (trigger, gtk_named_action_new ("win.run-macro"),
+                                           "s", name));
+      g_free (accel);
+    }
+  self->macro_keys = GTK_EVENT_CONTROLLER (keys);
+  gtk_widget_add_controller (GTK_WIDGET (self), self->macro_keys);
 }
 
 static void

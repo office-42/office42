@@ -63,6 +63,7 @@ static const struct {
   { "win.replace",    { "<Control>h", NULL } },
   { "win.calculate",  { "F9", NULL } },
   { "win.full-screen", { "F11", NULL } },
+  { "win.macros",     { "<Alt>F8", NULL } },
   { "app.quit",       { "<Control>q", NULL } },
 };
 
