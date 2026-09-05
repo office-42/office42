@@ -82,6 +82,8 @@ mime_for (const char *format)
   if (strcmp (format, "gif") == 0) return "image/gif";
   if (strcmp (format, "bmp") == 0) return "image/bmp";
   if (strcmp (format, "tiff") == 0) return "image/tiff";
+  if (strcmp (format, "emf") == 0) return "image/x-emf";
+  if (strcmp (format, "wmf") == 0) return "image/x-wmf";
   return "image/png";
 }
 

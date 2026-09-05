@@ -4725,9 +4725,27 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
                      + (int) o42_sheet_charts (sheet)->len;
         for (guint k = 0; k < pictures->len; k++)
           {
+            /* The store holds PNG, JPEG and the two Windows metafiles;
+             * anything else (a GIF, a BMP, a TIFF) is re-encoded as
+             * PNG, since a PNG label on other bytes shows Excel
+             * nothing. */
             const O42Picture *pic = g_ptr_array_index (pictures, k);
-            g_ptr_array_add (w.images, g_bytes_ref (pic->data));
-            g_ptr_array_add (w.image_formats, (gpointer) (pic->format ? pic->format : "png"));
+            const char *fmt = pic->format ? pic->format : "png";
+            GBytes *bytes = g_bytes_ref (pic->data);
+
+            if (strcmp (fmt, "png") != 0 && strcmp (fmt, "jpeg") != 0 && strcmp (fmt, "jpg") != 0 &&
+                strcmp (fmt, "emf") != 0 && strcmp (fmt, "wmf") != 0)
+              {
+                GBytes *png = o42_image_as_png (bytes);
+                if (png != NULL)
+                  {
+                    g_bytes_unref (bytes);
+                    bytes = png;
+                    fmt = "png";
+                  }
+              }
+            g_ptr_array_add (w.images, bytes);
+            g_ptr_array_add (w.image_formats, (gpointer) g_intern_string (fmt));
           }
         g_array_append_val (w.shapes_per_sheet, shapes);
         if (shapes > 0) any = TRUE;

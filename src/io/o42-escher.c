@@ -5,6 +5,7 @@
  */
 
 #include "o42-escher.h"
+#include "o42-image.h"
 
 #include <string.h>
 
@@ -14,6 +15,7 @@ enum {
   ESC_SPGR_CONTAINER = 0xF003, ESC_SP_CONTAINER = 0xF004, ESC_DGG = 0xF006, ESC_BSE = 0xF007,
   ESC_DG = 0xF008, ESC_SPGR = 0xF009, ESC_SP = 0xF00A, ESC_OPT = 0xF00B,
   ESC_CLIENT_ANCHOR = 0xF010, ESC_CLIENT_DATA = 0xF011, ESC_SPLIT_MENU = 0xF11E,
+  ESC_BLIP_EMF = 0xF01A, ESC_BLIP_WMF = 0xF01B, ESC_BLIP_PICT = 0xF01C,
   ESC_BLIP_JPEG = 0xF01D, ESC_BLIP_PNG = 0xF01E, ESC_BLIP_DIB = 0xF01F
 };
 
@@ -46,6 +48,21 @@ fix_length (GByteArray *a, gsize header_at)
 /* ====================================================================== */
 /* Writing                                                                 */
 /* ====================================================================== */
+
+/* A BSE's own record length is set by fix_length; its `size` field,
+ * 20 bytes into the body, is the length of the blip record inside it,
+ * which is the BSE's length less its 36-byte header. */
+static void
+set_blip_size (GByteArray *a, gsize bse_at)
+{
+  guint32 len = a->data[bse_at + 4] | (a->data[bse_at + 5] << 8) |
+                (a->data[bse_at + 6] << 16) | ((guint32) a->data[bse_at + 7] << 24);
+  guint32 size = len - 36;
+  a->data[bse_at + 8 + 20] = size & 0xff;
+  a->data[bse_at + 8 + 21] = (size >> 8) & 0xff;
+  a->data[bse_at + 8 + 22] = (size >> 16) & 0xff;
+  a->data[bse_at + 8 + 23] = (size >> 24) & 0xff;
+}
 
 GBytes *
 o42_escher_group (GPtrArray *images, GPtrArray *formats, GArray *shapes_per_drawing)
@@ -81,7 +98,9 @@ o42_escher_group (GPtrArray *images, GPtrArray *formats, GArray *shapes_per_draw
           GBytes *img = g_ptr_array_index (images, i);
           const char *fmt = g_ptr_array_index (formats, i);
           gboolean jpeg = strcmp (fmt, "jpeg") == 0 || strcmp (fmt, "jpg") == 0;
-          guint type = jpeg ? 5 : 6;   /* msoblipJPEG, msoblipPNG */
+          gboolean emf = strcmp (fmt, "emf") == 0, wmf = strcmp (fmt, "wmf") == 0;
+          /* msoblipEMF, msoblipWMF, msoblipJPEG, msoblipPNG */
+          guint type = emf ? 2 : wmf ? 3 : jpeg ? 5 : 6;
           gsize size = g_bytes_get_size (img);
           guchar uid[16];
           gsize bse_at = a->len;
@@ -97,26 +116,73 @@ o42_escher_group (GPtrArray *images, GPtrArray *formats, GArray *shapes_per_draw
 
           header (a, 2, type, ESC_BSE, 0);
           {
-            guchar bt[2] = { type, type };
+            guchar bt[2] = { type, emf || wmf ? 4 : type };   /* on Windows; on a Mac, a PICT */
             g_byte_array_append (a, bt, 2);
           }
           g_byte_array_append (a, uid, 16);
           put16 (a, 0xFF);                       /* tag */
-          put32 (a, 8 + 16 + 1 + size);          /* size of the blip record */
+          put32 (a, 0);                          /* size of the blip record, set below */
           put32 (a, 1);                          /* cRef */
           put32 (a, 0);                          /* foDelay */
           {
             guchar rest[4] = { 0, 0, 0, 0 };     /* usage, cbName, unused */
             g_byte_array_append (a, rest, 4);
           }
-          header (a, 0, jpeg ? 0x46A : 0x6E0, jpeg ? ESC_BLIP_JPEG : ESC_BLIP_PNG, 16 + 1 + size);
-          g_byte_array_append (a, uid, 16);
-          {
-            guchar tag = 0xFF;
-            g_byte_array_append (a, &tag, 1);
-          }
+          if (emf || wmf)
+            {
+              /* A metafile blip: the uid, then a header giving the
+               * size in bytes, the bounds in hundredths of a
+               * millimetre, the size in EMUs, and the deflated bytes,
+               * which is how Office stores them. */
+              int pw = 1, ph = 1;
+              const char *f;
+              GBytes *packed;
+
+              o42_image_is_metafile (img, &pw, &ph, &f);
+              {
+                GConverter *conv = G_CONVERTER (g_zlib_compressor_new (G_ZLIB_COMPRESSOR_FORMAT_ZLIB, 6));
+                GInputStream *mem = g_memory_input_stream_new_from_bytes (img);
+                GInputStream *in = g_converter_input_stream_new (mem, conv);
+                GByteArray *out = g_byte_array_new ();
+                guchar buffer[8192];
+                gssize got;
+                while ((got = g_input_stream_read (in, buffer, sizeof buffer, NULL, NULL)) > 0)
+                  g_byte_array_append (out, buffer, got);
+                g_object_unref (in);
+                g_object_unref (mem);
+                g_object_unref (conv);
+                packed = g_byte_array_free_to_bytes (out);
+              }
+              header (a, 0, emf ? 0x3D4 : 0x216, emf ? ESC_BLIP_EMF : ESC_BLIP_WMF,
+                      16 + 34 + g_bytes_get_size (packed));
+              g_byte_array_append (a, uid, 16);
+              put32 (a, size);                     /* cb, the bytes unpacked */
+              put32 (a, 0); put32 (a, 0);          /* rcBounds */
+              put32 (a, (guint32) (pw * 2540.0 / 96.0 + 0.5)); put32 (a, (guint32) (ph * 2540.0 / 96.0 + 0.5));
+              put32 (a, pw * 9525); put32 (a, ph * 9525);   /* ptSize, EMUs */
+              put32 (a, g_bytes_get_size (packed));         /* cbSave */
+              {
+                guchar cf[2] = { 0x00, 0xFE };     /* compression deflate, filter none */
+                g_byte_array_append (a, cf, 2);
+              }
+              g_byte_array_append (a, g_bytes_get_data (packed, NULL), g_bytes_get_size (packed));
+              g_bytes_unref (packed);
+              fix_length (a, bse_at);
+              set_blip_size (a, bse_at);
+              continue;
+            }
+          else
+            {
+              header (a, 0, jpeg ? 0x46A : 0x6E0, jpeg ? ESC_BLIP_JPEG : ESC_BLIP_PNG, 16 + 1 + size);
+              g_byte_array_append (a, uid, 16);
+              {
+                guchar tag = 0xFF;
+                g_byte_array_append (a, &tag, 1);
+              }
+            }
           g_byte_array_append (a, g_bytes_get_data (img, NULL), size);
           fix_length (a, bse_at);
+          set_blip_size (a, bse_at);
         }
       fix_length (a, bstore_at);
     }
@@ -301,6 +367,44 @@ o42_escher_parse_group (const guchar *data, gsize len, GPtrArray *images, GPtrAr
               if (btype == ESC_BLIP_PNG) { fmt = "png"; skip = (binst == 0x6E1 ? 32 : 16) + 1; }
               else if (btype == ESC_BLIP_JPEG) { fmt = "jpeg"; skip = (binst == 0x46B || binst == 0x6E3 ? 32 : 16) + 1; }
               else if (btype == ESC_BLIP_DIB) { fmt = "bmp"; skip = (binst == 0x7A9 ? 32 : 16) + 1; }
+              else if (btype == ESC_BLIP_EMF || btype == ESC_BLIP_WMF || btype == ESC_BLIP_PICT)
+                {
+                  /* A metafile: one or two uids, then a 34-byte header
+                   * whose last two bytes say whether the bytes are
+                   * deflated (0) or stored as they are (0xFE). */
+                  gboolean two = binst == 0x3D5 || binst == 0x217 || binst == 0x543;
+                  const guchar *h = img + (two ? 32 : 16);
+                  fmt = btype == ESC_BLIP_EMF ? "emf" : btype == ESC_BLIP_WMF ? "wmf" : "pict";
+                  skip = (two ? 32 : 16) + 34;
+                  if (h + 34 <= body + rlen && blen >= skip && img + blen <= end)
+                    {
+                      guint32 cb = rd32 (h);
+                      GBytes *raw = g_bytes_new (img + skip, blen - skip);
+                      if (h[32] == 0)
+                        {
+                          /* zlib-deflated: what GLib undoes. */
+                          GConverter *conv = G_CONVERTER (g_zlib_decompressor_new (G_ZLIB_COMPRESSOR_FORMAT_ZLIB));
+                          GInputStream *mem = g_memory_input_stream_new_from_bytes (raw);
+                          GInputStream *in = g_converter_input_stream_new (mem, conv);
+                          GByteArray *out = g_byte_array_new ();
+                          guchar buffer[8192];
+                          gssize got;
+                          while ((got = g_input_stream_read (in, buffer, sizeof buffer, NULL, NULL)) > 0 &&
+                                 out->len < cb + sizeof buffer)
+                            g_byte_array_append (out, buffer, got);
+                          g_object_unref (in);
+                          g_object_unref (mem);
+                          g_object_unref (conv);
+                          g_bytes_unref (raw);
+                          raw = g_byte_array_free_to_bytes (out);
+                        }
+                      g_ptr_array_add (images, raw);
+                      g_ptr_array_add (formats, (gpointer) g_intern_string (fmt));
+                      p = body + rlen;
+                      continue;
+                    }
+                  fmt = NULL;
+                }
               if (fmt != NULL && img + skip <= body + rlen && blen >= skip && img + blen <= end)
                 {
                   g_ptr_array_add (images, g_bytes_new (img + skip, blen - skip));
