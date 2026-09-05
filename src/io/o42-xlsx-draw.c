@@ -450,6 +450,42 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
 /* The a:xfrm attributes for a turned or mirrored object: the angle in
  * 60,000ths of a degree, and the flips.  A static buffer: one call per
  * printf. */
+/* The words in a shape, a paragraph per line, with the body's anchor,
+ * wrap and insets and each run's font: what Excel writes, so that it
+ * reads them back the same. */
+static void
+append_text_body (GString *dr, const O42Shape *sh)
+{
+  O42HAlign halign = o42_shape_text_halign (sh);
+  O42VAlign valign = o42_shape_text_valign (sh);
+  double inset_emu = MAX (sh->text_inset, 0) * EMU_PER_PX;
+  char **lines = g_strsplit (sh->text != NULL ? sh->text : "", "\n", -1);
+  char *family = g_markup_escape_text (sh->font != NULL ? sh->font : "Arial", -1);
+
+  g_string_append_printf (dr,
+    "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"%s\" lIns=\"%.0f\" tIns=\"%.0f\" rIns=\"%.0f\" bIns=\"%.0f\" anchor=\"%s\"/><a:lstStyle/>",
+    sh->text_nowrap ? "none" : "square", inset_emu, inset_emu, inset_emu, inset_emu,
+    valign == O42_VALIGN_TOP ? "t" : valign == O42_VALIGN_MIDDLE ? "ctr" : "b");
+  for (int i = 0; lines[i] != NULL; i++)
+    {
+      char *t = g_markup_escape_text (lines[i], -1);
+
+      g_string_append_printf (dr, "<a:p><a:pPr algn=\"%s\"/>",
+                              halign == O42_HALIGN_LEFT ? "l" : halign == O42_HALIGN_RIGHT ? "r" : "ctr");
+      if (*lines[i] != '\0')
+        g_string_append_printf (dr,
+          "<a:r><a:rPr lang=\"en-US\" sz=\"%.0f\"%s%s><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>"
+          "<a:latin typeface=\"%s\"/></a:rPr><a:t>%s</a:t></a:r>",
+          (sh->font_size > 0 ? sh->font_size : 10) * 100, sh->bold ? " b=\"1\"" : "",
+          sh->italic ? " i=\"1\"" : "", sh->text_colour & 0xFFFFFFu, family, t);
+      g_string_append (dr, "</a:p>");
+      g_free (t);
+    }
+  g_string_append (dr, "</xdr:txBody>");
+  g_strfreev (lines);
+  g_free (family);
+}
+
 static const char *
 xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
 {
@@ -631,15 +667,8 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                                           SIZES[CLAMP (sh->head_end_size, 0, 2)]);
               }
             g_string_append (dr, "</a:ln></xdr:spPr>");
-            g_string_append (dr,
-              "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"square\"/><a:lstStyle/><a:p>");
-            if (sh->text != NULL && sh->text[0] != '\0')
-              {
-                char *t = g_markup_escape_text (sh->text, -1);
-                g_string_append_printf (dr, "<a:r><a:rPr lang=\"en-US\"/><a:t>%s</a:t></a:r>", t);
-                g_free (t);
-              }
-            g_string_append (dr, "</a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
+            append_text_body (dr, sh);
+            g_string_append (dr, "</xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
             shape++;
           }
       }
@@ -1110,6 +1139,21 @@ typedef struct
   double      crop[4];     /* a:srcRect l, t, r, b as fractions */
   gboolean    lock_aspect;
   GString    *body;
+
+  /* The body's text style, from a:bodyPr, the first a:pPr and the
+   * first a:rPr. */
+  gboolean    in_rpr;
+  gboolean    have_rpr;
+  gboolean    have_ppr;
+  gboolean    have_anchor;  /* a:bodyPr said where the text sits */
+  O42HAlign   t_halign;
+  O42VAlign   t_valign;
+  gboolean    t_nowrap;
+  double      t_inset;      /* px, or -1 for unsaid */
+  double      t_size;       /* points, or 0 */
+  gboolean    t_bold, t_italic;
+  guint32     t_colour;
+  const char *t_font;       /* interned, or NULL */
 } DrawReader;
 
 /* An a:srgbClr or a:sysClr as 0x00RRGGBB. */
@@ -1156,6 +1200,15 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->lock_aspect = TRUE;
       d->head_start = d->head_end = O42_HEAD_NONE;
       d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
+      d->in_rpr = d->have_rpr = d->have_ppr = d->have_anchor = FALSE;
+      d->t_halign = O42_HALIGN_GENERAL;
+      d->t_valign = O42_VALIGN_BOTTOM;
+      d->t_nowrap = FALSE;
+      d->t_inset = -1;
+      d->t_size = 0;
+      d->t_bold = d->t_italic = FALSE;
+      d->t_colour = 0;
+      d->t_font = NULL;
       g_string_truncate (d->body, 0);
       g_clear_pointer (&d->blip, g_free);
       g_clear_pointer (&d->chart, g_free);
@@ -1267,11 +1320,58 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       if (draw_colour (names, values, &colour))
         {
           if (d->in_line) d->line = colour;
+          else if (d->in_rpr) d->t_colour = colour;
           else if (!d->in_body) d->fill = colour;
         }
     }
   else if (strcmp (n, "txBody") == 0)
     d->in_body = TRUE;
+  else if (strcmp (n, "bodyPr") == 0 && d->in_body)
+    {
+      const char *wrap = attr (names, values, "wrap");
+      const char *anchor = attr (names, values, "anchor");
+      const char *lins = attr (names, values, "lIns");
+
+      d->t_nowrap = wrap != NULL && strcmp (wrap, "none") == 0;
+      if (anchor != NULL)
+        {
+          d->have_anchor = TRUE;
+          d->t_valign = strcmp (anchor, "t") == 0 ? O42_VALIGN_TOP
+                      : strcmp (anchor, "ctr") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+        }
+      if (lins != NULL)
+        d->t_inset = floor (g_ascii_strtod (lins, NULL) / EMU_PER_PX * 10 + 0.5) / 10;
+    }
+  else if (strcmp (n, "pPr") == 0 && d->in_body && !d->have_ppr)
+    {
+      const char *algn = attr (names, values, "algn");
+
+      d->have_ppr = TRUE;
+      if (algn != NULL)
+        d->t_halign = strcmp (algn, "l") == 0 ? O42_HALIGN_LEFT : strcmp (algn, "r") == 0 ? O42_HALIGN_RIGHT
+                    : strcmp (algn, "ctr") == 0 ? O42_HALIGN_CENTRE : O42_HALIGN_GENERAL;
+    }
+  else if ((strcmp (n, "rPr") == 0 || strcmp (n, "endParaRPr") == 0) && d->in_body)
+    {
+      d->in_rpr = TRUE;
+      if (!d->have_rpr && strcmp (n, "rPr") == 0)
+        {
+          const char *sz = attr (names, values, "sz");
+          const char *b = attr (names, values, "b");
+          const char *i = attr (names, values, "i");
+
+          d->have_rpr = TRUE;
+          if (sz != NULL) d->t_size = g_ascii_strtod (sz, NULL) / 100;
+          d->t_bold = b != NULL && strcmp (b, "0") != 0;
+          d->t_italic = i != NULL && strcmp (i, "0") != 0;
+        }
+    }
+  else if (strcmp (n, "latin") == 0 && d->in_rpr)
+    {
+      const char *face = attr (names, values, "typeface");
+      if (face != NULL && *face != '\0' && *face != '+' && d->t_font == NULL)
+        d->t_font = g_intern_string (face);
+    }
   else if (strcmp (n, "p") == 0 && d->in_body && d->body->len > 0)
     g_string_append_c (d->body, '\n');   /* the line before this one ended */
   else if (strcmp (n, "t") == 0 && d->in_body)
@@ -1364,8 +1464,8 @@ finish_anchor (DrawReader *d)
 
       if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
         kind = d->arrow ? O42_SHAPE_ARROW : O42_SHAPE_LINE;
-      else if (d->text_box || d->body->len > 0)
-        kind = O42_SHAPE_TEXT;   /* Excel says txBox; others just write in it */
+      else if (d->text_box || (d->body->len > 0 && strcmp (d->geom, "rect") == 0 && d->fill == O42_FILL_NONE))
+        kind = O42_SHAPE_TEXT;   /* Excel says txBox; an unfilled rectangle with words is one too */
 
       sh = o42_sheet_add_shape (d->sheet, kind, row, col);
       if (sh != NULL)
@@ -1396,6 +1496,19 @@ finish_anchor (DrawReader *d)
               g_free (sh->text);
               sh->text = g_strdup (d->body->str);
             }
+          if (d->t_halign != O42_HALIGN_GENERAL) sh->text_halign = d->t_halign;
+          if (d->have_anchor) sh->text_valign = d->t_valign;
+          sh->text_nowrap = d->t_nowrap;
+          if (d->t_inset >= 0) sh->text_inset = d->t_inset;
+          if (d->have_rpr)
+            {
+              sh->font_size = d->t_size;
+              sh->bold = d->t_bold;
+              sh->italic = d->t_italic;
+              sh->text_colour = d->t_colour;
+            }
+          if (d->t_font != NULL && g_ascii_strcasecmp (d->t_font, "Arial") != 0)
+            sh->font = d->t_font;
         }
     }
   else if (d->chart != NULL)
@@ -1425,6 +1538,7 @@ draw_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **er
   else if (strcmp (n, "to") == 0) d->in_to = FALSE;
   else if (strcmp (n, "ln") == 0) d->in_line = FALSE;
   else if (strcmp (n, "txBody") == 0) d->in_body = FALSE;
+  else if (strcmp (n, "rPr") == 0 || strcmp (n, "endParaRPr") == 0) d->in_rpr = FALSE;
   else if (strcmp (n, "t") == 0 && d->field != NULL)
     {
       g_string_append (d->body, d->text->str);

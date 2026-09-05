@@ -1586,6 +1586,19 @@ main (int argc, char *argv[])
                     printf (" heads %s/%d %s/%d", o42_head_name (sh->head_start), sh->head_start_size,
                             o42_head_name (sh->head_end), sh->head_end_size);
                   printf (" \"%s\"", sh->text != NULL ? sh->text : "");
+                  if (sh->font != NULL || sh->font_size > 0 || sh->bold || sh->italic || sh->text_colour != 0 ||
+                      sh->text_halign != O42_HALIGN_GENERAL || sh->text_valign != O42_VALIGN_BOTTOM ||
+                      sh->text_nowrap || sh->text_inset != 4)
+                    {
+                      static const char *const HA[] = { "general", "left", "centre", "right" };
+                      static const char *const VA[] = { "bottom", "middle", "top" };
+                      char *font = o42_shape_font_string (sh);
+
+                      printf (" text %s %06X %s/%s%s inset %g", font, sh->text_colour,
+                              HA[CLAMP (sh->text_halign, 0, 3)], VA[CLAMP (sh->text_valign, 0, 2)],
+                              sh->text_nowrap ? " nowrap" : "", sh->text_inset);
+                      g_free (font);
+                    }
                   if (o42_shape_is_control (sh->kind))
                     {
                       double v = 0;
@@ -2005,13 +2018,33 @@ main (int argc, char *argv[])
                 sh->flip_h = number != 0;
               else if (strcmp (words[2], "flipv") == 0)
                 sh->flip_v = number != 0;
+              else if (strcmp (words[2], "font") == 0)
+                sh->font = g_intern_string (words[3]);
+              else if (strcmp (words[2], "fontsize") == 0)
+                sh->font_size = number;
+              else if (strcmp (words[2], "bold") == 0)
+                sh->bold = number != 0;
+              else if (strcmp (words[2], "italic") == 0)
+                sh->italic = number != 0;
+              else if (strcmp (words[2], "textcolour") == 0)
+                sh->text_colour = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "halign") == 0)
+                sh->text_halign = strcmp (words[3], "left") == 0 ? O42_HALIGN_LEFT : strcmp (words[3], "right") == 0 ? O42_HALIGN_RIGHT
+                                : strcmp (words[3], "centre") == 0 ? O42_HALIGN_CENTRE : O42_HALIGN_GENERAL;
+              else if (strcmp (words[2], "valign") == 0)
+                sh->text_valign = strcmp (words[3], "top") == 0 ? O42_VALIGN_TOP : strcmp (words[3], "middle") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+              else if (strcmp (words[2], "nowrap") == 0)
+                sh->text_nowrap = number != 0;
+              else if (strcmp (words[2], "inset") == 0)
+                sh->text_inset = number;
               else
                 fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: controlset ID link|source|script|text|value|"
                              "min|max|step|page|width|height|linewidth|dash|headstart|headend|"
-                             "headstartsize|headendsize|rotation|fliph|flipv VALUE\n");
+                             "headstartsize|headendsize|rotation|fliph|flipv|font|fontsize|bold|italic|"
+                             "textcolour|halign|valign|nowrap|inset VALUE\n");
           g_strfreev (words);
           continue;
         }

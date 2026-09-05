@@ -1027,6 +1027,7 @@ write_sheet (GString *out, O42Sheet *sheet)
         const O42Shape *sh = g_ptr_array_index (shapes, i);
         char *at = o42_ref_name (sh->row, sh->col);
         char *body = g_markup_escape_text (sh->text != NULL ? sh->text : "", -1);
+        char *text_attrs = NULL;
         char *control = NULL;
 
         /* A form control carries the cell it drives and the rest of
@@ -1046,18 +1047,38 @@ write_sheet (GString *out, O42Sheet *sheet)
             g_free (script);
           }
 
+        /* The text's font and alignment, only when they are not the
+         * kind's own. */
+        {
+          GString *ta = g_string_new (NULL);
+          if (sh->font != NULL)
+            {
+              char *e = g_markup_escape_text (sh->font, -1);
+              g_string_append_printf (ta, " Font=\"%s\"", e);
+              g_free (e);
+            }
+          if (sh->font_size > 0) g_string_append_printf (ta, " FontSize=\"%g\"", sh->font_size);
+          if (sh->bold) g_string_append (ta, " Bold=\"1\"");
+          if (sh->italic) g_string_append (ta, " Italic=\"1\"");
+          if (sh->text_colour != 0) g_string_append_printf (ta, " TextColour=\"%u\"", (guint) sh->text_colour);
+          g_string_append_printf (ta, " TextHAlign=\"%d\" TextVAlign=\"%d\"", (int) sh->text_halign, (int) sh->text_valign);
+          if (sh->text_nowrap) g_string_append (ta, " NoWrap=\"1\"");
+          if (sh->text_inset != 4) g_string_append_printf (ta, " Inset=\"%g\"", sh->text_inset);
+          text_attrs = g_string_free (ta, FALSE);
+        }
         g_string_append_printf (w.out,
           "      <gnm:o42-Shape Kind=\"%s\" Geom=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
           "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\" Z=\"%u\" "
           "Dash=\"%s\" HeadStart=\"%s\" HeadEnd=\"%s\" HeadStartSize=\"%d\" HeadEndSize=\"%d\" "
-          "Rotation=\"%g\" FlipH=\"%d\" FlipV=\"%d\"%s>%s</gnm:o42-Shape>\n",
+          "Rotation=\"%g\" FlipH=\"%d\" FlipV=\"%d\"%s%s>%s</gnm:o42-Shape>\n",
           o42_shape_kind_name (sh->kind), o42_shape_geom_name (sh->geom), at,
           sh->dx, sh->dy, sh->width, sh->height,
           (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group, sh->z,
           o42_dash_name (sh->dash), o42_head_name (sh->head_start), o42_head_name (sh->head_end),
           (int) sh->head_start_size, (int) sh->head_end_size,
           sh->rotation, sh->flip_h ? 1 : 0, sh->flip_v ? 1 : 0,
-          control != NULL ? control : "", body);
+          control != NULL ? control : "", text_attrs, body);
+        g_free (text_attrs);
         g_free (control);
         g_free (at);
         g_free (body);
@@ -2256,6 +2277,18 @@ start_element (GMarkupParseContext *context, const char *element,
           r->shape->rotation = attr_double (names, values, "Rotation", 0);
           r->shape->flip_h = attr_int (names, values, "FlipH", 0) != 0;
           r->shape->flip_v = attr_int (names, values, "FlipV", 0) != 0;
+          if (attr (names, values, "Font") != NULL)
+            r->shape->font = g_intern_string (attr (names, values, "Font"));
+          r->shape->font_size = attr_double (names, values, "FontSize", 0);
+          r->shape->bold = attr_int (names, values, "Bold", 0) != 0;
+          r->shape->italic = attr_int (names, values, "Italic", 0) != 0;
+          r->shape->text_colour = (guint32) attr_int (names, values, "TextColour", 0);
+          if (attr (names, values, "TextHAlign") != NULL)
+            r->shape->text_halign = (O42HAlign) CLAMP (attr_int (names, values, "TextHAlign", 0), 0, 3);
+          if (attr (names, values, "TextVAlign") != NULL)
+            r->shape->text_valign = (O42VAlign) CLAMP (attr_int (names, values, "TextVAlign", 0), 0, 2);
+          r->shape->text_nowrap = attr_int (names, values, "NoWrap", 0) != 0;
+          r->shape->text_inset = attr_double (names, values, "Inset", 4);
           if (o42_shape_is_control (kind))
             {
               const char *link = attr (names, values, "Link");

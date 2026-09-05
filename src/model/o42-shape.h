@@ -121,6 +121,22 @@ typedef struct {
   gboolean      flip_h;     /* mirrored left to right, before turning */
   gboolean      flip_v;
   char         *text;       /* owned; may be empty */
+
+  /* How the text is set: the family (interned; NULL for the default,
+   * Arial), the size in points (0 for 10), the style, the colour, the
+   * alignment within the box (a new shape's is the kind's own: centred
+   * in a shape, top left in a text box), whether long lines wrap, and
+   * the margin between the outline and the words. */
+  const char   *font;
+  double        font_size;
+  gboolean      bold;
+  gboolean      italic;
+  guint32       text_colour;
+  O42HAlign     text_halign;
+  O42VAlign     text_valign;
+  gboolean      text_nowrap;
+  double        text_inset;  /* pixels */
+
   guint32       fill;       /* 0x00RRGGBB, or O42_FILL_NONE */
   guint32       line;       /* 0x00RRGGBB */
   double        line_width; /* pixels */
@@ -142,6 +158,8 @@ void        o42_shape_free (O42Shape *shape);
 /* Draws the shape into a box of `width` by `height`, at the origin.
  * A control drawn this way shows as if its linked cell were empty. */
 void        o42_shape_draw (const O42Shape *shape, cairo_t *cr, double width, double height);
+/* Only its text, as o42_shape_draw draws it. */
+void        o42_shape_draw_text (const O42Shape *shape, cairo_t *cr, double width, double height);
 
 /* Draws a form control knowing what its linked cell says and what its
  * source range holds.  `items` may be NULL; so may `value`, for a
@@ -202,6 +220,12 @@ const char *o42_dash_name  (O42Dash dash);
 gboolean    o42_dash_parse (const char *name, O42Dash *dash);
 const char *o42_head_name  (O42Head head);
 gboolean    o42_head_parse (const char *name, O42Head *head);
+
+/* The text's alignment; GENERAL, which a file may say, is the kind's own. */
+O42HAlign   o42_shape_text_halign (const O42Shape *shape);
+O42VAlign   o42_shape_text_valign (const O42Shape *shape);
+/* The font as Pango wants it: "Arial Bold 12".  Caller frees. */
+char       *o42_shape_font_string (const O42Shape *shape);
 
 /* Adds the outline of a rectangle-kind shape to the current path, in
  * the box (0, 0, width, height) less `inset` all round. */

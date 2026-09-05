@@ -36,6 +36,9 @@ o42_shape_new (O42ShapeKind kind)
   if (kind == O42_SHAPE_ARROW)
     shape->head_end = O42_HEAD_TRIANGLE;
   shape->head_start_size = shape->head_end_size = O42_HEAD_MEDIUM;
+  shape->text_inset = 4;
+  shape->text_halign = kind == O42_SHAPE_TEXT ? O42_HALIGN_LEFT : O42_HALIGN_CENTRE;
+  shape->text_valign = kind == O42_SHAPE_TEXT ? O42_VALIGN_TOP : O42_VALIGN_MIDDLE;
   shape->width = (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW) ? 120 : 140;
   shape->height = (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW) ? 0 : 60;
   if (o42_shape_is_control (kind))
@@ -683,33 +686,105 @@ o42_shape_draw (const O42Shape *shape, cairo_t *cr, double width, double height)
       break;
     }
 
-  /* The text, wrapped and centred, except on a line where it sits at
-   * the start. */
+  /* The text, in its own font, aligned in the box less the inset,
+   * except on a line where it sits at the start. */
   if (shape->text != NULL && *shape->text != '\0')
+    o42_shape_draw_text (shape, cr, width, height);
+
+  cairo_restore (cr);
+}
+
+O42HAlign
+o42_shape_text_halign (const O42Shape *shape)
+{
+  if (shape->text_halign != O42_HALIGN_GENERAL)
+    return shape->text_halign;
+  return shape->kind == O42_SHAPE_TEXT ? O42_HALIGN_LEFT : O42_HALIGN_CENTRE;
+}
+
+O42VAlign
+o42_shape_text_valign (const O42Shape *shape)
+{
+  return shape->text_valign;
+}
+
+char *
+o42_shape_font_string (const O42Shape *shape)
+{
+  char size[G_ASCII_DTOSTR_BUF_SIZE];
+
+  g_ascii_formatd (size, sizeof size, "%g", shape->font_size > 0 ? shape->font_size : 10);
+  return g_strdup_printf ("%s%s%s %s", shape->font != NULL ? shape->font : "Arial",
+                          shape->bold ? " Bold" : "", shape->italic ? " Italic" : "", size);
+}
+
+/* The words in a shape, drawn upright: the shape may be flipped, and
+ * the caller has flipped the coordinates with it, so the flip is taken
+ * back about the box's centre before the text is laid out; a shape
+ * turned past ninety degrees has its text turned the other way so it
+ * reads.  Excel keeps text readable the same way. */
+void
+o42_shape_draw_text (const O42Shape *shape, cairo_t *cr, double width, double height)
+{
+  PangoLayout *layout;
+  PangoFontDescription *desc;
+  char *font = o42_shape_font_string (shape);
+  int tw, th;
+  gboolean on_line = shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW;
+  double inset = MAX (shape->text_inset, 0);
+  double angle = fmod (fmod (shape->rotation, 360) + 360, 360);
+  double tx, ty;
+
+  cairo_save (cr);
+  if (!on_line && (shape->flip_h || shape->flip_v || (angle > 90 && angle < 270)))
     {
-      PangoLayout *layout = pango_cairo_create_layout (cr);
-      PangoFontDescription *desc = pango_font_description_from_string ("Arial 10");
-      int tw, th;
-
-      pango_layout_set_font_description (layout, desc);
-      pango_layout_set_text (layout, shape->text, -1);
-      if (shape->kind != O42_SHAPE_LINE && shape->kind != O42_SHAPE_ARROW)
-        {
-          pango_layout_set_width (layout, (int) MAX (width - 8, 8) * PANGO_SCALE);
-          pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
-          pango_layout_set_alignment (layout, PANGO_ALIGN_CENTER);
-        }
-      pango_layout_get_pixel_size (layout, &tw, &th);
-      cairo_set_source_rgb (cr, 0, 0, 0);
-      if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
-        cairo_move_to (cr, 2, -th - 2);
-      else
-        cairo_move_to (cr, 4, MAX ((height - th) / 2, 2));
-      pango_cairo_show_layout (cr, layout);
-      pango_font_description_free (desc);
-      g_object_unref (layout);
+      cairo_translate (cr, width / 2, height / 2);
+      cairo_scale (cr, shape->flip_h ? -1 : 1, shape->flip_v ? -1 : 1);
+      if (angle > 90 && angle < 270)
+        cairo_rotate (cr, G_PI);
+      cairo_translate (cr, -width / 2, -height / 2);
     }
+  layout = pango_cairo_create_layout (cr);
+  desc = pango_font_description_from_string (font);
+  pango_layout_set_font_description (layout, desc);
+  pango_layout_set_text (layout, shape->text, -1);
+  if (!on_line)
+    {
+      O42HAlign halign = o42_shape_text_halign (shape);
 
+      if (!shape->text_nowrap)
+        {
+          pango_layout_set_width (layout, (int) MAX (width - 2 * inset, 8) * PANGO_SCALE);
+          pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
+        }
+      pango_layout_set_alignment (layout, halign == O42_HALIGN_LEFT ? PANGO_ALIGN_LEFT
+                                          : halign == O42_HALIGN_RIGHT ? PANGO_ALIGN_RIGHT
+                                          : PANGO_ALIGN_CENTER);
+    }
+  pango_layout_get_pixel_size (layout, &tw, &th);
+  set_rgb (cr, shape->text_colour);
+  if (on_line)
+    { tx = 2; ty = -th - 2; }
+  else
+    {
+      O42HAlign halign = o42_shape_text_halign (shape);
+      O42VAlign valign = o42_shape_text_valign (shape);
+
+      if (shape->text_nowrap)
+        tx = halign == O42_HALIGN_LEFT ? inset : halign == O42_HALIGN_RIGHT ? width - inset - tw
+                                       : (width - tw) / 2;
+      else
+        tx = inset;
+      ty = valign == O42_VALIGN_TOP ? inset : valign == O42_VALIGN_MIDDLE ? (height - th) / 2
+                                            : height - inset - th;
+      cairo_rectangle (cr, 0, 0, width, height);
+      cairo_clip (cr);
+    }
+  cairo_move_to (cr, tx, ty);
+  pango_cairo_show_layout (cr, layout);
+  pango_font_description_free (desc);
+  g_object_unref (layout);
+  g_free (font);
   cairo_restore (cr);
 }
 

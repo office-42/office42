@@ -271,7 +271,14 @@ put_drawing_opt (GByteArray *a, const O42Shape *sh, guint txid)
     { put16 (a, 0x0004); put32 (a, escher_rotation (sh->rotation, sh->flip_h, sh->flip_v)); n++; }
   if (has_text)
     {
+      guint32 inset = (guint32) (MAX (sh->text_inset, 0) * 9525);
+
       put16 (a, 0x0080); put32 (a, txid << 16); n++;                      /* lTxid */
+      put16 (a, 0x0081); put32 (a, inset); n++;                           /* dxTextLeft, EMU */
+      put16 (a, 0x0082); put32 (a, inset); n++;                           /* dyTextTop */
+      put16 (a, 0x0083); put32 (a, inset); n++;                           /* dxTextRight */
+      put16 (a, 0x0084); put32 (a, inset); n++;                           /* dyTextBottom */
+      put16 (a, 0x0086); put32 (a, sh->text_nowrap ? 2 : 0); n++;        /* WrapText: none, or square */
       put16 (a, 0x00BF); put32 (a, 0x00080008); n++;                      /* fFitTextToShape off, text on */
     }
   if (!line_kind && sh->fill != O42_FILL_NONE)
@@ -567,6 +574,8 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
               cur.line = 0x000000;
               cur.line_width = 1;
               cur.head_start_size = cur.head_end_size = O42_HEAD_MEDIUM;
+              cur.text_inset = -1;
+              cur.text_wrap = -1;
               in_shape = TRUE;
             }
           p = body;
@@ -595,6 +604,8 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
                 {
                 case 0x0004: cur.rotation = (gint32) v / 65536.0; break;   /* the flips are known by the end: see below */
                 case 0x0080: cur.has_text = TRUE; break;
+                case 0x0081: cur.text_inset = floor (v / 9525.0 + 0.5); break;
+                case 0x0086: cur.text_wrap = (int) v; break;
                 case 0x0104: cur.blip = v; break;
                 /* A high byte marks a palette or system colour, which is left
                  * at the default rather than misread as an RGB. */

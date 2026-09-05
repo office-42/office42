@@ -491,6 +491,37 @@ length_cm (int px)
   return g_strdup_printf ("%scm", g_ascii_formatd (buf, sizeof buf, "%.3f", px * 2.54 / 96.0));
 }
 
+/* A shape's words as paragraphs, one per line, in a paragraph style
+ * that aligns them and a text style that sets them; both styles are
+ * the shape's own. */
+static char *
+shape_text_xml (Styles *s, const O42Shape *shape, int sheet_index, guint i)
+{
+  GString *out = g_string_new (NULL);
+  char **lines = g_strsplit (shape->text != NULL ? shape->text : "", "\n", -1);
+  O42HAlign ha = o42_shape_text_halign (shape);
+  char size[G_ASCII_DTOSTR_BUF_SIZE];
+  char *family = g_markup_escape_text (shape->font != NULL ? shape->font : "Arial", -1);
+
+  g_string_append_printf (s->styles,
+    "<style:style style:name=\"Pgr%d_%u\" style:family=\"paragraph\"><style:paragraph-properties fo:text-align=\"%s\"/></style:style>"
+    "<style:style style:name=\"Tgr%d_%u\" style:family=\"text\"><style:text-properties fo:font-family=\"%s\" fo:font-size=\"%spt\" "
+    "fo:font-weight=\"%s\" fo:font-style=\"%s\" fo:color=\"#%06x\"/></style:style>",
+    sheet_index, i, ha == O42_HALIGN_LEFT ? "start" : ha == O42_HALIGN_RIGHT ? "end" : "center",
+    sheet_index, i, family, g_ascii_formatd (size, sizeof size, "%g", shape->font_size > 0 ? shape->font_size : 10),
+    shape->bold ? "bold" : "normal", shape->italic ? "italic" : "normal", shape->text_colour & 0xFFFFFF);
+  for (int k = 0; lines[k] != NULL; k++)
+    {
+      char *e = g_markup_escape_text (lines[k], -1);
+      g_string_append_printf (out, "<text:p text:style-name=\"Pgr%d_%u\"><text:span text:style-name=\"Tgr%d_%u\">%s</text:span></text:p>",
+                              sheet_index, i, sheet_index, i, e);
+      g_free (e);
+    }
+  g_strfreev (lines);
+  g_free (family);
+  return g_string_free (out, FALSE);
+}
+
 /* A table style carries the tab's colour and names the master page
  * the sheet prints on; ODF hangs it off table:style-name the way a
  * column hangs off a column style. */
@@ -1275,7 +1306,7 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
           continue;
         }
       name = g_strdup_printf ("Shape %u", i + 1);
-      text = g_markup_escape_text (shape->text != NULL ? shape->text : "", -1);
+      text = shape_text_xml (s, shape, sheet_index, i);
       /* The shape's fill and line as a graphic style of its own; the
        * dashes and the heads are named in styles.xml. */
       {
@@ -1304,8 +1335,18 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
         if (line_kind && shape->head_end != O42_HEAD_NONE)
           g_string_append_printf (s->styles, " draw:marker-end=\"%s\" draw:marker-end-width=\"%.2fcm\"",
                                   HEAD_NAMES[shape->head_end], HEAD_WIDTH[CLAMP (shape->head_end_size, 0, 2)]);
-        g_string_append (s->styles, " draw:textarea-horizontal-align=\"center\" "
-                                    "draw:textarea-vertical-align=\"middle\"/></style:style>");
+        {
+          O42HAlign ha = o42_shape_text_halign (shape);
+          O42VAlign va = o42_shape_text_valign (shape);
+          char pad[G_ASCII_DTOSTR_BUF_SIZE];
+
+          g_string_append_printf (s->styles,
+            " draw:textarea-horizontal-align=\"%s\" draw:textarea-vertical-align=\"%s\" fo:padding=\"%scm\"%s/></style:style>",
+            ha == O42_HALIGN_LEFT ? "left" : ha == O42_HALIGN_RIGHT ? "right" : "center",
+            va == O42_VALIGN_TOP ? "top" : va == O42_VALIGN_MIDDLE ? "middle" : "bottom",
+            g_ascii_formatd (pad, sizeof pad, "%.3f", MAX (shape->text_inset, 0) * PX_TO_CM),
+            shape->text_nowrap ? " fo:wrap-option=\"no-wrap\"" : " fo:wrap-option=\"wrap\"");
+        }
       }
       /* A line is a line; everything else is a box or an ellipse, and
        * the text inside it goes in a paragraph as it does anywhere. */
@@ -1320,7 +1361,7 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
          * the outline; LibreOffice draws it from the name. */
         g_string_append_printf (out,
           "<draw:custom-shape draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
-          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\"><text:p>%s</text:p>"
+          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">%s"
           "<draw:enhanced-geometry draw:type=\"%s\"/></draw:custom-shape>",
           name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
@@ -1328,7 +1369,7 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
       else
         g_string_append_printf (out,
           "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
-          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\"><text:p>%s</text:p></draw:%s>",
+          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">%s</draw:%s>",
           shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect", name, sheet_index, i,
           shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
@@ -1978,8 +2019,11 @@ typedef struct {
   gboolean page_break;     /* rows and columns: fo:break-before="page" */
   char    *master_page;    /* tables: the master page they print on */
 
-  /* Graphic styles: a shape's fill and line. */
+  /* Graphic styles: a shape's fill and line, and how its text sits. */
   gboolean graphic;
+  int      text_valign;    /* an O42VAlign, or -1 for unsaid */
+  double   text_padding;   /* px, or -1 */
+  int      text_nowrap;    /* 1, 0, or -1 */
   gboolean fill_none;
   guint32  fill;
   guint32  line;
@@ -2940,6 +2984,44 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
   const char *name = local (element);
   (void) ctx; (void) error;
 
+  if (r->in_cell && r->shape != NULL && (strcmp (name, "p") == 0 || strcmp (name, "span") == 0))
+    {
+      /* A shape's paragraphs and spans: theirs, not the cell's. */
+      r->depth_in_cell++;
+      if (strcmp (name, "p") == 0)
+        {
+          const char *pstyle = attr (names, values, "style-name");
+          const Style *ps = pstyle != NULL ? g_hash_table_lookup (r->styles, pstyle) : NULL;
+
+          if (r->shape->text != NULL && *r->shape->text != '\0')
+            {
+              char *more = g_strconcat (r->shape->text, "\n", NULL);
+              g_free (r->shape->text);
+              r->shape->text = more;
+            }
+          if (ps != NULL && ps->has_fmt && ps->fmt.halign != O42_HALIGN_GENERAL)
+            r->shape->text_halign = ps->fmt.halign;
+          r->in_p = TRUE;
+        }
+      else if (r->in_p)
+        {
+          const char *tstyle = attr (names, values, "style-name");
+          const Style *ts = tstyle != NULL ? g_hash_table_lookup (r->styles, tstyle) : NULL;
+
+          if (ts != NULL && ts->has_fmt)
+            {
+              if (ts->fmt.family != NULL && g_ascii_strcasecmp (ts->fmt.family, "Arial") != 0)
+                r->shape->font = ts->fmt.family;
+              if (ts->fmt.size > 0 && ts->fmt.size != 20)
+                r->shape->font_size = ts->fmt.size / 2.0;
+              r->shape->bold = ts->fmt.bold;
+              r->shape->italic = ts->fmt.italic;
+              r->shape->text_colour = ts->fmt.colour;
+            }
+        }
+      return;
+    }
+
   if (r->in_cell)
     {
       r->depth_in_cell++;
@@ -3051,6 +3133,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
               else if (st->stroke_none)
                 shape->line_width = 0.5;
               shape->dash = st->dash;
+              if (st->text_valign >= 0) shape->text_valign = (O42VAlign) st->text_valign;
+              if (st->text_padding >= 0) shape->text_inset = floor (st->text_padding + 0.5);
+              if (st->text_nowrap >= 0) shape->text_nowrap = st->text_nowrap == 1;
               if (kind == O42_SHAPE_LINE)
                 {
                   shape->head_start = st->head_start;
@@ -3358,6 +3443,16 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           const char *msw = attr (names, values, "marker-start-width");
           const char *mew = attr (names, values, "marker-end-width");
 
+          {
+            const char *tva = attr (names, values, "textarea-vertical-align");
+            const char *pad = attr (names, values, "padding");
+            const char *wrap = attr (names, values, "wrap-option");
+
+            st->text_valign = tva == NULL ? -1 : strcmp (tva, "top") == 0 ? O42_VALIGN_TOP
+                            : strcmp (tva, "middle") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+            st->text_padding = pad != NULL ? ods_length (pad) : -1;
+            st->text_nowrap = wrap == NULL ? -1 : strcmp (wrap, "no-wrap") == 0 ? 1 : 0;
+          }
           st->graphic = TRUE;
           st->fill_none = fill != NULL && strcmp (fill, "none") == 0;
           st->fill = fill_colour != NULL ? colour_of (fill_colour, 0xFFFFFF) : 0xFFFFFF;

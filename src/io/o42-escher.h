@@ -71,6 +71,8 @@ typedef struct {
   O42Head  head_start, head_end;
   O42HeadSize head_start_size, head_end_size;
   gboolean has_text;               /* an lTxid: a TXO follows the OBJ */
+  double   text_inset;             /* px, from dxTextLeft; -1 when unsaid */
+  int      text_wrap;              /* WrapText: 0 square, 2 none; -1 when unsaid */
 } O42EscherFound;
 
 /* The images in a group container, in store order: GBytes with the

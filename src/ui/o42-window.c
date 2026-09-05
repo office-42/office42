@@ -3939,6 +3939,8 @@ typedef struct {
   GtkWidget *text, *fill, *no_fill, *line, *width;
   GtkWidget *dash, *head_start, *head_start_size, *head_end, *head_end_size;
   GtkWidget *rotation, *flip_h, *flip_v;
+  GtkWidget *font, *font_size, *bold, *italic, *text_colour;
+  GtkWidget *halign, *valign, *wrap, *inset;
 } ShapePrompt;
 
 static void
@@ -3951,6 +3953,8 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
   (void) w;
   if (shape != NULL)
     {
+      const char *font = gtk_editable_get_text (GTK_EDITABLE (prompt->font));
+
       o42_sheet_begin_group (prompt->window->sheet);
       o42_sheet_capture_object (prompt->window->sheet, shape->id);
       gtk_text_buffer_get_bounds (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->text)), &a, &b);
@@ -3972,6 +3976,22 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
           shape->head_end = (O42Head) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_end));
           shape->head_end_size = (O42HeadSize) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_end_size));
         }
+      /* The text's look: the default font is left unsaid, as the files
+       * leave it. */
+      shape->font = (*font != '\0' && g_ascii_strcasecmp (font, "Arial") != 0) ? g_intern_string (font) : NULL;
+      shape->font_size = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->font_size));
+      if (shape->font_size == 10) shape->font_size = 0;
+      shape->bold = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->bold));
+      shape->italic = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->italic));
+      shape->text_colour = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->text_colour)));
+      shape->text_halign = (O42HAlign) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->halign));
+      {
+        /* The list runs top, middle, bottom; the enum bottom, middle, top. */
+        guint v = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->valign));
+        shape->text_valign = v == 0 ? O42_VALIGN_TOP : v == 1 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+      }
+      shape->text_nowrap = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->wrap));
+      shape->text_inset = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->inset));
       o42_sheet_end_group (prompt->window->sheet);
       o42_sheet_set_modified (prompt->window->sheet, TRUE);
       o42_grid_refresh (prompt->window->grid);
@@ -3980,13 +4000,16 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
 }
 
+/* Excel's Format AutoShape: tabs for the colours and lines, the size and
+ * turn, and the text, over the selected shape. */
 static void
 action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   O42Shape *shape = o42_grid_selected_shape (self->grid);
   ShapePrompt *prompt;
-  GtkWidget *content, *buttons, *grid, *scrolled, *ok;
+  GtkWidget *content, *buttons, *grid, *scrolled, *ok, *notebook;
+  gboolean line_kind;
 
   (void) a; (void) p;
   if (shape == NULL)
@@ -4000,29 +4023,23 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
       show_error (self, "Click a shape first; Format > Shape works on the selected one.", NULL);
       return;
     }
+  line_kind = shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW;
 
   prompt = g_new0 (ShapePrompt, 1);
   prompt->window = self;
   prompt->shape_id = shape->id;
   prompt->dialog = dialog_frame (self, _("Format Shape"), TRUE, &content, &buttons);
+  notebook = gtk_notebook_new ();
+  gtk_box_append (GTK_BOX (content), notebook);
 
-  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Text:")));
-  prompt->text = gtk_text_view_new ();
-  gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (prompt->text), GTK_WRAP_WORD);
-  gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->text)),
-                            shape->text != NULL ? shape->text : "", -1);
-  scrolled = gtk_scrolled_window_new ();
-  gtk_widget_set_size_request (scrolled, 300, 90);
-  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), prompt->text);
-  gtk_widget_add_css_class (scrolled, "frame");
-  gtk_box_append (GTK_BOX (content), scrolled);
-
-  grid = gtk_grid_new ();
-  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
-  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  /* Colors and Lines */
+  grid = page_grid (notebook, _("Colors and Lines"));
   prompt->fill = labelled (grid, 0, _("Fill:"), colour_button (shape->fill == O42_FILL_NONE ? 0xFFFFFF : shape->fill, _("Shape Fill")));
-  prompt->line = labelled (grid, 1, _("Line:"), colour_button (shape->line, _("Shape Line")));
-  prompt->width = labelled (grid, 2, _("Line width:"), gtk_spin_button_new_with_range (0.5, 12, 0.5));
+  prompt->no_fill = gtk_check_button_new_with_mnemonic ( _("_No fill"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), shape->fill == O42_FILL_NONE);
+  gtk_grid_attach (GTK_GRID (grid), prompt->no_fill, 0, 1, 2, 1);
+  prompt->line = labelled (grid, 2, _("Line:"), colour_button (shape->line, _("Shape Line")));
+  prompt->width = labelled (grid, 3, _("Line width:"), gtk_spin_button_new_with_range (0.5, 12, 0.5));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->width), shape->line_width);
   {
     /* In the order of O42Dash, O42Head and O42HeadSize, so the row is
@@ -4033,32 +4050,73 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
                                          N_("Oval"), N_("Open arrow"), NULL };
     static const char *const sizes[] = { N_("Small"), N_("Medium"), N_("Large"), NULL };
 
-    prompt->dash = labelled (grid, 3, _("Dash:"), drop_down_of (dashes));
+    prompt->dash = labelled (grid, 4, _("Dash:"), drop_down_of (dashes));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->dash), (guint) shape->dash);
-    if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
+    if (line_kind)
       {
-        prompt->head_start = labelled (grid, 4, _("Begin arrow:"), drop_down_of (heads));
+        prompt->head_start = labelled (grid, 5, _("Begin arrow:"), drop_down_of (heads));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start), (guint) shape->head_start);
-        prompt->head_start_size = labelled (grid, 5, _("Begin size:"), drop_down_of (sizes));
+        prompt->head_start_size = labelled (grid, 6, _("Begin size:"), drop_down_of (sizes));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start_size), (guint) shape->head_start_size);
-        prompt->head_end = labelled (grid, 6, _("End arrow:"), drop_down_of (heads));
+        prompt->head_end = labelled (grid, 7, _("End arrow:"), drop_down_of (heads));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end), (guint) shape->head_end);
-        prompt->head_end_size = labelled (grid, 7, _("End size:"), drop_down_of (sizes));
+        prompt->head_end_size = labelled (grid, 8, _("End size:"), drop_down_of (sizes));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end_size), (guint) shape->head_end_size);
       }
   }
-  prompt->rotation = labelled (grid, 8, _("Rotation (degrees):"), gtk_spin_button_new_with_range (-360, 360, 5));
+
+  /* Size */
+  grid = page_grid (notebook, _("Size"));
+  prompt->rotation = labelled (grid, 0, _("Rotation (degrees):"), gtk_spin_button_new_with_range (-360, 360, 5));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->rotation), shape->rotation);
-  gtk_box_append (GTK_BOX (content), grid);
-  prompt->no_fill = gtk_check_button_new_with_mnemonic ( _("_No fill"));
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), shape->fill == O42_FILL_NONE);
-  gtk_box_append (GTK_BOX (content), prompt->no_fill);
   prompt->flip_h = gtk_check_button_new_with_mnemonic ( _("Flip _horizontal"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_h), shape->flip_h);
-  gtk_box_append (GTK_BOX (content), prompt->flip_h);
+  gtk_grid_attach (GTK_GRID (grid), prompt->flip_h, 0, 1, 2, 1);
   prompt->flip_v = gtk_check_button_new_with_mnemonic ( _("Flip _vertical"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_v), shape->flip_v);
-  gtk_box_append (GTK_BOX (content), prompt->flip_v);
+  gtk_grid_attach (GTK_GRID (grid), prompt->flip_v, 0, 2, 2, 1);
+
+  /* Text */
+  grid = page_grid (notebook, _("Text"));
+  prompt->text = gtk_text_view_new ();
+  gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (prompt->text), GTK_WRAP_WORD);
+  gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->text)),
+                            shape->text != NULL ? shape->text : "", -1);
+  scrolled = gtk_scrolled_window_new ();
+  gtk_widget_set_size_request (scrolled, 320, 70);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), prompt->text);
+  gtk_widget_add_css_class (scrolled, "frame");
+  gtk_grid_attach (GTK_GRID (grid), scrolled, 0, 0, 2, 1);
+  prompt->font = labelled (grid, 1, _("Font:"), gtk_entry_new ());
+  gtk_editable_set_text (GTK_EDITABLE (prompt->font), shape->font != NULL ? shape->font : "Arial");
+  prompt->font_size = labelled (grid, 2, _("Size (points):"), gtk_spin_button_new_with_range (4, 144, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->font_size), shape->font_size > 0 ? shape->font_size : 10);
+  {
+    GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+    prompt->bold = gtk_check_button_new_with_mnemonic (_("_Bold"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->bold), shape->bold);
+    prompt->italic = gtk_check_button_new_with_mnemonic (_("_Italic"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->italic), shape->italic);
+    gtk_box_append (GTK_BOX (box), prompt->bold);
+    gtk_box_append (GTK_BOX (box), prompt->italic);
+    labelled (grid, 3, _("Style:"), box);
+  }
+  prompt->text_colour = labelled (grid, 4, _("Colour:"), colour_button (shape->text_colour, _("Text Colour")));
+  {
+    static const char *const haligns[] = { N_("As the shape has it"), N_("Left"), N_("Centre"), N_("Right"), NULL };
+    static const char *const valigns[] = { N_("Top"), N_("Middle"), N_("Bottom"), NULL };
+    O42VAlign va = o42_shape_text_valign (shape);
+
+    prompt->halign = labelled (grid, 5, _("Horizontal:"), drop_down_of (haligns));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->halign), (guint) shape->text_halign);
+    prompt->valign = labelled (grid, 6, _("Vertical:"), drop_down_of (valigns));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->valign), va == O42_VALIGN_TOP ? 0 : va == O42_VALIGN_MIDDLE ? 1 : 2);
+  }
+  prompt->wrap = gtk_check_button_new_with_mnemonic (_("_Wrap text in the shape"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->wrap), !shape->text_nowrap);
+  gtk_grid_attach (GTK_GRID (grid), prompt->wrap, 0, 7, 2, 1);
+  prompt->inset = labelled (grid, 8, _("Internal margin (pixels):"), gtk_spin_button_new_with_range (0, 40, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->inset), shape->text_inset);
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_shape_format_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
