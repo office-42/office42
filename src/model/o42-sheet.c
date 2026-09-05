@@ -6259,8 +6259,64 @@ o42_sheet_add_validation (O42Sheet *sheet, const O42Validation *v)
   copy.value = g_strdup (v->value ? v->value : "");
   copy.value2 = g_strdup (v->value2 ? v->value2 : "");
   copy.message = g_strdup (v->message ? v->message : "");
+  copy.title = g_strdup (v->title ? v->title : "");
+  copy.prompt_title = g_strdup (v->prompt_title ? v->prompt_title : "");
+  copy.prompt = g_strdup (v->prompt ? v->prompt : "");
   g_array_append_val (sheet->validations, copy);
   sheet->modified = TRUE;
+}
+
+const O42Validation *
+o42_sheet_validation_at (O42Sheet *sheet, int row, int col)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  for (guint i = 0; i < sheet->validations->len; i++)
+    {
+      const O42Validation *v = &g_array_index (sheet->validations, O42Validation, i);
+      if (o42_range_contains (&v->range, row, col))
+        return v;
+    }
+  return NULL;
+}
+
+char **
+o42_sheet_validation_items (O42Sheet *sheet, const O42Validation *v)
+{
+  GPtrArray *items = g_ptr_array_new ();
+  const char *text;
+  O42Range r;
+  gsize len = 0;
+
+  g_return_val_if_fail (sheet != NULL && v != NULL, NULL);
+  text = v->value != NULL ? v->value : "";
+  while (*text == '=' || *text == ' ') text++;
+  if (o42_ref_parse (text, &r.row0, &r.col0, &len) &&
+      (text[len] == '\0' || (text[len] == ':' && o42_ref_parse (text + len + 1, &r.row1, &r.col1, NULL))))
+    {
+      /* A range: its cells, as shown, the empty ones left out. */
+      if (text[len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
+      r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+      for (int row = r.row0; row <= r.row1 && row < r.row0 + 10000; row++)
+        for (int col = r.col0; col <= r.col1; col++)
+          {
+            char *shown = o42_sheet_get_display (sheet, row, col);
+            if (*shown != '\0') g_ptr_array_add (items, shown);
+            else g_free (shown);
+          }
+    }
+  else
+    {
+      char **parts = g_strsplit (text, ",", -1);
+      for (int i = 0; parts[i] != NULL; i++)
+        {
+          char *item = g_strstrip (g_strdup (parts[i]));
+          if (*item != '\0') g_ptr_array_add (items, item);
+          else g_free (item);
+        }
+      g_strfreev (parts);
+    }
+  g_ptr_array_add (items, NULL);
+  return (char **) g_ptr_array_free (items, FALSE);
 }
 
 void
@@ -6274,6 +6330,7 @@ o42_sheet_clear_validations (O42Sheet *sheet, const O42Range *range)
       if (range == NULL || ranges_overlap (&v->range, range))
         {
           g_free (v->value); g_free (v->value2); g_free (v->message);
+          g_free (v->title); g_free (v->prompt_title); g_free (v->prompt);
           g_array_remove_index (sheet->validations, i);
           sheet->modified = TRUE;
         }
@@ -6377,6 +6434,8 @@ o42_sheet_validate (O42Sheet *sheet, int row, int col, const char *input, char *
 
       if (!o42_range_contains (&v->range, row, col))
         continue;
+      if (v->no_error)
+        continue;
       if (!validation_allows (sheet, v, input))
         {
           if (message != NULL)
@@ -6386,6 +6445,25 @@ o42_sheet_validate (O42Sheet *sheet, int row, int col, const char *input, char *
         }
     }
   return TRUE;
+}
+
+gboolean
+o42_sheet_cell_invalid (O42Sheet *sheet, int row, int col)
+{
+  const O42Validation *v;
+  char *input;
+  gboolean bad;
+
+  g_return_val_if_fail (sheet != NULL, FALSE);
+  v = o42_sheet_validation_at (sheet, row, col);
+  if (v == NULL || v->kind == O42_VALID_ANY)
+    return FALSE;
+  /* A formula is judged by what it shows, a value by what was typed. */
+  input = o42_sheet_has_formula (sheet, row, col) ? o42_sheet_get_display (sheet, row, col)
+                                                  : o42_sheet_get_input (sheet, row, col);
+  bad = !validation_allows (sheet, v, input);
+  g_free (input);
+  return bad;
 }
 
 /* ---------------------------------------------------------------------- */

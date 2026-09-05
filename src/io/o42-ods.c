@@ -1232,6 +1232,136 @@ write_forms (GString *out, O42Sheet *sheet)
 }
 
 /* Everything anchored to one cell, drawn inside its element. */
+/* ---- Data validation: table:content-validation ---- */
+
+/* The validation over a cell as an index into the sheet's list, or -1. */
+static int
+validation_index_at (O42Sheet *sheet, int row, int col)
+{
+  GArray *rules = o42_sheet_validations (sheet);
+  for (guint i = 0; i < rules->len; i++)
+    if (o42_range_contains (&g_array_index (rules, O42Validation, i).range, row, col))
+      return (int) i;
+  return -1;
+}
+
+/* A rule's condition in OpenFormula's words: of:cell-content-is-whole-number()
+ * and of:cell-content-is-between(1,10), of:cell-content-is-in-list("a";"b"). */
+static char *
+validation_condition (O42Sheet *sheet, const O42Validation *v)
+{
+  GString *c = g_string_new ("of:");
+  static const char *const ops[] = { "", "", "=", "!=", ">", "<", ">=", "<=" };
+  const char *a = v->value != NULL ? v->value : "", *b = v->value2 != NULL ? v->value2 : "";
+
+  if (v->kind == O42_VALID_LIST)
+    {
+      O42Range r;
+      gsize len = 0;
+      const char *text = a;
+
+      while (*text == '=' || *text == ' ') text++;
+      if (o42_ref_parse (text, &r.row0, &r.col0, &len) &&
+          (text[len] == '\0' || (text[len] == ':' && o42_ref_parse (text + len + 1, &r.row1, &r.col1, NULL))))
+        {
+          char *plain = g_strdup (text);
+          char *colon = strchr (plain, ':');
+          if (colon != NULL) *colon = '\0';
+          g_string_append_printf (c, "cell-content-is-in-list([.%s%s%s])", plain, colon != NULL ? ":." : "", colon != NULL ? colon + 1 : "");
+          g_free (plain);
+        }
+      else
+        {
+          char **items = o42_sheet_validation_items (sheet, v);
+          g_string_append (c, "cell-content-is-in-list(");
+          for (int i = 0; items[i] != NULL; i++)
+            {
+              char *esc = g_strescape (items[i], NULL);
+              g_string_append_printf (c, "%s\"%s\"", i > 0 ? ";" : "", esc);
+              g_free (esc);
+            }
+          g_string_append_c (c, ')');
+          g_strfreev (items);
+        }
+      return g_string_free (c, FALSE);
+    }
+  if (v->kind == O42_VALID_LENGTH)
+    {
+      if (v->op == O42_COND_BETWEEN || v->op == O42_COND_NOT_BETWEEN)
+        g_string_append_printf (c, "cell-content-text-length-is-%sbetween(%s,%s)", v->op == O42_COND_NOT_BETWEEN ? "not-" : "", a, b);
+      else
+        g_string_append_printf (c, "cell-content-text-length()%s%s", ops[v->op], a);
+      return g_string_free (c, FALSE);
+    }
+  switch (v->kind)
+    {
+    case O42_VALID_WHOLE: g_string_append (c, "cell-content-is-whole-number()"); break;
+    case O42_VALID_DECIMAL: g_string_append (c, "cell-content-is-decimal-number()"); break;
+    case O42_VALID_DATE: g_string_append (c, "cell-content-is-date()"); break;
+    case O42_VALID_TIME: g_string_append (c, "cell-content-is-time()"); break;
+    default: break;
+    }
+  /* LibreOffice writes the second call without the of: prefix, and
+   * reads only that form. */
+  if (v->op == O42_COND_BETWEEN || v->op == O42_COND_NOT_BETWEEN)
+    g_string_append_printf (c, " and cell-content-is-%sbetween(%s,%s)", v->op == O42_COND_NOT_BETWEEN ? "not-" : "", a, b);
+  else
+    g_string_append_printf (c, " and cell-content()%s%s", ops[v->op], a);
+  return g_string_free (c, FALSE);
+}
+
+/* Every sheet's rules, named valS_I, before the tables. */
+static void
+write_validations (GString *out, O42Book *book)
+{
+  static const char *const kinds[] = { "stop", "warning", "information" };
+  gboolean any = FALSE;
+
+  for (int i = 0; i < o42_book_n_sheets (book); i++)
+    if (o42_sheet_validations (o42_book_sheet (book, i))->len > 0)
+      any = TRUE;
+  if (!any)
+    return;
+  g_string_append (out, "<table:content-validations>");
+  for (int i = 0; i < o42_book_n_sheets (book); i++)
+    {
+      O42Sheet *sheet = o42_book_sheet (book, i);
+      GArray *rules = o42_sheet_validations (sheet);
+
+      for (guint k = 0; k < rules->len; k++)
+        {
+          const O42Validation *v = &g_array_index (rules, O42Validation, k);
+          char *cond = validation_condition (sheet, v);
+          char *esc = g_markup_escape_text (cond, -1);
+          char *base = o42_ref_name (v->range.row0, v->range.col0);
+          char *sname = g_markup_escape_text (o42_sheet_get_name (sheet), -1);
+
+          g_string_append_printf (out,
+            "<table:content-validation table:name=\"val%d_%u\" table:condition=\"%s\" table:allow-empty-cell=\"%s\" "
+            "table:base-cell-address=\"%s.%s\"%s>",
+            i, k, esc, v->allow_blank ? "true" : "false", sname, base,
+            v->kind == O42_VALID_LIST ? (v->no_dropdown ? " table:display-list=\"no\"" : " table:display-list=\"unsorted\"") : "");
+          if ((v->prompt_title != NULL && *v->prompt_title) || (v->prompt != NULL && *v->prompt))
+            {
+              char *t = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+              char *m = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+              g_string_append_printf (out, "<table:help-message table:title=\"%s\" table:display=\"true\"><text:p>%s</text:p></table:help-message>", t, m);
+              g_free (t); g_free (m);
+            }
+          {
+            char *t = g_markup_escape_text (v->title ? v->title : "", -1);
+            char *m = g_markup_escape_text (v->message ? v->message : "", -1);
+            g_string_append_printf (out, "<table:error-message table:title=\"%s\" table:message-type=\"%s\" table:display=\"%s\"><text:p>%s</text:p></table:error-message>",
+                                    t, kinds[CLAMP (v->style, 0, 2)], v->no_error ? "false" : "true", m);
+            g_free (t); g_free (m);
+          }
+          g_string_append (out, "</table:content-validation>");
+          g_free (cond); g_free (esc); g_free (base); g_free (sname);
+        }
+    }
+  g_string_append (out, "</table:content-validations>");
+}
+
 static void
 write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, int col)
 {
@@ -1412,6 +1542,11 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
   g_string_append (out, "<table:table-cell");
   if (idx != default_idx)
     g_string_append_printf (out, " table:style-name=\"%s\"", cell_style (s, fmt));
+  {
+    int vi = validation_index_at (sheet, row, col);
+    if (vi >= 0)
+      g_string_append_printf (out, " table:content-validation-name=\"val%d_%d\"", sheet_index, vi);
+  }
   if (merge != NULL)
     g_string_append_printf (out, " table:number-columns-spanned=\"%d\" table:number-rows-spanned=\"%d\"",
                             merge->col1 - merge->col0 + 1, merge->row1 - merge->row0 + 1);
@@ -1889,6 +2024,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
     g_string_append_printf (content, "<table:calculation-settings%s>%s</table:calculation-settings>",
                             o42_book_precision_as_displayed (book) ? " table:precision-as-shown=\"true\"" : "",
                             o42_book_date_1904 (book) ? "<table:null-date table:date-value=\"1904-01-01\"/>" : "");
+  write_validations (content, book);
   g_string_append (content, body->str);
   g_string_append (content, "</office:spreadsheet></office:body></office:document-content>");
 
@@ -2049,6 +2185,13 @@ typedef struct {
   GHashTable *form_controls;  /* form:id -> FormControl, for draw:control */
   GArray     *loose_controls; /* LooseControl: shapes outside any cell */
   gboolean    in_form;        /* inside <office:forms>, where a frame is a group box */
+
+  /* Data validation: the rules by name, the cells that wear each. */
+  GHashTable *valid_defs;     /* name -> O42Validation* (strings owned) */
+  GHashTable *valid_cells;    /* name -> GArray of guint64 keys */
+  O42Validation *valid_cur;   /* the one being read */
+  int         valid_msg;      /* 1 in its help-message, 2 in its error-message */
+  char       *cell_valid;     /* the cell's content-validation-name */
 
   /* Page layouts and master pages from styles.xml. */
   GHashTable *font_faces;    /* font-face name -> family */
@@ -2557,6 +2700,168 @@ apply_named_style (Reader *r, const char *name, int row0, int col0, int row1, in
   o42_sheet_apply_fmt (r->sheet, &range, O42_FMT_ALL, &fmt);
 }
 
+/* An OpenFormula condition back into a rule: the kind from the
+ * of:cell-content-is-* call, the operator and values from what follows. */
+static void
+ods_validation_condition (const char *cond, O42Validation *v)
+{
+  const char *p;
+  char *a = NULL, *b = NULL;
+
+  v->kind = O42_VALID_ANY;
+  v->op = O42_COND_BETWEEN;
+  if (strstr (cond, "cell-content-is-whole-number") != NULL) v->kind = O42_VALID_WHOLE;
+  else if (strstr (cond, "cell-content-is-decimal-number") != NULL) v->kind = O42_VALID_DECIMAL;
+  else if (strstr (cond, "cell-content-is-date") != NULL) v->kind = O42_VALID_DATE;
+  else if (strstr (cond, "cell-content-is-time") != NULL) v->kind = O42_VALID_TIME;
+  else if (strstr (cond, "cell-content-text-length") != NULL) v->kind = O42_VALID_LENGTH;
+  else if (strstr (cond, "cell-content-is-in-list") != NULL) v->kind = O42_VALID_LIST;
+
+  if (v->kind == O42_VALID_LIST)
+    {
+      const char *open = strchr (cond, '(');
+      const char *close = open != NULL ? strrchr (open, ')') : NULL;
+      GString *items = g_string_new (NULL);
+
+      if (open == NULL || close == NULL)
+        return;
+      if (open[1] == '[')
+        {
+          /* [.A1:.A5] or [Sheet.A1:.A5]: the range, without the dots. */
+          char *inner = g_strndup (open + 2, close - open - 3);
+          char *plain = g_strdup (inner);
+          char *w = plain;
+          for (const char *q = inner; *q != '\0'; q++)
+            {
+              if (*q == '.') { if (q == inner || q[-1] == ':') continue; w = plain; continue; }
+              if (*q == '$') continue;
+              *w++ = *q;
+            }
+          *w = '\0';
+          g_free (v->value);
+          v->value = plain;
+          g_free (inner);
+          g_string_free (items, TRUE);
+          return;
+        }
+      for (p = open + 1; p < close; )
+        {
+          if (*p == '"')
+            {
+              const char *end = p + 1;
+              while (*end != '\0' && *end != '"') end++;
+              if (items->len > 0) g_string_append_c (items, ',');
+              g_string_append_len (items, p + 1, end - p - 1);
+              p = *end == '"' ? end + 1 : end;
+            }
+          else
+            p++;
+        }
+      g_free (v->value);
+      v->value = g_string_free (items, FALSE);
+      return;
+    }
+
+  /* between(a,b), not-between(a,b), or cell-content() OP a. */
+  if ((p = strstr (cond, "not-between(")) != NULL)
+    { v->op = O42_COND_NOT_BETWEEN; p += 12; }
+  else if ((p = strstr (cond, "between(")) != NULL)
+    { v->op = O42_COND_BETWEEN; p += 8; }
+  if (p != NULL)
+    {
+      const char *comma = strchr (p, ','), *close = strchr (p, ')');
+      if (comma != NULL && close != NULL && comma < close)
+        {
+          a = g_strndup (p, comma - p);
+          b = g_strndup (comma + 1, close - comma - 1);
+        }
+    }
+  else if ((p = strstr (cond, "()")) != NULL)
+    {
+      p += 2;
+      while (*p == ' ') p++;
+      if (p[0] == '>' && p[1] == '=') { v->op = O42_COND_GREATER_EQUAL; p += 2; }
+      else if (p[0] == '<' && p[1] == '=') { v->op = O42_COND_LESS_EQUAL; p += 2; }
+      else if (p[0] == '!' && p[1] == '=') { v->op = O42_COND_NOT_EQUAL; p += 2; }
+      else if (p[0] == '<' && p[1] == '>') { v->op = O42_COND_NOT_EQUAL; p += 2; }
+      else if (p[0] == '>') { v->op = O42_COND_GREATER; p++; }
+      else if (p[0] == '<') { v->op = O42_COND_LESS; p++; }
+      else if (p[0] == '=') { v->op = O42_COND_EQUAL; p++; }
+      else p = NULL;
+      if (p != NULL)
+        {
+          while (*p == ' ') p++;
+          a = g_strdup (p);
+          g_strstrip (a);
+        }
+    }
+  if (a != NULL) { g_free (v->value); v->value = a; }
+  if (b != NULL) { g_free (v->value2); v->value2 = b; }
+}
+
+/* The cells that named a rule, made into ranges: the whole rectangle
+ * when they fill it, else a run per row. */
+static void
+apply_validations (Reader *r)
+{
+  GHashTableIter iter;
+  gpointer key, val;
+
+  if (r->sheet == NULL)
+    return;
+  g_hash_table_iter_init (&iter, r->valid_cells);
+  while (g_hash_table_iter_next (&iter, &key, &val))
+    {
+      const O42Validation *def = g_hash_table_lookup (r->valid_defs, key);
+      GArray *cells = val;
+      O42Range box;
+      guint area;
+
+      if (def == NULL || cells->len == 0 || def->kind == O42_VALID_ANY)
+        continue;
+      box.row0 = box.row1 = o42_key_row (g_array_index (cells, guint64, 0));
+      box.col0 = box.col1 = o42_key_col (g_array_index (cells, guint64, 0));
+      for (guint i = 1; i < cells->len; i++)
+        {
+          int row = o42_key_row (g_array_index (cells, guint64, i)), col = o42_key_col (g_array_index (cells, guint64, i));
+          box.row0 = MIN (box.row0, row); box.row1 = MAX (box.row1, row);
+          box.col0 = MIN (box.col0, col); box.col1 = MAX (box.col1, col);
+        }
+      area = (guint) (box.row1 - box.row0 + 1) * (guint) (box.col1 - box.col0 + 1);
+      if (area == cells->len)
+        {
+          O42Validation v = *def;
+          v.range = box;
+          o42_sheet_add_validation (r->sheet, &v);
+        }
+      else
+        for (guint i = 0; i < cells->len; )
+          {
+            O42Validation v = *def;
+            int row = o42_key_row (g_array_index (cells, guint64, i)), col = o42_key_col (g_array_index (cells, guint64, i));
+            guint j = i + 1;
+            while (j < cells->len && o42_key_row (g_array_index (cells, guint64, j)) == row &&
+                   o42_key_col (g_array_index (cells, guint64, j)) == col + (int) (j - i))
+              j++;
+            v.range.row0 = v.range.row1 = row;
+            v.range.col0 = col;
+            v.range.col1 = col + (int) (j - i) - 1;
+            o42_sheet_add_validation (r->sheet, &v);
+            i = j;
+          }
+    }
+  g_hash_table_remove_all (r->valid_cells);
+}
+
+static void
+validation_free (gpointer data)
+{
+  O42Validation *v = data;
+  g_free (v->value); g_free (v->value2); g_free (v->message);
+  g_free (v->title); g_free (v->prompt_title); g_free (v->prompt);
+  g_free (v);
+}
+
 static void
 cell_finish (Reader *r)
 {
@@ -2571,6 +2876,20 @@ cell_finish (Reader *r)
       r->cell_col += repeat;
       CLEAR_RUNS ();
       return;
+    }
+  if (r->cell_valid != NULL && repeat <= 1024)
+    {
+      GArray *cells = g_hash_table_lookup (r->valid_cells, r->cell_valid);
+      if (cells == NULL)
+        {
+          cells = g_array_new (FALSE, FALSE, sizeof (guint64));
+          g_hash_table_insert (r->valid_cells, g_strdup (r->cell_valid), cells);
+        }
+      for (int k = 0; k < repeat; k++)
+        {
+          guint64 key = o42_key (r->row, r->cell_col + k);
+          g_array_append_val (cells, key);
+        }
     }
   if (r->formula != NULL)
     input = formula_from_of (r->formula);
@@ -3671,11 +3990,58 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       r->cell_col = 0;
       return;
     }
+  if (strcmp (name, "content-validation") == 0 && attr (names, values, "name") != NULL)
+    {
+      O42Validation *v = g_new0 (O42Validation, 1);
+      const char *cond = attr (names, values, "condition");
+      const char *empty = attr (names, values, "allow-empty-cell");
+      const char *list = attr (names, values, "display-list");
+
+      v->allow_blank = empty == NULL || strcmp (empty, "false") != 0;
+      v->no_dropdown = list != NULL && (strcmp (list, "none") == 0 || strcmp (list, "no") == 0);
+      v->value = g_strdup ("");
+      v->value2 = g_strdup ("");
+      v->message = g_strdup ("");
+      v->title = g_strdup ("");
+      v->prompt = g_strdup ("");
+      v->prompt_title = g_strdup ("");
+      if (cond != NULL)
+        ods_validation_condition (cond, v);
+      g_hash_table_replace (r->valid_defs, g_strdup (attr (names, values, "name")), v);
+      r->valid_cur = v;
+      return;
+    }
+  if (r->valid_cur != NULL && (strcmp (name, "help-message") == 0 || strcmp (name, "error-message") == 0))
+    {
+      const char *title = attr (names, values, "title");
+      const char *kind = attr (names, values, "message-type");
+      const char *display = attr (names, values, "display");
+
+      r->valid_msg = name[0] == 'h' ? 1 : 2;
+      if (r->valid_msg == 1)
+        { g_free (r->valid_cur->prompt_title); r->valid_cur->prompt_title = g_strdup (title ? title : ""); }
+      else
+        {
+          g_free (r->valid_cur->title);
+          r->valid_cur->title = g_strdup (title ? title : "");
+          r->valid_cur->style = kind != NULL && strcmp (kind, "warning") == 0 ? O42_VALID_WARNING
+                              : kind != NULL && strcmp (kind, "information") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+          r->valid_cur->no_error = display != NULL && strcmp (display, "false") == 0;
+        }
+      return;
+    }
+  if (r->valid_msg != 0 && strcmp (name, "p") == 0)
+    {
+      r->in_p = TRUE;
+      return;
+    }
   if ((strcmp (name, "table-cell") == 0 || strcmp (name, "covered-table-cell") == 0) && r->sheet != NULL)
     {
       r->in_cell = TRUE;
       r->depth_in_cell = 0;
       r->covered = name[0] == 'c';
+      g_free (r->cell_valid);
+      r->cell_valid = g_strdup (attr (names, values, "content-validation-name"));
       r->cell_repeat = attr_int (names, values, "number-columns-repeated", 1);
       r->span_cols = attr_int (names, values, "number-columns-spanned", 1);
       r->span_rows = attr_int (names, values, "number-rows-spanned", 1);
@@ -3842,8 +4208,15 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
   else if (strcmp (name, "table") == 0)
     {
       place_loose_controls (r);
+      apply_validations (r);
       r->sheet = NULL;
     }
+  else if (strcmp (name, "content-validation") == 0)
+    r->valid_cur = NULL;
+  else if (r->valid_msg != 0 && (strcmp (name, "help-message") == 0 || strcmp (name, "error-message") == 0))
+    r->valid_msg = 0;
+  else if (r->valid_msg != 0 && strcmp (name, "p") == 0)
+    r->in_p = FALSE;
 }
 
 static void
@@ -3866,6 +4239,16 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
       if (*literal != 0)
         g_string_append_printf (r->num->code, plain ? "%s" : "\"%s\"", literal);
       g_free (literal);
+      return;
+    }
+  if (r->valid_cur != NULL && r->valid_msg != 0 && r->in_p)
+    {
+      char **slot = r->valid_msg == 1 ? &r->valid_cur->prompt : &r->valid_cur->message;
+      char *more = g_strndup (text, len);
+      char *both = g_strconcat (*slot != NULL ? *slot : "", more, NULL);
+      g_free (*slot);
+      *slot = both;
+      g_free (more);
       return;
     }
   if (r->layout != NULL && r->hf_side != 0 && r->in_p && g_hash_table_size (r->master_pages) > 0)
@@ -4017,6 +4400,8 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   r.book = book;
   r.styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, style_free);
   r.page_layouts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, page_layout_free);
+  r.valid_defs = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, validation_free);
+  r.valid_cells = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_array_unref);
   r.font_faces = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.master_pages = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   r.dashes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
@@ -4035,6 +4420,9 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   g_hash_table_unref (r.master_pages);
   g_hash_table_unref (r.font_faces);
   g_hash_table_unref (r.page_layouts);
+  g_hash_table_unref (r.valid_defs);
+  g_hash_table_unref (r.valid_cells);
+  g_free (r.cell_valid);
   for (int i = 0; i < 2; i++)
     for (int j = 0; j < 3; j++)
       if (r.hf_parts[i][j] != NULL)

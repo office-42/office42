@@ -81,6 +81,12 @@ struct _O42Grid {
 
   gboolean       hide_gridlines;
   gboolean       hide_checks;     /* no green corners on doubtful cells */
+  gboolean       circle_invalid;  /* red rings on cells breaking their validation */
+  GtkWidget     *prompt_popover;  /* a validation's input message under the active cell */
+  GtkWidget     *prompt_title, *prompt_text;
+  GtkWidget     *list_popover;    /* a list validation's entries, from the in-cell arrow */
+  GtkWidget     *list_box;
+  gboolean       prompt_shown;
   gboolean       hide_zeros;
   double         zoom;                     /* 1.0 is 100% */
   int            frozen_rows, frozen_cols; /* View > Freeze Panes */
@@ -1192,12 +1198,15 @@ scroll_to_active (O42Grid *self)
 /* Selection                                                               */
 /* ---------------------------------------------------------------------- */
 
+static void validation_prompt_update (O42Grid *self);
+
 static void
 selection_changed (O42Grid *self)
 {
   self->blink_on = TRUE;
   gtk_widget_queue_draw (GTK_WIDGET (self));
   g_signal_emit (self, signals[SIGNAL_SELECTION_CHANGED], 0);
+  validation_prompt_update (self);
 }
 
 /* The outline margins follow the sheet's deepest groups, and the row
@@ -2909,25 +2918,80 @@ end_edit (O42Grid *self)
   gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
-/* Data > Validation: an entry the active cell's rules refuse is
- * announced and dropped, as Excel's "stop" style does. */
+/* Data > Validation, on an entry the active cell's rule refuses: Stop
+ * announces it and drops it; Warning asks whether to keep it anyway
+ * and puts it in when told yes; Information tells and keeps it. */
+typedef struct {
+  O42Grid *grid;
+  int      row, col;
+  char    *text;
+} WarningEntry;
+
+static void
+on_warning_answered (GObject *source, GAsyncResult *result, gpointer data)
+{
+  WarningEntry *entry = data;
+  int button = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result, NULL);
+
+  if (button == 0 && entry->grid->sheet != NULL)
+    {
+      /* Yes: the entry stands after all. */
+      char *fixed = o42_entry_fixed_decimals_apply (entry->text);
+      o42_sheet_set_input (entry->grid->sheet, entry->row, entry->col, fixed != NULL ? fixed : entry->text);
+      g_free (fixed);
+      sheet_changed (entry->grid);
+    }
+  g_free (entry->text);
+  g_object_unref (entry->grid);
+  g_free (entry);
+}
+
 static gboolean
 entry_allowed (O42Grid *self, const char *text)
 {
   char *message = NULL;
+  const O42Validation *v;
+  GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
+  GtkWindow *parent = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL;
 
   if (o42_sheet_validate (self->sheet, self->active_row, self->active_col, text, &message))
     return TRUE;
+  v = o42_sheet_validation_at (self->sheet, self->active_row, self->active_col);
   {
-    GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", message);
-    GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
+    const char *title = v != NULL && v->title != NULL && *v->title != '\0' ? v->title
+                        : v != NULL && v->style == O42_VALID_WARNING ? _("Warning")
+                        : v != NULL && v->style == O42_VALID_INFORMATION ? _("Information") : _("Stop");
+    GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", title);
 
-    gtk_alert_dialog_set_detail (alert, _("Data > Validation limits what this cell may hold."));
-    gtk_alert_dialog_show (alert, GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL);
+    gtk_alert_dialog_set_detail (alert, message);
+    if (v != NULL && v->style == O42_VALID_WARNING)
+      {
+        const char *buttons[] = { _("_Yes"), _("_No"), NULL };
+        WarningEntry *entry = g_new0 (WarningEntry, 1);
+
+        entry->grid = g_object_ref (self);
+        entry->row = self->active_row;
+        entry->col = self->active_col;
+        entry->text = g_strdup (text);
+        gtk_alert_dialog_set_message (alert, title);
+        {
+          char *asking = g_strdup_printf ("%s\n\n%s", message, _("Continue?"));
+          gtk_alert_dialog_set_detail (alert, asking);
+          g_free (asking);
+        }
+        gtk_alert_dialog_set_buttons (alert, buttons);
+        gtk_alert_dialog_set_default_button (alert, 1);
+        gtk_alert_dialog_set_cancel_button (alert, 1);
+        gtk_alert_dialog_choose (alert, parent, NULL, on_warning_answered, entry);
+        g_object_unref (alert);
+        g_free (message);
+        return FALSE;   /* for now; yes puts it in */
+      }
+    gtk_alert_dialog_show (alert, parent);
     g_object_unref (alert);
   }
   g_free (message);
-  return FALSE;
+  return v != NULL && v->style == O42_VALID_INFORMATION;
 }
 
 static void commit_editor_runs (O42Grid *self, const char *text);
@@ -4283,6 +4347,193 @@ o42_grid_get_show_checks (O42Grid *self)
   return !self->hide_checks;
 }
 
+void
+o42_grid_set_circle_invalid (O42Grid *self, gboolean on)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  self->circle_invalid = on;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_get_circle_invalid (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->circle_invalid;
+}
+
+/* ---- Data validation in the grid: the input message, the in-cell arrow ---- */
+
+/* The active cell's place in widget pixels, as the editor is placed. */
+static void
+active_cell_alloc (O42Grid *self, GtkAllocation *alloc)
+{
+  double sx, sy;
+  O42Range merged;
+  double w = o42_sheet_col_width (self->sheet, self->active_col);
+  double h = o42_sheet_row_height (self->sheet, self->active_row);
+  int col = self->active_col, row = self->active_row;
+
+  if (o42_sheet_merged_at (self->sheet, self->active_row, self->active_col, &merged))
+    {
+      col = merged.col0; row = merged.row0;
+      w = col_x (self, merged.col1) + o42_sheet_col_width (self->sheet, merged.col1) - col_x (self, merged.col0);
+      h = row_y (self, merged.row1) + o42_sheet_row_height (self->sheet, merged.row1) - row_y (self, merged.row0);
+    }
+  grid_scroll (self, &sx, &sy);
+  alloc->x = (int) ((col_x (self, col) - (col < self->frozen_cols ? 0 : sx)) * self->zoom);
+  alloc->y = (int) ((row_y (self, row) - (row < self->frozen_rows ? 0 : sy)) * self->zoom);
+  alloc->width = (int) (w * self->zoom);
+  alloc->height = (int) (h * self->zoom);
+}
+
+/* The list rule with an arrow on the active cell, or NULL. */
+static const O42Validation *
+active_list_rule (O42Grid *self)
+{
+  const O42Validation *v;
+
+  if (self->sheet == NULL)
+    return NULL;
+  v = o42_sheet_validation_at (self->sheet, self->active_row, self->active_col);
+  return v != NULL && v->kind == O42_VALID_LIST && !v->no_dropdown ? v : NULL;
+}
+
+#define LIST_ARROW_W 16
+
+/* The rule's input message shown under the active cell while it is
+ * chosen, as Excel shows it; taken away when the cell has none. */
+static void
+validation_prompt_update (O42Grid *self)
+{
+  const O42Validation *v = self->sheet != NULL
+                           ? o42_sheet_validation_at (self->sheet, self->active_row, self->active_col) : NULL;
+  gboolean has = v != NULL && ((v->prompt != NULL && *v->prompt != '\0') ||
+                               (v->prompt_title != NULL && *v->prompt_title != '\0'));
+
+  if (!has)
+    {
+      if (self->prompt_popover != NULL && self->prompt_shown)
+        {
+          gtk_popover_popdown (GTK_POPOVER (self->prompt_popover));
+          self->prompt_shown = FALSE;
+        }
+      return;
+    }
+  if (self->prompt_popover == NULL)
+    {
+      GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 2);
+
+      self->prompt_popover = gtk_popover_new ();
+      gtk_widget_set_parent (self->prompt_popover, GTK_WIDGET (self));
+      gtk_popover_set_autohide (GTK_POPOVER (self->prompt_popover), FALSE);
+      gtk_popover_set_position (GTK_POPOVER (self->prompt_popover), GTK_POS_BOTTOM);
+      gtk_widget_set_can_focus (self->prompt_popover, FALSE);
+      self->prompt_title = gtk_label_new (NULL);
+      self->prompt_text = gtk_label_new (NULL);
+      gtk_label_set_xalign (GTK_LABEL (self->prompt_title), 0.0);
+      gtk_label_set_xalign (GTK_LABEL (self->prompt_text), 0.0);
+      gtk_label_set_wrap (GTK_LABEL (self->prompt_text), TRUE);
+      gtk_label_set_max_width_chars (GTK_LABEL (self->prompt_text), 40);
+      {
+        PangoAttrList *bold = pango_attr_list_new ();
+        pango_attr_list_insert (bold, pango_attr_weight_new (PANGO_WEIGHT_BOLD));
+        gtk_label_set_attributes (GTK_LABEL (self->prompt_title), bold);
+        pango_attr_list_unref (bold);
+      }
+      gtk_box_append (GTK_BOX (box), self->prompt_title);
+      gtk_box_append (GTK_BOX (box), self->prompt_text);
+      gtk_popover_set_child (GTK_POPOVER (self->prompt_popover), box);
+    }
+  gtk_label_set_text (GTK_LABEL (self->prompt_title), v->prompt_title != NULL ? v->prompt_title : "");
+  gtk_widget_set_visible (self->prompt_title, v->prompt_title != NULL && *v->prompt_title != '\0');
+  gtk_label_set_text (GTK_LABEL (self->prompt_text), v->prompt != NULL ? v->prompt : "");
+  gtk_widget_set_visible (self->prompt_text, v->prompt != NULL && *v->prompt != '\0');
+  {
+    GtkAllocation alloc;
+    GdkRectangle rect;
+
+    active_cell_alloc (self, &alloc);
+    rect.x = alloc.x; rect.y = alloc.y; rect.width = alloc.width; rect.height = alloc.height;
+    gtk_popover_set_pointing_to (GTK_POPOVER (self->prompt_popover), &rect);
+  }
+  if (!self->prompt_shown)
+    {
+      gtk_popover_popup (GTK_POPOVER (self->prompt_popover));
+      self->prompt_shown = TRUE;
+    }
+}
+
+static void
+on_list_row_activated (GtkListBox *box, GtkListBoxRow *row, gpointer data)
+{
+  O42Grid *self = data;
+  GtkWidget *label = gtk_list_box_row_get_child (row);
+  const char *text = gtk_label_get_text (GTK_LABEL (label));
+
+  (void) box;
+  if (self->editing)
+    o42_grid_cancel_edit (self);
+  o42_sheet_set_input (self->sheet, self->active_row, self->active_col, text);
+  gtk_popover_popdown (GTK_POPOVER (self->list_popover));
+  sheet_changed (self);
+  gtk_widget_grab_focus (GTK_WIDGET (self));
+}
+
+/* The in-cell arrow's list of the rule's entries, dropped under the cell. */
+static void
+validation_list_open (O42Grid *self, const O42Validation *v)
+{
+  char **items = o42_sheet_validation_items (self->sheet, v);
+  GtkWidget *child;
+  GtkAllocation alloc;
+  GdkRectangle rect;
+
+  if (self->list_popover == NULL)
+    {
+      GtkWidget *scroller = gtk_scrolled_window_new ();
+
+      self->list_popover = gtk_popover_new ();
+      gtk_widget_set_parent (self->list_popover, GTK_WIDGET (self));
+      gtk_popover_set_position (GTK_POPOVER (self->list_popover), GTK_POS_BOTTOM);
+      gtk_popover_set_has_arrow (GTK_POPOVER (self->list_popover), FALSE);
+      self->list_box = gtk_list_box_new ();
+      gtk_list_box_set_selection_mode (GTK_LIST_BOX (self->list_box), GTK_SELECTION_NONE);
+      g_signal_connect (self->list_box, "row-activated", G_CALLBACK (on_list_row_activated), self);
+      gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+      gtk_scrolled_window_set_max_content_height (GTK_SCROLLED_WINDOW (scroller), 240);
+      gtk_scrolled_window_set_propagate_natural_height (GTK_SCROLLED_WINDOW (scroller), TRUE);
+      gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), self->list_box);
+      gtk_popover_set_child (GTK_POPOVER (self->list_popover), scroller);
+    }
+  while ((child = gtk_widget_get_first_child (self->list_box)) != NULL)
+    gtk_list_box_remove (GTK_LIST_BOX (self->list_box), child);
+  for (int i = 0; items[i] != NULL; i++)
+    {
+      GtkWidget *label = gtk_label_new (items[i]);
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_list_box_append (GTK_LIST_BOX (self->list_box), label);
+    }
+  g_strfreev (items);
+  active_cell_alloc (self, &alloc);
+  rect.x = alloc.x; rect.y = alloc.y; rect.width = alloc.width + LIST_ARROW_W; rect.height = alloc.height;
+  gtk_popover_set_pointing_to (GTK_POPOVER (self->list_popover), &rect);
+  gtk_popover_popup (GTK_POPOVER (self->list_popover));
+}
+
+/* Is a widget-pixel point on the active cell's list arrow? */
+static gboolean
+on_list_arrow (O42Grid *self, double wx, double wy)
+{
+  GtkAllocation alloc;
+
+  if (active_list_rule (self) == NULL || self->editing)
+    return FALSE;
+  active_cell_alloc (self, &alloc);
+  return wx >= alloc.x + alloc.width && wx < alloc.x + alloc.width + LIST_ARROW_W &&
+         wy >= alloc.y && wy < alloc.y + alloc.height;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Input                                                                   */
 /* ---------------------------------------------------------------------- */
@@ -4465,6 +4716,13 @@ on_click_pressed (GtkGestureClick *gesture,
 
   if (self->sheet == NULL)
     return;
+
+  /* The active cell's list arrow drops its entries. */
+  if (n_press == 1 && on_list_arrow (self, x, y))
+    {
+      validation_list_open (self, active_list_rule (self));
+      return;
+    }
 
   /* The pointer arrives in widget pixels; the grid thinks in sheet pixels. */
   x /= self->zoom;
@@ -5626,6 +5884,21 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
               cairo_fill (cr);
             }
 
+          /* Circle Invalid Data: a red ring around a cell whose value
+           * breaks its validation. */
+          if (self->circle_invalid && !o42_sheet_is_empty (self->sheet, row, col) &&
+              o42_sheet_cell_invalid (self->sheet, row, col))
+            {
+              cairo_save (cr);
+              cairo_translate (cr, x + w / 2.0, y + h / 2.0);
+              cairo_scale (cr, (w / 2.0) + 3, (h / 2.0) + 2);
+              cairo_arc (cr, 0, 0, 1.0, 0, 2 * G_PI);
+              cairo_restore (cr);
+              cairo_set_source_rgb (cr, 0.85, 0.0, 0.0);
+              cairo_set_line_width (cr, 2.0);
+              cairo_stroke (cr);
+            }
+
           x += w;
         }
       y += h;
@@ -5744,6 +6017,26 @@ paint_selection (O42Grid *self, cairo_t *cr, const O42Range *sel)
     /* The fill handle at the bottom right of the selection. */
     cairo_rectangle (cr, floor (sx1) - 3, floor (sy1) - 3, 5, 5);
     cairo_fill (cr);
+
+    /* A list validation's arrow, a button to the right of the cell. */
+    if (!self->editing && active_list_rule (self) != NULL)
+      {
+        double bx = floor (ax + aw) + 1, bw = LIST_ARROW_W / self->zoom, bh = MIN (ah, 20 / self->zoom);
+        double by = floor (ay + ah - bh);
+
+        cairo_set_source_rgb (cr, 0.94, 0.94, 0.94);
+        cairo_rectangle (cr, bx, by, bw, bh);
+        cairo_fill_preserve (cr);
+        cairo_set_source_rgb (cr, 0.55, 0.55, 0.55);
+        cairo_set_line_width (cr, 1.0);
+        cairo_stroke (cr);
+        cairo_set_source_rgb (cr, 0, 0, 0);
+        cairo_move_to (cr, bx + bw * 0.25, by + bh * 0.4);
+        cairo_line_to (cr, bx + bw * 0.75, by + bh * 0.4);
+        cairo_line_to (cr, bx + bw * 0.5, by + bh * 0.7);
+        cairo_close_path (cr);
+        cairo_fill (cr);
+      }
   }
 
 }
@@ -6752,6 +7045,10 @@ o42_grid_size_allocate (GtkWidget *widget, int width, int height, int baseline)
   if (self->editor != NULL)
     place_editor (self);
   place_editor_extras (self);
+  if (self->prompt_popover != NULL)
+    gtk_popover_present (GTK_POPOVER (self->prompt_popover));
+  if (self->list_popover != NULL)
+    gtk_popover_present (GTK_POPOVER (self->list_popover));
 }
 
 static void
@@ -7045,6 +7342,16 @@ o42_grid_dispose (GObject *object)
       gtk_widget_unparent (self->editor);
       self->editor = NULL;
     }
+  if (self->prompt_popover != NULL)
+    {
+      gtk_widget_unparent (self->prompt_popover);
+      self->prompt_popover = NULL;
+    }
+  if (self->list_popover != NULL)
+    {
+      gtk_widget_unparent (self->list_popover);
+      self->list_popover = NULL;
+    }
 
   g_clear_pointer (&self->complete_names, g_ptr_array_unref);
   g_clear_pointer (&self->extra_sel, g_array_unref);
@@ -7167,6 +7474,9 @@ o42_grid_init (O42Grid *self)
 
   gtk_widget_set_focusable (GTK_WIDGET (self), TRUE);
   gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "cell");
+  /* A validation's input message can only be shown once the grid is on
+   * screen; a cell chosen before that gets it then. */
+  g_signal_connect_after (self, "map", G_CALLBACK (validation_prompt_update), NULL);
 
   self->header_w = 42;   /* three digits and room; outline_sync grows it */
   self->layout = pango_layout_new (gtk_widget_get_pango_context (GTK_WIDGET (self)));

@@ -130,6 +130,8 @@ void action_pivot (GSimpleAction *a, GVariant *p, gpointer data);
 void action_refresh_pivot (GSimpleAction *a, GVariant *p, gpointer data);
 void action_text_to_columns (GSimpleAction *a, GVariant *p, gpointer data);
 void action_validation (GSimpleAction *a, GVariant *p, gpointer data);
+void action_circle_invalid (GSimpleAction *a, GVariant *p, gpointer data);
+void action_clear_circles (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_rows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_cols (GSimpleAction *a, GVariant *p, gpointer data);
 void action_ungroup_rows (GSimpleAction *a, GVariant *p, gpointer data);

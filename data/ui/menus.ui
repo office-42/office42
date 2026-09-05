@@ -291,6 +291,8 @@
         <item><attribute name="label" translatable="yes">Ad_vanced Filter...</attribute><attribute name="action">win.advanced-filter</attribute></item>
         <item><attribute name="label" translatable="yes">Te_xt to Columns...</attribute><attribute name="action">win.text-to-columns</attribute></item>
         <item><attribute name="label" translatable="yes">_Validation...</attribute><attribute name="action">win.validation</attribute></item>
+        <item><attribute name="label" translatable="yes">Circle _Invalid Data</attribute><attribute name="action">win.circle-invalid</attribute></item>
+        <item><attribute name="label" translatable="yes">Clear Validation Circles</attribute><attribute name="action">win.clear-circles</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">_Table...</attribute><attribute name="action">win.table</attribute></item>

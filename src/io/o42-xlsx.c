@@ -650,19 +650,53 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
             char *f1, *f2 = NULL, *msg = g_markup_escape_text (v->message ? v->message : "", -1);
             if (v->kind == O42_VALID_LIST)
               {
-                char *quoted = g_strdup_printf ("\"%s\"", v->value ? v->value : "");
-                f1 = g_markup_escape_text (quoted, -1);
-                g_free (quoted);
+                /* A list of entries is quoted; a range of cells stands as
+                 * it is, absolute, which is how Excel writes it. */
+                const char *lv = v->value ? v->value : "";
+                O42Range lr;
+                gsize lused = 0;
+
+                while (*lv == '=' || *lv == ' ') lv++;
+                if (o42_ref_parse (lv, &lr.row0, &lr.col0, &lused) &&
+                    (lv[lused] == '\0' || (lv[lused] == ':' && o42_ref_parse (lv + lused + 1, &lr.row1, &lr.col1, NULL))))
+                  {
+                    char *x = o42_ref_name_full (lr.row0, lr.col0, TRUE, TRUE);
+                    char *y = lv[lused] == ':' ? o42_ref_name_full (lr.row1, lr.col1, TRUE, TRUE) : NULL;
+                    f1 = y != NULL ? g_strdup_printf ("%s:%s", x, y) : g_strdup (x);
+                    g_free (x); g_free (y);
+                  }
+                else
+                  {
+                    char *quoted = g_strdup_printf ("\"%s\"", lv);
+                    f1 = g_markup_escape_text (quoted, -1);
+                    g_free (quoted);
+                  }
               }
             else
               f1 = g_markup_escape_text (v->value ? v->value : "", -1);
             if (v->value2 != NULL && v->value2[0] != '\0')
               f2 = g_markup_escape_text (v->value2, -1);
-            g_string_append_printf (out,
-              "<dataValidation type=\"%s\" operator=\"%s\" allowBlank=\"%d\" showInputMessage=\"0\" "
-              "showErrorMessage=\"1\"%s%s%s sqref=\"%s:%s\"><formula1>%s</formula1>",
-              types[v->kind], ops[v->op], v->allow_blank ? 1 : 0,
-              msg[0] ? " error=\"" : "", msg, msg[0] ? "\"" : "", a, b, f1);
+            {
+              static const char *styles[] = { "stop", "warning", "information" };
+              char *title = g_markup_escape_text (v->title ? v->title : "", -1);
+              char *ptitle = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+              char *prompt = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+              gboolean has_prompt = ptitle[0] || prompt[0];
+
+              g_string_append_printf (out,
+                "<dataValidation type=\"%s\"%s operator=\"%s\" allowBlank=\"%d\" showInputMessage=\"%d\" "
+                "showErrorMessage=\"%d\"%s",
+                types[v->kind], v->kind == O42_VALID_LIST && v->no_dropdown ? " showDropDown=\"1\"" : "",
+                ops[v->op], v->allow_blank ? 1 : 0, has_prompt ? 1 : 0, v->no_error ? 0 : 1,
+                v->style != O42_VALID_STOP ? (v->style == O42_VALID_WARNING ? " errorStyle=\"warning\"" : " errorStyle=\"information\"") : "");
+              (void) styles;
+              if (title[0]) g_string_append_printf (out, " errorTitle=\"%s\"", title);
+              if (msg[0]) g_string_append_printf (out, " error=\"%s\"", msg);
+              if (ptitle[0]) g_string_append_printf (out, " promptTitle=\"%s\"", ptitle);
+              if (prompt[0]) g_string_append_printf (out, " prompt=\"%s\"", prompt);
+              g_string_append_printf (out, " sqref=\"%s:%s\"><formula1>%s</formula1>", a, b, f1);
+              g_free (title); g_free (ptitle); g_free (prompt);
+            }
             if (f2 != NULL)
               g_string_append_printf (out, "<formula2>%s</formula2>", f2);
             g_string_append (out, "</dataValidation>");
@@ -3065,6 +3099,18 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       r->dv.message = g_strdup (err_text ? err_text : "");
       r->dv.value = g_strdup ("");
       r->dv.value2 = g_strdup ("");
+      {
+        const char *style = attr (names, values, "errorStyle");
+        const char *show_err = attr (names, values, "showErrorMessage");
+        r->dv.title = g_strdup (attr (names, values, "errorTitle") ? attr (names, values, "errorTitle") : "");
+        r->dv.prompt_title = g_strdup (attr (names, values, "promptTitle") ? attr (names, values, "promptTitle") : "");
+        r->dv.prompt = g_strdup (attr (names, values, "prompt") ? attr (names, values, "prompt") : "");
+        r->dv.style = style == NULL || strcmp (style, "stop") == 0 ? O42_VALID_STOP
+                    : strcmp (style, "warning") == 0 ? O42_VALID_WARNING : O42_VALID_INFORMATION;
+        r->dv.no_error = show_err != NULL && (strcmp (show_err, "0") == 0 || strcmp (show_err, "false") == 0);
+        /* Excel's showDropDown is inverted: 1 hides the arrow. */
+        r->dv.no_dropdown = attr_flag (names, values, "showDropDown");
+      }
       if (sqref != NULL && o42_ref_parse (sqref, &r->dv.range.row0, &r->dv.range.col0, &used))
         {
           if (sqref[used] == ':')
@@ -3323,6 +3369,14 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
       r->in_dv_formula = FALSE;
       if (len >= 2 && text[0] == '"' && text[len - 1] == '"')
         { text[len - 1] = '\0'; memmove (text, text + 1, len - 1); }
+      else if (r->dv.kind == O42_VALID_LIST && strchr (text, '$') != NULL)
+        {
+          /* $C$1:$C$3: a range of entries, kept without its dollars. */
+          char *w = text;
+          for (const char *q = text; *q != '\0'; q++)
+            if (*q != '$') *w++ = *q;
+          *w = '\0';
+        }
       g_free (*slot);
       *slot = text;
     }
@@ -3331,6 +3385,7 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
       if (r->in_dv)
         o42_sheet_add_validation (r->sheet, &r->dv);
       g_free (r->dv.value); g_free (r->dv.value2); g_free (r->dv.message);
+      g_free (r->dv.title); g_free (r->dv.prompt_title); g_free (r->dv.prompt);
       memset (&r->dv, 0, sizeof r->dv);
       r->in_dv = FALSE;
     }

@@ -1347,11 +1347,13 @@ typedef struct {
   GtkWidget *kind, *op;
   GtkWidget *value, *value2;
   GtkWidget *message, *blank;
+  GtkWidget *dropdown, *prompt_title, *prompt_text, *style, *title, *show_error;
 } ValidPrompt;
 
 static const char *VALID_KINDS[] = {
   N_("Any value"), N_("Whole number"), N_("Decimal"), N_("List"), N_("Date"), N_("Time"), N_("Text length"), NULL
 };
+static const char *VALID_STYLES[] = { N_("Stop"), N_("Warning"), N_("Information"), NULL };
 
 static void
 on_valid_ok (GtkWidget *w, gpointer data)
@@ -1369,6 +1371,12 @@ on_valid_ok (GtkWidget *w, gpointer data)
   v.value2 = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->value2));
   v.message = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->message));
   v.allow_blank = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->blank));
+  v.no_dropdown = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->dropdown));
+  v.prompt_title = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->prompt_title));
+  v.prompt = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->prompt_text));
+  v.style = (O42ValidStyle) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->style));
+  v.title = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->title));
+  v.no_error = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->show_error));
 
   o42_sheet_clear_validations (self->sheet, &v.range);
   if (v.kind != O42_VALID_ANY)
@@ -1437,17 +1445,50 @@ action_validation (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content),
                   gtk_label_new (_("For a list, put the entries in the first box, comma-separated, or a range holding them.")));
 
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  prompt->blank = gtk_check_button_new_with_mnemonic ( _("Ignore _blank"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->blank), existing ? existing->allow_blank : TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->blank);
+  prompt->dropdown = gtk_check_button_new_with_mnemonic ( _("In-cell _dropdown"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->dropdown), existing ? !existing->no_dropdown : TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->dropdown);
+  gtk_box_append (GTK_BOX (content), row);
+
+  /* Input Message: shown under the cell while it is chosen. */
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Error message:")));
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Input message:")));
+  prompt->prompt_title = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->prompt_title), _("Title"));
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->prompt_title), 12);
+  if (existing && existing->prompt_title) gtk_editable_set_text (GTK_EDITABLE (prompt->prompt_title), existing->prompt_title);
+  gtk_box_append (GTK_BOX (row), prompt->prompt_title);
+  prompt->prompt_text = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->prompt_text), _("Shown when the cell is selected"));
+  gtk_widget_set_hexpand (prompt->prompt_text, TRUE);
+  if (existing && existing->prompt) gtk_editable_set_text (GTK_EDITABLE (prompt->prompt_text), existing->prompt);
+  gtk_box_append (GTK_BOX (row), prompt->prompt_text);
+  gtk_box_append (GTK_BOX (content), row);
+
+  /* Error Alert: the style, a title and the message. */
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Error alert:")));
+  prompt->style = drop_down_of (VALID_STYLES);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->style), existing ? existing->style : O42_VALID_STOP);
+  gtk_box_append (GTK_BOX (row), prompt->style);
+  prompt->title = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->title), _("Title"));
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->title), 12);
+  if (existing && existing->title) gtk_editable_set_text (GTK_EDITABLE (prompt->title), existing->title);
+  gtk_box_append (GTK_BOX (row), prompt->title);
   prompt->message = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->message), _("Error message"));
   gtk_widget_set_hexpand (prompt->message, TRUE);
   if (existing) gtk_editable_set_text (GTK_EDITABLE (prompt->message), existing->message);
   gtk_box_append (GTK_BOX (row), prompt->message);
   gtk_box_append (GTK_BOX (content), row);
-
-  prompt->blank = gtk_check_button_new_with_mnemonic ( _("Ignore _blank"));
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->blank), existing ? existing->allow_blank : TRUE);
-  gtk_box_append (GTK_BOX (content), prompt->blank);
+  prompt->show_error = gtk_check_button_new_with_mnemonic ( _("Show error alert after invalid data is _entered"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->show_error), existing ? !existing->no_error : TRUE);
+  gtk_box_append (GTK_BOX (content), prompt->show_error);
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_valid_ok), prompt);
   dialog_button (buttons, _("_Clear"), G_CALLBACK (on_valid_clear), prompt);
@@ -1457,6 +1498,23 @@ action_validation (GSimpleAction *a, GVariant *p, gpointer data)
   g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
   gtk_widget_grab_focus (prompt->value);
+}
+
+/* Data > Validation > Circle Invalid Data, and Clear Validation Circles. */
+void
+action_circle_invalid (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  o42_grid_set_circle_invalid (self->grid, TRUE);
+}
+
+void
+action_clear_circles (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  o42_grid_set_circle_invalid (self->grid, FALSE);
 }
 
 /* ---- Data > Text to Columns -------------------------------------------- */

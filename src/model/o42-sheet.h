@@ -787,14 +787,27 @@ typedef enum {
   O42_VALID_LENGTH
 } O42ValidKind;
 
+/* What happens to an entry the rule refuses: Excel's three styles. */
+typedef enum {
+  O42_VALID_STOP = 0,       /* refused, with the message */
+  O42_VALID_WARNING,        /* the message, and a Yes/No: keep it anyway? */
+  O42_VALID_INFORMATION     /* the message, and the entry stands */
+} O42ValidStyle;
+
 typedef struct {
   O42Range      range;
   O42ValidKind  kind;
   O42CondOp     op;
   char         *value;        /* owned by the sheet once added */
   char         *value2;
-  char         *message;      /* shown when an entry is refused; may be NULL */
+  char         *message;      /* the error's text, shown when an entry is refused; may be NULL */
   gboolean      allow_blank;
+  char         *title;        /* the error's title; may be NULL */
+  O42ValidStyle style;
+  char         *prompt_title; /* the input message, shown while the cell is chosen; may be NULL */
+  char         *prompt;
+  gboolean      no_error;     /* Excel's showErrorMessage off: anything goes, quietly */
+  gboolean      no_dropdown;  /* a list without the in-cell arrow */
 } O42Validation;
 
 void       o42_sheet_add_validation    (O42Sheet *sheet, const O42Validation *v);   /* copies */
@@ -805,6 +818,15 @@ GArray    *o42_sheet_validations       (O42Sheet *sheet);   /* O42Validation, ow
  * not, `message` (if given) receives the rule's message, to free. */
 gboolean   o42_sheet_validate (O42Sheet *sheet, int row, int col,
                                const char *input, char **message);
+
+/* The rule over a cell, or NULL; and whether what the cell holds now
+ * breaks its rule, for Circle Invalid Data. */
+const O42Validation *o42_sheet_validation_at (O42Sheet *sheet, int row, int col);
+gboolean   o42_sheet_cell_invalid (O42Sheet *sheet, int row, int col);
+
+/* A list rule's entries -- the comma-separated ones, or the cells of
+ * the range it names -- as a NULL-terminated vector, to free. */
+char     **o42_sheet_validation_items (O42Sheet *sheet, const O42Validation *v);
 
 /* ---- Text to Columns --------------------------------------------------- */
 

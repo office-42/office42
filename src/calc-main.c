@@ -2928,10 +2928,32 @@ main (int argc, char *argv[])
                 }
               for (int i = next; i < n; i++)
                 {
-                  if (msg->len > 0) g_string_append_c (msg, ' ');
-                  g_string_append (msg, words[i]);
+                  /* style=stop|warning|info title=... prompt=Title|Text nodrop noerror
+                   * noblank, or words of the message. */
+                  if (g_str_has_prefix (words[i], "style="))
+                    v.style = strcmp (words[i] + 6, "warning") == 0 ? O42_VALID_WARNING
+                            : strcmp (words[i] + 6, "info") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+                  else if (g_str_has_prefix (words[i], "title="))
+                    v.title = words[i] + 6;
+                  else if (g_str_has_prefix (words[i], "prompt="))
+                    {
+                      char *bar = strchr (words[i] + 7, '|');
+                      if (bar != NULL) { *bar = '\0'; v.prompt_title = words[i] + 7; v.prompt = bar + 1; }
+                      else v.prompt = words[i] + 7;
+                    }
+                  else if (strcmp (words[i], "nodrop") == 0) v.no_dropdown = TRUE;
+                  else if (strcmp (words[i], "noerror") == 0) v.no_error = TRUE;
+                  else if (strcmp (words[i], "noblank") == 0) v.allow_blank = FALSE;
+                  else
+                    {
+                      if (msg->len > 0) g_string_append_c (msg, ' ');
+                      g_string_append (msg, words[i]);
+                    }
                 }
               v.message = msg->str;
+              for (char *q = v.prompt; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
+              for (char *q = v.prompt_title; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
+              for (char *q = v.title; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
               o42_sheet_add_validation (sheet, &v);
               g_string_free (msg, TRUE);
             }
@@ -2954,6 +2976,24 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* invalid: the cells whose rule their value breaks, as Circle Invalid Data marks them. */
+      if (strcmp (text, "invalid") == 0)
+        {
+          O42Range extent;
+          int n_bad = 0;
+          o42_sheet_used_range (sheet, &extent);
+          for (int r = extent.row0; r <= extent.row1; r++)
+            for (int c = extent.col0; c <= extent.col1; c++)
+              if (o42_sheet_cell_invalid (sheet, r, c))
+                {
+                  char *ref = o42_ref_name (r, c);
+                  printf ("%s%s", n_bad++ > 0 ? " " : "", ref);
+                  g_free (ref);
+                }
+          printf ("%s\n", n_bad > 0 ? "" : "none");
+          continue;
+        }
+
       if (strcmp (text, "validations") == 0)
         {
           GArray *rules = o42_sheet_validations (sheet);
@@ -2962,8 +3002,11 @@ main (int argc, char *argv[])
               const O42Validation *v = &g_array_index (rules, O42Validation, i);
               char *a = o42_ref_name (v->range.row0, v->range.col0);
               char *b = o42_ref_name (v->range.row1, v->range.col1);
-              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\"\n",
-                      a, b, (int) v->kind, (int) v->op, v->value, v->value2, v->allow_blank, v->message);
+              static const char *const styles[] = { "stop", "warning", "info" };
+              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\" style %s title \"%s\" prompt \"%s|%s\"%s%s\n",
+                      a, b, (int) v->kind, (int) v->op, v->value, v->value2, v->allow_blank, v->message,
+                      styles[CLAMP (v->style, 0, 2)], v->title ? v->title : "", v->prompt_title ? v->prompt_title : "",
+                      v->prompt ? v->prompt : "", v->no_dropdown ? " nodrop" : "", v->no_error ? " noerror" : "");
               g_free (a);
               g_free (b);
             }

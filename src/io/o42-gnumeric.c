@@ -903,21 +903,32 @@ write_sheet (GString *out, O42Sheet *sheet)
           e0 = g_markup_escape_text (v->value ? v->value : "", -1);
         e1 = g_markup_escape_text (v->value2 ? v->value2 : "", -1);
 
-        g_string_append_printf (w.out,
-          "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
-          "        <gnm:Style o42-validation=\"1\">\n"
-          "          <gnm:Validation Style=\"1\" Type=\"%d\" Operator=\"%d\" AllowBlank=\"%d\" "
-          "UseDropdown=\"%d\" Title=\"\" Message=\"%s\">\n"
-          "            <gnm:Expression0>%s</gnm:Expression0>\n",
-          v->range.col0, v->range.row0, v->range.col1, v->range.row1,
-          (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0, v->kind == O42_VALID_LIST ? 1 : 0,
-          message, e0);
-        if (v->value2 != NULL && v->value2[0] != '\0')
-          g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
-        g_string_append (w.out,
-          "          </gnm:Validation>\n"
-          "        </gnm:Style>\n"
-          "      </gnm:StyleRegion>\n");
+        {
+          /* Gnumeric's Style: 0 none, 1 stop, 2 warning, 3 information;
+           * the input message is its own element. */
+          char *title = g_markup_escape_text (v->title ? v->title : "", -1);
+          char *ptitle = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+          char *prompt = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+
+          g_string_append_printf (w.out,
+            "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
+            "        <gnm:Style o42-validation=\"1\">\n"
+            "          <gnm:Validation Style=\"%d\" Type=\"%d\" Operator=\"%d\" AllowBlank=\"%d\" "
+            "UseDropdown=\"%d\" Title=\"%s\" Message=\"%s\">\n"
+            "            <gnm:Expression0>%s</gnm:Expression0>\n",
+            v->range.col0, v->range.row0, v->range.col1, v->range.row1,
+            v->no_error ? 0 : (int) v->style + 1, (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0,
+            v->kind == O42_VALID_LIST && !v->no_dropdown ? 1 : 0, title, message, e0);
+          if (v->value2 != NULL && v->value2[0] != '\0')
+            g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
+          g_string_append (w.out, "          </gnm:Validation>\n");
+          if (ptitle[0] || prompt[0])
+            g_string_append_printf (w.out, "          <gnm:InputMessage Title=\"%s\" Message=\"%s\"/>\n", ptitle, prompt);
+          g_string_append (w.out,
+            "        </gnm:Style>\n"
+            "      </gnm:StyleRegion>\n");
+          g_free (title); g_free (ptitle); g_free (prompt);
+        }
         g_free (message);
         g_free (e0);
         g_free (e1);
@@ -1520,6 +1531,8 @@ typedef struct {
   /* A gnm:Validation inside a style, with its expressions. */
   O42Validation validation;
   gboolean    in_validation;
+  gboolean    validation_ready;     /* read, waiting for its Style to close */
+  char       *pending_prompt_title, *pending_prompt;   /* an InputMessage read before its Validation */
   int         expr_index;     /* 0 or 1 while inside an Expression, else -1 */
   GString    *expr;
 
@@ -2012,9 +2025,38 @@ start_element (GMarkupParseContext *context, const char *element,
       v->op = (O42CondOp) attr_int (names, values, "Operator", 0);
       v->allow_blank = attr_int (names, values, "AllowBlank", 1) != 0;
       v->message = g_strdup (attr (names, values, "Message") ? attr (names, values, "Message") : "");
+      v->title = g_strdup (attr (names, values, "Title") ? attr (names, values, "Title") : "");
       v->value = g_strdup ("");
       v->value2 = g_strdup ("");
+      {
+        int style = attr_int (names, values, "Style", 1);
+        v->no_error = style == 0;
+        v->style = style == 2 ? O42_VALID_WARNING : style == 3 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+        v->no_dropdown = v->kind == O42_VALID_LIST && attr_int (names, values, "UseDropdown", 1) == 0;
+      }
+      /* An input message read before the rule waits for it. */
+      v->prompt_title = r->pending_prompt_title; r->pending_prompt_title = NULL;
+      v->prompt = r->pending_prompt; r->pending_prompt = NULL;
       r->in_validation = TRUE;
+      return;
+    }
+
+  if (r->in_style && strcmp (name, "InputMessage") == 0)
+    {
+      /* Gnumeric writes it after the Validation; either order is read. */
+      const char *title = attr (names, values, "Title"), *text = attr (names, values, "Message");
+      if (r->validation.kind != O42_VALID_ANY || r->validation.value != NULL)
+        {
+          g_free (r->validation.prompt_title); g_free (r->validation.prompt);
+          r->validation.prompt_title = g_strdup (title ? title : "");
+          r->validation.prompt = g_strdup (text ? text : "");
+        }
+      else
+        {
+          g_free (r->pending_prompt_title); g_free (r->pending_prompt);
+          r->pending_prompt_title = g_strdup (title ? title : "");
+          r->pending_prompt = g_strdup (text ? text : "");
+        }
       return;
     }
 
@@ -2995,14 +3037,26 @@ end_element (GMarkupParseContext *context, const char *element,
 
   if (strcmp (name, "Validation") == 0 && r->in_validation)
     {
+      /* Added when the Style closes, so an InputMessage after the rule
+       * is taken up first. */
       r->in_validation = FALSE;
+      r->validation_ready = TRUE;
+      return;
+    }
+  if (strcmp (name, "Style") == 0 && r->validation_ready)
+    {
+      r->validation_ready = FALSE;
       if (r->validation.kind != O42_VALID_ANY && r->validation.range.row1 - r->validation.range.row0 < 2000)
         o42_sheet_add_validation (r->sheet, &r->validation);
       g_free (r->validation.value);
       g_free (r->validation.value2);
       g_free (r->validation.message);
+      g_free (r->validation.title);
+      g_free (r->validation.prompt_title);
+      g_free (r->validation.prompt);
       memset (&r->validation, 0, sizeof r->validation);
-      return;
+      g_clear_pointer (&r->pending_prompt_title, g_free);
+      g_clear_pointer (&r->pending_prompt, g_free);
     }
 
   if (strcmp (name, "Condition") == 0 && r->in_condition)

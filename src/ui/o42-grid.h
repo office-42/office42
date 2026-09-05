@@ -197,4 +197,9 @@ gboolean o42_grid_get_show_zeros     (O42Grid *self);
 void     o42_grid_set_show_checks    (O42Grid *self, gboolean show);
 gboolean o42_grid_get_show_checks    (O42Grid *self);
 
+/* Data > Validation > Circle Invalid Data: red rings around the cells
+ * whose value breaks their rule, until cleared. */
+void     o42_grid_set_circle_invalid (O42Grid *self, gboolean on);
+gboolean o42_grid_get_circle_invalid (O42Grid *self);
+
 G_END_DECLS
