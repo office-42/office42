@@ -1189,6 +1189,227 @@ action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data)
   o42_grid_clear_arrows (O42_WINDOW (data)->grid);
 }
 
+/* ---- Tools > Auditing > Watch Window ----------------------------------- */
+
+/* Excel's Watch Window: a list of cells, wherever they are in the book,
+ * with what they hold, kept up to date as the sheet is worked out.  One
+ * per window, not modal, rebuilt from the book's watches each time the
+ * window syncs. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+} WatchPrompt;
+
+static const char *const WATCH_HEADINGS[] = {
+  N_("Book"), N_("Sheet"), N_("Name"), N_("Cell"), N_("Value"), N_("Formula")
+};
+static const int WATCH_WIDTHS[] = { 90, 90, 90, 60, 110, 220 };
+
+static GtkWidget *
+watch_row (const char *const *cells, gboolean heading)
+{
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+
+  for (int i = 0; i < 6; i++)
+    {
+      GtkWidget *label = gtk_label_new (cells[i]);
+
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+      gtk_widget_set_size_request (label, WATCH_WIDTHS[i], -1);
+      if (i == 5)
+        gtk_widget_set_hexpand (label, TRUE);
+      if (heading)
+        gtk_widget_add_css_class (label, "heading");
+      gtk_box_append (GTK_BOX (box), label);
+    }
+  gtk_widget_set_margin_start (box, 4);
+  gtk_widget_set_margin_end (box, 4);
+  return box;
+}
+
+/* The name defined for exactly this cell, if any. */
+static char *
+watch_name_of (O42Book *book, O42Sheet *sheet, int row, int col)
+{
+  GList *names = o42_book_names (book);
+  char *found = NULL;
+
+  for (GList *l = names; l != NULL && found == NULL; l = l->next)
+    {
+      O42Sheet *on = NULL;
+      O42Range range;
+
+      if (o42_book_lookup_name (book, l->data, &on, &range) && on == sheet &&
+          range.row0 == row && range.row1 == row && range.col0 == col && range.col1 == col)
+        found = g_strdup (l->data);
+    }
+  g_list_free (names);
+  return found;
+}
+
+static void
+watch_refresh (WatchPrompt *prompt)
+{
+  O42Window *self = prompt->window;
+  GtkWidget *child;
+  int selected = -1;
+  char *book_name = self->file != NULL ? g_file_get_basename (self->file) : g_strdup ("Book1");
+
+  {
+    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+    if (row != NULL)
+      selected = gtk_list_box_row_get_index (row);
+  }
+  while ((child = gtk_widget_get_first_child (prompt->list)) != NULL)
+    gtk_list_box_remove (GTK_LIST_BOX (prompt->list), child);
+
+  for (int i = 0; i < o42_book_n_watches (self->book); i++)
+    {
+      const O42Watch *watch = o42_book_watch_at (self->book, i);
+      O42Sheet *sheet = o42_book_find_sheet (self->book, watch->sheet);
+      char *cell = o42_ref_name (watch->row, watch->col);
+      char *value = sheet != NULL ? o42_sheet_get_display (sheet, watch->row, watch->col) : g_strdup ("");
+      char *input = sheet != NULL ? o42_sheet_get_input (sheet, watch->row, watch->col) : NULL;
+      char *name = sheet != NULL ? watch_name_of (self->book, sheet, watch->row, watch->col) : NULL;
+      const char *cells[6];
+
+      cells[0] = book_name;
+      cells[1] = watch->sheet;
+      cells[2] = name != NULL ? name : "";
+      cells[3] = cell;
+      cells[4] = value;
+      cells[5] = input != NULL && input[0] == '=' ? input : "";
+      gtk_list_box_append (GTK_LIST_BOX (prompt->list), watch_row (cells, FALSE));
+      g_free (cell);
+      g_free (value);
+      g_free (input);
+      g_free (name);
+    }
+  if (selected >= 0)
+    {
+      GtkListBoxRow *row = gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list),
+                                                          MIN (selected, o42_book_n_watches (self->book) - 1));
+      if (row != NULL)
+        gtk_list_box_select_row (GTK_LIST_BOX (prompt->list), row);
+    }
+  g_free (book_name);
+}
+
+static void
+on_watch_add (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  O42Range sel;
+  const char *sheet = o42_sheet_get_name (self->sheet);
+
+  (void) w;
+  o42_grid_get_selection (self->grid, &sel);
+  /* The selection's cells, within reason: a whole column watched would
+   * be a million rows of nothing. */
+  for (int r = sel.row0; r <= sel.row1 && r < sel.row0 + 100; r++)
+    for (int c = sel.col0; c <= sel.col1 && c < sel.col0 + 100; c++)
+      o42_book_add_watch (self->book, sheet, r, c);
+  watch_refresh (prompt);
+}
+
+static void
+on_watch_delete (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+
+  (void) w;
+  if (row == NULL)
+    return;
+  o42_book_remove_watch (prompt->window->book, gtk_list_box_row_get_index (row));
+  watch_refresh (prompt);
+}
+
+/* Double-clicking a watch goes to its cell, as Excel does. */
+static void
+on_watch_activated (GtkListBox *list, GtkListBoxRow *row, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const O42Watch *watch = o42_book_watch_at (self->book, gtk_list_box_row_get_index (row));
+  O42Sheet *sheet;
+
+  (void) list;
+  if (watch == NULL)
+    return;
+  sheet = o42_book_find_sheet (self->book, watch->sheet);
+  if (sheet == NULL)
+    return;
+  window_show_sheet (self, o42_book_sheet_index (self->book, sheet));
+  o42_grid_set_active (self->grid, watch->row, watch->col);
+  window_sync (self);
+}
+
+static void
+on_watch_destroy (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+
+  (void) w;
+  g_object_set_data (G_OBJECT (prompt->window), "o42-watch-window", NULL);
+  g_free (prompt);
+}
+
+void
+o42_watch_window_refresh (O42Window *self)
+{
+  WatchPrompt *prompt = g_object_get_data (G_OBJECT (self), "o42-watch-window");
+
+  if (prompt != NULL)
+    watch_refresh (prompt);
+}
+
+void
+action_watch_window (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  WatchPrompt *prompt = g_object_get_data (G_OBJECT (self), "o42-watch-window");
+  GtkWidget *content, *buttons, *scroller;
+
+  (void) a; (void) p;
+  if (prompt != NULL)
+    {
+      gtk_window_present (GTK_WINDOW (prompt->dialog));
+      return;
+    }
+
+  prompt = g_new0 (WatchPrompt, 1);
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Watch Window"), FALSE, &content, &buttons);
+  gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 720, 240);
+
+  gtk_box_append (GTK_BOX (content), watch_row (WATCH_HEADINGS, TRUE));
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  gtk_list_box_set_activate_on_single_click (GTK_LIST_BOX (prompt->list), FALSE);
+  g_signal_connect (prompt->list, "row-activated", G_CALLBACK (on_watch_activated), prompt);
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_scrolled_window_set_has_frame (GTK_SCROLLED_WINDOW (scroller), TRUE);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_widget_set_hexpand (scroller, TRUE);
+  gtk_box_append (GTK_BOX (content), scroller);
+
+  dialog_button (buttons, _("_Add Watch"), G_CALLBACK (on_watch_add), prompt);
+  dialog_button (buttons, _("_Delete Watch"), G_CALLBACK (on_watch_delete), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_watch_destroy), prompt);
+  g_object_set_data (G_OBJECT (self), "o42-watch-window", prompt);
+
+  watch_refresh (prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
 /* ---- Tools > Auditing > Evaluate Formula ------------------------------- */
 
 /* Excel's Evaluate Formula: the formula with the part that goes next

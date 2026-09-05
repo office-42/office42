@@ -4600,6 +4600,7 @@ static const GActionEntry ACTIONS[] = {
   { "trace-dependents", action_trace_dependents, NULL, NULL, NULL, { 0 } },
   { "clear-arrows",     action_clear_arrows,     NULL, NULL, NULL, { 0 } },
   { "evaluate-formula", action_evaluate_formula, NULL, NULL, NULL, { 0 } },
+  { "watch-window",     action_watch_window,     NULL, NULL, NULL, { 0 } },
   { "tab-colour-none",  action_tab_colour_none,  NULL, NULL, NULL, { 0 } },
   { "move-sheet-right", action_move_sheet_right, NULL, NULL, NULL, { 0 } },
   { "insert-chart",   action_insert_chart,   NULL, NULL, NULL, { 0 } },
@@ -5112,6 +5113,7 @@ o42_window_sync (O42Window *self)
   self->updating = TRUE;
   if (self->scripts_bar != NULL && o42_book_n_scripts (self->book) == 0)
     gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), FALSE);
+  o42_watch_window_refresh (self);
 
   o42_grid_get_active (self->grid, &row, &col);
   o42_grid_get_selection (self->grid, &sel);

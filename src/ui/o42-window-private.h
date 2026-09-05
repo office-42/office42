@@ -136,6 +136,9 @@ void action_ungroup_cols (GSimpleAction *a, GVariant *p, gpointer data);
 void action_analysis (GSimpleAction *a, GVariant *p, gpointer data);
 void action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_evaluate_formula (GSimpleAction *a, GVariant *p, gpointer data);
+void action_watch_window (GSimpleAction *a, GVariant *p, gpointer data);
+/* The Watch Window's values, worked out again; nothing when it is shut. */
+void o42_watch_window_refresh (O42Window *self);
 void action_custom_lists (GSimpleAction *a, GVariant *p, gpointer data);
 void action_custom_views (GSimpleAction *a, GVariant *p, gpointer data);
 void action_goal_seek (GSimpleAction *a, GVariant *p, gpointer data);

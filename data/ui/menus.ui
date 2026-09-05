@@ -216,6 +216,7 @@
           <item><attribute name="label" translatable="yes">Trace _Dependents</attribute><attribute name="action">win.trace-dependents</attribute></item>
           <item><attribute name="label" translatable="yes">_Remove All Arrows</attribute><attribute name="action">win.clear-arrows</attribute></item>
           <item><attribute name="label" translatable="yes">_Evaluate Formula...</attribute><attribute name="action">win.evaluate-formula</attribute></item>
+          <item><attribute name="label" translatable="yes">Show _Watch Window</attribute><attribute name="action">win.watch-window</attribute></item>
         </submenu>
       </section>
       <section>

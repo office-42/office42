@@ -104,6 +104,21 @@ const O42BookView *o42_book_find_view   (O42Book *book, const char *name);
 void               o42_book_set_view    (O42Book *book, const O42BookView *view);
 gboolean           o42_book_remove_view (O42Book *book, const char *name);
 
+/* ---- Watches ----------------------------------------------------------- */
+
+/* The cells Excel's Watch Window keeps an eye on: a sheet's name and a
+ * cell on it.  The book's, and in its file. */
+typedef struct {
+  char *sheet;            /* owned by the book */
+  int   row, col;
+} O42Watch;
+
+int             o42_book_n_watches    (O42Book *book);
+const O42Watch *o42_book_watch_at     (O42Book *book, int index);
+/* Adds one, unless it is there already; TRUE if it was added. */
+gboolean        o42_book_add_watch    (O42Book *book, const char *sheet, int row, int col);
+gboolean        o42_book_remove_watch (O42Book *book, int index);
+
 /* ---- Recording ------------------------------------------------------ */
 
 /* Excel records a macro by writing down what you do; office42 writes

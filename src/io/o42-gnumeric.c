@@ -1270,6 +1270,22 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
       g_string_append (out, "  </gnm:o42-Views>\n");
     }
 
+  /* The Watch Window's cells, likewise. */
+  if (o42_book_n_watches (book) > 0)
+    {
+      g_string_append (out, "  <gnm:o42-Watches>\n");
+      for (int i = 0; i < o42_book_n_watches (book); i++)
+        {
+          const O42Watch *watch = o42_book_watch_at (book, i);
+          char *wsheet = g_markup_escape_text (watch->sheet, -1);
+
+          g_string_append_printf (out, "    <gnm:o42-Watch Sheet=\"%s\" Row=\"%d\" Col=\"%d\"/>\n",
+                                  wsheet, watch->row, watch->col);
+          g_free (wsheet);
+        }
+      g_string_append (out, "  </gnm:o42-Watches>\n");
+    }
+
   /* The book's database: a path to a file beside it, or the file
    * itself, carried in the book so that it travels with it. */
   {
@@ -1550,6 +1566,16 @@ start_element (GMarkupParseContext *context, const char *element,
   if (strcmp (name, "Names") == 0)
     {
       r->in_names = TRUE;
+      return;
+    }
+
+  if (strcmp (name, "o42-Watch") == 0)
+    {
+      const char *wsheet = attr (names, values, "Sheet");
+
+      if (wsheet != NULL)
+        o42_book_add_watch (r->book, wsheet, attr_int (names, values, "Row", 0),
+                            attr_int (names, values, "Col", 0));
       return;
     }
 

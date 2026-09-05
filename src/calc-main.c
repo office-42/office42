@@ -181,7 +181,7 @@ main (int argc, char *argv[])
               "Python    py pyfile script scripts runscript delscript record\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
-              "          evaluate\n"
+              "          evaluate watch watches unwatch\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
               "section 19 says what each does; --functions lists every function.\n");
@@ -300,6 +300,49 @@ main (int argc, char *argv[])
             }
           else
             fprintf (stderr, "usage: evaluate A1 (a cell holding a formula)\n");
+          continue;
+        }
+
+      /* "watch A1:B2" adds the cells to the Watch Window's list,
+       * "watches" prints it with the values, "unwatch N" drops one. */
+      if (g_str_has_prefix (text, "watch "))
+        {
+          O42Range r;
+          gsize len = 0;
+
+          if (o42_ref_parse (text + 6, &r.row0, &r.col0, &len))
+            {
+              r.row1 = r.row0; r.col1 = r.col0;
+              if (text[6 + len] == ':')
+                o42_ref_parse (text + 7 + len, &r.row1, &r.col1, NULL);
+              for (int rr = r.row0; rr <= r.row1; rr++)
+                for (int cc = r.col0; cc <= r.col1; cc++)
+                  o42_book_add_watch (book, o42_sheet_get_name (sheet), rr, cc);
+            }
+          else
+            fprintf (stderr, "usage: watch A1:B2\n");
+          continue;
+        }
+      if (strcmp (text, "watches") == 0)
+        {
+          for (int i = 0; i < o42_book_n_watches (book); i++)
+            {
+              const O42Watch *w = o42_book_watch_at (book, i);
+              O42Sheet *on = o42_book_find_sheet (book, w->sheet);
+              char *name = o42_ref_name (w->row, w->col);
+              char *shown = on != NULL ? o42_sheet_get_display (on, w->row, w->col) : g_strdup ("?");
+              char *input = on != NULL ? o42_sheet_get_input (on, w->row, w->col) : g_strdup ("");
+
+              printf ("%d: %s!%s = %s%s%s\n", i, w->sheet, name, shown,
+                      input[0] == '=' ? "  " : "", input[0] == '=' ? input : "");
+              g_free (name); g_free (shown); g_free (input);
+            }
+          continue;
+        }
+      if (g_str_has_prefix (text, "unwatch "))
+        {
+          if (!o42_book_remove_watch (book, atoi (text + 8)))
+            fprintf (stderr, "no such watch\n");
           continue;
         }
 

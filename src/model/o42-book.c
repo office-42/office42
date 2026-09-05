@@ -26,6 +26,7 @@ typedef struct {
 
 struct _O42Book {
   GPtrArray *views;        /* O42BookView *, the named window states */
+  GPtrArray *watches;      /* O42Watch *, the Watch Window's cells */
   GString *recording;      /* the macro being recorded, or NULL */
   char    *recorded_sheet; /* the sheet its last line was about */
   GPtrArray    *sheets;   /* O42Sheet*, owned, in tab order */
@@ -222,6 +223,8 @@ o42_book_free (O42Book *book)
   g_ptr_array_free (book->scripts, TRUE);
   if (book->views != NULL)
     g_ptr_array_unref (book->views);
+  if (book->watches != NULL)
+    g_ptr_array_unref (book->watches);
   if (book->recording != NULL)
     g_string_free (book->recording, TRUE);
   g_free (book->recorded_sheet);
@@ -1078,6 +1081,70 @@ o42_book_set_view (O42Book *book, const O42BookView *value)
   view->frozen_cols = value->frozen_cols;
   view->split = value->split;
   o42_book_set_modified (book, TRUE);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Watches                                                                 */
+/* ---------------------------------------------------------------------- */
+
+static void
+book_watch_free (gpointer data)
+{
+  O42Watch *watch = data;
+
+  g_free (watch->sheet);
+  g_free (watch);
+}
+
+int
+o42_book_n_watches (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, 0);
+  return book->watches != NULL ? (int) book->watches->len : 0;
+}
+
+const O42Watch *
+o42_book_watch_at (O42Book *book, int index)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  if (book->watches == NULL || index < 0 || index >= (int) book->watches->len)
+    return NULL;
+  return g_ptr_array_index (book->watches, index);
+}
+
+gboolean
+o42_book_add_watch (O42Book *book, const char *sheet, int row, int col)
+{
+  O42Watch *watch;
+
+  g_return_val_if_fail (book != NULL && sheet != NULL, FALSE);
+  if (book->watches == NULL)
+    book->watches = g_ptr_array_new_with_free_func (book_watch_free);
+  for (guint i = 0; i < book->watches->len; i++)
+    {
+      const O42Watch *w = g_ptr_array_index (book->watches, i);
+
+      if (w->row == row && w->col == col && g_ascii_strcasecmp (w->sheet, sheet) == 0)
+        return FALSE;
+    }
+  watch = g_new0 (O42Watch, 1);
+  watch->sheet = g_strdup (sheet);
+  watch->row = row;
+  watch->col = col;
+  g_ptr_array_add (book->watches, watch);
+  o42_book_set_modified (book, TRUE);
+  return TRUE;
+}
+
+gboolean
+o42_book_remove_watch (O42Book *book, int index)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  if (book->watches == NULL || index < 0 || index >= (int) book->watches->len)
+    return FALSE;
+  g_ptr_array_remove_index (book->watches, index);
+  o42_book_set_modified (book, TRUE);
+  return TRUE;
 }
 
 gboolean
