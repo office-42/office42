@@ -85,6 +85,24 @@ sound -- each of these was one mistake in one place -- and that the
 next review should again be of behaviour under load rather than of
 the list of features, which is complete.
 
+**The 1.1 pass.** Five audits, one per area -- the `.xls` reader and
+writer, printing, the drawn shapes, the accounting and analysis tools,
+the macro recorder -- and seven hundred formulas run against Excel's
+answers, then six streams of work at once.  What they found was not
+missing features so much as features that stopped short: Page Setup
+had one margin and no orientation, and every format but `.xlsx` lost
+it; `.xls` dropped every drawn shape, every hyperlink and every rich
+text run on save, and mislabelled every sheet after a chart sheet; a
+rounded rectangle from Excel came back a rectangle; a scalar function
+given an array said `#VALUE!` where Excel answers with an array; the
+Accounting format's `*` fill and `_` padding were parsed and thrown
+away; a recorded macro rewrote every cell where Excel writes one line.
+All of it is in, each piece checked against LibreOffice or Excel's
+documented answers, and the checks are in the commit messages.  Two
+things Excel XP has that were not here at all are: Insert > Picture >
+From Scanner or Camera, and the Evaluate Formula and Watch Window
+auditing tools.
+
 ---
 
 ## 2. Parity with Excel, area by area
@@ -96,20 +114,20 @@ has. The last column says what is missing, not what is there.
 |---|---:|---:|---:|---|
 | Entering and editing | 8 | 100% | 8.0 | |
 | Selecting and navigating | 5 | 100% | 5.0 | |
-| Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (610 in all) |
+| Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (612 in all), lifted over arrays as Excel lifts them |
 | Number formats | 6 | 100% | 6.0 | |
 | Fonts, borders, colours | 8 | 100% | 8.0 | |
 | Styles and conditional formats | 6 | 100% | 6.0 | |
 | Rows, columns, sheets | 7 | 100% | 7.0 | |
-| Data tools | 10 | 98% | 9.8 | Excel's own pivot parts, and its live TABLE() -- ours writes the numbers |
+| Data tools | 10 | 99% | 9.9 | Excel's own pivot parts, and its live TABLE() -- ours writes the numbers |
 | Charts | 8 | 100% | 8.0 | |
-| Objects | 5 | 100% | 5.0 | |
-| File formats | 12 | 98% | 11.8 | Excel 5 charts in `.xls` come back as pictures of themselves |
+| Objects | 5 | 100% | 5.0 | the AutoShapes, turned and flipped, in one painting order; a picture cropped |
+| File formats | 12 | 99% | 11.9 | Excel 5 charts in `.xls` come back as pictures of themselves; LibreOffice's freeform AutoShapes in `.xls` come in as rectangles |
 | Printing | 6 | 100% | 6.0 | the four tabs of Page Setup, kept in every format |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 6 | 97% | 5.8 | arranging windows, which GTK 4 gives a program no way to do |
-| Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice |
-| **Total** | 100 | | **99.2** | |
+| Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice; the recorder writes one line per operation, Alt+F8 and Ctrl+Shift+letter run them |
+| **Total** | 100 | | **99.4** | |
 
 **About 98% of Excel 2003.** Against **Excel 365** the number is nearer
 45%: dynamic arrays and tables are here, but Power Query, the modern
@@ -190,7 +208,7 @@ against.
 | Area | Weight | Here | Score | What is missing |
 |---|---:|---:|---:|---|
 | Editing and navigation | 10 | 98% | 9.8 | |
-| Formulas and functions | 18 | 98% | 17.6 | 610 of ~650 functions; Miltersen and Schwartz on commodities, and the odd corner of the rest |
+| Formulas and functions | 18 | 98% | 17.6 | 612 of ~650 functions; Miltersen and Schwartz on commodities, and the odd corner of the rest |
 | Formatting | 10 | 97% | 9.7 | as above |
 | Rows, columns, sheets | 8 | 97% | 7.8 | |
 | Data tools | 12 | 100% | 12.0 | |
