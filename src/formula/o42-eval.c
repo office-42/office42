@@ -71,6 +71,7 @@ typedef struct {
   O42EvalContext *original;
   GPtrArray      *arrays;     /* ArrayConst* */
   GPtrArray      *unions;     /* UnionAreas* */
+  GPtrArray      *closures;   /* Closure*: the bindings lambdas carry out */
 } ArrayFrame;
 
 static GPtrArray *array_frames = NULL;   /* ArrayFrame*, innermost last */
@@ -458,6 +459,9 @@ operand_clear (O42Operand *op)
 O42Value
 o42_operand_value (O42EvalContext *ctx, const O42Operand *op)
 {
+  /* A LAMBDA where a value is wanted: Excel's #CALC!. */
+  if (op->lambda != NULL && !op->is_range)
+    return o42_value_error (O42_ERR_CALC);
   O42Value v;
 
   if (!op->is_range)
@@ -1865,6 +1869,8 @@ static O42Value fn_isodd  (O42EvalContext *c, O42Operand *a, int n) { return fn_
 static O42Value
 fn_type (O42EvalContext *ctx, O42Operand *args, int n)
 {
+  if (args[0].lambda != NULL && !args[0].is_range)
+    return o42_value_number (128);   /* a LAMBDA, in Excel's numbering */
   O42Value v;
   int code;
 
@@ -4487,13 +4493,16 @@ static O42Value
 fn_xlookup (O42EvalContext *ctx, O42Operand *args, int n)
 {
   O42Value needle, result;
-  double mode = 0;
+  double mode = 0, search = 1;
   int length, best = -1;
   GPatternSpec *pattern = NULL;
 
   if (!args[1].is_range || !args[2].is_range)
     return o42_value_error (O42_ERR_VALUE);
   if (n >= 5) ARG_NUMBER (4, mode);
+  /* search_mode: 1 and 2 from the first, -1 and -2 from the last (the
+   * binary ones give the same answer on a sorted vector). */
+  if (n >= 6) ARG_NUMBER (5, search);
   needle = operand_value (ctx, &args[0]);
   if (needle.type == O42_VALUE_ERROR)
     return needle;
@@ -4506,8 +4515,9 @@ fn_xlookup (O42EvalContext *ctx, O42Operand *args, int n)
       g_free (folded);
     }
 
-  for (int i = 0; i < length; i++)
+  for (int step = 0; step < length; step++)
     {
+      int i = search < 0 ? length - 1 - step : step;
       O42Value v;
       int cmp;
       xl_vector_cell (ctx, &args[1], i, &v);
@@ -4598,9 +4608,11 @@ fn_xmatch (O42EvalContext *ctx, O42Operand *args, int n)
   memset (&three[3], 0, sizeof three[3]);
   three[3].value = o42_value_error (O42_ERR_NA);
   if (n >= 3) three[4] = args[2]; else { memset (&three[4], 0, sizeof three[4]); three[4].value = o42_value_number (0); }
-  r = fn_xlookup (ctx, three, 5);
+  if (n >= 4) three[5] = args[3]; else { memset (&three[5], 0, sizeof three[5]); three[5].value = o42_value_number (1); }
+  r = fn_xlookup (ctx, three, 6);
   o42_value_clear (&three[3].value);
   if (n < 3) o42_value_clear (&three[4].value);
+  if (n < 4) o42_value_clear (&three[5].value);
   return r;
 }
 
@@ -4690,7 +4702,8 @@ fn_indirect (O42EvalContext *ctx, O42Operand *args, int n)
 }
 
 /* LAMBDA's parameters and body, and the depth guard for recursion. */
-static O42Operand apply_lambda (O42EvalContext *ctx, const O42Node *lambda,
+typedef struct _Closure Closure;
+static O42Operand apply_lambda (O42EvalContext *ctx, const O42Node *lambda, const Closure *closure,
                                 O42Operand *args, int n_args);
 static int lambda_depth = 0;
 
@@ -4701,6 +4714,55 @@ typedef struct {
 } LetBinding;
 
 static GPtrArray *let_scope = NULL;
+
+/* A lambda that came out of a LET or another LAMBDA carries the names
+ * that were bound when it was made -- LAMBDA(x,LAMBDA(y,x+y))(1)(2) is
+ * 3 because the inner lambda remembers x -- as a copy of the scope,
+ * owned by the frame the formula is evaluated in. */
+struct _Closure {
+  GPtrArray *bindings;   /* LetBinding*, outermost first */
+};
+
+static void
+closure_free (gpointer data)
+{
+  Closure *c = data;
+
+  for (guint i = 0; i < c->bindings->len; i++)
+    {
+      LetBinding *b = g_ptr_array_index (c->bindings, i);
+      operand_clear (&b->operand);
+      g_free (b);
+    }
+  g_ptr_array_free (c->bindings, TRUE);
+  g_free (c);
+}
+
+/* The scope as it stands, copied, and kept by the innermost frame. */
+static const Closure *
+closure_capture (void)
+{
+  ArrayFrame *frame = array_frames && array_frames->len > 0
+                      ? g_ptr_array_index (array_frames, array_frames->len - 1) : NULL;
+  Closure *c;
+
+  if (frame == NULL || let_scope == NULL || let_scope->len == 0)
+    return NULL;
+  c = g_new0 (Closure, 1);
+  c->bindings = g_ptr_array_new ();
+  for (guint i = 0; i < let_scope->len; i++)
+    {
+      const LetBinding *from = g_ptr_array_index (let_scope, i);
+      LetBinding *b = g_new0 (LetBinding, 1);
+
+      b->name = from->name;
+      b->operand = from->operand;
+      b->operand.value = o42_value_copy (&from->operand.value);
+      g_ptr_array_add (c->bindings, b);
+    }
+  g_ptr_array_add (frame->closures, c);
+  return c;
+}
 
 /* A defined name that is a formula: its text parsed once, kept by the
  * text, so a LAMBDA in it has a tree to live in for as long as any
@@ -4748,7 +4810,8 @@ param_name (const char *written, char *buffer, gsize size)
  * parameters are the call's arguments but the last, which is the body;
  * a missing argument is an empty value, which ISOMITTED sees. */
 static O42Operand
-apply_lambda (O42EvalContext *ctx, const O42Node *lambda, O42Operand *args, int n_args)
+apply_lambda (O42EvalContext *ctx, const O42Node *lambda, const Closure *closure,
+              O42Operand *args, int n_args)
 {
   int n_params = lambda != NULL && lambda->as.call.args != NULL ? (int) lambda->as.call.args->len - 1 : -1;
   O42Operand result;
@@ -4756,13 +4819,28 @@ apply_lambda (O42EvalContext *ctx, const O42Node *lambda, O42Operand *args, int 
   char name_buffer[128];
 
   memset (&result, 0, sizeof result);
-  if (n_params < 0 || lambda_depth > 200)
+  if (n_params < 0 || lambda_depth > 200 || n_args > n_params)
     {
-      result.value = o42_value_error (n_params < 0 ? O42_ERR_VALUE : O42_ERR_NUM);
+      /* More arguments than parameters is #VALUE!, as Excel has it. */
+      result.value = o42_value_error (n_params < 0 || n_args > n_params ? O42_ERR_VALUE : O42_ERR_NUM);
       return result;
     }
   if (let_scope == NULL)
     let_scope = g_ptr_array_new ();
+  /* What the lambda remembers from where it was made comes first, so
+   * its own parameters shadow it. */
+  if (closure != NULL)
+    for (guint i = 0; i < closure->bindings->len; i++)
+      {
+        const LetBinding *from = g_ptr_array_index (closure->bindings, i);
+        LetBinding *b = g_new0 (LetBinding, 1);
+
+        b->name = from->name;
+        b->operand = from->operand;
+        b->operand.value = o42_value_copy (&from->operand.value);
+        g_ptr_array_add (let_scope, b);
+        pushed++;
+      }
   for (int i = 0; i < n_params; i++)
     {
       const O42Node *p = g_ptr_array_index (lambda->as.call.args, i);
@@ -4786,6 +4864,9 @@ apply_lambda (O42EvalContext *ctx, const O42Node *lambda, O42Operand *args, int 
   lambda_depth++;
   result = eval_operand (ctx, g_ptr_array_index (lambda->as.call.args, n_params));
   lambda_depth--;
+  /* A lambda coming out takes the bindings with it. */
+  if (result.lambda != NULL && result.closure == NULL)
+    result.closure = closure_capture ();
   while (pushed-- > 0)
     {
       LetBinding *dead = g_ptr_array_index (let_scope, let_scope->len - 1);
@@ -5135,15 +5216,24 @@ logfit_line (const double *x, const double *y, int n, double sign, double c,
 /* The keys SORT and SORTBY order by, read once, and a stable merge
  * sort of positions over them. */
 typedef struct {
-  O42Value *keys;
-  gboolean  descending;
+  O42Value *keys;         /* n_keys vectors of n items, one after another */
+  gboolean *descending;   /* one per key */
+  int       n_keys;
+  int       n;
 } SortKeys;
 
 static int
 sort_keys_compare (const SortKeys *k, int a, int b)
 {
-  int cmp = o42_value_compare (&k->keys[a], &k->keys[b]);
-  return k->descending ? -cmp : cmp;
+  for (int key = 0; key < k->n_keys; key++)
+    {
+      const O42Value *va = &k->keys[key * k->n + a], *vb = &k->keys[key * k->n + b];
+      int cmp = o42_value_compare (va, vb);
+
+      if (cmp != 0)
+        return k->descending[key] ? -cmp : cmp;
+    }
+  return 0;
 }
 
 static void
@@ -5442,6 +5532,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           pushed++;
         }
       result = eval_operand (ctx, g_ptr_array_index (node->as.call.args, n_args - 1));
+      if (result.lambda != NULL && result.closure == NULL)
+        result.closure = closure_capture ();
       while (pushed-- > 0)
         {
           LetBinding *dead = g_ptr_array_index (let_scope, let_scope->len - 1);
@@ -5487,7 +5579,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
                 memset (two, 0, sizeof two);
                 two[0].value = o42_value_number (i + 1);
                 two[1].value = o42_value_number (j + 1);
-                r = apply_lambda (ctx, fn, two, 2);
+                r = apply_lambda (ctx, fn, hold.closure, two, 2);
                 a->cells[i * (int) cols + j] = operand_value (ctx, &r);
                 operand_clear (&r);
                 o42_value_clear (&two[0].value);
@@ -5514,7 +5606,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
                 memset (each, 0, sizeof each);
                 for (int k = 0; k < n_arrays; k++)
                   each[k].value = operand_cell (ctx, &arrays[k], i, j);
-                r = apply_lambda (ctx, fn, each, n_arrays);
+                r = apply_lambda (ctx, fn, hold.closure, each, n_arrays);
                 a->cells[i * cols + j] = operand_value (ctx, &r);
                 operand_clear (&r);
                 for (int k = 0; k < n_arrays; k++)
@@ -5541,7 +5633,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
               for (int j = 0; j < n_across; j++)
                 line->cells[j] = by_row ? operand_cell (ctx, &first, i, j) : operand_cell (ctx, &first, j, i);
               one = array_operand (line);
-              r = apply_lambda (ctx, fn, &one, 1);
+              r = apply_lambda (ctx, fn, hold.closure, &one, 1);
               a->cells[i] = operand_value (ctx, &r);
               operand_clear (&r);
               operand_clear (&one);
@@ -5569,7 +5661,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
                 two[0] = acc;
                 two[0].value = o42_value_copy (&acc.value);
                 two[1].value = operand_cell (ctx, &values, i, j);
-                r = apply_lambda (ctx, fn, two, 2);
+                r = apply_lambda (ctx, fn, hold.closure, two, 2);
                 o42_value_clear (&two[0].value);
                 o42_value_clear (&two[1].value);
                 operand_clear (&acc);
@@ -5768,57 +5860,92 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
     }
 
   if ((strcmp (node->as.call.name, "SORT") == 0 && n_args >= 1 && n_args <= 4) ||
-      (strcmp (node->as.call.name, "SORTBY") == 0 && n_args >= 2 && n_args <= 4))
+      (strcmp (node->as.call.name, "SORTBY") == 0 && n_args >= 2))
     {
       gboolean sortby = node->as.call.name[4] == 'B';
       O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
-      O42Operand by;
+      O42Operand bys[16];
+      int n_keys = 0;
       double index = 1, order = 1;
       gboolean by_col = FALSE;
       int rows, cols, n_items, n_across;
       GArray *idx;
       ArrayConst *a;
+      SortKeys keys;
 
-      memset (&by, 0, sizeof by);
+      memset (bys, 0, sizeof bys);
+      operand_dims (&src, &rows, &cols);
       if (sortby)
         {
-          by = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
-          if (n_args >= 3 && !eval_number_arg (ctx, node, 2, &order)) order = 1;
+          /* SORTBY(array, by1, [order1], by2, [order2], ...): the keys
+           * run the way the array does, and each must be as long. */
+          for (int i = 1; i < n_args && n_keys < 16; i += 2)
+            n_keys++;
+          keys.descending = g_new0 (gboolean, MAX (n_keys, 1));
+          for (int k = 0; k < n_keys; k++)
+            {
+              int br, bc;
+              double ord = 1;
+
+              bys[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1 + 2 * k));
+              if (2 + 2 * k < n_args && !eval_number_arg (ctx, node, 2 + 2 * k, &ord)) ord = 1;
+              keys.descending[k] = ord < 0;
+              operand_dims (&bys[k], &br, &bc);
+              if (k == 0)
+                by_col = br == 1 && bc > 1 && bc == cols && rows != cols ? TRUE
+                       : br == 1 && bc == cols && rows == 1 && cols > 1;
+              if ((by_col ? bc : br) != (by_col ? cols : rows) || (by_col ? br : bc) != 1)
+                {
+                  for (int j = 0; j <= k; j++) operand_clear (&bys[j]);
+                  g_free (keys.descending);
+                  operand_clear (&src);
+                  out->value = o42_value_error (O42_ERR_VALUE);
+                  return TRUE;
+                }
+            }
         }
       else
         {
           if (n_args >= 2 && !eval_number_arg (ctx, node, 1, &index)) index = 1;
           if (n_args >= 3 && !eval_number_arg (ctx, node, 2, &order)) order = 1;
           if (n_args >= 4) eval_bool_arg (ctx, node, 3, &by_col);
+          n_keys = 1;
+          keys.descending = g_new0 (gboolean, 1);
+          keys.descending[0] = order < 0;
         }
-      operand_dims (&src, &rows, &cols);
       n_items = by_col ? cols : rows;
       n_across = by_col ? rows : cols;
       if (index < 1 || index > n_across)
-        { operand_clear (&src); operand_clear (&by); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+        {
+          for (int k = 0; k < n_keys && sortby; k++) operand_clear (&bys[k]);
+          g_free (keys.descending);
+          operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE;
+        }
       idx = g_array_new (FALSE, FALSE, sizeof (int));
       for (int i = 0; i < n_items; i++) g_array_append_val (idx, i);
       {
         /* The keys are read once each, then the positions are merge
          * sorted on them: stable, and n log n where an insertion sort
          * took a minute over forty thousand rows. */
-        SortKeys keys;
-
-        keys.keys = g_new0 (O42Value, MAX (n_items, 1));
-        keys.descending = order < 0;
-        for (int i = 0; i < n_items; i++)
-          keys.keys[i] = sortby ? operand_cell (ctx, &by, by_col ? 0 : i, by_col ? i : 0)
-                       : by_col ? operand_cell (ctx, &src, (int) index - 1, i)
-                                : operand_cell (ctx, &src, i, (int) index - 1);
+        keys.n = n_items;
+        keys.n_keys = n_keys;
+        keys.keys = g_new0 (O42Value, MAX (n_items * n_keys, 1));
+        for (int k = 0; k < n_keys; k++)
+          for (int i = 0; i < n_items; i++)
+            keys.keys[k * n_items + i] =
+              sortby ? operand_cell (ctx, &bys[k], by_col ? 0 : i, by_col ? i : 0)
+                     : by_col ? operand_cell (ctx, &src, (int) index - 1, i)
+                              : operand_cell (ctx, &src, i, (int) index - 1);
         if (n_items > 1)
           {
             int *tmp = g_new (int, n_items);
             merge_sort_positions ((int *) idx->data, tmp, n_items, &keys);
             g_free (tmp);
           }
-        for (int i = 0; i < n_items; i++)
+        for (int i = 0; i < n_items * n_keys; i++)
           o42_value_clear (&keys.keys[i]);
         g_free (keys.keys);
+        g_free (keys.descending);
       }
       a = array_const_new (rows, cols);
       for (int i = 0; i < n_items; i++)
@@ -5832,7 +5959,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
         }
       g_array_unref (idx);
       operand_clear (&src);
-      operand_clear (&by);
+      for (int k = 0; k < n_keys && sortby; k++)
+        operand_clear (&bys[k]);
       *out = array_operand (a);
       return TRUE;
     }
@@ -11281,7 +11409,7 @@ eval_call_operand (O42EvalContext *ctx, const O42Node *node)
                 O42Operand r;
                 for (int k = 0; k < n_args; k++)
                   given[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, k));
-                r = apply_lambda (ctx, b->operand.lambda, given, n_args);
+                r = apply_lambda (ctx, b->operand.lambda, b->operand.closure, given, n_args);
                 for (int k = 0; k < n_args; k++)
                   operand_clear (&given[k]);
                 g_free (given);
@@ -11299,7 +11427,7 @@ eval_call_operand (O42EvalContext *ctx, const O42Node *node)
             O42Operand r;
             for (int k = 0; k < n_args; k++)
               given[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, k));
-            r = apply_lambda (ctx, tree, given, n_args);
+            r = apply_lambda (ctx, tree, NULL, given, n_args);
             for (int k = 0; k < n_args; k++)
               operand_clear (&given[k]);
             g_free (given);
@@ -11464,7 +11592,7 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
           }
         for (int k = 0; k < n; k++)
           given[k] = eval_operand (ctx, g_ptr_array_index (node->as.apply.args, k));
-        op = apply_lambda (ctx, callee.lambda, given, n);
+        op = apply_lambda (ctx, callee.lambda, callee.closure, given, n);
         for (int k = 0; k < n; k++)
           operand_clear (&given[k]);
         g_free (given);
@@ -11685,6 +11813,7 @@ o42_eval (O42EvalContext *ctx, const O42Node *node)
   frame.original = ctx;
   frame.arrays = g_ptr_array_new_with_free_func ((GDestroyNotify) array_const_free);
   frame.unions = g_ptr_array_new_with_free_func ((GDestroyNotify) union_areas_free);
+  frame.closures = g_ptr_array_new_with_free_func (closure_free);
   if (array_frames == NULL)
     array_frames = g_ptr_array_new ();
   g_ptr_array_add (array_frames, &frame);
@@ -11694,6 +11823,7 @@ o42_eval (O42EvalContext *ctx, const O42Node *node)
   g_ptr_array_remove_index (array_frames, array_frames->len - 1);
   g_ptr_array_unref (frame.arrays);
   g_ptr_array_unref (frame.unions);
+  g_ptr_array_unref (frame.closures);
   return result;
 }
 
@@ -11710,6 +11840,7 @@ o42_eval_array (O42EvalContext *ctx, const O42Node *node,
   frame.original = ctx;
   frame.arrays = g_ptr_array_new_with_free_func ((GDestroyNotify) array_const_free);
   frame.unions = g_ptr_array_new_with_free_func ((GDestroyNotify) union_areas_free);
+  frame.closures = g_ptr_array_new_with_free_func (closure_free);
   if (array_frames == NULL)
     array_frames = g_ptr_array_new ();
   g_ptr_array_add (array_frames, &frame);
@@ -11722,6 +11853,13 @@ o42_eval_array (O42EvalContext *ctx, const O42Node *node,
       memset (&op, 0, sizeof op);
       op.value = o42_value_error (O42_ERR_VALUE);
     }
+  if (op.lambda != NULL)
+    {
+      /* A LAMBDA never called has no value to show: Excel's #CALC!. */
+      operand_clear (&op);
+      memset (&op, 0, sizeof op);
+      op.value = o42_value_error (O42_ERR_CALC);
+    }
   operand_dims (&op, rows, cols);
   *values = g_new0 (O42Value, (gsize) *rows * *cols);
   for (int i = 0; i < *rows; i++)
@@ -11732,6 +11870,7 @@ o42_eval_array (O42EvalContext *ctx, const O42Node *node,
   g_ptr_array_remove_index (array_frames, array_frames->len - 1);
   g_ptr_array_unref (frame.arrays);
   g_ptr_array_unref (frame.unions);
+  g_ptr_array_unref (frame.closures);
   return TRUE;
 }
 

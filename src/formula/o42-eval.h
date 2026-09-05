@@ -100,6 +100,8 @@ typedef struct {
   O42Range    range;
   O42Value    value;    /* meaningful when is_range is FALSE */
   const void *lambda;   /* a LAMBDA(...) node, when the operand is one */
+  const void *closure;  /* the bindings it was made under, when it came
+                         * out of another LAMBDA or a LET; else NULL */
 } O42Operand;
 
 O42Value o42_eval (O42EvalContext *ctx, const O42Node *node);
