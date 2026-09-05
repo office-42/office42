@@ -411,21 +411,38 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
   }
 
   o42_sheet_get_frozen (sheet, &frozen_rows, &frozen_cols);
-  g_string_append_printf (out, "<sheetViews><sheetView workbookViewId=\"0\"%s>",
-                          selected ? " tabSelected=\"1\"" : "");
-  if (frozen_rows > 0 || frozen_cols > 0)
-    {
-      char *top_left = o42_ref_name (frozen_rows, frozen_cols);
-      const char *pane = frozen_rows > 0 && frozen_cols > 0 ? "bottomRight"
-                         : frozen_rows > 0 ? "bottomLeft" : "topRight";
-      g_string_append (out, "<pane");
-      if (frozen_cols > 0) g_string_append_printf (out, " xSplit=\"%d\"", frozen_cols);
-      if (frozen_rows > 0) g_string_append_printf (out, " ySplit=\"%d\"", frozen_rows);
-      g_string_append_printf (out, " topLeftCell=\"%s\" activePane=\"%s\" state=\"frozen\"/>",
-                              top_left, pane);
-      g_free (top_left);
-    }
-  g_string_append (out, "</sheetView></sheetViews>");
+  {
+    const O42SheetView *view = o42_sheet_view (sheet);
+    const char *pane = frozen_rows > 0 && frozen_cols > 0 ? "bottomRight"
+                       : frozen_rows > 0 ? "bottomLeft" : frozen_cols > 0 ? "topRight" : NULL;
+    char *active = o42_ref_name (view->active_row, view->active_col);
+    char *a = o42_ref_name (view->selection.row0, view->selection.col0);
+    char *b = o42_ref_name (view->selection.row1, view->selection.col1);
+
+    g_string_append_printf (out, "<sheetViews><sheetView workbookViewId=\"0\"%s%s%s%s",
+                            selected ? " tabSelected=\"1\"" : "",
+                            view->gridlines ? "" : " showGridLines=\"0\"",
+                            view->zeros ? "" : " showZeros=\"0\"",
+                            view->right_to_left ? " rightToLeft=\"1\"" : "");
+    if (view->zoom != 100)
+      g_string_append_printf (out, " zoomScale=\"%d\" zoomScaleNormal=\"%d\"", view->zoom, view->zoom);
+    g_string_append_c (out, '>');
+    if (pane != NULL)
+      {
+        char *top_left = o42_ref_name (frozen_rows, frozen_cols);
+        g_string_append (out, "<pane");
+        if (frozen_cols > 0) g_string_append_printf (out, " xSplit=\"%d\"", frozen_cols);
+        if (frozen_rows > 0) g_string_append_printf (out, " ySplit=\"%d\"", frozen_rows);
+        g_string_append_printf (out, " topLeftCell=\"%s\" activePane=\"%s\" state=\"frozen\"/>",
+                                top_left, pane);
+        g_free (top_left);
+      }
+    g_string_append_printf (out, "<selection%s%s%s activeCell=\"%s\" sqref=\"%s%s%s\"/>",
+                            pane != NULL ? " pane=\"" : "", pane != NULL ? pane : "", pane != NULL ? "\"" : "",
+                            active, a, strcmp (a, b) != 0 ? ":" : "", strcmp (a, b) != 0 ? b : "");
+    g_string_append (out, "</sheetView></sheetViews>");
+    g_free (active); g_free (a); g_free (b);
+  }
   g_string_append_printf (out, "<sheetFormatPr defaultColWidth=\"%.6g\" defaultRowHeight=\"%.6g\"/>",
                           PX_TO_CHARS (default_width), PX_TO_PT (default_height));
 
@@ -623,12 +640,26 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
         g_array_append_vals (w->dxfs, c, 1);
         g_ascii_dtostr (v, sizeof v, c->value);
         g_ascii_dtostr (v2, sizeof v2, c->value2);
-        g_string_append_printf (out,
-          "<conditionalFormatting sqref=\"%s:%s\"><cfRule type=\"cellIs\" dxfId=\"%u\" priority=\"%u\" operator=\"%s\">"
-          "<formula>%s</formula>", a, b, w->dxfs->len - 1, i + 1, ops[c->op], v);
-        if (c->op == O42_COND_BETWEEN || c->op == O42_COND_NOT_BETWEEN)
-          g_string_append_printf (out, "<formula>%s</formula>", v2);
-        g_string_append (out, "</cfRule></conditionalFormatting>");
+        if (c->is_formula)
+          {
+            char *e = g_markup_escape_text (c->expr1 != NULL ? c->expr1 + (c->expr1[0] == '=') : "FALSE", -1);
+            g_string_append_printf (out,
+              "<conditionalFormatting sqref=\"%s:%s\"><cfRule type=\"expression\" dxfId=\"%u\" priority=\"%u\">"
+              "<formula>%s</formula></cfRule></conditionalFormatting>", a, b, w->dxfs->len - 1, i + 1, e);
+            g_free (e);
+          }
+        else
+          {
+            char *e1 = c->expr1 != NULL ? g_markup_escape_text (c->expr1 + (c->expr1[0] == '='), -1) : NULL;
+            char *e2 = c->expr2 != NULL ? g_markup_escape_text (c->expr2 + (c->expr2[0] == '='), -1) : NULL;
+            g_string_append_printf (out,
+              "<conditionalFormatting sqref=\"%s:%s\"><cfRule type=\"cellIs\" dxfId=\"%u\" priority=\"%u\" operator=\"%s\">"
+              "<formula>%s</formula>", a, b, w->dxfs->len - 1, i + 1, ops[c->op], e1 != NULL ? e1 : v);
+            if (c->op == O42_COND_BETWEEN || c->op == O42_COND_NOT_BETWEEN)
+              g_string_append_printf (out, "<formula>%s</formula>", e2 != NULL ? e2 : v2);
+            g_string_append (out, "</cfRule></conditionalFormatting>");
+            g_free (e1); g_free (e2);
+          }
         g_free (a);
         g_free (b);
       }
@@ -638,9 +669,10 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     GArray *rules = o42_sheet_validations (sheet);
     if (rules->len > 0)
       {
-        static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength" };
+        static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength", "custom" };
         static const char *ops[] = { "between", "notBetween", "equal", "notEqual",
                                      "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual" };
+        static const char *styles[] = { "stop", "warning", "information" };
         g_string_append_printf (out, "<dataValidations count=\"%u\">", rules->len);
         for (guint i = 0; i < rules->len; i++)
           {
@@ -648,25 +680,42 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
             char *a = o42_ref_name (v->range.row0, v->range.col0);
             char *b = o42_ref_name (v->range.row1, v->range.col1);
             char *f1, *f2 = NULL, *msg = g_markup_escape_text (v->message ? v->message : "", -1);
+            char *pt = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+            char *pr = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+            char *et = g_markup_escape_text (v->error_title ? v->error_title : "", -1);
+            gboolean list_is_range = FALSE;
             if (v->kind == O42_VALID_LIST)
               {
-                char *quoted = g_strdup_printf ("\"%s\"", v->value ? v->value : "");
-                f1 = g_markup_escape_text (quoted, -1);
-                g_free (quoted);
+                O42Range lr;
+                gsize lused = 0;
+                const char *text = v->value ? v->value : "";
+                list_is_range = o42_ref_parse (text + (text[0] == '='), &lr.row0, &lr.col0, &lused) && text[(text[0] == '=') + lused] == ':';
+                if (list_is_range)
+                  f1 = g_markup_escape_text (text + (text[0] == '='), -1);
+                else
+                  {
+                    char *quoted = g_strdup_printf ("\"%s\"", text);
+                    f1 = g_markup_escape_text (quoted, -1);
+                    g_free (quoted);
+                  }
               }
             else
-              f1 = g_markup_escape_text (v->value ? v->value : "", -1);
+              f1 = g_markup_escape_text (v->value ? v->value + (v->value[0] == '=') : "", -1);
             if (v->value2 != NULL && v->value2[0] != '\0')
-              f2 = g_markup_escape_text (v->value2, -1);
+              f2 = g_markup_escape_text (v->value2 + (v->value2[0] == '='), -1);
             g_string_append_printf (out,
-              "<dataValidation type=\"%s\" operator=\"%s\" allowBlank=\"%d\" showInputMessage=\"0\" "
-              "showErrorMessage=\"1\"%s%s%s sqref=\"%s:%s\"><formula1>%s</formula1>",
-              types[v->kind], ops[v->op], v->allow_blank ? 1 : 0,
-              msg[0] ? " error=\"" : "", msg, msg[0] ? "\"" : "", a, b, f1);
+              "<dataValidation type=\"%s\" operator=\"%s\" allowBlank=\"%d\" showInputMessage=\"%d\" "
+              "showErrorMessage=\"1\" errorStyle=\"%s\"%s%s%s%s%s%s%s%s%s%s%s%s sqref=\"%s:%s\"><formula1>%s</formula1>",
+              types[MIN (v->kind, 7)], ops[v->op], v->allow_blank ? 1 : 0, pt[0] || pr[0] ? 1 : 0,
+              styles[MIN (v->error_style, 2)],
+              et[0] ? " errorTitle=\"" : "", et, et[0] ? "\"" : "",
+              msg[0] ? " error=\"" : "", msg, msg[0] ? "\"" : "",
+              pt[0] ? " promptTitle=\"" : "", pt, pt[0] ? "\"" : "",
+              pr[0] ? " prompt=\"" : "", pr, pr[0] ? "\"" : "", a, b, f1);
             if (f2 != NULL)
               g_string_append_printf (out, "<formula2>%s</formula2>", f2);
             g_string_append (out, "</dataValidation>");
-            g_free (a); g_free (b); g_free (f1); g_free (f2); g_free (msg);
+            g_free (a); g_free (b); g_free (f1); g_free (f2); g_free (msg); g_free (pt); g_free (pr); g_free (et);
           }
         g_string_append (out, "</dataValidations>");
       }
@@ -1590,6 +1639,12 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
   Writer w;
   O42ZipWriter *zip = o42_zip_writer_new ();
   int n_sheets = o42_book_n_sheets (book);
+  int first_shown = 0;   /* the sheet the book opens on */
+
+  for (int i = 0; i < n_sheets; i++)
+    if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+      { first_shown = i; break; }
+
   GPtrArray *sheet_xml = g_ptr_array_new_with_free_func (g_free);
   GString *s;
   GString *extra_types = g_string_new (NULL);
@@ -1679,7 +1734,7 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
           if (o42_sheet_is_chart_sheet (sheet))
             g_ptr_array_add (sheet_xml, write_chart_sheet (sheet, drawing_rid));
           else
-            g_ptr_array_add (sheet_xml, write_sheet (&w, sheet, i == 0, drawing_rid, legacy_rid, table_rid, n_tables));
+            g_ptr_array_add (sheet_xml, write_sheet (&w, sheet, i == first_shown, drawing_rid, legacy_rid, table_rid, n_tables));
         }
         if (rels->len > 0)
           {
@@ -1788,9 +1843,18 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     "<workbook xmlns=\"" NS_MAIN "\" xmlns:r=\"" NS_REL "\">"
     "<bookViews><workbookView activeTab=\"0\"/></bookViews><sheets>");
   for (int i = 0; i < n_sheets; i++)
+    if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+      {
+        char *tab = g_strdup_printf ("activeTab=\"%d\"", i);
+        g_string_replace (s, "activeTab=\"0\"", tab, 1);
+        g_free (tab);
+        break;
+      }
+  for (int i = 0; i < n_sheets; i++)
     {
       char *name = g_markup_escape_text (o42_sheet_get_name (o42_book_sheet (book, i)), -1);
-      g_string_append_printf (s, "<sheet name=\"%s\" sheetId=\"%d\" r:id=\"rId%d\"/>", name, i + 1, i + 1);
+      g_string_append_printf (s, "<sheet name=\"%s\" sheetId=\"%d\"%s r:id=\"rId%d\"/>", name, i + 1,
+                              o42_sheet_hidden (o42_book_sheet (book, i)) ? " state=\"hidden\"" : "", i + 1);
       g_free (name);
     }
   g_string_append (s, "</sheets>");
@@ -2073,6 +2137,7 @@ typedef struct
   /* Workbook */
   GPtrArray  *sheet_names;
   GPtrArray  *sheet_rids;
+  GArray     *sheet_hidden;     /* guint per sheet: state="hidden" */
   GPtrArray  *names;        /* name, text pairs */
   GString    *name_text;
   char       *name_name;
@@ -2135,6 +2200,8 @@ typedef struct
   int         cf_dxf, cf_n_formulas;
   O42CondOp   cf_op;
   double      cf_values[2];
+  char       *cf_exprs[2];      /* formula operands, "=..." or NULL */
+  gboolean    cf_is_expression;
   GString    *cf_formula;
 
   /* A dataValidation being read */
@@ -2180,8 +2247,11 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       const char *sname = attr (names, values, "name");
       const char *rid = attr (names, values, "id");
+      const char *state = attr (names, values, "state");
+      guint hidden = state != NULL && strcmp (state, "visible") != 0;
       g_ptr_array_add (r->sheet_names, g_strdup (sname ? sname : "Sheet"));
       g_ptr_array_add (r->sheet_rids, g_strdup (rid ? rid : ""));
+      g_array_append_val (r->sheet_hidden, hidden);
     }
   else if (strcmp (n, "workbookPr") == 0)
     {
@@ -2903,6 +2973,43 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         o42_sheet_set_frozen (r->sheet, attr_int (names, values, "ySplit", 0),
                               attr_int (names, values, "xSplit", 0));
     }
+  else if (strcmp (n, "sheetView") == 0)
+    {
+      O42SheetView view = *o42_sheet_view (r->sheet);
+
+      view.gridlines = attr_int (names, values, "showGridLines", 1) != 0;
+      view.zeros = attr_int (names, values, "showZeros", 1) != 0;
+      view.right_to_left = attr_int (names, values, "rightToLeft", 0) != 0;
+      view.outline_symbols = attr_int (names, values, "showOutlineSymbols", 1) != 0;
+      view.selected = attr_int (names, values, "tabSelected", 0) != 0;
+      view.zoom = attr_int (names, values, "zoomScale", 100);
+      o42_sheet_set_view (r->sheet, &view);
+    }
+  else if (strcmp (n, "selection") == 0)
+    {
+      /* The last selection element is the active pane's, in Excel's
+       * files; each overwrites the one before. */
+      O42SheetView view = *o42_sheet_view (r->sheet);
+      const char *active = attr (names, values, "activeCell");
+      const char *sqref = attr (names, values, "sqref");
+      int row, col;
+      gsize used = 0;
+
+      if (active != NULL && o42_ref_parse (active, &row, &col, NULL))
+        {
+          view.active_row = row;
+          view.active_col = col;
+          view.selection = o42_range_normalise (row, col, row, col);
+        }
+      if (sqref != NULL && o42_ref_parse (sqref, &view.selection.row0, &view.selection.col0, &used))
+        {
+          if (sqref[used] == ':' && o42_ref_parse (sqref + used + 1, &row, &col, NULL))
+            { view.selection.row1 = row; view.selection.col1 = col; }
+          else
+            { view.selection.row1 = view.selection.row0; view.selection.col1 = view.selection.col0; }
+        }
+      o42_sheet_set_view (r->sheet, &view);
+    }
   else if (strcmp (n, "col") == 0)
     {
       int min = attr_int (names, values, "min", 1) - 1;
@@ -3048,13 +3155,14 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     }
   else if (strcmp (n, "dataValidation") == 0)
     {
-      static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength" };
+      static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength", "custom" };
       static const char *ops[] = { "between", "notBetween", "equal", "notEqual",
                                    "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual" };
       const char *type = attr (names, values, "type");
       const char *op = attr (names, values, "operator");
       const char *sqref = attr (names, values, "sqref");
       const char *err_text = attr (names, values, "error");
+      const char *style = attr (names, values, "errorStyle");
       gsize used;
 
       memset (&r->dv, 0, sizeof r->dv);
@@ -3066,6 +3174,11 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         if (strcmp (op, ops[i]) == 0) r->dv.op = (O42CondOp) i;
       r->dv.allow_blank = attr_flag (names, values, "allowBlank");
       r->dv.message = g_strdup (err_text ? err_text : "");
+      r->dv.error_title = g_strdup (attr (names, values, "errorTitle") ? attr (names, values, "errorTitle") : "");
+      r->dv.prompt_title = g_strdup (attr (names, values, "promptTitle") ? attr (names, values, "promptTitle") : "");
+      r->dv.prompt = g_strdup (attr (names, values, "prompt") ? attr (names, values, "prompt") : "");
+      r->dv.error_style = style != NULL && strcmp (style, "warning") == 0 ? O42_VALID_WARNING
+                        : style != NULL && strcmp (style, "information") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
       r->dv.value = g_strdup ("");
       r->dv.value2 = g_strdup ("");
       if (sqref != NULL && o42_ref_parse (sqref, &r->dv.range.row0, &r->dv.range.col0, &used))
@@ -3096,6 +3209,9 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
                                    "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual" };
       r->in_cf_rule = TRUE;
       r->cf_is_cellis = type != NULL && strcmp (type, "cellIs") == 0 && op != NULL;
+      r->cf_is_expression = type != NULL && strcmp (type, "expression") == 0;
+      g_clear_pointer (&r->cf_exprs[0], g_free);
+      g_clear_pointer (&r->cf_exprs[1], g_free);
       r->cf_dxf = attr_int (names, values, "dxfId", -1);
       r->cf_n_formulas = 0;
       r->cf_op = O42_COND_EQUAL;
@@ -3314,8 +3430,8 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
       r->in_cf_formula = FALSE;
       if (end_ptr != NULL && *end_ptr == '\0' && r->cf_formula->len > 0 && r->cf_n_formulas < 2)
         r->cf_values[r->cf_n_formulas] = v;
-      else
-        r->cf_is_cellis = FALSE;   /* a formula, not a number: not a rule we keep */
+      else if (r->cf_n_formulas < 2 && r->cf_formula->len > 0)
+        r->cf_exprs[r->cf_n_formulas] = g_strconcat ("=", r->cf_formula->str, NULL);   /* a formula operand */
       r->cf_n_formulas++;
     }
   else if ((strcmp (n, "formula1") == 0 || strcmp (n, "formula2") == 0) && r->in_dv_formula)
@@ -3333,21 +3449,24 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
     {
       if (r->in_dv)
         o42_sheet_add_validation (r->sheet, &r->dv);
-      g_free (r->dv.value); g_free (r->dv.value2); g_free (r->dv.message);
+      g_free (r->dv.value); g_free (r->dv.value2); g_free (r->dv.message); g_free (r->dv.prompt_title); g_free (r->dv.prompt); g_free (r->dv.error_title);
       memset (&r->dv, 0, sizeof r->dv);
       r->in_dv = FALSE;
     }
   else if (strcmp (n, "cfRule") == 0)
     {
       r->in_cf_rule = FALSE;
-      if (r->cf_is_cellis && r->cf_have_range && r->cf_n_formulas >= 1 &&
+      if ((r->cf_is_cellis || r->cf_is_expression) && r->cf_have_range && r->cf_n_formulas >= 1 &&
           r->cf_dxf >= 0 && (guint) r->cf_dxf < r->dxfs->len)
         {
           O42Condition c = g_array_index (r->dxfs, O42Condition, r->cf_dxf);
           c.range = r->cf_range;
-          c.op = r->cf_op;
+          c.op = r->cf_is_expression ? O42_COND_EQUAL : r->cf_op;
+          c.is_formula = r->cf_is_expression;
           c.value = r->cf_values[0];
           c.value2 = r->cf_n_formulas >= 2 ? r->cf_values[1] : c.value;
+          c.expr1 = r->cf_exprs[0] != NULL ? g_intern_string (r->cf_exprs[0]) : NULL;
+          c.expr2 = r->cf_exprs[1] != NULL ? g_intern_string (r->cf_exprs[1]) : NULL;
           o42_sheet_add_condition (r->sheet, &c);
         }
     }
@@ -3555,6 +3674,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   r.rels = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.sheet_names = g_ptr_array_new_with_free_func (g_free);
   r.sheet_rids = g_ptr_array_new_with_free_func (g_free);
+  r.sheet_hidden = g_array_new (FALSE, FALSE, sizeof (guint));
   r.names = g_ptr_array_new_with_free_func (g_free);
   r.name_text = g_string_new (NULL);
   r.strings = g_ptr_array_new_with_free_func (g_free);
@@ -3621,6 +3741,8 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
             }
           else
             r.sheet = o42_book_add_sheet (book, sname, -1);
+          if (i < r.sheet_hidden->len && g_array_index (r.sheet_hidden, guint, i) != 0)
+            o42_sheet_set_hidden (r.sheet, TRUE);
 
           r.row = -1;
           r.col = -1;
@@ -3835,6 +3957,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_hash_table_unref (r.rels);
   g_ptr_array_unref (r.sheet_names);
   g_ptr_array_unref (r.sheet_rids);
+  g_array_unref (r.sheet_hidden);
   g_ptr_array_unref (r.names);
   g_string_free (r.name_text, TRUE);
   g_free (r.script_name);

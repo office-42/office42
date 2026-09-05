@@ -688,17 +688,24 @@ write_sheet (GString *out, O42Sheet *sheet)
   o42_sheet_used_range (sheet, &used);
   name = g_markup_escape_text (o42_sheet_get_name (sheet), -1);
 
+  {
+  char zoom_text[G_ASCII_DTOSTR_BUF_SIZE];
   g_string_append_printf (w.out,
-    "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"0\" HideGrid=\"0\" HideColHeader=\"0\" "
-    "HideRowHeader=\"0\" DisplayOutlines=\"1\" OutlineSymbolsBelow=\"1\" OutlineSymbolsRight=\"1\" "
-    "Visibility=\"GNM_SHEET_VISIBILITY_VISIBLE\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
-    "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\">\n"
+    "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"%d\" HideGrid=\"%d\" HideColHeader=\"0\" "
+    "HideRowHeader=\"0\" DisplayOutlines=\"%d\" OutlineSymbolsBelow=\"1\" OutlineSymbolsRight=\"1\" "
+    "Visibility=\"%s\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
+    "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\"%s>\n"
     "      <gnm:Name>%s</gnm:Name>\n"
     "      <gnm:MaxCol>%d</gnm:MaxCol>\n      <gnm:MaxRow>%d</gnm:MaxRow>\n"
-    "      <gnm:Zoom>1</gnm:Zoom>\n",
+    "      <gnm:Zoom>%s</gnm:Zoom>\n",
+    o42_sheet_view (sheet)->zeros ? 0 : 1, o42_sheet_view (sheet)->gridlines ? 0 : 1,
+    o42_sheet_view (sheet)->outline_symbols ? 1 : 0,
+    o42_sheet_hidden (sheet) ? "GNM_SHEET_VISIBILITY_HIDDEN" : "GNM_SHEET_VISIBILITY_VISIBLE",
     o42_sheet_protected (sheet) ? 1 : 0, o42_sheet_is_chart_sheet (sheet) ? 1 : 0,
     o42_sheet_tab_colour (sheet), o42_sheet_password_hash (sheet),
-    name, used.col1, used.row1);
+    o42_sheet_view (sheet)->right_to_left ? " RTL_Layout=\"1\"" : "",
+    name, used.col1, used.row1, g_ascii_formatd (zoom_text, sizeof zoom_text, "%g", o42_sheet_view (sheet)->zoom / 100.0));
+  }
 
   /* The print setup, in Gnumeric's own element and codes; the print
    * area is the sheet-level name Print_Area, as Gnumeric keeps it. */
@@ -865,7 +872,21 @@ write_sheet (GString *out, O42Sheet *sheet)
           "        <gnm:Style o42-conditional=\"1\">\n"
           "          <gnm:Condition Operator=\"%d\" Value0=\"%s\" Value1=\"%s\" o42-mask=\"%u\">\n",
           c->range.col0, c->range.row0, c->range.col1, c->range.row1,
-          (int) c->op, v0, v1, (unsigned) c->mask);
+          c->is_formula ? 8 : (int) c->op, v0, v1, (unsigned) c->mask);
+        /* The operands as Gnumeric writes them, without the '=': a
+         * formula, or the number itself. */
+        for (int k = 0; k < 2; k++)
+          {
+            const char *expr = k == 0 ? c->expr1 : c->expr2;
+            gboolean wanted = k == 0 ? TRUE : (c->op == O42_COND_BETWEEN || c->op == O42_COND_NOT_BETWEEN) && !c->is_formula;
+            char *escaped;
+
+            if (!wanted)
+              continue;
+            escaped = g_markup_escape_text (expr != NULL ? expr + (expr[0] == '=') : (k == 0 ? v0 : v1), -1);
+            g_string_append_printf (w.out, "            <gnm:Expression%d>%s</gnm:Expression%d>\n", k, escaped, k);
+            g_free (escaped);
+          }
         {
           /* The style inside is written the ordinary way, indented a
            * little wrongly, which XML does not mind. */
@@ -912,21 +933,31 @@ write_sheet (GString *out, O42Sheet *sheet)
           e0 = g_markup_escape_text (v->value ? v->value : "", -1);
         e1 = g_markup_escape_text (v->value2 ? v->value2 : "", -1);
 
-        g_string_append_printf (w.out,
-          "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
-          "        <gnm:Style o42-validation=\"1\">\n"
-          "          <gnm:Validation Style=\"1\" Type=\"%d\" Operator=\"%d\" AllowBlank=\"%d\" "
-          "UseDropdown=\"%d\" Title=\"\" Message=\"%s\">\n"
-          "            <gnm:Expression0>%s</gnm:Expression0>\n",
-          v->range.col0, v->range.row0, v->range.col1, v->range.row1,
-          (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0, v->kind == O42_VALID_LIST ? 1 : 0,
-          message, e0);
-        if (v->value2 != NULL && v->value2[0] != '\0')
-          g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
-        g_string_append (w.out,
-          "          </gnm:Validation>\n"
-          "        </gnm:Style>\n"
-          "      </gnm:StyleRegion>\n");
+        {
+          char *title = g_markup_escape_text (v->error_title ? v->error_title : "", -1);
+          char *pt = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+          char *pr = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+
+          /* Gnumeric's Style: 0 none, 1 stop, 2 warning, 3 information. */
+          g_string_append_printf (w.out,
+            "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
+            "        <gnm:Style o42-validation=\"1\">\n"
+            "          <gnm:Validation Style=\"%d\" Type=\"%d\" Operator=\"%d\" AllowBlank=\"%d\" "
+            "UseDropdown=\"%d\" Title=\"%s\" Message=\"%s\">\n"
+            "            <gnm:Expression0>%s</gnm:Expression0>\n",
+            v->range.col0, v->range.row0, v->range.col1, v->range.row1,
+            (int) v->error_style + 1, (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0,
+            v->kind == O42_VALID_LIST ? 1 : 0, title, message, e0);
+          if (v->value2 != NULL && v->value2[0] != '\0')
+            g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
+          g_string_append (w.out, "          </gnm:Validation>\n");
+          if (pt[0] != '\0' || pr[0] != '\0')
+            g_string_append_printf (w.out, "          <gnm:InputMessage Title=\"%s\" Message=\"%s\"/>\n", pt, pr);
+          g_string_append (w.out,
+            "        </gnm:Style>\n"
+            "      </gnm:StyleRegion>\n");
+          g_free (title); g_free (pt); g_free (pr);
+        }
         g_free (message);
         g_free (e0);
         g_free (e1);
@@ -1201,10 +1232,15 @@ write_sheet (GString *out, O42Sheet *sheet)
       }
   }
 
-  g_string_append (w.out,
-    "      <gnm:Selections CursorCol=\"0\" CursorRow=\"0\">\n"
-    "        <gnm:Selection startCol=\"0\" startRow=\"0\" endCol=\"0\" endRow=\"0\"/>\n"
-    "      </gnm:Selections>\n");
+  {
+    const O42SheetView *view = o42_sheet_view (sheet);
+    g_string_append_printf (w.out,
+      "      <gnm:Selections CursorCol=\"%d\" CursorRow=\"%d\">\n"
+      "        <gnm:Selection startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\"/>\n"
+      "      </gnm:Selections>\n",
+      view->active_col, view->active_row, view->selection.col0, view->selection.row0,
+      view->selection.col1, view->selection.row1);
+  }
 
   {
     GPtrArray *pictures = o42_sheet_pictures (sheet);
@@ -1473,9 +1509,15 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
       g_string_append (out, "  </gnm:o42-Scripts>\n");
     }
 
-  g_string_append (out,
-    "  <gnm:UIData SelectedTab=\"0\"/>\n"
-    "</gnm:Workbook>\n");
+  {
+    int active_tab = 0;
+    for (int i = 0; i < o42_book_n_sheets (book); i++)
+      if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+        { active_tab = i; break; }
+    g_string_append_printf (out,
+      "  <gnm:UIData SelectedTab=\"%d\"/>\n"
+      "</gnm:Workbook>\n", active_tab);
+  }
 
   ok = write_gzipped (file, out->str, out->len, error);
   g_string_free (out, TRUE);
@@ -1508,6 +1550,7 @@ typedef struct {
   O42FmtMask  style_mask;
   gboolean    in_names;         /* inside gnm:Names */
   gboolean    in_print_info;    /* inside gnm:PrintInformation */
+  gboolean    saw_selection;    /* the sheet's first gnm:Selection was read */
   int         print_text;       /* 1 in its order, 2 orientation, 3 paper */
   GString    *text;             /* what they say */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
@@ -1538,6 +1581,10 @@ typedef struct {
 
   /* A gnm:Condition inside it: the style that follows is the rule's. */
   gboolean    in_condition;
+  gboolean    condition_has_value;   /* Value0 was given: a number, ours */
+  char       *pending_prompt_title;  /* a gnm:InputMessage read */
+  char       *pending_prompt;
+  int         last_validation;       /* the rule just added, for its InputMessage */
   O42Condition condition;
   gboolean    region_is_conditional;   /* a region we wrote for a rule only */
   GString    *font_name;
@@ -1701,6 +1748,46 @@ start_element (GMarkupParseContext *context, const char *element,
   if (r->sheet != NULL && strcmp (name, "PrintInformation") == 0)
     {
       r->in_print_info = TRUE;
+      return;
+    }
+
+  if (r->sheet != NULL && !r->in_print_info && strcmp (name, "Zoom") == 0)
+    {
+      g_string_truncate (r->text, 0);
+      r->print_text = 4;
+      return;
+    }
+
+  if (r->sheet != NULL && (strcmp (name, "Selections") == 0 || strcmp (name, "Selection") == 0))
+    {
+      O42SheetView view = *o42_sheet_view (r->sheet);
+
+      if (name[9] == 's')
+        {
+          view.active_col = attr_int (names, values, "CursorCol", 0);
+          view.active_row = attr_int (names, values, "CursorRow", 0);
+        }
+      else if (!r->saw_selection)
+        {
+          view.selection = o42_range_normalise (attr_int (names, values, "startRow", 0),
+                                                attr_int (names, values, "startCol", 0),
+                                                attr_int (names, values, "endRow", 0),
+                                                attr_int (names, values, "endCol", 0));
+          r->saw_selection = TRUE;
+        }
+      o42_sheet_set_view (r->sheet, &view);
+      return;
+    }
+
+  if (strcmp (name, "UIData") == 0)
+    {
+      int tab = attr_int (names, values, "SelectedTab", 0);
+      for (int i = 0; i < o42_book_n_sheets (r->book); i++)
+        {
+          O42SheetView view = *o42_sheet_view (o42_book_sheet (r->book, i));
+          view.selected = i == tab;
+          o42_sheet_set_view (o42_book_sheet (r->book, i), &view);
+        }
       return;
     }
 
@@ -1968,6 +2055,7 @@ start_element (GMarkupParseContext *context, const char *element,
     {
       /* The book starts with one sheet; that one takes the file's first
        * and the rest are added after it. */
+      r->saw_selection = FALSE;
       r->sheet_index++;
       if (r->sheet_index == 1)
         r->sheet = o42_book_sheet (r->book, 0);
@@ -1976,6 +2064,19 @@ start_element (GMarkupParseContext *context, const char *element,
       if (r->sheet != NULL)
         {
           o42_sheet_set_protected (r->sheet, attr_int (names, values, "o42-Protected", 0) != 0);
+          {
+            O42SheetView view = *o42_sheet_view (r->sheet);
+            view.zeros = attr_int (names, values, "HideZero", 0) == 0;
+            view.gridlines = attr_int (names, values, "HideGrid", 0) == 0;
+            view.outline_symbols = attr_int (names, values, "DisplayOutlines", 1) != 0;
+            view.right_to_left = attr_int (names, values, "RTL_Layout", 0) != 0;
+            o42_sheet_set_view (r->sheet, &view);
+          }
+          {
+            const char *vis = attr (names, values, "Visibility");
+            if (vis != NULL && strcmp (vis, "GNM_SHEET_VISIBILITY_VISIBLE") != 0)
+              o42_sheet_set_hidden (r->sheet, TRUE);
+          }
           o42_sheet_set_chart_sheet (r->sheet, attr_int (names, values, "o42-chart-sheet", 0) != 0);
           {
             const char *tab = attr (names, values, "o42-tab-colour");
@@ -2028,9 +2129,44 @@ start_element (GMarkupParseContext *context, const char *element,
       v->op = (O42CondOp) attr_int (names, values, "Operator", 0);
       v->allow_blank = attr_int (names, values, "AllowBlank", 1) != 0;
       v->message = g_strdup (attr (names, values, "Message") ? attr (names, values, "Message") : "");
+      v->error_title = g_strdup (attr (names, values, "Title") ? attr (names, values, "Title") : "");
+      v->error_style = (O42ValidStyle) CLAMP (attr_int (names, values, "Style", 1) - 1, 0, 2);
+      v->prompt_title = g_strdup (r->pending_prompt_title != NULL ? r->pending_prompt_title : "");
+      v->prompt = g_strdup (r->pending_prompt != NULL ? r->pending_prompt : "");
       v->value = g_strdup ("");
       v->value2 = g_strdup ("");
       r->in_validation = TRUE;
+      return;
+    }
+
+  if (r->in_style && strcmp (name, "InputMessage") == 0)
+    {
+      /* Gnumeric writes the input message after the Validation; ours
+       * are kept for the rule when the region closes, theirs for the
+       * validation already read. */
+      const char *t = attr (names, values, "Title"), *m = attr (names, values, "Message");
+
+      g_free (r->pending_prompt_title); g_free (r->pending_prompt);
+      r->pending_prompt_title = g_strdup (t != NULL ? t : "");
+      r->pending_prompt = g_strdup (m != NULL ? m : "");
+      if (r->last_validation >= 0 && r->sheet != NULL)
+        {
+          GArray *rules = o42_sheet_validations (r->sheet);
+          if ((guint) r->last_validation < rules->len)
+            {
+              O42Validation *v = &g_array_index (rules, O42Validation, r->last_validation);
+              g_free (v->prompt_title); g_free (v->prompt);
+              v->prompt_title = g_strdup (r->pending_prompt_title);
+              v->prompt = g_strdup (r->pending_prompt);
+            }
+        }
+      return;
+    }
+
+  if (r->in_condition && (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
+    {
+      r->expr_index = name[10] - '0';
+      g_string_truncate (r->expr, 0);
       return;
     }
 
@@ -2046,9 +2182,12 @@ start_element (GMarkupParseContext *context, const char *element,
       r->in_condition = TRUE;
       memset (&r->condition, 0, sizeof r->condition);
       r->condition.range = r->region;
-      r->condition.op = (O42CondOp) attr_int (names, values, "Operator", 0);
+      r->condition.op = (O42CondOp) MIN (attr_int (names, values, "Operator", 0), 7);
+      r->condition.is_formula = attr_int (names, values, "Operator", 0) == 8;
       r->condition.value = attr_double (names, values, "Value0", 0);
       r->condition.value2 = attr_double (names, values, "Value1", 0);
+      r->condition.expr1 = r->condition.expr2 = NULL;
+      r->condition_has_value = attr (names, values, "Value0") != NULL;
       r->condition.mask = (O42FmtMask) attr_int (names, values, "o42-mask", 0);
       o42_fmt_init_default (&r->condition.fmt);
       /* The nested style is read into fmt/mask like any other; it is
@@ -2828,6 +2967,17 @@ end_element (GMarkupParseContext *context, const char *element,
       O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
       char *v = g_strstrip (g_strdup (r->text->str));
 
+      if (r->print_text == 4)
+        {
+          O42SheetView view = *o42_sheet_view (r->sheet);
+          double zoom = g_ascii_strtod (v, NULL);
+          if (zoom > 0)
+            view.zoom = (int) (zoom * 100 + 0.5);
+          o42_sheet_set_view (r->sheet, &view);
+          g_free (v);
+          r->print_text = 0;
+          return;
+        }
       if (r->print_text == 1)
         ps.down_then_over = strcmp (v, "r_then_d") != 0;
       else if (r->print_text == 2)
@@ -2996,6 +3146,30 @@ end_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (r->in_condition && r->expr_index >= 0 &&
+      (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
+    {
+      /* A number stands as itself; anything else is a formula operand,
+       * Gnumeric's or ours.  Our own Value0 already gave the number. */
+      const char *text = r->expr->str;
+      char *end_ptr = NULL;
+      double v = g_ascii_strtod (text, &end_ptr);
+
+      if (*text != '\0' && end_ptr != NULL && *end_ptr == '\0' && !r->condition.is_formula)
+        {
+          if (r->expr_index == 0) r->condition.value = v; else r->condition.value2 = v;
+        }
+      else if (*text != '\0')
+        {
+          char *eq = g_strconcat (text[0] == '=' ? "" : "=", text, NULL);
+          if (r->expr_index == 0) r->condition.expr1 = g_intern_string (eq);
+          else r->condition.expr2 = g_intern_string (eq);
+          g_free (eq);
+        }
+      r->expr_index = -1;
+      return;
+    }
+
   if (r->in_validation && (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
     {
       char *text = g_strdup (r->expr->str);
@@ -3019,11 +3193,20 @@ end_element (GMarkupParseContext *context, const char *element,
   if (strcmp (name, "Validation") == 0 && r->in_validation)
     {
       r->in_validation = FALSE;
+      r->last_validation = -1;
       if (r->validation.kind != O42_VALID_ANY && r->validation.range.row1 - r->validation.range.row0 < 2000)
-        o42_sheet_add_validation (r->sheet, &r->validation);
+        {
+          o42_sheet_add_validation (r->sheet, &r->validation);
+          r->last_validation = (int) o42_sheet_validations (r->sheet)->len - 1;
+        }
       g_free (r->validation.value);
       g_free (r->validation.value2);
       g_free (r->validation.message);
+      g_free (r->validation.prompt_title);
+      g_free (r->validation.prompt);
+      g_free (r->validation.error_title);
+      g_clear_pointer (&r->pending_prompt_title, g_free);
+      g_clear_pointer (&r->pending_prompt, g_free);
       memset (&r->validation, 0, sizeof r->validation);
       return;
     }
@@ -3315,7 +3498,7 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     g_string_append_len (r->cell_text, text, (gssize) length);
   else if (r->in_merge)
     g_string_append_len (r->merge, text, (gssize) length);
-  else if (r->in_validation && r->expr_index >= 0)
+  else if ((r->in_validation || r->in_condition) && r->expr_index >= 0)
     g_string_append_len (r->expr, text, (gssize) length);
   else if (r->in_dimension)
     g_string_append_len (r->dimension, text, (gssize) length);
@@ -3404,6 +3587,7 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   r.merge = g_string_new (NULL);
   r.expr = g_string_new (NULL);
   r.expr_index = -1;
+  r.last_validation = -1;
   r.dimension = g_string_new (NULL);
   r.graph_title = g_string_new (NULL);
   r.shape_text = g_string_new (NULL);

@@ -1339,6 +1339,31 @@ o42_grid_get_selection (O42Grid *self, O42Range *range)
 }
 
 void
+o42_grid_set_cursor (O42Grid *self, const O42Range *range, int active_row, int active_col)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  g_return_if_fail (range != NULL);
+
+  selection_forget_extras (self);
+  self->anchor_row = CLAMP (range->row0, 0, O42_MAX_ROWS - 1);
+  self->anchor_col = CLAMP (range->col0, 0, O42_MAX_COLS - 1);
+  self->active_row = CLAMP (range->row1, 0, O42_MAX_ROWS - 1);
+  self->active_col = CLAMP (range->col1, 0, O42_MAX_COLS - 1);
+  /* The active cell may be any corner of the selection; the anchor is
+   * the opposite one. */
+  if (o42_range_contains (range, active_row, active_col))
+    {
+      self->active_row = active_row;
+      self->active_col = active_col;
+      self->anchor_row = active_row == range->row0 ? range->row1 : range->row0;
+      self->anchor_col = active_col == range->col0 ? range->col1 : range->col0;
+    }
+  self->selected_picture = 0;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+  selection_changed (self);
+}
+
+void
 o42_grid_select_range (O42Grid *self, const O42Range *range)
 {
   g_return_if_fail (O42_IS_GRID (self));

@@ -400,6 +400,14 @@ typedef struct {
   double      value2;
   O42FmtMask  mask;
   O42Fmt      fmt;
+  /* Excel's other forms: an operand that is a formula rather than a
+   * number ("=$B$1" or "=A1*2", interned, NULL for the number), read
+   * as standing in the range's top-left cell and moved with each cell
+   * as a copied formula would be; and a rule that is a formula of its
+   * own, true or false, in expr1. */
+  const char *expr1;
+  const char *expr2;
+  gboolean    is_formula;
 } O42Condition;
 
 void       o42_sheet_add_condition    (O42Sheet *sheet, const O42Condition *cond);
@@ -409,6 +417,10 @@ GArray    *o42_sheet_conditions       (O42Sheet *sheet);   /* O42Condition, owne
 /* The format a cell shows with its conditions applied, in `out`; FALSE
  * (and `out` untouched) when no rule applies. */
 gboolean   o42_sheet_conditional_fmt  (O42Sheet *sheet, int row, int col, O42Fmt *out);
+
+/* Whether a rule holds for a cell: what o42_sheet_conditional_fmt asks
+ * of each rule, for anything else that wants to know. */
+gboolean   o42_sheet_condition_holds  (O42Sheet *sheet, const O42Condition *cond, int row, int col);
 
 /* ---- Outline groups ------------------------------------------------------ */
 
@@ -693,6 +705,30 @@ gboolean   o42_sheet_table_range  (O42Sheet *sheet, const char *text, int row, O
 void    o42_sheet_set_tab_colour (O42Sheet *sheet, guint32 colour);
 guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
 
+/* Format > Sheet > Hide: the sheet keeps everything, formulas still
+ * reach it, but it has no tab.  Every file format carries it. */
+void     o42_sheet_set_hidden (O42Sheet *sheet, gboolean hidden);
+gboolean o42_sheet_hidden     (O42Sheet *sheet);
+
+/* How the sheet is looked at, which Excel keeps per sheet and every
+ * format carries: the zoom, whether gridlines and zeros show, the
+ * active cell and the selection, and whether this is the sheet the
+ * book opens on.  The window reads it when it shows the sheet and
+ * writes it back as the user moves about. */
+typedef struct {
+  int       zoom;             /* per cent; 100 */
+  gboolean  gridlines;        /* shown */
+  gboolean  zeros;            /* shown */
+  gboolean  right_to_left;
+  gboolean  outline_symbols;
+  int       active_row, active_col;
+  O42Range  selection;
+  gboolean  selected;         /* the book opens on this sheet */
+} O42SheetView;
+
+const O42SheetView *o42_sheet_view     (O42Sheet *sheet);
+void                o42_sheet_set_view (O42Sheet *sheet, const O42SheetView *view);
+
 /* ---- Auditing --------------------------------------------------------- */
 
 /* What a cell's formula reads, and which cells read it, both as
@@ -784,8 +820,17 @@ typedef enum {
   O42_VALID_LIST,
   O42_VALID_DATE,
   O42_VALID_TIME,
-  O42_VALID_LENGTH
+  O42_VALID_LENGTH,
+  O42_VALID_CUSTOM            /* `value` is a formula, true or false, read as
+                               * standing in the range's top-left cell */
 } O42ValidKind;
+
+/* What refusing an entry does: Excel's Stop, Warning and Information. */
+typedef enum {
+  O42_VALID_STOP = 0,
+  O42_VALID_WARNING,
+  O42_VALID_INFORMATION
+} O42ValidStyle;
 
 typedef struct {
   O42Range      range;
@@ -795,6 +840,10 @@ typedef struct {
   char         *value2;
   char         *message;      /* shown when an entry is refused; may be NULL */
   gboolean      allow_blank;
+  char         *prompt_title; /* the input message, shown when the cell is chosen; may be NULL */
+  char         *prompt;
+  char         *error_title;  /* the refusal's title; may be NULL */
+  O42ValidStyle error_style;
 } O42Validation;
 
 void       o42_sheet_add_validation    (O42Sheet *sheet, const O42Validation *v);   /* copies */

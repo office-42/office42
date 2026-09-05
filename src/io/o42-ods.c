@@ -495,13 +495,13 @@ length_cm (int px)
  * the sheet prints on; ODF hangs it off table:style-name the way a
  * column hangs off a column style. */
 static char *
-table_style (Styles *s, guint32 colour, int index)
+table_style (Styles *s, guint32 colour, int index, gboolean shown)
 {
   char *name = g_strdup_printf ("ta%d", ++s->next_ta);
 
   g_string_append_printf (s->styles,
     "<style:style style:name=\"%s\" style:family=\"table\" style:master-page-name=\"MP%d\">"
-    "<style:table-properties table:display=\"true\"", name, index + 1);
+    "<style:table-properties table:display=\"%s\"", name, index + 1, shown ? "true" : "false");
   if (colour != O42_TAB_NO_COLOUR)
     g_string_append_printf (s->styles, " table:tab-color=\"#%06x\"", colour & 0xFFFFFF);
   g_string_append (s->styles, "/></style:style>");
@@ -1561,7 +1561,7 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
   {
     guint32 tab = o42_sheet_tab_colour (sheet);
     const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
-    char *style = table_style (s, tab, sheet_index);
+    char *style = table_style (s, tab, sheet_index, !o42_sheet_hidden (sheet));
 
     write_page_style (s, sheet, sheet_index);
     g_string_append_printf (out, "<table:table table:name=\"%s\" table:style-name=\"%s\"", name, style);
@@ -1727,10 +1727,18 @@ write_settings (GString *out, O42Book *book)
   for (int i = 0; i < o42_book_n_sheets (book); i++)
     {
       O42Sheet *sheet = o42_book_sheet (book, i);
+      const O42SheetView *view = o42_sheet_view (sheet);
       int rows = 0, cols = 0;
       char *name = g_markup_escape_text (o42_sheet_get_name (sheet), -1);
       o42_sheet_get_frozen (sheet, &rows, &cols);
       g_string_append_printf (out, "<config:config-item-map-entry config:name=\"%s\">", name);
+      g_string_append_printf (out,
+        "<config:config-item config:name=\"CursorPositionX\" config:type=\"int\">%d</config:config-item>"
+        "<config:config-item config:name=\"CursorPositionY\" config:type=\"int\">%d</config:config-item>"
+        "<config:config-item config:name=\"ZoomType\" config:type=\"short\">0</config:config-item>"
+        "<config:config-item config:name=\"ZoomValue\" config:type=\"int\">%d</config:config-item>"
+        "<config:config-item config:name=\"ShowGrid\" config:type=\"boolean\">%s</config:config-item>",
+        view->active_col, view->active_row, view->zoom, view->gridlines ? "true" : "false");
       if (rows > 0 || cols > 0)
         g_string_append_printf (out,
           "<config:config-item config:name=\"HorizontalSplitMode\" config:type=\"short\">%d</config:config-item>"
@@ -1745,7 +1753,27 @@ write_settings (GString *out, O42Book *book)
       g_string_append (out, "</config:config-item-map-entry>");
       g_free (name);
     }
-  g_string_append (out, "</config:config-item-map-named></config:config-item-map-entry></config:config-item-map-indexed>"
+  g_string_append (out, "</config:config-item-map-named>");
+  {
+    /* The sheet the book opens on, and what shows, which LibreOffice
+     * keeps once for the view: the shown sheet's say. */
+    O42Sheet *shown = o42_book_sheet (book, 0);
+    char *name;
+
+    for (int i = 0; i < o42_book_n_sheets (book); i++)
+      if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+        { shown = o42_book_sheet (book, i); break; }
+    name = g_markup_escape_text (o42_sheet_get_name (shown), -1);
+    g_string_append_printf (out,
+      "<config:config-item config:name=\"ActiveTable\" config:type=\"string\">%s</config:config-item>"
+      "<config:config-item config:name=\"ZoomValue\" config:type=\"int\">%d</config:config-item>"
+      "<config:config-item config:name=\"ShowGrid\" config:type=\"boolean\">%s</config:config-item>"
+      "<config:config-item config:name=\"ShowZeroValues\" config:type=\"boolean\">%s</config:config-item>",
+      name, o42_sheet_view (shown)->zoom, o42_sheet_view (shown)->gridlines ? "true" : "false",
+      o42_sheet_view (shown)->zeros ? "true" : "false");
+    g_free (name);
+  }
+  g_string_append (out, "</config:config-item-map-entry></config:config-item-map-indexed>"
                         "</config:config-item-set></office:settings></office:document-settings>");
 }
 
@@ -1987,6 +2015,7 @@ typedef struct {
   int      width;          /* columns: px, or 0 */
   int      height;         /* rows: px, or 0 */
   guint32  tab_colour;     /* tables: the tab's colour, or O42_TAB_NO_COLOUR */
+  gboolean table_hidden;   /* tables: table:display="false" */
   gboolean page_break;     /* rows and columns: fo:break-before="page" */
   char    *master_page;    /* tables: the master page they print on */
 
@@ -2082,6 +2111,8 @@ typedef struct {
   char       *setting_name;
   GString    *setting_value;
   int         split_cols, split_rows, hmode, vmode;
+  int         setting_cursor_x, setting_cursor_y, setting_zoom, setting_grid;
+  int         view_zeros;
 } Reader;
 
 static const char *
@@ -3366,9 +3397,11 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       if (strcmp (name, "table-properties") == 0)
         {
           const char *tab = attr (names, values, "tab-color");
+          const char *display = attr (names, values, "display");
 
           if (tab != NULL)
             st->tab_colour = colour_of (tab, O42_TAB_NO_COLOUR);
+          st->table_hidden = display != NULL && strcmp (display, "false") == 0;
         }
       else if (strcmp (name, "table-column-properties") == 0)
         {
@@ -3633,6 +3666,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
 
         if (st != NULL && st->tab_colour != O42_TAB_NO_COLOUR && r->sheet != NULL)
           o42_sheet_set_tab_colour (r->sheet, st->tab_colour);
+        if (st != NULL && st->table_hidden && r->sheet != NULL)
+          o42_sheet_set_hidden (r->sheet, TRUE);
         if (pl != NULL && r->sheet != NULL)
           {
             /* The header band takes the body down from the paper's edge
@@ -3978,6 +4013,9 @@ settings_start (GMarkupParseContext *ctx, const char *element, const char **name
       g_free (r->setting_table);
       r->setting_table = g_strdup (attr (names, values, "name"));
       r->split_cols = r->split_rows = r->hmode = r->vmode = 0;
+      r->setting_cursor_x = r->setting_cursor_y = 0;
+      r->setting_zoom = 0;
+      r->setting_grid = -1;
     }
   else if (strcmp (name, "config-item") == 0)
     {
@@ -3997,10 +4035,45 @@ settings_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErr
   if (strcmp (name, "config-item") == 0 && r->setting_name != NULL && r->setting_value != NULL)
     {
       int v = atoi (r->setting_value->str);
+      gboolean truth = strcmp (r->setting_value->str, "true") == 0;
       if (strcmp (r->setting_name, "HorizontalSplitMode") == 0) r->hmode = v;
       else if (strcmp (r->setting_name, "VerticalSplitMode") == 0) r->vmode = v;
       else if (strcmp (r->setting_name, "HorizontalSplitPosition") == 0) r->split_cols = v;
       else if (strcmp (r->setting_name, "VerticalSplitPosition") == 0) r->split_rows = v;
+      else if (strcmp (r->setting_name, "CursorPositionX") == 0) r->setting_cursor_x = v;
+      else if (strcmp (r->setting_name, "CursorPositionY") == 0) r->setting_cursor_y = v;
+      else if (strcmp (r->setting_name, "ZoomValue") == 0) r->setting_zoom = v;
+      else if (strcmp (r->setting_name, "ShowGrid") == 0) r->setting_grid = truth ? 1 : 0;
+      else if (strcmp (r->setting_name, "ShowZeroValues") == 0 && r->setting_table == NULL)
+        r->view_zeros = truth ? 1 : 0;
+      else if (strcmp (r->setting_name, "ActiveTable") == 0 && r->setting_table == NULL)
+        {
+          O42Sheet *sheet = o42_book_find_sheet (r->book, r->setting_value->str);
+          for (int i = 0; sheet != NULL && i < o42_book_n_sheets (r->book); i++)
+            {
+              O42SheetView view = *o42_sheet_view (o42_book_sheet (r->book, i));
+              view.selected = o42_book_sheet (r->book, i) == sheet;
+              o42_sheet_set_view (o42_book_sheet (r->book, i), &view);
+            }
+        }
+      /* The view's own ZoomValue and ShowGrid, outside any table, are
+       * the shown sheet's; the tables' own entries came first. */
+      if (r->setting_table == NULL &&
+          (strcmp (r->setting_name, "ZoomValue") == 0 || strcmp (r->setting_name, "ShowGrid") == 0 ||
+           strcmp (r->setting_name, "ShowZeroValues") == 0))
+        for (int i = 0; i < o42_book_n_sheets (r->book); i++)
+          {
+            O42Sheet *sheet = o42_book_sheet (r->book, i);
+            O42SheetView view = *o42_sheet_view (sheet);
+            gboolean any_shown = FALSE;
+            for (int k = 0; k < o42_book_n_sheets (r->book); k++)
+              any_shown = any_shown || o42_sheet_view (o42_book_sheet (r->book, k))->selected;
+            if (strcmp (r->setting_name, "ShowZeroValues") == 0) view.zeros = truth;
+            else if (any_shown && !view.selected) continue;
+            else if (strcmp (r->setting_name, "ZoomValue") == 0 && v > 0) view.zoom = v;
+            else if (strcmp (r->setting_name, "ShowGrid") == 0) view.gridlines = truth;
+            o42_sheet_set_view (sheet, &view);
+          }
       g_clear_pointer (&r->setting_name, g_free);
     }
   else if (strcmp (name, "config-item-map-entry") == 0 && r->setting_table != NULL)
@@ -4008,6 +4081,16 @@ settings_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErr
       O42Sheet *sheet = o42_book_find_sheet (r->book, r->setting_table);
       if (sheet != NULL && (r->hmode == 2 || r->vmode == 2))
         o42_sheet_set_frozen (sheet, r->vmode == 2 ? r->split_rows : 0, r->hmode == 2 ? r->split_cols : 0);
+      if (sheet != NULL)
+        {
+          O42SheetView view = *o42_sheet_view (sheet);
+          view.active_row = r->setting_cursor_y;
+          view.active_col = r->setting_cursor_x;
+          view.selection = o42_range_normalise (view.active_row, view.active_col, view.active_row, view.active_col);
+          if (r->setting_zoom > 0) view.zoom = r->setting_zoom;
+          if (r->setting_grid >= 0) view.gridlines = r->setting_grid != 0;
+          o42_sheet_set_view (sheet, &view);
+        }
       g_clear_pointer (&r->setting_table, g_free);
     }
 }

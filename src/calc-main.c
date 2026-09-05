@@ -466,6 +466,63 @@ main (int argc, char *argv[])
           continue;
         }
 
+      if (g_str_has_prefix (text, "hidesheet ") || g_str_has_prefix (text, "unhidesheet "))
+        {
+          const char *nm = text[0] == 'h' ? text + 10 : text + 12;
+          O42Sheet *target = o42_book_find_sheet (book, nm);
+          if (target == NULL)
+            fprintf (stderr, "no sheet %s\n", nm);
+          else
+            o42_sheet_set_hidden (target, text[0] == 'h');
+          continue;
+        }
+
+      /* viewopt zoom N | gridlines on|off | zeros on|off; viewinfo */
+      if (g_str_has_prefix (text, "viewopt "))
+        {
+          O42SheetView view = *o42_sheet_view (sheet);
+          char **w = g_strsplit (text + 8, " ", -1);
+          if (g_strv_length (w) >= 2 && strcmp (w[0], "zoom") == 0) view.zoom = atoi (w[1]);
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "gridlines") == 0) view.gridlines = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "zeros") == 0) view.zeros = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "rtl") == 0) view.right_to_left = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 1 && strcmp (w[0], "shown") == 0)
+            {
+              for (int i = 0; i < o42_book_n_sheets (book); i++)
+                {
+                  O42SheetView other = *o42_sheet_view (o42_book_sheet (book, i));
+                  other.selected = o42_book_sheet (book, i) == sheet;
+                  o42_sheet_set_view (o42_book_sheet (book, i), &other);
+                }
+              view.selected = TRUE;
+            }
+          else
+            fprintf (stderr, "usage: viewopt zoom N | gridlines on|off | zeros on|off | rtl on|off | shown\n");
+          o42_sheet_set_view (sheet, &view);
+          g_strfreev (w);
+          continue;
+        }
+      if (strcmp (text, "viewinfo") == 0)
+        {
+          const O42SheetView *view = o42_sheet_view (sheet);
+          char *a = o42_ref_name (view->active_row, view->active_col);
+          char *b = o42_ref_name (view->selection.row0, view->selection.col0);
+          char *c = o42_ref_name (view->selection.row1, view->selection.col1);
+          printf ("zoom %d gridlines %s zeros %s rtl %s active %s selection %s:%s%s\n", view->zoom,
+                  view->gridlines ? "on" : "off", view->zeros ? "on" : "off", view->right_to_left ? "on" : "off",
+                  a, b, c, view->selected ? " shown" : "");
+          g_free (a); g_free (b); g_free (c);
+          continue;
+        }
+
+      if (strcmp (text, "sheets") == 0)
+        {
+          for (int i = 0; i < o42_book_n_sheets (book); i++)
+            printf ("%s%s\n", o42_sheet_get_name (o42_book_sheet (book, i)),
+                    o42_sheet_hidden (o42_book_sheet (book, i)) ? " (hidden)" : "");
+          continue;
+        }
+
       if (strcmp (text, "delsheet") == 0)
         {
           if (o42_book_remove_sheet (book, o42_book_sheet_index (book, sheet)))
@@ -1102,6 +1159,14 @@ main (int argc, char *argv[])
               calc_selection.range = r;
               calc_selection.row = arow;
               calc_selection.col = acol;
+              {
+                /* The sheet's own view remembers it, as the window's grid would. */
+                O42SheetView view = *o42_sheet_view (sheet);
+                view.selection = r;
+                view.active_row = arow;
+                view.active_col = acol;
+                o42_sheet_set_view (sheet, &view);
+              }
               o42_book_record_selection (book, o42_sheet_get_name (sheet), &r, arow, acol);
             }
           else
@@ -2891,7 +2956,7 @@ main (int argc, char *argv[])
           int n = (int) g_strv_length (words);
           O42Validation v;
           gsize len = 0;
-          static const char *kinds[] = { "any", "whole", "decimal", "list", "date", "time", "length" };
+          static const char *kinds[] = { "any", "whole", "decimal", "list", "date", "time", "length", "custom" };
           static const char *ops[] = { "between", "!between", "=", "<>", ">", "<", ">=", "<=" };
 
           memset (&v, 0, sizeof v);
@@ -2906,7 +2971,7 @@ main (int argc, char *argv[])
               v.range = o42_range_normalise (v.range.row0, v.range.col0, v.range.row1, v.range.col1);
               for (guint i = 0; i < G_N_ELEMENTS (kinds); i++)
                 if (strcmp (words[1], kinds[i]) == 0) v.kind = (O42ValidKind) i;
-              if (v.kind == O42_VALID_LIST)
+              if (v.kind == O42_VALID_LIST || v.kind == O42_VALID_CUSTOM)
                 v.value = words[2], next = 3;
               else
                 {
@@ -2917,8 +2982,19 @@ main (int argc, char *argv[])
                   if ((v.op == O42_COND_BETWEEN || v.op == O42_COND_NOT_BETWEEN) && n > 4)
                     v.value2 = words[4], next = 5;
                 }
+              /* The message may carry title=... prompt=... prompttitle=...
+               * style=stop|warning|info words before the text. */
               for (int i = next; i < n; i++)
                 {
+                  if (g_str_has_prefix (words[i], "title=")) { v.error_title = words[i] + 6; continue; }
+                  if (g_str_has_prefix (words[i], "prompt=")) { v.prompt = words[i] + 7; continue; }
+                  if (g_str_has_prefix (words[i], "prompttitle=")) { v.prompt_title = words[i] + 12; continue; }
+                  if (g_str_has_prefix (words[i], "style="))
+                    {
+                      v.error_style = strcmp (words[i] + 6, "warning") == 0 ? O42_VALID_WARNING
+                                    : strcmp (words[i] + 6, "info") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+                      continue;
+                    }
                   if (msg->len > 0) g_string_append_c (msg, ' ');
                   g_string_append (msg, words[i]);
                 }
@@ -2953,8 +3029,13 @@ main (int argc, char *argv[])
               const O42Validation *v = &g_array_index (rules, O42Validation, i);
               char *a = o42_ref_name (v->range.row0, v->range.col0);
               char *b = o42_ref_name (v->range.row1, v->range.col1);
-              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\"\n",
+              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\"",
                       a, b, (int) v->kind, (int) v->op, v->value, v->value2, v->allow_blank, v->message);
+              if (v->error_title != NULL && *v->error_title) printf (" title \"%s\"", v->error_title);
+              if (v->error_style != O42_VALID_STOP) printf (" style %s", v->error_style == O42_VALID_WARNING ? "warning" : "info");
+              if (v->prompt_title != NULL && *v->prompt_title) printf (" prompttitle \"%s\"", v->prompt_title);
+              if (v->prompt != NULL && *v->prompt) printf (" prompt \"%s\"", v->prompt);
+              printf ("\n");
               g_free (a);
               g_free (b);
             }
@@ -2980,10 +3061,18 @@ main (int argc, char *argv[])
               c.op = O42_COND_GREATER;
               for (int i = 0; i < 8; i++)
                 if (strcmp (words[1], ops[i]) == 0) c.op = (O42CondOp) i;
-              c.value = g_ascii_strtod (words[2], NULL);
+              /* An operand starting with = is a formula; "formula" as the
+               * operator makes the rule a formula of its own. */
+              if (strcmp (words[1], "formula") == 0)
+                { c.is_formula = TRUE; c.expr1 = g_intern_string (words[2]); }
+              else if (words[2][0] == '=')
+                c.expr1 = g_intern_string (words[2]);
+              else
+                c.value = g_ascii_strtod (words[2], NULL);
               o42_fmt_init_default (&c.fmt);
               for (int i = 3; i < n; i++)
                 {
+                  if (words[i][0] == '=' && i == 3) { c.expr2 = g_intern_string (words[i]); continue; }
                   if (strcmp (words[i], "bold") == 0)   { c.fmt.bold = 1; c.mask |= O42_FMT_BOLD; }
                   if (strcmp (words[i], "italic") == 0) { c.fmt.italic = 1; c.mask |= O42_FMT_ITALIC; }
                   if (strcmp (words[i], "red") == 0)    { c.fmt.colour = 0xC00000; c.mask |= O42_FMT_COLOUR; }
@@ -3017,8 +3106,13 @@ main (int argc, char *argv[])
             {
               const O42Condition *c = &g_array_index (conds, O42Condition, i);
               char *a = o42_ref_name (c->range.row0, c->range.col0), *b = o42_ref_name (c->range.row1, c->range.col1);
-              printf ("%s:%s op %d value %g mask %u bold %d colour %06X fill %08X\n", a, b, (int) c->op,
+              printf ("%s:%s op %d value %g mask %u bold %d colour %06X fill %08X", a, b, (int) c->op,
                       c->value, (unsigned) c->mask, c->fmt.bold, c->fmt.colour, c->fmt.fill);
+              if (c->is_formula) printf (" formula %s", c->expr1 != NULL ? c->expr1 : "");
+              else if (c->expr1 != NULL) printf (" expr1 %s", c->expr1);
+              if (c->expr2 != NULL) printf (" expr2 %s", c->expr2);
+              if (c->mask & O42_FMT_NUMBER) printf (" number %d/%s", (int) c->fmt.number, c->fmt.custom != NULL ? c->fmt.custom : "-");
+              printf ("\n");
               g_free (a); g_free (b);
             }
           continue;

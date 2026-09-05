@@ -118,6 +118,8 @@ struct _O42Sheet {
                             * precedents touch that band of 64 rows on
                             * that sheet ("" for this one) */
   guint32      tab_colour;    /* O42_TAB_NO_COLOUR for a plain tab */
+  gboolean     hidden;        /* Format > Sheet > Hide */
+  O42SheetView view;
   guint16      password;      /* the protection hash, 0 for none */
   gboolean     cycle_seen;    /* a formula asked for itself while evaluating */
   gboolean     recalculating; /* inside o42_sheet_recalculate */
@@ -1954,6 +1956,10 @@ o42_sheet_new (const char *name)
   sheet->tables = g_array_new (FALSE, FALSE, sizeof (O42Table));
   sheet->queries = g_array_new (FALSE, FALSE, sizeof (O42Query));
   sheet->tab_colour = O42_TAB_NO_COLOUR;
+  sheet->view.zoom = 100;
+  sheet->view.gridlines = TRUE;
+  sheet->view.zeros = TRUE;
+  sheet->view.outline_symbols = TRUE;
   sheet->scenarios = g_ptr_array_new_with_free_func (scenario_free);
   sheet->shapes = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_shape_free);
   sheet->next_shape_id = 1;
@@ -3924,7 +3930,7 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
         }
       if (*hi < *lo || *hi >= limit)
         {
-          g_free (v->value); g_free (v->value2); g_free (v->message);
+          g_free (v->value); g_free (v->value2); g_free (v->message); g_free (v->prompt_title); g_free (v->prompt); g_free (v->error_title);
           g_array_remove_index (sheet->validations, i);
         }
       else
@@ -5110,34 +5116,93 @@ condition_holds (const O42Condition *c, double x)
     }
 }
 
-gboolean
-o42_sheet_conditional_fmt (O42Sheet *sheet, int row, int col, O42Fmt *out)
+/* A rule's formula, as it reads at a cell: written for the range's
+ * top-left cell, moved to this one, and worked out. */
+static O42Value
+condition_expr_value (O42Sheet *sheet, const O42Condition *c, const char *expr, int row, int col)
 {
-  gboolean any = FALSE;
+  char *moved = o42_sheet_relocate_formula (expr, row - c->range.row0, col - c->range.col0);
+  O42Value v = o42_sheet_evaluate_formula (sheet, moved);
+
+  g_free (moved);
+  return v;
+}
+
+gboolean
+o42_sheet_condition_holds (O42Sheet *sheet, const O42Condition *c, int row, int col)
+{
   O42Value v;
-  double x;
+  O42Condition with = *c;
+  gboolean holds;
 
-  g_return_val_if_fail (sheet != NULL, FALSE);
+  g_return_val_if_fail (sheet != NULL && c != NULL, FALSE);
 
-  if (sheet->conditions->len == 0)
-    return FALSE;
+  if (c->is_formula)
+    {
+      /* "Formula is": true, or a number that is not zero. */
+      gboolean truth = FALSE;
+      O42ErrorCode e = O42_ERR_VALUE;
 
-  /* Only numbers are judged; the first rule that holds wins, as in Excel,
-   * though a later rule's other fields still apply. */
+      if (c->expr1 == NULL)
+        return FALSE;
+      v = condition_expr_value (sheet, c, c->expr1, row, col);
+      holds = v.type != O42_VALUE_ERROR && o42_value_to_bool (&v, &truth, &e) && truth;
+      o42_value_clear (&v);
+      return holds;
+    }
+
+  /* Only numbers are judged against the operands. */
   o42_sheet_get_value (sheet, row, col, &v);
   if (v.type != O42_VALUE_NUMBER)
     {
       o42_value_clear (&v);
       return FALSE;
     }
-  x = v.as.number;
-  o42_value_clear (&v);
+  {
+    double x = v.as.number;
+    o42_value_clear (&v);
+    for (int k = 0; k < 2; k++)
+      {
+        const char *expr = k == 0 ? c->expr1 : c->expr2;
+        O42Value operand;
+        double number;
+        O42ErrorCode e = O42_ERR_VALUE;
 
+        if (expr == NULL)
+          continue;
+        operand = condition_expr_value (sheet, c, expr, row, col);
+        if (operand.type == O42_VALUE_ERROR || !o42_value_to_number (&operand, &number, &e))
+          {
+            o42_value_clear (&operand);
+            return FALSE;
+          }
+        o42_value_clear (&operand);
+        if (k == 0) with.value = number; else with.value2 = number;
+      }
+    if (c->expr2 == NULL && c->expr1 != NULL &&
+        c->op != O42_COND_BETWEEN && c->op != O42_COND_NOT_BETWEEN)
+      with.value2 = with.value;
+    return condition_holds (&with, x);
+  }
+}
+
+gboolean
+o42_sheet_conditional_fmt (O42Sheet *sheet, int row, int col, O42Fmt *out)
+{
+  gboolean any = FALSE;
+
+  g_return_val_if_fail (sheet != NULL, FALSE);
+
+  if (sheet->conditions->len == 0)
+    return FALSE;
+
+  /* The first rule that holds wins, as in Excel, though a later rule's
+   * other fields still apply. */
   for (guint i = 0; i < sheet->conditions->len; i++)
     {
       const O42Condition *c = &g_array_index (sheet->conditions, O42Condition, i);
 
-      if (!o42_range_contains (&c->range, row, col) || !condition_holds (c, x))
+      if (!o42_range_contains (&c->range, row, col) || !o42_sheet_condition_holds (sheet, c, row, col))
         continue;
       if (!any)
         *out = *o42_sheet_get_fmt (sheet, row, col);
@@ -6259,6 +6324,9 @@ o42_sheet_add_validation (O42Sheet *sheet, const O42Validation *v)
   copy.value = g_strdup (v->value ? v->value : "");
   copy.value2 = g_strdup (v->value2 ? v->value2 : "");
   copy.message = g_strdup (v->message ? v->message : "");
+  copy.prompt_title = g_strdup (v->prompt_title ? v->prompt_title : "");
+  copy.prompt = g_strdup (v->prompt ? v->prompt : "");
+  copy.error_title = g_strdup (v->error_title ? v->error_title : "");
   g_array_append_val (sheet->validations, copy);
   sheet->modified = TRUE;
 }
@@ -6273,7 +6341,7 @@ o42_sheet_clear_validations (O42Sheet *sheet, const O42Range *range)
       O42Validation *v = &g_array_index (sheet->validations, O42Validation, i);
       if (range == NULL || ranges_overlap (&v->range, range))
         {
-          g_free (v->value); g_free (v->value2); g_free (v->message);
+          g_free (v->value); g_free (v->value2); g_free (v->message); g_free (v->prompt_title); g_free (v->prompt); g_free (v->error_title);
           g_array_remove_index (sheet->validations, i);
           sheet->modified = TRUE;
         }
@@ -6308,7 +6376,7 @@ input_number (const char *text, double *n)
 }
 
 static gboolean
-validation_allows (O42Sheet *sheet, const O42Validation *v, const char *input)
+validation_allows (O42Sheet *sheet, const O42Validation *v, int row, int col, const char *input)
 {
   O42Condition c;
   double x;
@@ -6317,6 +6385,31 @@ validation_allows (O42Sheet *sheet, const O42Validation *v, const char *input)
     return v->allow_blank;
   if (v->kind == O42_VALID_ANY || input[0] == '=')
     return TRUE;   /* formulas are not checked; their value is not known yet */
+
+  if (v->kind == O42_VALID_CUSTOM)
+    {
+      /* The rule's formula, read at this cell, with the entry standing
+       * in it: what Excel judges a custom rule by.  The entry is put in
+       * for the moment and taken out again. */
+      char *moved, *was = o42_sheet_get_input (sheet, row, col);
+      gboolean truth = FALSE;
+      O42ErrorCode e = O42_ERR_VALUE;
+      O42Value result;
+
+      if (v->value == NULL || *v->value == '\0')
+        { g_free (was); return TRUE; }
+      moved = o42_sheet_relocate_formula (v->value[0] == '=' ? v->value : NULL, row - v->range.row0, col - v->range.col0);
+      if (v->value[0] != '=')
+        { g_free (moved); moved = g_strconcat ("=", v->value, NULL); }
+      set_input_internal (sheet, row, col, input);
+      result = o42_sheet_evaluate_formula (sheet, moved);
+      truth = result.type != O42_VALUE_ERROR && o42_value_to_bool (&result, &truth, &e) && truth;
+      o42_value_clear (&result);
+      set_input_internal (sheet, row, col, was != NULL && *was != '\0' ? was : NULL);
+      g_free (moved);
+      g_free (was);
+      return truth;
+    }
 
   if (v->kind == O42_VALID_LIST)
     {
@@ -6329,10 +6422,10 @@ validation_allows (O42Sheet *sheet, const O42Validation *v, const char *input)
           v->value[used] == ':' && o42_ref_parse (v->value + used + 1, &r.row1, &r.col1, NULL))
         {
           r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
-          for (int row = r.row0; row <= r.row1 && !found; row++)
-            for (int col = r.col0; col <= r.col1 && !found; col++)
+          for (int rr = r.row0; rr <= r.row1 && !found; rr++)
+            for (int cc = r.col0; cc <= r.col1 && !found; cc++)
               {
-                char *shown = o42_sheet_get_display (sheet, row, col);
+                char *shown = o42_sheet_get_display (sheet, rr, cc);
                 found = g_ascii_strcasecmp (shown, typed) == 0;
                 g_free (shown);
               }
@@ -6377,7 +6470,7 @@ o42_sheet_validate (O42Sheet *sheet, int row, int col, const char *input, char *
 
       if (!o42_range_contains (&v->range, row, col))
         continue;
-      if (!validation_allows (sheet, v, input))
+      if (!validation_allows (sheet, v, row, col, input))
         {
           if (message != NULL)
             *message = g_strdup (v->message != NULL && v->message[0] != '\0'
@@ -10265,6 +10358,50 @@ o42_sheet_tab_colour (O42Sheet *sheet)
 {
   g_return_val_if_fail (sheet != NULL, O42_TAB_NO_COLOUR);
   return sheet->tab_colour;
+}
+
+void
+o42_sheet_set_hidden (O42Sheet *sheet, gboolean hidden)
+{
+  g_return_if_fail (sheet != NULL);
+  if (sheet->hidden == hidden)
+    return;
+  sheet->hidden = hidden;
+  sheet->modified = TRUE;
+}
+
+gboolean
+o42_sheet_hidden (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, FALSE);
+  return sheet->hidden;
+}
+
+const O42SheetView *
+o42_sheet_view (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  return &sheet->view;
+}
+
+/* Moving about is not a change to the book; the zoom and what shows
+ * are, as Excel counts them. */
+void
+o42_sheet_set_view (O42Sheet *sheet, const O42SheetView *view)
+{
+  g_return_if_fail (sheet != NULL && view != NULL);
+  if (view->zoom != sheet->view.zoom || view->gridlines != sheet->view.gridlines ||
+      view->zeros != sheet->view.zeros || view->right_to_left != sheet->view.right_to_left ||
+      view->outline_symbols != sheet->view.outline_symbols)
+    sheet->modified = TRUE;
+  sheet->view = *view;
+  sheet->view.zoom = CLAMP (view->zoom, 10, 400);
+  sheet->view.active_row = CLAMP (view->active_row, 0, O42_MAX_ROWS - 1);
+  sheet->view.active_col = CLAMP (view->active_col, 0, O42_MAX_COLS - 1);
+  sheet->view.selection = o42_range_normalise (CLAMP (view->selection.row0, 0, O42_MAX_ROWS - 1),
+                                               CLAMP (view->selection.col0, 0, O42_MAX_COLS - 1),
+                                               CLAMP (view->selection.row1, 0, O42_MAX_ROWS - 1),
+                                               CLAMP (view->selection.col1, 0, O42_MAX_COLS - 1));
 }
 
 /* ---------------------------------------------------------------------- */
