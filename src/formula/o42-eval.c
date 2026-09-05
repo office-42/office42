@@ -8634,7 +8634,8 @@ fn_dollarde (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, d);
   ARG_NUMBER (1, fraction);
   fraction = floor (fraction);
-  if (fraction < 1) return o42_value_error (O42_ERR_NUM);
+  if (fraction < 0) return o42_value_error (O42_ERR_NUM);
+  if (fraction == 0) return o42_value_error (O42_ERR_DIV0);
   digits = (int) ceil (log10 (fraction));
   whole = trunc (d);
   part = (d - whole) * pow (10, digits);
@@ -8650,7 +8651,8 @@ fn_dollarfr (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, d);
   ARG_NUMBER (1, fraction);
   fraction = floor (fraction);
-  if (fraction < 1) return o42_value_error (O42_ERR_NUM);
+  if (fraction < 0) return o42_value_error (O42_ERR_NUM);
+  if (fraction == 0) return o42_value_error (O42_ERR_DIV0);
   digits = (int) ceil (log10 (fraction));
   whole = trunc (d);
   part = (d - whole) * fraction / pow (10, digits);

@@ -1010,10 +1010,11 @@ duration_call (O42EvalContext *ctx, O42Operand *args, int n, gboolean modified)
   if (!bond_term (settlement, maturity, (int) frequency, (int) basis, &term))
     return o42_value_error (O42_ERR_NUM);
 
-  /* How much of the first coupon period has already gone, measured
-   * the way the Analysis ToolPak measures it: the whole term in years
-   * against the number of coupons left. */
-  fraction = term.coupons - o42_bond_yearfrac (settlement, maturity, (int) basis) * frequency;
+  /* How much of the first coupon period has already gone, on the
+   * basis given: the days behind the settlement against the period's
+   * length, as PRICE counts them.  On a coupon date it is nothing,
+   * whatever the basis. */
+  fraction = 1 - term.ahead / term.period;
   discount = 1 + yld / frequency;
   for (int k = 1; k <= term.coupons; k++)
     {
