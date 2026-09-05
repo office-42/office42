@@ -86,7 +86,7 @@ enum {
   R_BOUNDSHEET = 0x0085, R_PALETTE = 0x0092, R_AUTOFILTERINFO = 0x009D,
   R_AUTOFILTER = 0x009E, R_FILTERMODE = 0x009B, R_FILEPASS = 0x002F,
   R_DATEMODE = 0x0022, R_SHEETEXT = 0x0862, R_GUTS = 0x0080,
-  R_SCL = 0x00A0, R_SELECTION = 0x001D,
+  R_SCL = 0x00A0, R_SELECTION = 0x001D, R_STANDARDWIDTH = 0x0099,
   R_MULRK = 0x00BD, R_MULBLANK = 0x00BE, R_RSTRING = 0x00D6, R_XF = 0x00E0,
   R_MERGECELLS = 0x00E5, R_SST = 0x00FC, R_LABELSST = 0x00FD, R_EXTSST = 0x00FF,
   R_DIMENSIONS = 0x0200, R_BLANK = 0x0201, R_NUMBER = 0x0203, R_LABEL = 0x0204,
@@ -398,6 +398,7 @@ typedef struct
   GPtrArray  *filter_ranges; /* char* range text */
   GArray     *print_names;   /* PrintName: Print_Area and Print_Titles, per sheet */
   gboolean    fit_to_page;   /* WSBOOL said so, for the SETUP that follows */
+  gboolean    saw_standard_width;   /* the sheet's STANDARDWIDTH was read */
   GHashTable *filter_criteria;   /* sheet index -> GPtrArray of "entry\tcriterion" */
   int         n_format5;     /* BIFF5 FORMAT records are numbered in order */
 
@@ -2800,11 +2801,23 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         }
       break;
     case R_DEFCOLWIDTH:
-      if (len >= 2 && r->sheet)
+      if (len >= 2 && r->sheet && !r->saw_standard_width)
         {
           /* In characters of the default font; every column takes it,
            * and COLINFO records after it override. */
           r->default_width = (int) (rd16 (p) * 7.0 + 5.0 + 0.5);
+          for (int c = 0; c < O42_MAX_COLS; c++)
+            o42_sheet_set_col_width (r->sheet, c, r->default_width);
+        }
+      break;
+    case R_STANDARDWIDTH:
+      if (len >= 2 && r->sheet)
+        {
+          /* The default width in 1/256ths of a character, which is finer
+           * than DEFCOLWIDTH's whole characters; it wins where both are
+           * given, whichever came first. */
+          r->default_width = (int) (rd16 (p) / 256.0 * 7.0 + 5.0 + 0.5);
+          r->saw_standard_width = TRUE;
           for (int c = 0; c < O42_MAX_COLS; c++)
             o42_sheet_set_col_width (r->sheet, c, r->default_width);
         }
@@ -3185,6 +3198,7 @@ read_workbook (Reader *r, GError **error)
                 r->pending = FALSE;
                 r->obj_is_note = FALSE;
                 r->cf_have_range = FALSE;
+                r->saw_standard_width = FALSE;
                 r->chart_sheet = type == 0x0020;
                 if (r->chart_sheet)
                   {
@@ -4952,6 +4966,11 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
 
   begin_record (w, R_DEFCOLWIDTH);
   put16 (w->out, (guint) ((default_width - 5) / 7.0 + 0.5));
+  end_record (w);
+  /* STANDARDWIDTH carries the same to the 1/256th of a character, so
+   * the default width comes back in pixels as it went. */
+  begin_record (w, R_STANDARDWIDTH);
+  put16 (w->out, (guint) MAX (default_width - 5, 0) * 256 / 7);
   end_record (w);
 
   for (int col = 0; col < O42_MAX_COLS - 1; col++)
