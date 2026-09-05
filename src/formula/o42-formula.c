@@ -147,6 +147,31 @@ next_token (Parser *ps)
     }
 
   /* An error literal. */
+  /* [y]: a LAMBDA parameter that may be left out, brackets and all. */
+  if (*p == '[' && (g_ascii_isalpha (p[1]) || p[1] == '_'))
+    {
+      const char *q = p + 1;
+
+      while (g_ascii_isalnum (*q) || *q == '_' || *q == '.')
+        q++;
+      if (*q == ']')
+        {
+          ps->tok.type = TOK_IDENT;
+          ps->tok.text = g_strndup (p, (gsize) (q + 1 - p));
+          ps->p = q + 1;
+          return;
+        }
+    }
+
+  /* A1#: the block a dynamic array spilled into, as a postfix. */
+  if (*p == '#' && !g_ascii_isalpha (p[1]))
+    {
+      ps->tok.type = TOK_OP;
+      g_strlcpy (ps->tok.op, "#", sizeof ps->tok.op);
+      ps->p = p + 1;
+      return;
+    }
+
   if (*p == '#')
     {
       for (guint i = 0; i < G_N_ELEMENTS (ERROR_LITERALS); i++)
@@ -849,6 +874,19 @@ parse_postfix (Parser *ps)
         {
           next_token (ps);
           n = make_unary (O42_OP_PERCENT, n);
+          continue;
+        }
+      if (op_is (ps, "#") && (n->type == O42_NODE_REF || n->type == O42_NODE_NAME))
+        {
+          /* A1#: written in the file as ANCHORARRAY(A1), which is how
+           * Excel spells it there. */
+          O42Node *call = node_new (O42_NODE_CALL);
+
+          next_token (ps);
+          call->as.call.name = g_strdup ("ANCHORARRAY");
+          call->as.call.args = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_node_free);
+          g_ptr_array_add (call->as.call.args, n);
+          n = call;
           continue;
         }
       if (ps->tok.type == TOK_LPAREN &&
@@ -1851,6 +1889,14 @@ node_write_body (const O42Node *node, GString *out)
       break;
 
     case O42_NODE_CALL:
+      if (strcmp (node->as.call.name, "ANCHORARRAY") == 0 &&
+          node->as.call.args != NULL && node->as.call.args->len == 1)
+        {
+          /* Written A1#, as it was typed; the file gets the long name. */
+          node_write (g_ptr_array_index (node->as.call.args, 0), out);
+          g_string_append_c (out, '#');
+          break;
+        }
       g_string_append (out, node->as.call.name);
       g_string_append_c (out, '(');
       if (node->as.call.args != NULL)
@@ -1896,43 +1942,97 @@ o42_node_to_string_marked (const O42Node *node, const O42Node *mark,
   return g_string_free (out, FALSE);
 }
 
-void
-o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
-                           const char *prefix)
+/* The parameters of LAMBDA and the variables of LET are written with
+ * _xlpm. in Excel's files, where the functions get _xlfn.: a LAMBDA whose
+ * parameters go out bare comes up #NAME? in Excel.  `bound` holds the
+ * names in scope, bare, as the walk descends. */
+static void
+prefix_walk (O42Node *node, gboolean (*is_future) (const char *),
+             const char *prefix, GPtrArray *bound)
 {
+  guint pushed = 0;
+
   if (node == NULL)
     return;
   switch (node->type)
     {
     case O42_NODE_UNARY:
     case O42_NODE_BINARY:
-      o42_node_prefix_functions (node->as.op.a, is_future, prefix);
-      o42_node_prefix_functions (node->as.op.b, is_future, prefix);
+      prefix_walk (node->as.op.a, is_future, prefix, bound);
+      prefix_walk (node->as.op.b, is_future, prefix, bound);
+      break;
+    case O42_NODE_NAME:
+      for (guint i = 0; i < bound->len; i++)
+        if (g_ascii_strcasecmp (g_ptr_array_index (bound, i), node->as.name) == 0)
+          {
+            char *renamed = node->as.name[0] == '['
+                            ? g_strdup_printf ("[_xlpm.%.*s]", (int) strlen (node->as.name) - 2, node->as.name + 1)
+                            : g_strconcat ("_xlpm.", node->as.name, NULL);
+            g_free (node->as.name);
+            node->as.name = renamed;
+            break;
+          }
       break;
     case O42_NODE_CALL:
-      if (is_future (node->as.call.name))
-        {
-          char *renamed = g_strconcat (prefix, node->as.call.name, NULL);
-          g_free (node->as.call.name);
-          node->as.call.name = renamed;
-        }
-      if (node->as.call.args != NULL)
-        for (guint i = 0; i < node->as.call.args->len; i++)
-          o42_node_prefix_functions (g_ptr_array_index (node->as.call.args, i), is_future, prefix);
-      break;
+      {
+        gboolean lambda = g_ascii_strcasecmp (node->as.call.name, "LAMBDA") == 0;
+        gboolean let = g_ascii_strcasecmp (node->as.call.name, "LET") == 0;
+        guint n = node->as.call.args != NULL ? node->as.call.args->len : 0;
+
+        if (is_future (node->as.call.name))
+          {
+            char *renamed = g_strconcat (prefix, node->as.call.name, NULL);
+            g_free (node->as.call.name);
+            node->as.call.name = renamed;
+          }
+        /* Bind first, so the body sees the names; a LAMBDA's are all
+         * its arguments but the last, a LET's every other one. */
+        for (guint i = 0; i + 1 < n; i++)
+          {
+            O42Node *arg = g_ptr_array_index (node->as.call.args, i);
+            if (arg != NULL && arg->type == O42_NODE_NAME && (lambda || (let && i % 2 == 0)))
+              {
+                const char *bare = arg->as.name;
+                char *stripped = NULL;
+                if (bare[0] == '[')
+                  bare = stripped = g_strndup (bare + 1, strlen (bare) - 2);
+                g_ptr_array_add (bound, g_strdup (bare));
+                g_free (stripped);
+                pushed++;
+              }
+          }
+        for (guint i = 0; i < n; i++)
+          prefix_walk (g_ptr_array_index (node->as.call.args, i), is_future, prefix, bound);
+        for (; pushed > 0; pushed--)
+          {
+            g_free (g_ptr_array_index (bound, bound->len - 1));
+            g_ptr_array_remove_index (bound, bound->len - 1);
+          }
+        break;
+      }
     case O42_NODE_ARRAY:
       if (node->as.array.items != NULL)
         for (guint i = 0; i < node->as.array.items->len; i++)
-          o42_node_prefix_functions (g_ptr_array_index (node->as.array.items, i), is_future, prefix);
+          prefix_walk (g_ptr_array_index (node->as.array.items, i), is_future, prefix, bound);
       break;
 
     case O42_NODE_APPLY:
-      o42_node_prefix_functions (node->as.apply.callee, is_future, prefix);
+      prefix_walk (node->as.apply.callee, is_future, prefix, bound);
       if (node->as.apply.args != NULL)
         for (guint i = 0; i < node->as.apply.args->len; i++)
-          o42_node_prefix_functions (g_ptr_array_index (node->as.apply.args, i), is_future, prefix);
+          prefix_walk (g_ptr_array_index (node->as.apply.args, i), is_future, prefix, bound);
       break;
     default:
       break;
     }
+}
+
+void
+o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
+                           const char *prefix)
+{
+  GPtrArray *bound = g_ptr_array_new ();
+
+  prefix_walk (node, is_future, prefix, bound);
+  g_ptr_array_free (bound, TRUE);
 }

@@ -4673,6 +4673,48 @@ typedef struct {
 
 static GPtrArray *let_scope = NULL;
 
+/* A defined name that is a formula: its text parsed once, kept by the
+ * text, so a LAMBDA in it has a tree to live in for as long as any
+ * operand points at it. */
+static GHashTable *name_trees = NULL;
+static int name_depth = 0;
+
+static const O42Node *
+name_formula_tree (O42EvalContext *ctx, const char *name)
+{
+  const char *text;
+  O42Node *tree;
+
+  if (ctx->get_name_formula == NULL)
+    return NULL;
+  text = ctx->get_name_formula (ctx, name);
+  if (text == NULL)
+    return NULL;
+  if (name_trees == NULL)
+    name_trees = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) o42_node_free);
+  tree = g_hash_table_lookup (name_trees, text);
+  if (tree == NULL)
+    {
+      tree = o42_formula_parse (text);
+      g_hash_table_insert (name_trees, g_strdup (text), tree);
+    }
+  return tree;
+}
+
+/* The name of a LAMBDA parameter as written, "[y]" for one that may be
+ * left out, to the name it binds. */
+static const char *
+param_name (const char *written, char *buffer, gsize size)
+{
+  if (written[0] == '[')
+    {
+      gsize n = strlen (written);
+      g_strlcpy (buffer, written + 1, MIN (n - 1, size));
+      return buffer;
+    }
+  return written;
+}
+
 /* Binds a lambda's parameters to `args` and evaluates its body.  The
  * parameters are the call's arguments but the last, which is the body;
  * a missing argument is an empty value, which ISOMITTED sees. */
@@ -4682,9 +4724,10 @@ apply_lambda (O42EvalContext *ctx, const O42Node *lambda, O42Operand *args, int 
   int n_params = lambda != NULL && lambda->as.call.args != NULL ? (int) lambda->as.call.args->len - 1 : -1;
   O42Operand result;
   int pushed = 0;
+  char name_buffer[128];
 
   memset (&result, 0, sizeof result);
-  if (n_params < 0 || lambda_depth > 64)
+  if (n_params < 0 || lambda_depth > 200)
     {
       result.value = o42_value_error (n_params < 0 ? O42_ERR_VALUE : O42_ERR_NUM);
       return result;
@@ -4699,7 +4742,8 @@ apply_lambda (O42EvalContext *ctx, const O42Node *lambda, O42Operand *args, int 
       if (p == NULL || p->type != O42_NODE_NAME)
         break;
       b = g_new0 (LetBinding, 1);
-      b->name = p->as.name;
+      b->name = p->as.name[0] == '[' ? g_intern_string (param_name (p->as.name, name_buffer, sizeof name_buffer))
+                                     : p->as.name;
       if (i < n_args)
         {
           b->operand = args[i];
@@ -5479,6 +5523,26 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
 
       operand_clear (&hold);
       *out = array_operand (a);
+      return TRUE;
+    }
+
+  if (strcmp (node->as.call.name, "ANCHORARRAY") == 0 && n_args == 1)
+    {
+      /* A1#: the block the formula at A1 spilled into, or #REF! when
+       * nothing spilled from there. */
+      const O42Node *ref = g_ptr_array_index (node->as.call.args, 0);
+      O42Range block;
+
+      if (ref->type == O42_NODE_REF && ctx->get_spill != NULL &&
+          ctx->get_spill (ctx, ref->sheet, ref->as.ref.row, ref->as.ref.col, &block))
+        {
+          memset (out, 0, sizeof *out);
+          out->is_range = TRUE;
+          out->sheet = ref->sheet;
+          out->range = block;
+          return TRUE;
+        }
+      out->value = o42_value_error (O42_ERR_REF);
       return TRUE;
     }
 
@@ -10757,6 +10821,24 @@ eval_call_operand (O42EvalContext *ctx, const O42Node *node)
                 return r;
               }
           }
+      {
+        /* A defined name holding a LAMBDA, called by the name: =ADD2(1,2). */
+        const O42Node *tree = name_formula_tree (ctx, node->as.call.name);
+
+        if (tree != NULL && tree->type == O42_NODE_CALL &&
+            g_ascii_strcasecmp (tree->as.call.name, "LAMBDA") == 0)
+          {
+            O42Operand *given = n_args > 0 ? g_new0 (O42Operand, n_args) : NULL;
+            O42Operand r;
+            for (int k = 0; k < n_args; k++)
+              given[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, k));
+            r = apply_lambda (ctx, tree, given, n_args);
+            for (int k = 0; k < n_args; k++)
+              operand_clear (&given[k]);
+            g_free (given);
+            return r;
+          }
+      }
       result.value = o42_value_error (O42_ERR_NAME);
       return result;
     }
@@ -10946,6 +11028,24 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
             op.range = range;
             return op;
           }
+        {
+          /* A name that is a formula: =TAXRATE, =TOTAL, or a LAMBDA to be
+           * called.  One that comes back to itself is stopped. */
+          const O42Node *tree = name_formula_tree (ctx, node->as.name);
+
+          if (tree != NULL)
+            {
+              if (name_depth > 32)
+                {
+                  op.value = o42_value_error (O42_ERR_NUM);
+                  return op;
+                }
+              name_depth++;
+              op = eval_operand (ctx, tree);
+              name_depth--;
+              return op;
+            }
+        }
         op.value = o42_value_error (O42_ERR_NAME);
         return op;
       }
@@ -11182,7 +11282,7 @@ o42_function_is_future (const char *name)
     "MUNIT", "ENCODEURL", "FILTERXML", "WEBSERVICE", "IMCOSH", "IMCOT", "IMCSC", "IMCSCH",
     "IMSEC", "IMSECH", "IMSINH", "IMTAN", "SORT", "SORTBY", "UNIQUE", "SEQUENCE", "RANDARRAY",
     "FILTER", "LET", "LAMBDA", "TEXTSPLIT", "VSTACK", "HSTACK", "TAKE", "DROP",
-    "MAP", "BYROW", "BYCOL", "REDUCE", "SCAN", "MAKEARRAY", "ISOMITTED"
+    "MAP", "BYROW", "BYCOL", "REDUCE", "SCAN", "MAKEARRAY", "ISOMITTED", "ANCHORARRAY"
   };
   if (strchr (name, '.') != NULL && strcmp (name, "ERROR.TYPE") != 0)
     return TRUE;

@@ -1811,6 +1811,20 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
             g_free (n);
             g_free (ref);
           }
+        else if (o42_book_lookup_name_formula (book, l->data) != NULL)
+          {
+            /* A formula, with Excel's _xlfn. on the newer functions. */
+            O42Node *tree = o42_formula_parse (o42_book_lookup_name_formula (book, l->data));
+            char *spelled, *n, *r;
+
+            o42_node_prefix_functions (tree, o42_function_is_future, "_xlfn.");
+            spelled = o42_node_to_string (tree);
+            n = g_markup_escape_text (l->data, -1);
+            r = g_markup_escape_text (spelled, -1);
+            g_string_append_printf (defs, "<definedName name=\"%s\">%s</definedName>", n, r);
+            g_free (r); g_free (n); g_free (spelled);
+            o42_node_free (tree);
+          }
       }
     /* Pivot definitions, as hidden sheet-scoped names holding a text:
      * Excel and Calc carry them without complaint, and only office42
@@ -2775,7 +2789,9 @@ strip_xlfn (const char *formula)
   GString *out = g_string_new (NULL);
   for (const char *p = formula; *p; )
     {
-      if (g_str_has_prefix (p, "_xlfn."))
+      if (g_str_has_prefix (p, "_xlfn.") || g_str_has_prefix (p, "_xlpm."))
+        p += 6;
+      else if (g_str_has_prefix (p, "_xlws."))
         p += 6;
       else
         g_string_append_c (out, *p++);
@@ -3170,6 +3186,15 @@ finish_cell (Reader *r)
   if (r->has_f && r->f->len > 0)
     {
       char *plain = strip_xlfn (r->f->str);
+
+      if (strstr (plain, "ANCHORARRAY(") != NULL)
+        {
+          /* The file's spelling of A1#; the cell shows it as typed. */
+          O42Node *tree = o42_formula_parse (plain);
+          g_free (plain);
+          plain = o42_node_to_string (tree);
+          o42_node_free (tree);
+        }
       input = g_strconcat ("=", plain, NULL);
       if (r->shared_si != NULL)
         {
@@ -3798,6 +3823,13 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                                              : o42_book_sheet (book, 0);
               if (target != NULL)
                 o42_book_define_name (book, nm, target, &range);
+            }
+          else if (tree->type != O42_NODE_ERROR)
+            {
+              /* A constant, an expression or a LAMBDA. */
+              char *plain = strip_xlfn (val[0] == '=' ? val + 1 : val);
+              o42_book_define_name_formula (book, nm, plain);
+              g_free (plain);
             }
           o42_node_free (tree);
         }

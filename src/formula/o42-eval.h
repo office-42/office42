@@ -32,6 +32,16 @@ struct _O42EvalContext {
   gboolean (*get_name) (O42EvalContext *ctx, const char *name,
                         const char **sheet, O42Range *range);
 
+  /* A defined name that is a formula rather than a rectangle: its text,
+   * without "=", or NULL.  Looked at when get_name has no rectangle for
+   * the name.  May be NULL. */
+  const char *(*get_name_formula) (O42EvalContext *ctx, const char *name);
+
+  /* The block a dynamic array spilled into from the cell at row, col
+   * on the named sheet (NULL for the formula's own), for A1#; FALSE
+   * when nothing spilled from there.  May be NULL. */
+  gboolean (*get_spill) (O42EvalContext *ctx, const char *sheet, int row, int col, O42Range *out);
+
   /* The cell whose formula is being evaluated, for ROW() and COLUMN()
    * without an argument. */
   int        row;

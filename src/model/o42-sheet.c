@@ -448,6 +448,35 @@ sheet_get_name (O42EvalContext *ctx, const char *name,
   return TRUE;
 }
 
+static const char *
+sheet_get_name_formula (O42EvalContext *ctx, const char *name)
+{
+  O42Sheet *sheet = ctx->user_data;
+
+  return sheet->book != NULL ? o42_book_lookup_name_formula (sheet->book, name) : NULL;
+}
+
+static const O42Range *array_at (O42Sheet *sheet, int row, int col);
+
+static gboolean
+sheet_get_spill (O42EvalContext *ctx, const char *sheet_name, int row, int col, O42Range *out)
+{
+  O42Sheet *sheet = ctx->user_data;
+  const O42Range *block;
+
+  if (sheet_name != NULL && g_ascii_strcasecmp (sheet_name, sheet->name) != 0)
+    {
+      sheet = (sheet->book != NULL) ? o42_book_find_sheet (sheet->book, sheet_name) : NULL;
+      if (sheet == NULL)
+        return FALSE;
+    }
+  block = sheet->arrays->len > 0 ? array_at (sheet, row, col) : NULL;
+  if (block == NULL || block->row0 != row || block->col0 != col)
+    return FALSE;
+  *out = *block;
+  return TRUE;
+}
+
 static const O42Range *array_at (O42Sheet *sheet, int row, int col);
 static void sheet_invalidate (O42Sheet *sheet, int row, int col);
 
@@ -2081,6 +2110,8 @@ o42_sheet_new (const char *name)
   sheet->eval.get_cell = sheet_get_cell_value;
   sheet->eval.get_cell_info = sheet_get_cell_info;
   sheet->eval.get_name = sheet_get_name;
+  sheet->eval.get_name_formula = sheet_get_name_formula;
+  sheet->eval.get_spill = sheet_get_spill;
   sheet->eval.sheets_between = sheet_sheets_between;
   sheet->eval.get_extent = sheet_get_extent;
   sheet->eval.row_hidden = sheet_row_hidden_for_eval;
@@ -2315,11 +2346,32 @@ cell_collect_name_precedents (O42Sheet *sheet, O42Cell *cell)
     {
       O42Sheet *target = NULL;
       O42SheetRange p;
+      const char *formula;
 
       if (o42_book_lookup_name (sheet->book, g_ptr_array_index (names, i), &target, &p.range))
         {
           p.sheet = (target == sheet) ? NULL : g_intern_string (target->name);
           g_array_append_val (cell->precedents, p);
+        }
+      else if ((formula = o42_book_lookup_name_formula (sheet->book, g_ptr_array_index (names, i))) != NULL)
+        {
+          /* A name that is a formula reads what its formula reads; the
+           * names inside it are followed a few steps, not forever. */
+          O42Node *tree = o42_formula_parse (formula);
+          GPtrArray *inner = g_ptr_array_new ();
+
+          o42_node_collect_refs (tree, cell->precedents);
+          o42_node_collect_names (tree, inner);
+          for (guint k = 0; k < inner->len && names->len < 64; k++)
+            {
+              gboolean seen = FALSE;
+              for (guint m = 0; m < names->len && !seen; m++)
+                seen = g_ascii_strcasecmp (g_ptr_array_index (names, m), g_ptr_array_index (inner, k)) == 0;
+              if (!seen)
+                g_ptr_array_add (names, g_ptr_array_index (inner, k));
+            }
+          g_ptr_array_free (inner, TRUE);
+          o42_node_free (tree);
         }
     }
 }
