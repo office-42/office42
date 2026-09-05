@@ -129,6 +129,26 @@ gnm_colour_parse (const char *text)
 
 /* "&Lleft&Ccentre&Rright" with &P &N &D &T &F &A -> three escaped
  * parts with &[PAGE] &[PAGES] &[DATE] &[TIME] &[FILE] &[TAB]. */
+/* Gnumeric names the paper as GTK does, by its PWG name. */
+static const char *
+gnumeric_paper_name (int code)
+{
+  switch (code)
+    {
+    case 1:  return "na_letter";
+    case 5:  return "na_legal";
+    case 7:  return "na_executive";
+    case 8:  return "iso_a3";
+    case 11: return "iso_a5";
+    case 12: return "jis_b4";
+    case 13: return "jis_b5";
+    case 14: return "na_foolscap";
+    case 17: return "na_ledger";
+    case 70: return "iso_a6";
+    default: return "iso_a4";
+    }
+}
+
 static void
 hf_split_gnumeric (const char *text, char **left, char **centre, char **right)
 {
@@ -153,8 +173,35 @@ hf_split_gnumeric (const char *text, char **left, char **centre, char **right)
             case 'T': g_string_append (parts[which], "&[TIME]"); break;
             case 'F': g_string_append (parts[which], "&[FILE]"); break;
             case 'A': g_string_append (parts[which], "&[TAB]"); break;
+            case 'Z': g_string_append (parts[which], "&[PATH]"); break;
             case '&': g_string_append_c (parts[which], '&'); break;
-            default: break;
+            case '"':
+              /* A font, "&"Arial,Bold"": Gnumeric has no code for one, so
+               * it is carried in a bracket code of office42's own that
+               * Gnumeric shows as it is. */
+              {
+                const char *close = strchr (p + 1, '"');
+                if (close != NULL)
+                  {
+                    g_string_append (parts[which], "&[o42:");
+                    g_string_append_len (parts[which], p, close - p + 1);
+                    g_string_append_c (parts[which], ']');
+                    p = close;
+                  }
+                break;
+              }
+            default:
+              /* &B &I &U &S &E &X &Y, &12 a size, &K a colour: as above. */
+              g_string_append (parts[which], "&[o42:");
+              g_string_append_c (parts[which], code);
+              if (g_ascii_isdigit (code))
+                while (g_ascii_isdigit (p[1]))
+                  g_string_append_c (parts[which], *++p);
+              else if (code == 'K')
+                for (int k = 0; k < 6 && g_ascii_isxdigit (p[1]); k++)
+                  g_string_append_c (parts[which], *++p);
+              g_string_append_c (parts[which], ']');
+              break;
             }
           continue;
         }
@@ -196,6 +243,12 @@ hf_join_excel (const char *left, const char *middle, const char *right)
                   else if (strcmp (code, "TIME") == 0) g_string_append (out, "&T");
                   else if (strcmp (code, "FILE") == 0) g_string_append (out, "&F");
                   else if (strcmp (code, "TAB") == 0) g_string_append (out, "&A");
+                  else if (strcmp (code, "PATH") == 0) g_string_append (out, "&Z");
+                  else if (g_str_has_prefix (code, "o42:"))
+                    {
+                      g_string_append_c (out, '&');
+                      g_string_append (out, code + 4);
+                    }
                   g_free (code);
                   p = end;
                   continue;
@@ -655,35 +708,70 @@ write_sheet (GString *out, O42Sheet *sheet)
       }
     hf_split_gnumeric (ps->header, &hl, &hc, &hr);
     hf_split_gnumeric (ps->footer, &fl, &fc, &fr);
-    g_string_append_printf (w.out,
-      "      <gnm:PrintInformation>\n"
-      "        <gnm:Scale type=\"percentage\" percentage=\"%d\"/>\n"
-      "        <gnm:vcenter value=\"0\"/>\n        <gnm:hcenter value=\"0\"/>\n"
-      "        <gnm:grid value=\"%d\"/>\n        <gnm:even_if_only_styles value=\"0\"/>\n"
-      "        <gnm:monochrome value=\"0\"/>\n        <gnm:draft value=\"0\"/>\n"
-      "        <gnm:titles value=\"%d\"/>\n"
-      "        <gnm:o42-Print Scale=\"%d\" FitWide=\"%d\" FitTall=\"%d\" Margin=\"%g\"/>\n",
-      ps->scale, ps->gridlines ? 1 : 0, ps->headings ? 1 : 0,
-      ps->scale, ps->fit_wide, ps->fit_tall, ps->margin);
     {
-      GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
-      GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
-      for (guint i = 0; i < rb->len; i++)
-        g_string_append_printf (w.out, "        <gnm:o42-PageBreak Rows=\"1\" At=\"%d\"/>\n",
-                                g_array_index (rb, int, i));
-      for (guint i = 0; i < cb->len; i++)
-        g_string_append_printf (w.out, "        <gnm:o42-PageBreak Rows=\"0\" At=\"%d\"/>\n",
-                                g_array_index (cb, int, i));
+      static const char *const notes[] = { NULL, "at_end", "in_place" };
+      static const char *const errors[] = { "as_displayed", "as_blank", "as_dashes", "as_na" };
+      char pts[6][G_ASCII_DTOSTR_BUF_SIZE];
+      const double margins[6] = { ps->margin_top, ps->margin_bottom, ps->margin_left,
+                                  ps->margin_right, ps->margin_header, ps->margin_footer };
+
+      for (int i = 0; i < 6; i++)
+        g_ascii_formatd (pts[i], sizeof pts[i], "%g", margins[i]);
+      g_string_append_printf (w.out,
+        "      <gnm:PrintInformation>\n"
+        "        <gnm:Margins>\n"
+        "          <gnm:top Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:bottom Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:left Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:right Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:header Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:footer Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "        </gnm:Margins>\n",
+        pts[0], pts[1], pts[2], pts[3], pts[4], pts[5]);
+      if (ps->fit_wide > 0 || ps->fit_tall > 0)
+        g_string_append_printf (w.out, "        <gnm:Scale type=\"size_fit\" cols=\"%d\" rows=\"%d\"/>\n",
+                                ps->fit_wide, ps->fit_tall);
+      else
+        g_string_append_printf (w.out, "        <gnm:Scale type=\"percentage\" percentage=\"%d\"/>\n", ps->scale);
+      g_string_append_printf (w.out,
+        "        <gnm:vcenter value=\"%d\"/>\n        <gnm:hcenter value=\"%d\"/>\n"
+        "        <gnm:grid value=\"%d\"/>\n        <gnm:even_if_only_styles value=\"0\"/>\n"
+        "        <gnm:monochrome value=\"%d\"/>\n        <gnm:draft value=\"%d\"/>\n"
+        "        <gnm:titles value=\"%d\"/>\n"
+        "        <gnm:o42-Print FirstPage=\"%d\"/>\n",
+        ps->vcenter ? 1 : 0, ps->hcenter ? 1 : 0, ps->gridlines ? 1 : 0,
+        ps->black_white ? 1 : 0, ps->draft ? 1 : 0, ps->headings ? 1 : 0, ps->first_page);
+      {
+        GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
+        GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
+        for (guint i = 0; i < rb->len; i++)
+          g_string_append_printf (w.out, "        <gnm:o42-PageBreak Rows=\"1\" At=\"%d\"/>\n",
+                                  g_array_index (rb, int, i));
+        for (guint i = 0; i < cb->len; i++)
+          g_string_append_printf (w.out, "        <gnm:o42-PageBreak Rows=\"0\" At=\"%d\"/>\n",
+                                  g_array_index (cb, int, i));
+      }
+      if (ps->title_rows > 0)
+        g_string_append_printf (w.out, "        <gnm:repeat_top value=\"A1:IV%d\"/>\n", ps->title_rows);
+      if (ps->title_cols > 0)
+        {
+          char last[8];
+          o42_col_name (ps->title_cols - 1, last, sizeof last);
+          g_string_append_printf (w.out, "        <gnm:repeat_left value=\"A1:%s65536\"/>\n", last);
+        }
+      g_string_append_printf (w.out,
+        "        <gnm:order>%s</gnm:order>\n        <gnm:orientation>%s</gnm:orientation>\n"
+        "        <gnm:Header Left=\"%s\" Middle=\"%s\" Right=\"%s\"/>\n"
+        "        <gnm:Footer Left=\"%s\" Middle=\"%s\" Right=\"%s\"/>\n"
+        "        <gnm:paper>%s</gnm:paper>\n",
+        ps->down_then_over ? "d_then_r" : "r_then_d", ps->landscape ? "landscape" : "portrait",
+        hl, hc, hr, fl, fc, fr, gnumeric_paper_name (ps->paper));
+      if (ps->notes != O42_PRINT_NOTES_NONE)
+        g_string_append_printf (w.out, "        <gnm:comments placement=\"%s\"/>\n", notes[CLAMP (ps->notes, 1, 2)]);
+      if (ps->errors != O42_PRINT_ERRORS_SHOWN)
+        g_string_append_printf (w.out, "        <gnm:errors placement=\"%s\"/>\n", errors[CLAMP (ps->errors, 0, 3)]);
+      g_string_append (w.out, "      </gnm:PrintInformation>\n");
     }
-    if (ps->title_rows > 0)
-      g_string_append_printf (w.out, "        <gnm:repeat_top value=\"A1:IV%d\"/>\n", ps->title_rows);
-    g_string_append_printf (w.out,
-      "        <gnm:order>d_then_r</gnm:order>\n        <gnm:orientation>landscape</gnm:orientation>\n"
-      "        <gnm:Header Left=\"%s\" Middle=\"%s\" Right=\"%s\"/>\n"
-      "        <gnm:Footer Left=\"%s\" Middle=\"%s\" Right=\"%s\"/>\n"
-      "        <gnm:paper>na_letter</gnm:paper>\n"
-      "      </gnm:PrintInformation>\n",
-      hl, hc, hr, fl, fc, fr);
     g_free (hl); g_free (hc); g_free (hr); g_free (fl); g_free (fc); g_free (fr);
   }
 
@@ -1367,6 +1455,9 @@ typedef struct {
   char       *scenario_comment;
   O42FmtMask  style_mask;
   gboolean    in_names;         /* inside gnm:Names */
+  gboolean    in_print_info;    /* inside gnm:PrintInformation */
+  int         print_text;       /* 1 in its order, 2 orientation, 3 paper */
+  GString    *text;             /* what they say */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
   gboolean    in_database;      /* gnm:o42-Database with the file inside it */
   gboolean    in_custom_list;   /* gnm:o42-CustomList, whose text is the list */
@@ -1505,10 +1596,108 @@ start_element (GMarkupParseContext *context, const char *element,
 
   if (r->sheet != NULL && strcmp (name, "o42-Print") == 0)
     {
-      o42_sheet_set_print_scale (r->sheet, attr_int (names, values, "Scale", 100),
-                                 attr_int (names, values, "FitWide", 0),
-                                 attr_int (names, values, "FitTall", 0));
-      o42_sheet_set_print_margin (r->sheet, attr_double (names, values, "Margin", 36));
+      /* Files from before 1.1 kept the scale and one margin here; now
+       * Gnumeric's own elements carry them and this holds the rest. */
+      if (attr (names, values, "Scale") != NULL)
+        {
+          o42_sheet_set_print_scale (r->sheet, attr_int (names, values, "Scale", 100),
+                                     attr_int (names, values, "FitWide", 0),
+                                     attr_int (names, values, "FitTall", 0));
+          o42_sheet_set_print_margin (r->sheet, attr_double (names, values, "Margin", 36));
+        }
+      if (attr (names, values, "FirstPage") != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          ps.first_page = attr_int (names, values, "FirstPage", 1);
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      return;
+    }
+
+  if (r->sheet != NULL && r->in_print_info &&
+      (strcmp (name, "top") == 0 || strcmp (name, "bottom") == 0 || strcmp (name, "left") == 0 ||
+       strcmp (name, "right") == 0 || strcmp (name, "header") == 0 || strcmp (name, "footer") == 0))
+    {
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+      double points = attr_double (names, values, "Points", -1);
+
+      if (points >= 0)
+        {
+          switch (name[0] == 'b' ? 'B' : name[0] == 'h' ? 'H' : name[0] == 'f' ? 'F' : name[0] == 'l' ? 'L' : name[0] == 'r' ? 'R' : 'T')
+            {
+            case 'T': ps.margin_top = points; break;
+            case 'B': ps.margin_bottom = points; break;
+            case 'L': ps.margin_left = points; break;
+            case 'R': ps.margin_right = points; break;
+            case 'H': ps.margin_header = points; break;
+            default:  ps.margin_footer = points; break;
+            }
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      return;
+    }
+
+  if (r->sheet != NULL && strcmp (name, "PrintInformation") == 0)
+    {
+      r->in_print_info = TRUE;
+      return;
+    }
+
+  if (r->sheet != NULL && r->in_print_info &&
+      (strcmp (name, "Scale") == 0 || strcmp (name, "vcenter") == 0 || strcmp (name, "hcenter") == 0 ||
+       strcmp (name, "monochrome") == 0 || strcmp (name, "draft") == 0 || strcmp (name, "repeat_left") == 0 ||
+       strcmp (name, "comments") == 0 || strcmp (name, "errors") == 0 ||
+       strcmp (name, "order") == 0 || strcmp (name, "orientation") == 0 || strcmp (name, "paper") == 0))
+    {
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+      const char *v = attr (names, values, "value");
+      const char *placement = attr (names, values, "placement");
+
+      if (strcmp (name, "Scale") == 0)
+        {
+          const char *type = attr (names, values, "type");
+          if (type != NULL && strcmp (type, "size_fit") == 0)
+            {
+              ps.fit_wide = attr_int (names, values, "cols", 0);
+              ps.fit_tall = attr_int (names, values, "rows", 0);
+            }
+          else
+            {
+              ps.scale = attr_int (names, values, "percentage", 100);
+              ps.fit_wide = ps.fit_tall = 0;
+            }
+        }
+      else if (strcmp (name, "vcenter") == 0) ps.vcenter = v != NULL && atoi (v) != 0;
+      else if (strcmp (name, "hcenter") == 0) ps.hcenter = v != NULL && atoi (v) != 0;
+      else if (strcmp (name, "monochrome") == 0) ps.black_white = v != NULL && atoi (v) != 0;
+      else if (strcmp (name, "draft") == 0) ps.draft = v != NULL && atoi (v) != 0;
+      else if (strcmp (name, "repeat_left") == 0)
+        {
+          /* A1:B65536: the columns up to the one after the colon. */
+          const char *colon = v != NULL ? strchr (v, ':') : NULL;
+          int cols = 0;
+          for (const char *q = colon != NULL ? colon + 1 : ""; g_ascii_isalpha (*q); q++)
+            cols = cols * 26 + (g_ascii_toupper (*q) - 'A' + 1);
+          ps.title_cols = cols;
+        }
+      else if (strcmp (name, "comments") == 0)
+        ps.notes = placement != NULL && strcmp (placement, "at_end") == 0 ? O42_PRINT_NOTES_AT_END
+                 : placement != NULL && strcmp (placement, "in_place") == 0 ? O42_PRINT_NOTES_IN_PLACE
+                 : O42_PRINT_NOTES_NONE;
+      else if (strcmp (name, "errors") == 0)
+        ps.errors = placement != NULL && strcmp (placement, "as_blank") == 0 ? O42_PRINT_ERRORS_BLANK
+                  : placement != NULL && strcmp (placement, "as_dashes") == 0 ? O42_PRINT_ERRORS_DASHES
+                  : placement != NULL && strcmp (placement, "as_na") == 0 ? O42_PRINT_ERRORS_NA
+                  : O42_PRINT_ERRORS_SHOWN;
+      else
+        {
+          /* order, orientation and paper are text: gathered when the
+           * element ends. */
+          g_string_truncate (r->text, 0);
+          r->print_text = name[1] == 'r' && name[2] == 'd' ? 1 : name[1] == 'r' ? 2 : 3;
+          return;
+        }
+      o42_sheet_set_print_setup (r->sheet, &ps);
       return;
     }
 
@@ -2505,6 +2694,29 @@ end_element (GMarkupParseContext *context, const char *element,
 
   (void) context; (void) error;
 
+  if (r->print_text != 0 && r->sheet != NULL)
+    {
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+      char *v = g_strstrip (g_strdup (r->text->str));
+
+      if (r->print_text == 1)
+        ps.down_then_over = strcmp (v, "r_then_d") != 0;
+      else if (r->print_text == 2)
+        ps.landscape = strcmp (v, "landscape") == 0;
+      else if (o42_paper_from_name (v) != 0)
+        ps.paper = o42_paper_from_name (v);
+      o42_sheet_set_print_setup (r->sheet, &ps);
+      g_free (v);
+      r->print_text = 0;
+      return;
+    }
+
+  if (r->in_print_info && strcmp (name, "PrintInformation") == 0)
+    {
+      r->in_print_info = FALSE;
+      return;
+    }
+
   if (r->in_query && strcmp (name, "o42-Query") == 0)
     {
       if (r->sheet != NULL && r->query_sql != NULL && r->query_sql->len > 0)
@@ -2939,6 +3151,8 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
 
   if (r->in_shape)
     { g_string_append_len (r->shape_text, text, (gssize) length); return; }
+  if (r->print_text != 0)
+    { g_string_append_len (r->text, text, (gssize) length); return; }
   if (r->in_script)
     { g_string_append_len (r->script_code, text, (gssize) length); return; }
   if (r->in_database)
@@ -3051,6 +3265,7 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   r.dimension = g_string_new (NULL);
   r.graph_title = g_string_new (NULL);
   r.shape_text = g_string_new (NULL);
+  r.text = g_string_new (NULL);
   r.graph_x_title = g_string_new (NULL);
   r.graph_y_title = g_string_new (NULL);
   r.name_name = g_string_new (NULL);
@@ -3134,6 +3349,7 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   g_string_free (r.dimension, TRUE);
   g_string_free (r.graph_title, TRUE);
   g_string_free (r.shape_text, TRUE);
+  g_string_free (r.text, TRUE);
   g_string_free (r.graph_x_title, TRUE);
   g_string_free (r.graph_y_title, TRUE);
   g_hash_table_destroy (r.shared_exprs);

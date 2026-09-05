@@ -171,13 +171,31 @@ void o42_sheet_sort_keys (O42Sheet *sheet, const O42Range *range,
 
 /* ---- Printing ------------------------------------------------------ */
 
-/* What File > Page Setup keeps per sheet: the print area (the used
- * range when there is none), a header and footer in Excel's notation
- * (&L, &C, &R start the left, centre and right parts; &P the page
- * number, &N the page count, &D the date, &T the time, &F the file
- * name, &A the sheet name; && an ampersand), whether gridlines and the
- * row and column headings print, and rows repeated at the top of every
- * page.  New sheets have Excel 5's "&A" and "Page &P". */
+/* What File > Page Setup keeps per sheet, the four tabs of Excel's
+ * dialog: the page (orientation, paper, scale, first page number), the
+ * margins (six of them, in points, and centring), the header and
+ * footer in Excel's notation (&L, &C, &R start the left, centre and
+ * right parts; &P the page number, &N the page count, &D the date, &T
+ * the time, &F the file name, &A the sheet name; &B &I &U &S styles,
+ * &12 a size, &"Face" a font; && an ampersand), and the sheet (the
+ * print area -- the used range when there is none -- the rows and
+ * columns repeated on every page, gridlines, headings, black and
+ * white, draft, how notes and errors print, and the page order).
+ * New sheets have Excel 5's "&A" and "Page &P". */
+
+typedef enum {
+  O42_PRINT_NOTES_NONE,         /* Excel's "(None)" */
+  O42_PRINT_NOTES_AT_END,       /* on pages of their own after the sheet */
+  O42_PRINT_NOTES_IN_PLACE      /* the ones shown, where they are */
+} O42PrintNotes;
+
+typedef enum {
+  O42_PRINT_ERRORS_SHOWN,       /* #DIV/0! as on screen */
+  O42_PRINT_ERRORS_BLANK,
+  O42_PRINT_ERRORS_DASHES,      /* -- */
+  O42_PRINT_ERRORS_NA           /* #N/A */
+} O42PrintErrors;
+
 typedef struct {
   gboolean  has_area;
   O42Range  area;
@@ -185,13 +203,25 @@ typedef struct {
   char     *footer;
   gboolean  gridlines;
   gboolean  headings;
-  int       title_rows;     /* rows 0..title_rows-1 repeat; 0 for none */
+  int       title_rows;     /* rows 0..title_rows-1 repeat at the top; 0 for none */
+  int       title_cols;     /* columns 0..title_cols-1 repeat at the left */
   int       scale;          /* per cent, 100 for life size */
   int       fit_wide;       /* fit the sheet into this many pages across,
                              * and `fit_tall` down; 0 for neither, and
                              * then `scale` is used */
   int       fit_tall;
-  double    margin;         /* points around the page */
+  gboolean  landscape;
+  int       paper;          /* Excel's paper code: 1 Letter, 9 A4, ... */
+  double    margin_left, margin_right, margin_top, margin_bottom;  /* points */
+  double    margin_header;  /* the header's top from the paper's edge */
+  double    margin_footer;  /* the footer's bottom from the paper's edge */
+  gboolean  hcenter, vcenter;
+  gboolean  down_then_over; /* the page order; the other is over, then down */
+  int       first_page;     /* what &P shows on the first page */
+  gboolean  black_white;
+  gboolean  draft;          /* no fills, gridlines, pictures or charts */
+  O42PrintNotes  notes;
+  O42PrintErrors errors;
 } O42PrintSetup;
 
 const O42PrintSetup *o42_sheet_print_setup       (O42Sheet *sheet);
@@ -199,10 +229,29 @@ void                 o42_sheet_set_print_area    (O42Sheet *sheet, const O42Rang
 void                 o42_sheet_set_header_footer (O42Sheet *sheet, const char *header, const char *footer);
 void                 o42_sheet_set_print_options (O42Sheet *sheet, gboolean gridlines,
                                                   gboolean headings, int title_rows);
+void                 o42_sheet_set_print_titles  (O42Sheet *sheet, int title_rows, int title_cols);
 /* Life size, a percentage, or fitted into so many pages across and
  * down (either may be zero for "as many as it takes"). */
 void                 o42_sheet_set_print_scale   (O42Sheet *sheet, int scale, int fit_wide, int fit_tall);
+/* The same distance on all four sides, as the old one-margin setup had. */
 void                 o42_sheet_set_print_margin  (O42Sheet *sheet, double points);
+/* The whole setup at once, for the readers and the dialog: every field
+ * is copied, the strings duplicated. */
+void                 o42_sheet_set_print_setup   (O42Sheet *sheet, const O42PrintSetup *setup);
+
+/* The paper a code names, portrait, in points: Excel's codes, which
+ * .xls and .xlsx carry.  Unknown codes are A4.  `o42_paper_code` goes
+ * the other way from a size, and `o42_paper_name` gives "A4", "Letter". */
+void        o42_paper_size (int code, double *width_pt, double *height_pt);
+int         o42_paper_code (double width_pt, double height_pt);
+const char *o42_paper_name (int code);
+int         o42_paper_from_name (const char *name);   /* "A4", "na_letter", "iso_a4"; 0 if unknown */
+int         o42_paper_count (void);                   /* how many the tables know */
+int         o42_paper_nth  (int n);                   /* their codes, in order */
+
+/* The printed page's size in points, as the setup has it: the paper
+ * turned if landscape. */
+void        o42_print_setup_paper (const O42PrintSetup *setup, double *width_pt, double *height_pt);
 
 /* Manual page breaks: the printing starts a new page at this row (or
  * column).  Setting one again takes it away. */

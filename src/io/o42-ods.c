@@ -271,7 +271,214 @@ typedef struct {
   GHashTable *cell_styles;  /* O42Fmt bytes -> "ce5" */
   GHashTable *num_styles;   /* number/decimals key -> "N7" */
   int         next_co, next_ro, next_ce, next_n, next_t, next_ta;
+  GString    *page_layouts; /* styles.xml: a page layout per sheet */
+  GString    *master_pages; /* and the master page that uses it, with the header and footer */
+  GHashTable *hf_styles;    /* "B1I0U0S12F" -> "MT3", text styles the header parts wear */
+  GString    *hf_style_xml;
 } Styles;
+
+/* A break in a row or column style: the same size, with
+ * fo:break-before="page", under a name of its own. */
+static const char *
+break_style (Styles *s, int px, gboolean row)
+{
+  GHashTable *table = row ? s->row_styles : s->col_styles;
+  char *name = g_hash_table_lookup (table, GINT_TO_POINTER (-px - 1));
+
+  if (name == NULL)
+    {
+      char buf[G_ASCII_DTOSTR_BUF_SIZE];
+      char *cm = g_strdup_printf ("%scm", g_ascii_formatd (buf, sizeof buf, "%.3f", px * 2.54 / 96.0));
+
+      name = g_strdup_printf (row ? "rob%d" : "cob%d", row ? ++s->next_ro : ++s->next_co);
+      if (row)
+        g_string_append_printf (s->styles,
+          "<style:style style:name=\"%s\" style:family=\"table-row\">"
+          "<style:table-row-properties style:row-height=\"%s\" fo:break-before=\"page\" style:use-optimal-row-height=\"false\"/></style:style>", name, cm);
+      else
+        g_string_append_printf (s->styles,
+          "<style:style style:name=\"%s\" style:family=\"table-column\">"
+          "<style:table-column-properties fo:break-before=\"page\" style:column-width=\"%s\"/></style:style>", name, cm);
+      g_hash_table_insert (table, GINT_TO_POINTER (-px - 1), name);
+      g_free (cm);
+    }
+  return name;
+}
+
+/* A header part in Excel's notation as OpenDocument paragraphs: the
+ * fields as text:page-number and the like, the styles as spans. */
+static void
+hf_part_xml (Styles *s, GString *out, const char *text)
+{
+  gboolean bold = FALSE, italic = FALSE, underline = FALSE;
+  int size = 0;
+  char *family = NULL;
+  gboolean open = FALSE;
+
+#define HF_SPAN() G_STMT_START {                                                    \
+    if (open) { g_string_append (out, "</text:span>"); open = FALSE; }               \
+    if (bold || italic || underline || size > 0 || family != NULL)                   \
+      {                                                                              \
+        char *key = g_strdup_printf ("B%dI%dU%dS%dF%s", bold, italic, underline, size, family != NULL ? family : ""); \
+        char *sname = g_hash_table_lookup (s->hf_styles, key);                       \
+        if (sname == NULL)                                                           \
+          {                                                                          \
+            sname = g_strdup_printf ("MT%u", g_hash_table_size (s->hf_styles) + 1);  \
+            g_string_append_printf (s->hf_style_xml, "<style:style style:name=\"%s\" style:family=\"text\"><style:text-properties", sname); \
+            if (bold) g_string_append (s->hf_style_xml, " fo:font-weight=\"bold\"");  \
+            if (italic) g_string_append (s->hf_style_xml, " fo:font-style=\"italic\""); \
+            if (underline) g_string_append (s->hf_style_xml, " style:text-underline-style=\"solid\" style:text-underline-width=\"auto\" style:text-underline-color=\"font-color\""); \
+            if (size > 0) g_string_append_printf (s->hf_style_xml, " fo:font-size=\"%dpt\"", size); \
+            if (family != NULL) { char *e = g_markup_escape_text (family, -1); g_string_append_printf (s->hf_style_xml, " style:font-name=\"%s\"", e); g_free (e); } \
+            g_string_append (s->hf_style_xml, "/></style:style>");                   \
+            g_hash_table_insert (s->hf_styles, g_strdup (key), sname);               \
+          }                                                                          \
+        g_string_append_printf (out, "<text:span text:style-name=\"%s\">", sname);  \
+        open = TRUE;                                                                 \
+        g_free (key);                                                                \
+      }                                                                              \
+  } G_STMT_END
+
+  g_string_append (out, "<text:p>");
+  for (const char *p = text; *p != '\0'; p++)
+    {
+      if (*p != '&' || p[1] == '\0')
+        {
+          char c[2] = { *p, 0 };
+          char *e = g_markup_escape_text (c, -1);
+          if (*p == '\n') g_string_append (out, "</text:p><text:p>");
+          else g_string_append (out, e);
+          g_free (e);
+          continue;
+        }
+      p++;
+      switch (g_ascii_toupper (*p))
+        {
+        case 'P': g_string_append (out, "<text:page-number>1</text:page-number>"); break;
+        case 'N': g_string_append (out, "<text:page-count>1</text:page-count>"); break;
+        case 'A': g_string_append (out, "<text:sheet-name>Sheet1</text:sheet-name>"); break;
+        case 'D': g_string_append (out, "<text:date>2026-01-01</text:date>"); break;
+        case 'T': g_string_append (out, "<text:time>00:00</text:time>"); break;
+        case 'F': g_string_append (out, "<text:file-name text:display=\"name\">Book1</text:file-name>"); break;
+        case 'Z': g_string_append (out, "<text:file-name text:display=\"path\"></text:file-name>"); break;
+        case '&': g_string_append (out, "&amp;"); break;
+        case 'B': bold = !bold; HF_SPAN (); break;
+        case 'I': italic = !italic; HF_SPAN (); break;
+        case 'U': underline = !underline; HF_SPAN (); break;
+        case '"':
+          {
+            const char *close = strchr (p + 1, '"');
+            char *spec = close != NULL ? g_strndup (p + 1, close - p - 1) : g_strdup (p + 1);
+            char *comma = strchr (spec, ',');
+
+            if (comma != NULL) *comma++ = '\0';
+            g_free (family);
+            family = (*spec != '\0' && strcmp (spec, "-") != 0) ? g_strdup (spec) : NULL;
+            if (comma != NULL)
+              {
+                bold = strstr (comma, "old") != NULL;
+                italic = strstr (comma, "talic") != NULL;
+              }
+            g_free (spec);
+            p = close != NULL ? close : p + strlen (p) - 1;
+            HF_SPAN ();
+            break;
+          }
+        default:
+          if (g_ascii_isdigit (*p))
+            {
+              size = atoi (p);
+              while (g_ascii_isdigit (p[1])) p++;
+              HF_SPAN ();
+            }
+          break;
+        }
+    }
+  if (open)
+    g_string_append (out, "</text:span>");
+  g_string_append (out, "</text:p>");
+  g_free (family);
+#undef HF_SPAN
+}
+
+/* The header or footer of a master page: its three regions. */
+static void
+hf_xml (Styles *s, GString *out, const char *text, gboolean footer)
+{
+  GString *parts[3] = { g_string_new (NULL), g_string_new (NULL), g_string_new (NULL) };
+  int which = 1;
+  gboolean any = text != NULL && *text != '\0';
+
+  for (const char *p = any ? text : ""; *p != '\0'; p++)
+    {
+      if (*p == '&' && (g_ascii_toupper (p[1]) == 'L' || g_ascii_toupper (p[1]) == 'C' || g_ascii_toupper (p[1]) == 'R'))
+        { which = g_ascii_toupper (p[1]) == 'L' ? 0 : g_ascii_toupper (p[1]) == 'C' ? 1 : 2; p++; continue; }
+      if (*p == '&' && p[1] == '&')
+        { g_string_append (parts[which], "&&"); p++; continue; }
+      g_string_append_c (parts[which], *p);
+    }
+  g_string_append_printf (out, "<style:%s%s>", footer ? "footer" : "header", any ? "" : " style:display=\"false\"");
+  if (any)
+    {
+      static const char *const regions[3] = { "left", "center", "right" };
+      for (int i = 0; i < 3; i++)
+        {
+          g_string_append_printf (out, "<style:region-%s>", regions[i]);
+          hf_part_xml (s, out, parts[i]->str);
+          g_string_append_printf (out, "</style:region-%s>", regions[i]);
+        }
+    }
+  g_string_append_printf (out, "</style:%s>", footer ? "footer" : "header");
+  for (int i = 0; i < 3; i++)
+    g_string_free (parts[i], TRUE);
+}
+
+/* The page layout and master page of a sheet, from its Page Setup. */
+static void
+write_page_style (Styles *s, O42Sheet *sheet, int index)
+{
+  const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+  char buf[8][G_ASCII_DTOSTR_BUF_SIZE];
+  double pw, ph;
+  gboolean has_header = ps->header != NULL && *ps->header != '\0';
+  gboolean has_footer = ps->footer != NULL && *ps->footer != '\0';
+  double header_h = MAX (ps->margin_top - ps->margin_header, 0);
+  double footer_h = MAX (ps->margin_bottom - ps->margin_footer, 0);
+
+  o42_paper_size (ps->paper, &pw, &ph);
+  if (ps->landscape) { double t = pw; pw = ph; ph = t; }
+#define CM(i, pt) g_ascii_formatd (buf[i], sizeof buf[i], "%.3f", (pt) * 2.54 / 72.0)
+  g_string_append_printf (s->page_layouts,
+    "<style:page-layout style:name=\"pm%d\"><style:page-layout-properties fo:page-width=\"%scm\" fo:page-height=\"%scm\" "
+    "style:num-format=\"1\" style:print-orientation=\"%s\" fo:margin-top=\"%scm\" fo:margin-bottom=\"%scm\" "
+    "fo:margin-left=\"%scm\" fo:margin-right=\"%scm\" style:print-page-order=\"%s\" style:first-page-number=\"%d\" ",
+    index + 1, CM (0, pw), CM (1, ph), ps->landscape ? "landscape" : "portrait",
+    CM (2, has_header ? ps->margin_header : ps->margin_top), CM (3, has_footer ? ps->margin_footer : ps->margin_bottom),
+    CM (4, ps->margin_left), CM (5, ps->margin_right), ps->down_then_over ? "ttb" : "ltr", ps->first_page);
+  if (ps->fit_wide > 0 || ps->fit_tall > 0)
+    {
+      if (ps->fit_wide > 0) g_string_append_printf (s->page_layouts, "style:scale-to-X=\"%d\" ", ps->fit_wide);
+      if (ps->fit_tall > 0) g_string_append_printf (s->page_layouts, "style:scale-to-Y=\"%d\" ", ps->fit_tall);
+    }
+  else
+    g_string_append_printf (s->page_layouts, "style:scale-to=\"%d%%\" ", ps->scale);
+  g_string_append_printf (s->page_layouts, "style:table-centering=\"%s\" style:print=\"%s%s%s%s%s\"/>",
+    ps->hcenter && ps->vcenter ? "both" : ps->hcenter ? "horizontal" : ps->vcenter ? "vertical" : "none",
+    ps->draft ? "" : "objects charts drawings zero-values ",
+    ps->gridlines ? "grid " : "", ps->headings ? "headers " : "",
+    ps->notes != O42_PRINT_NOTES_NONE ? "annotations " : "", "formulas-0");
+  /* The header and footer bands: from the paper's edge to the header,
+   * then the header's own height, take the body to its margin. */
+  g_string_append_printf (s->page_layouts,
+    "<style:header-style><style:header-footer-properties fo:min-height=\"%scm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:margin-bottom=\"0cm\"/></style:header-style>"
+    "<style:footer-style><style:header-footer-properties fo:min-height=\"%scm\" fo:margin-left=\"0cm\" fo:margin-right=\"0cm\" fo:margin-top=\"0cm\"/></style:footer-style>"
+    "</style:page-layout>", CM (6, has_header ? header_h : 0), CM (7, has_footer ? footer_h : 0));
+#undef CM
+  g_string_append_printf (s->master_pages, "<style:master-page style:name=\"MP%d\" style:page-layout-name=\"pm%d\">", index + 1, index + 1);
+  hf_xml (s, s->master_pages, ps->header, FALSE);
+  hf_xml (s, s->master_pages, ps->footer, TRUE);
+  g_string_append (s->master_pages, "</style:master-page>");
+}
 
 static char *
 length_cm (int px)
@@ -280,17 +487,20 @@ length_cm (int px)
   return g_strdup_printf ("%scm", g_ascii_formatd (buf, sizeof buf, "%.3f", px * 2.54 / 96.0));
 }
 
-/* A table style exists only to carry the tab's colour; ODF hangs it
- * off table:style-name the way a column hangs off a column style. */
+/* A table style carries the tab's colour and names the master page
+ * the sheet prints on; ODF hangs it off table:style-name the way a
+ * column hangs off a column style. */
 static char *
-table_style (Styles *s, guint32 colour)
+table_style (Styles *s, guint32 colour, int index)
 {
   char *name = g_strdup_printf ("ta%d", ++s->next_ta);
 
   g_string_append_printf (s->styles,
-    "<style:style style:name=\"%s\" style:family=\"table\">"
-    "<style:table-properties table:display=\"true\" table:tab-color=\"#%06x\"/></style:style>",
-    name, colour & 0xFFFFFF);
+    "<style:style style:name=\"%s\" style:family=\"table\" style:master-page-name=\"MP%d\">"
+    "<style:table-properties table:display=\"true\"", name, index + 1);
+  if (colour != O42_TAB_NO_COLOUR)
+    g_string_append_printf (s->styles, " table:tab-color=\"#%06x\"", colour & 0xFFFFFF);
+  g_string_append (s->styles, "/></style:style>");
   return name;
 }
 
@@ -1295,43 +1505,84 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
 
   {
     guint32 tab = o42_sheet_tab_colour (sheet);
+    const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+    char *style = table_style (s, tab, sheet_index);
 
-    g_string_append_printf (out, "<table:table table:name=\"%s\"", name);
-    if (tab != O42_TAB_NO_COLOUR)
+    write_page_style (s, sheet, sheet_index);
+    g_string_append_printf (out, "<table:table table:name=\"%s\" table:style-name=\"%s\"", name, style);
+    g_free (style);
+    if (ps->has_area)
       {
-        char *style = table_style (s, tab);
+        /* 'Sheet 1'.A1:'Sheet 1'.C9, the sheet quoted when it needs it. */
+        char *a = o42_ref_name (ps->area.row0, ps->area.col0);
+        char *b = o42_ref_name (ps->area.row1, ps->area.col1);
+        gboolean quote = strpbrk (o42_sheet_get_name (sheet), " '.-") != NULL;
 
-        g_string_append_printf (out, " table:style-name=\"%s\"", style);
-        g_free (style);
+        g_string_append_printf (out, " table:print-ranges=\"%s%s%s.%s:%s%s%s.%s\"",
+                                quote ? "&apos;" : "", name, quote ? "&apos;" : "", a,
+                                quote ? "&apos;" : "", name, quote ? "&apos;" : "", b);
+        g_free (a); g_free (b);
       }
     g_string_append (out, ">");
+    /* The repeated rows and columns are wrapped as headers, so the
+     * columns come in two runs when there are any. */
+    last_col = MAX (last_col, ps->title_cols - 1);
+    last_row = MAX (last_row, MIN (ps->title_rows, 64) - 1);
+    {
+      /* A page break is a row or column style, so the rows and columns
+       * up to the last break are written out. */
+      GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
+      GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
+      for (guint i = 0; i < rb->len; i++)
+        last_row = MAX (last_row, MIN (g_array_index (rb, int, i), 4095));
+      for (guint i = 0; i < cb->len; i++)
+        last_col = MAX (last_col, MIN (g_array_index (cb, int, i), 255));
+    }
   }
   g_free (name);
 
   write_forms (out, sheet);
 
-  /* Columns, in runs of the same width. */
-  for (int c = 0; c <= last_col; )
-    {
-      int width = o42_sheet_col_width (sheet, c);
-      gboolean hidden = o42_sheet_col_hidden (sheet, c);
-      int n = 1;
-      while (c + n <= last_col && o42_sheet_col_width (sheet, c + n) == width && o42_sheet_col_hidden (sheet, c + n) == hidden)
-        n++;
-      g_string_append_printf (out, "<table:table-column table:style-name=\"%s\"", col_style (s, hidden ? default_width : width));
-      if (n > 1) g_string_append_printf (out, " table:number-columns-repeated=\"%d\"", n);
-      if (hidden) g_string_append (out, " table:visibility=\"collapse\"");
-      g_string_append (out, " table:default-cell-style-name=\"Default\"/>");
-      c += n;
-    }
-  if (last_col < 0)
-    g_string_append_printf (out, "<table:table-column table:style-name=\"%s\" table:default-cell-style-name=\"Default\"/>", col_style (s, default_width));
+  /* Columns, in runs of the same width, a run ending where a page
+   * break or the repeated columns do. */
+  {
+    const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+    if (ps->title_cols > 0)
+      g_string_append (out, "<table:table-header-columns>");
+    for (int c = 0; c <= last_col; )
+      {
+        int width = o42_sheet_col_width (sheet, c);
+        gboolean hidden = o42_sheet_col_hidden (sheet, c);
+        gboolean brk = o42_sheet_page_break (sheet, FALSE, c);
+        int n = 1;
+        while (c + n <= last_col && o42_sheet_col_width (sheet, c + n) == width &&
+               o42_sheet_col_hidden (sheet, c + n) == hidden && c + n != ps->title_cols &&
+               !o42_sheet_page_break (sheet, FALSE, c + n))
+          n++;
+        g_string_append_printf (out, "<table:table-column table:style-name=\"%s\"",
+                                brk ? break_style (s, hidden ? default_width : width, FALSE)
+                                    : col_style (s, hidden ? default_width : width));
+        if (n > 1) g_string_append_printf (out, " table:number-columns-repeated=\"%d\"", n);
+        if (hidden) g_string_append (out, " table:visibility=\"collapse\"");
+        g_string_append (out, " table:default-cell-style-name=\"Default\"/>");
+        c += n;
+        if (c == ps->title_cols && ps->title_cols > 0)
+          g_string_append (out, "</table:table-header-columns>");
+      }
+    if (last_col < 0)
+      g_string_append_printf (out, "<table:table-column table:style-name=\"%s\" table:default-cell-style-name=\"Default\"/>", col_style (s, default_width));
+  }
 
   for (int r = 0; r <= last_row; r++)
     {
       int height = o42_sheet_row_height (sheet, r);
       gboolean hidden = o42_sheet_row_hidden (sheet, r);
+      gboolean brk = o42_sheet_page_break (sheet, TRUE, r);
+      int title_rows = o42_sheet_print_setup (sheet)->title_rows;
       int last_in_row = -1;
+
+      if (r == 0 && title_rows > 0)
+        g_string_append (out, "<table:table-header-rows>");
 
       for (int c = 0; c <= last_col; c++)
         {
@@ -1343,7 +1594,9 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
           g_free (input);
         }
 
-      g_string_append_printf (out, "<table:table-row table:style-name=\"%s\"", row_style (s, hidden ? default_height : height));
+      g_string_append_printf (out, "<table:table-row table:style-name=\"%s\"",
+                              brk ? break_style (s, hidden ? default_height : height, TRUE)
+                                  : row_style (s, hidden ? default_height : height));
       if (hidden) g_string_append (out, " table:visibility=\"collapse\"");
       g_string_append_c (out, '>');
       for (int c = 0; c <= last_in_row; c++)
@@ -1351,6 +1604,8 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
       if (last_in_row < 0)
         g_string_append (out, "<table:table-cell/>");
       g_string_append (out, "</table:table-row>");
+      if (r + 1 == title_rows)
+        g_string_append (out, "</table:table-header-rows>");
     }
   if (last_row < 0)
     g_string_append (out, "<table:table-row><table:table-cell/></table:table-row>");
@@ -1563,6 +1818,10 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   s.cell_styles = g_hash_table_new_full (fmt_hash, fmt_equal, g_free, g_free);
   s.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   s.next_co = s.next_ro = s.next_ce = s.next_n = s.next_t = s.next_ta = 0;
+  s.page_layouts = g_string_new (NULL);
+  s.master_pages = g_string_new (NULL);
+  s.hf_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  s.hf_style_xml = g_string_new (NULL);
 
   for (int i = 0; i < o42_book_n_sheets (book); i++)
     write_table (body, &s, o42_book_sheet (book, i), i);
@@ -1590,18 +1849,25 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
       "<manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>"
       "<manifest:file-entry manifest:full-path=\"settings.xml\" manifest:media-type=\"text/xml\"/>");
 
-    static const char styles[] =
+    GString *styles = g_string_new (
       "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles " NS_HEAD ">"
       "<office:styles><style:default-style style:family=\"table-cell\">"
       "<style:text-properties fo:font-family=\"Arial\" fo:font-size=\"10pt\"/></style:default-style>"
       "<style:style style:name=\"Default\" style:family=\"table-cell\"/></office:styles>"
-      "</office:document-styles>";
+      "<office:automatic-styles>");
+
+    g_string_append (styles, s.hf_style_xml->str);
+    g_string_append (styles, s.page_layouts->str);
+    g_string_append (styles, "</office:automatic-styles><office:master-styles>");
+    g_string_append (styles, s.master_pages->str);
+    g_string_append (styles, "</office:master-styles></office:document-styles>");
 
     write_drawing_parts (zip, book, manifest);
     g_string_append (manifest, "</manifest:manifest>");
     o42_zip_writer_add (zip, "META-INF/manifest.xml", manifest->str, manifest->len);
     g_string_free (manifest, TRUE);
-    o42_zip_writer_add (zip, "styles.xml", styles, strlen (styles));
+    o42_zip_writer_add (zip, "styles.xml", styles->str, styles->len);
+    g_string_free (styles, TRUE);
   }
   o42_zip_writer_add (zip, "content.xml", content->str, content->len);
   o42_zip_writer_add (zip, "settings.xml", settings->str, settings->len);
@@ -1614,6 +1880,10 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   g_string_free (settings, TRUE);
   g_string_free (body, TRUE);
   g_string_free (s.styles, TRUE);
+  g_string_free (s.page_layouts, TRUE);
+  g_string_free (s.master_pages, TRUE);
+  g_string_free (s.hf_style_xml, TRUE);
+  g_hash_table_unref (s.hf_styles);
   g_hash_table_unref (s.col_styles);
   g_hash_table_unref (s.row_styles);
   g_hash_table_unref (s.cell_styles);
@@ -1634,7 +1904,18 @@ typedef struct {
   int      width;          /* columns: px, or 0 */
   int      height;         /* rows: px, or 0 */
   guint32  tab_colour;     /* tables: the tab's colour, or O42_TAB_NO_COLOUR */
+  gboolean page_break;     /* rows and columns: fo:break-before="page" */
+  char    *master_page;    /* tables: the master page they print on */
 } Style;
+
+/* A page layout from styles.xml, and the master page that uses it:
+ * together, a sheet's Page Setup. */
+typedef struct {
+  O42PrintSetup ps;        /* header and footer owned */
+  double   header_h;       /* the header band's height, points */
+  double   footer_h;
+  gboolean header_shown, footer_shown;
+} PageLayout;
 
 typedef struct {
   O42NumberFormat number;
@@ -1685,6 +1966,19 @@ typedef struct {
   GHashTable *form_controls;  /* form:id -> FormControl, for draw:control */
   GArray     *loose_controls; /* LooseControl: shapes outside any cell */
   gboolean    in_form;        /* inside <office:forms>, where a frame is a group box */
+
+  /* Page layouts and master pages from styles.xml. */
+  GHashTable *font_faces;    /* font-face name -> family */
+  GHashTable *page_layouts;  /* name -> PageLayout */
+  GHashTable *master_pages;  /* name -> PageLayout (the layout's, with the header and footer) */
+  PageLayout *layout;        /* the one being read */
+  int         hf_side;       /* 1 in the master page's header, 2 its footer */
+  int         hf_region;     /* 0 left, 1 centre, 2 right */
+  GString    *hf_parts[2][3];
+  O42Fmt      hf_cur, hf_want;      /* the style the codes have set, and the span's */
+  int         hf_paragraphs;        /* in the region so far */
+  int         in_header_rows, in_header_cols;   /* rows or columns wrapped as repeated */
+  int         header_rows_from, header_cols_from;
 
   /* Frozen panes from settings.xml. */
   char       *setting_table;
@@ -1947,9 +2241,19 @@ colour_of (const char *text, guint32 fallback)
 }
 
 static void
+page_layout_free (gpointer data)
+{
+  PageLayout *pl = data;
+  g_free (pl->ps.header);
+  g_free (pl->ps.footer);
+  g_free (pl);
+}
+
+static void
 style_free (gpointer data)
 {
   Style *s = data;
+  g_free (s->master_page);
   g_free (s->data_style);
   g_free (s);
 }
@@ -2195,6 +2499,8 @@ row_finish (Reader *r)
     {
       Style *st = r->row_style != NULL ? g_hash_table_lookup (r->styles, r->row_style) : NULL;
       int last = MIN (r->row + repeat, O42_MAX_ROWS);
+      if (st != NULL && st->page_break && r->row > 0 && !o42_sheet_page_break (r->sheet, TRUE, r->row))
+        o42_sheet_toggle_page_break (r->sheet, TRUE, r->row);
       if (repeat <= 512 || r->cell_col > 0)
         for (int k = r->row; k < last; k++)
           {
@@ -2442,6 +2748,24 @@ read_chart_object (Reader *r, const char *href, int row, int col,
   g_free (part);
 }
 
+/* Before a header's words or a field: the codes that take the style
+ * from what the last ones set to what the span in force wants. */
+static void
+hf_sync (Reader *r)
+{
+  GString *part = r->hf_parts[r->hf_side - 1][r->hf_region];
+  O42Fmt *cur = &r->hf_cur, *want = &r->hf_want;
+
+  if (cur->bold != want->bold) g_string_append (part, "&B");
+  if (cur->italic != want->italic) g_string_append (part, "&I");
+  if (cur->underline != want->underline) g_string_append (part, "&U");
+  if (cur->size != want->size && want->size > 0)
+    g_string_append_printf (part, "&%d", want->size / 2);
+  if (g_strcmp0 (cur->family, want->family) != 0 && want->family != NULL)
+    g_string_append_printf (part, "&\"%s\"", want->family);
+  *cur = *want;
+}
+
 static void
 content_start (GMarkupParseContext *ctx, const char *element, const char **names,
                const char **values, gpointer user, GError **error)
@@ -2615,6 +2939,176 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       return;
     }
 
+  if (strcmp (name, "font-face") == 0 && attr (names, values, "name") != NULL &&
+      attr (names, values, "font-family") != NULL)
+    {
+      char *fam = g_strdup (attr (names, values, "font-family"));
+      size_t n = strlen (fam);
+
+      if (n >= 2 && fam[0] == '\'' && fam[n - 1] == '\'')
+        { memmove (fam, fam + 1, n - 2); fam[n - 2] = '\0'; }
+      g_hash_table_replace (r->font_faces, g_strdup (attr (names, values, "name")), fam);
+      return;
+    }
+
+  /* Page layouts, in styles.xml. */
+  if (strcmp (name, "page-layout") == 0 && attr (names, values, "name") != NULL)
+    {
+      PageLayout *pl = g_new0 (PageLayout, 1);
+      O42Sheet *fresh = o42_sheet_new ("x");
+
+      pl->ps = *o42_sheet_print_setup (fresh);
+      pl->ps.header = g_strdup ("");
+      pl->ps.footer = g_strdup ("");
+      o42_sheet_free (fresh);
+      g_hash_table_replace (r->page_layouts, g_strdup (attr (names, values, "name")), pl);
+      r->layout = pl;
+      r->hf_side = 0;
+      return;
+    }
+  if (r->layout != NULL && r->hf_side == 0 && strcmp (name, "page-layout-properties") == 0)
+    {
+      O42PrintSetup *ps = &r->layout->ps;
+      const char *v;
+      double pw = ods_length (attr (names, values, "page-width")) * 0.75;
+      double ph = ods_length (attr (names, values, "page-height")) * 0.75;
+
+      if ((v = attr (names, values, "print-orientation")) != NULL)
+        ps->landscape = strcmp (v, "landscape") == 0;
+      if (pw > 0 && ph > 0)
+        {
+          int code = o42_paper_code (pw, ph);
+          if (code != 0) ps->paper = code;
+          if (pw > ph) ps->landscape = TRUE;
+        }
+      if ((v = attr (names, values, "margin-top")) != NULL) ps->margin_top = ps->margin_header = ods_length (v) * 0.75;
+      if ((v = attr (names, values, "margin-bottom")) != NULL) ps->margin_bottom = ps->margin_footer = ods_length (v) * 0.75;
+      if ((v = attr (names, values, "margin-left")) != NULL) ps->margin_left = ods_length (v) * 0.75;
+      if ((v = attr (names, values, "margin-right")) != NULL) ps->margin_right = ods_length (v) * 0.75;
+      if ((v = attr (names, values, "print-page-order")) != NULL) ps->down_then_over = strcmp (v, "ltr") != 0;
+      if ((v = attr (names, values, "first-page-number")) != NULL && g_ascii_isdigit (*v)) ps->first_page = atoi (v);
+      if ((v = attr (names, values, "scale-to")) != NULL) ps->scale = CLAMP (atoi (v), 10, 400);
+      if ((v = attr (names, values, "scale-to-X")) != NULL) ps->fit_wide = atoi (v);
+      if ((v = attr (names, values, "scale-to-Y")) != NULL) ps->fit_tall = atoi (v);
+      if ((v = attr (names, values, "scale-to-pages")) != NULL) { ps->fit_wide = atoi (v); ps->fit_tall = 0; }
+      if ((v = attr (names, values, "table-centering")) != NULL)
+        {
+          ps->hcenter = strcmp (v, "horizontal") == 0 || strcmp (v, "both") == 0;
+          ps->vcenter = strcmp (v, "vertical") == 0 || strcmp (v, "both") == 0;
+        }
+      if ((v = attr (names, values, "print")) != NULL)
+        {
+          ps->gridlines = strstr (v, "grid") != NULL;
+          ps->headings = strstr (v, "headers") != NULL;
+          ps->notes = strstr (v, "annotations") != NULL ? O42_PRINT_NOTES_IN_PLACE : O42_PRINT_NOTES_NONE;
+          ps->draft = strstr (v, "objects") == NULL && strstr (v, "charts") == NULL;
+        }
+      return;
+    }
+  if (r->layout != NULL && (strcmp (name, "header-style") == 0 || strcmp (name, "footer-style") == 0))
+    {
+      r->hf_side = name[0] == 'h' ? 1 : 2;
+      return;
+    }
+  if (r->layout != NULL && r->hf_side != 0 && strcmp (name, "header-footer-properties") == 0)
+    {
+      double h = ods_length (attr (names, values, "min-height")) * 0.75;
+      double gap = ods_length (attr (names, values, r->hf_side == 1 ? "margin-bottom" : "margin-top")) * 0.75;
+
+      if (r->hf_side == 1) r->layout->header_h = h + gap;
+      else r->layout->footer_h = h + gap;
+      return;
+    }
+  if (strcmp (name, "master-page") == 0)
+    {
+      const char *layout = attr (names, values, "page-layout-name");
+      const char *mname = attr (names, values, "name");
+      PageLayout *pl = layout != NULL ? g_hash_table_lookup (r->page_layouts, layout) : NULL;
+
+      if (pl != NULL && mname != NULL)
+        {
+          g_hash_table_replace (r->master_pages, g_strdup (mname), pl);
+          r->layout = pl;
+          r->hf_side = 0;
+        }
+      else
+        r->layout = NULL;
+      return;
+    }
+  if (r->layout != NULL && (strcmp (name, "header") == 0 || strcmp (name, "footer") == 0) &&
+      g_hash_table_size (r->master_pages) > 0)
+    {
+      const char *display = attr (names, values, "display");
+      gboolean shown = display == NULL || strcmp (display, "false") != 0;
+
+      r->hf_side = name[0] == 'h' ? 1 : 2;
+      r->hf_region = 1;
+      o42_fmt_init_default (&r->hf_cur);
+      o42_fmt_init_default (&r->hf_want);
+      r->hf_paragraphs = 0;
+      if (r->hf_side == 1) r->layout->header_shown = shown;
+      else r->layout->footer_shown = shown;
+      for (int i = 0; i < 3; i++)
+        {
+          if (r->hf_parts[r->hf_side - 1][i] == NULL)
+            r->hf_parts[r->hf_side - 1][i] = g_string_new (NULL);
+          g_string_truncate (r->hf_parts[r->hf_side - 1][i], 0);
+        }
+      return;
+    }
+  if (r->layout != NULL && r->hf_side != 0 && g_str_has_prefix (name, "region-"))
+    {
+      r->hf_region = name[7] == 'l' ? 0 : name[7] == 'c' ? 1 : 2;
+      o42_fmt_init_default (&r->hf_cur);
+      o42_fmt_init_default (&r->hf_want);
+      r->hf_paragraphs = 0;
+      return;
+    }
+  if (r->layout != NULL && r->hf_side != 0 && g_hash_table_size (r->master_pages) > 0)
+    {
+      /* The fields of a header, as Excel's codes. */
+      GString *part = r->hf_parts[r->hf_side - 1][r->hf_region];
+      const char *code = strcmp (name, "page-number") == 0 ? "&P" : strcmp (name, "page-count") == 0 ? "&N"
+                       : strcmp (name, "sheet-name") == 0 ? "&A" : strcmp (name, "date") == 0 ? "&D"
+                       : strcmp (name, "time") == 0 ? "&T" : strcmp (name, "file-name") == 0 ? "&F" : NULL;
+
+      if (code != NULL)
+        {
+          hf_sync (r);
+          g_string_append (part, code);
+          r->in_p = FALSE;   /* the field's own text is not copied */
+          return;
+        }
+      if (strcmp (name, "s") == 0 || strcmp (name, "tab") == 0)
+        {
+          int n = attr_int (names, values, "c", 1);
+          hf_sync (r);
+          for (int i = 0; i < n; i++)
+            g_string_append_c (part, name[0] == 's' ? ' ' : '\t');
+          return;
+        }
+      if (strcmp (name, "line-break") == 0)
+        {
+          g_string_append_c (part, '\n');
+          return;
+        }
+      if (strcmp (name, "span") == 0)
+        {
+          const char *sname = attr (names, values, "style-name");
+          Style *st = sname != NULL ? g_hash_table_lookup (r->styles, sname) : NULL;
+
+          if (st != NULL)
+            r->hf_want = st->fmt;
+        }
+      if (strcmp (name, "p") == 0)
+        {
+          if (r->hf_paragraphs++ > 0)
+            g_string_append_c (part, '\n');
+          r->in_p = TRUE;
+        }
+      return;
+    }
+
   /* Styles. */
   if (strcmp (name, "style") == 0 && attr (names, values, "family") != NULL)
     {
@@ -2623,6 +3117,7 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       o42_fmt_init_default (&st->fmt);
       st->tab_colour = O42_TAB_NO_COLOUR;
       st->data_style = g_strdup (attr (names, values, "data-style-name"));
+      st->master_page = g_strdup (attr (names, values, "master-page-name"));
       if (st->data_style != NULL) st->has_fmt = TRUE;
       if (sname != NULL) g_hash_table_replace (r->styles, g_strdup (sname), st);
       else style_free (st);
@@ -2640,9 +3135,17 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
             st->tab_colour = colour_of (tab, O42_TAB_NO_COLOUR);
         }
       else if (strcmp (name, "table-column-properties") == 0)
-        st->width = length_px (attr (names, values, "column-width"));
+        {
+          const char *brk = attr (names, values, "break-before");
+          st->width = length_px (attr (names, values, "column-width"));
+          st->page_break = brk != NULL && strcmp (brk, "page") == 0;
+        }
       else if (strcmp (name, "table-row-properties") == 0)
-        st->height = length_px (attr (names, values, "row-height"));
+        {
+          const char *brk = attr (names, values, "break-before");
+          st->height = length_px (attr (names, values, "row-height"));
+          st->page_break = brk != NULL && strcmp (brk, "page") == 0;
+        }
       else if (strcmp (name, "table-cell-properties") == 0)
         {
           const char *bg = attr (names, values, "background-color");
@@ -2705,7 +3208,13 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           if (ul != NULL && strcmp (ul, "none") != 0) st->fmt.underline = 1;
           if (lt != NULL && strcmp (lt, "none") != 0) st->fmt.strikeout = 1;
           if (size != NULL && g_str_has_suffix (size, "pt")) st->fmt.size = (int) (g_ascii_strtod (size, NULL) * 2 + 0.5);
-          if (family == NULL) family = fname;
+          if (family == NULL && fname != NULL)
+            {
+              /* A font-face declaration's name, which LibreOffice makes
+               * "Arial1" for a second Arial; the face says the family. */
+              const char *declared = g_hash_table_lookup (r->font_faces, fname);
+              family = declared != NULL ? declared : fname;
+            }
           if (family != NULL)
             {
               char *clean = g_strdup (family);
@@ -2834,15 +3343,58 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         r->sheet = o42_book_add_sheet (r->book, tname != NULL ? tname : "Sheet", -1);
       {
         const char *sname = attr (names, values, "style-name");
+        const char *ranges = attr (names, values, "print-ranges");
         Style *st = sname != NULL ? g_hash_table_lookup (r->styles, sname) : NULL;
+        PageLayout *pl = st != NULL && st->master_page != NULL
+                         ? g_hash_table_lookup (r->master_pages, st->master_page) : NULL;
 
         if (st != NULL && st->tab_colour != O42_TAB_NO_COLOUR && r->sheet != NULL)
           o42_sheet_set_tab_colour (r->sheet, st->tab_colour);
+        if (pl != NULL && r->sheet != NULL)
+          {
+            /* The header band takes the body down from the paper's edge
+             * to the header margin and on by its height. */
+            O42PrintSetup ps = pl->ps;
+
+            if (pl->header_shown)
+              ps.margin_top = ps.margin_header + pl->header_h;
+            else
+              ps.header = (char *) "";
+            if (pl->footer_shown)
+              ps.margin_bottom = ps.margin_footer + pl->footer_h;
+            else
+              ps.footer = (char *) "";
+            o42_sheet_set_print_setup (r->sheet, &ps);
+          }
+        if (ranges != NULL && r->sheet != NULL)
+          {
+            O42Range area;
+            char *first = g_strdup (ranges);
+            char *space = strchr (first, ' ');
+
+            if (space != NULL) *space = '\0';
+            if (ods_range (first, NULL, &area))
+              o42_sheet_set_print_area (r->sheet, &area);
+            g_free (first);
+          }
       }
+      r->in_header_rows = r->in_header_cols = 0;
       r->n_tables++;
       r->row = 0;
       r->col = 0;
       g_ptr_array_set_size (r->col_styles, 0);
+      return;
+    }
+  if (strcmp (name, "table-header-columns") == 0 && r->sheet != NULL)
+    {
+      r->in_header_cols = 1;
+      r->header_cols_from = r->col;
+      return;
+    }
+  if (strcmp (name, "table-header-rows") == 0 && r->sheet != NULL)
+    {
+      r->in_header_rows = 1;
+      r->header_rows_from = r->row;
       return;
     }
   if (strcmp (name, "table-column") == 0 && r->sheet != NULL)
@@ -2852,6 +3404,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       const char *cell_style_name = attr (names, values, "default-cell-style-name");
       const char *vis = attr (names, values, "visibility");
       Style *st = sname != NULL ? g_hash_table_lookup (r->styles, sname) : NULL;
+      if (st != NULL && st->page_break && r->col > 0 && !o42_sheet_page_break (r->sheet, FALSE, r->col))
+        o42_sheet_toggle_page_break (r->sheet, FALSE, r->col);
       for (int k = 0; k < repeat && r->col + k < O42_MAX_COLS; k++)
         {
           if (st != NULL && st->width > 0) o42_sheet_set_col_width (r->sheet, r->col + k, st->width);
@@ -2969,6 +3523,59 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
       else if (strcmp (name, "annotation") == 0) r->in_annotation = FALSE;
       return;
     }
+  if (r->layout != NULL && r->hf_side != 0 && g_hash_table_size (r->master_pages) > 0 &&
+      (strcmp (name, "header") == 0 || strcmp (name, "footer") == 0))
+    {
+      /* The three regions, joined in Excel's notation. */
+      GString *joined = g_string_new (NULL);
+      static const char *const codes[3] = { "&L", "&C", "&R" };
+
+      for (int i = 0; i < 3; i++)
+        if (r->hf_parts[r->hf_side - 1][i]->len > 0)
+          {
+            g_string_append (joined, codes[i]);
+            g_string_append (joined, r->hf_parts[r->hf_side - 1][i]->str);
+          }
+      if (r->hf_side == 1) { g_free (r->layout->ps.header); r->layout->ps.header = g_string_free (joined, FALSE); }
+      else { g_free (r->layout->ps.footer); r->layout->ps.footer = g_string_free (joined, FALSE); }
+      r->hf_side = 0;
+      r->in_p = FALSE;
+      return;
+    }
+  if (r->layout != NULL && r->hf_side != 0 && g_hash_table_size (r->master_pages) > 0)
+    {
+      if (strcmp (name, "span") == 0)
+        o42_fmt_init_default (&r->hf_want);
+      else if (strcmp (name, "p") == 0)
+        r->in_p = FALSE;
+      else if (strcmp (name, "page-number") == 0 || strcmp (name, "page-count") == 0 ||
+               strcmp (name, "sheet-name") == 0 || strcmp (name, "date") == 0 ||
+               strcmp (name, "time") == 0 || strcmp (name, "file-name") == 0)
+        r->in_p = TRUE;
+      return;
+    }
+  if (strcmp (name, "master-page") == 0 || strcmp (name, "page-layout") == 0)
+    {
+      r->layout = NULL;
+      r->hf_side = 0;
+      return;
+    }
+  if (strcmp (name, "table-header-columns") == 0 && r->sheet != NULL)
+    {
+      const O42PrintSetup *ps = o42_sheet_print_setup (r->sheet);
+      if (r->header_cols_from == 0)
+        o42_sheet_set_print_titles (r->sheet, ps->title_rows, r->col);
+      r->in_header_cols = 0;
+      return;
+    }
+  if (strcmp (name, "table-header-rows") == 0 && r->sheet != NULL)
+    {
+      const O42PrintSetup *ps = o42_sheet_print_setup (r->sheet);
+      if (r->header_rows_from == 0)
+        o42_sheet_set_print_titles (r->sheet, r->row, ps->title_cols);
+      r->in_header_rows = 0;
+      return;
+    }
   if (strcmp (name, "style") == 0)
     r->style = NULL;
   else if (r->in_num_style && g_str_has_suffix (name, "-style"))
@@ -3017,6 +3624,21 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
       if (*literal != 0)
         g_string_append_printf (r->num->code, plain ? "%s" : "\"%s\"", literal);
       g_free (literal);
+      return;
+    }
+  if (r->layout != NULL && r->hf_side != 0 && r->in_p && g_hash_table_size (r->master_pages) > 0)
+    {
+      /* A header's own words; an ampersand is doubled, as Excel has it.
+       * An empty span gives an empty text, which sets no style. */
+      GString *part = r->hf_parts[r->hf_side - 1][r->hf_region];
+      if (len == 0)
+        return;
+      hf_sync (r);
+      for (gsize i = 0; i < len; i++)
+        {
+          if (text[i] == '&') g_string_append (part, "&&");
+          else g_string_append_c (part, text[i]);
+        }
       return;
     }
   if (r->shape != NULL && r->in_p)
@@ -3152,6 +3774,9 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   memset (&r, 0, sizeof r);
   r.book = book;
   r.styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, style_free);
+  r.page_layouts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, page_layout_free);
+  r.font_faces = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  r.master_pages = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   r.form_controls = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, form_control_free);
   r.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.col_styles = g_ptr_array_new_with_free_func (g_free);
@@ -3164,6 +3789,13 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
        parse_part (parts, "settings.xml", &settings_parser, &r, error);
 
   g_hash_table_unref (r.styles);
+  g_hash_table_unref (r.master_pages);
+  g_hash_table_unref (r.font_faces);
+  g_hash_table_unref (r.page_layouts);
+  for (int i = 0; i < 2; i++)
+    for (int j = 0; j < 3; j++)
+      if (r.hf_parts[i][j] != NULL)
+        g_string_free (r.hf_parts[i][j], TRUE);
   g_hash_table_unref (r.form_controls);
   g_hash_table_unref (r.num_styles);
   g_ptr_array_unref (r.col_styles);

@@ -659,26 +659,43 @@ found, the menu item says so and nothing else changes.
 
 ## 14. Printing and PDF
 
-File ▸ Page Setup chooses the paper and the orientation -- landscape by
-default, since a sheet is usually wider than it is tall.
+File ▸ Page Setup is Excel's dialog, four tabs over the sheet's own
+setup, which is kept in the file whatever the format:
 
-File ▸ Page Setup: Sheet sets:
-
-- a header and a footer in Excel's notation: `&L`, `&C` and `&R` for
-  the three parts, `&P` the page number, `&N` the count, `&D` the date,
-  `&T` the time, `&F` the file, `&A` the sheet;
-- whether the gridlines and the row and column headings print;
-- rows to repeat at the top of every page;
-- a scale, or a number of pages to fit into;
-- the margin.
+- **Page**: portrait or landscape; the paper (Letter, Legal, A3, A4,
+  A5, B4, B5 and the rest, A4 unless the locale prints on Letter);
+  a scale, or a number of pages wide and tall to fit into; the number
+  the first page has.
+- **Margins**: the six of them -- left, right, top, bottom, and where
+  the header and the footer stand -- in centimetres, or inches when
+  the paper is Letter; and whether the cells are centred on the page
+  horizontally, vertically, or both.
+- **Header/Footer**: in Excel's notation. `&L`, `&C` and `&R` start
+  the three parts; `&P` is the page number (`&P+1` the next), `&N` the
+  count, `&D` the date, `&T` the time, `&F` the file, `&A` the sheet;
+  `&B`, `&I`, `&U`, `&S` turn bold, italic, underline and strikeout on
+  and off, `&14` sets a size, `&"Arial,Bold"` a font, `&K00FF00` a
+  colour, `&&` is an ampersand.
+- **Sheet**: the print area (the used range when there is none); rows
+  to repeat at the top and columns to repeat at the left of every page;
+  gridlines; row and column headings; black and white; draft quality
+  (no fills, gridlines or graphics); how notes print -- not at all, on
+  pages of their own after the sheet, or beside their cells; what cell
+  errors print as (as shown, blank, `--` or `#N/A`); and the page order,
+  down then over (Excel's default) or over then down.
 
 File ▸ Set Print Area limits printing to the selection; Clear Print
 Area gives it back. Insert ▸ Page Break puts a break above and left of
 the active cell.
 
-File ▸ Print Preview shows the pages one at a time. File ▸ Print goes
-through the system's print dialog; File ▸ Print Book does every sheet
-of the book, one after another.
+File ▸ Print Preview shows the pages one at a time, fitted to the
+window or at life size (Zoom), with the margins as dotted lines when
+asked, and Setup opens Page Setup from it; Print Preview: Book pages
+through every sheet. File ▸ Print goes through the system's print
+dialog, which offers the selection as well as the sheet; File ▸ Print
+Book does every sheet of the book, one after another, each on its own
+paper. Print, preview and PDF lay the page out the same way to the
+point.
 
 File ▸ Export as PDF writes the sheet, and Export Book as PDF the whole
 book, drawing exactly what the printer would.

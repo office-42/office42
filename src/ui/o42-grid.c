@@ -467,15 +467,13 @@ thumb_drag_to (O42Grid *self, double x, double y)
 static int
 page_break_at (O42Grid *self, double x, double y, int *at)
 {
-  double margin;
   O42Pages *pages;
   int *rows = NULL, *cols = NULL;
   int n_rows, n_cols, found = 0;
 
   if (!self->show_breaks || self->sheet == NULL)
     return 0;
-  margin = o42_sheet_print_setup (self->sheet)->margin;
-  pages = o42_pages_new (self->sheet, 595 - 2 * margin, 842 - 2 * margin);
+  pages = o42_pages_new (self->sheet);
   n_rows = o42_pages_row_breaks (pages, &rows);
   n_cols = o42_pages_col_breaks (pages, &cols);
 
@@ -6071,8 +6069,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   /* Page breaks, where the printed pages would divide. */
   if (self->show_breaks && self->sheet != NULL)
     {
-      double margin = o42_sheet_print_setup (self->sheet)->margin;
-      O42Pages *pages = o42_pages_new (self->sheet, 595 - 2 * margin, 842 - 2 * margin);
+      O42Pages *pages = o42_pages_new (self->sheet);
       int *rows = NULL, *cols = NULL;
       int n_rows = o42_pages_row_breaks (pages, &rows);
       int n_cols = o42_pages_col_breaks (pages, &cols);

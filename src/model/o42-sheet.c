@@ -1564,6 +1564,29 @@ op_end (O42Sheet *sheet)
 /* Lifecycle                                                               */
 /* ---------------------------------------------------------------------- */
 
+/* Letter in the countries that print on it, A4 everywhere else, which
+ * is how Excel picks a new book's paper. */
+static int
+default_paper (void)
+{
+  static const char *const letter[] = { "US", "CA", "MX", "PH", "CL", "CO", "VE",
+                                        "CR", "GT", "PA", "DO", "PR", "BZ", NULL };
+  const char *const *names = g_get_language_names ();
+
+  for (int i = 0; names != NULL && names[i] != NULL; i++)
+    {
+      const char *us = strchr (names[i], '_');
+
+      if (us == NULL || strlen (us) < 3)
+        continue;
+      for (int j = 0; letter[j] != NULL; j++)
+        if (g_ascii_strncasecmp (us + 1, letter[j], 2) == 0)
+          return 1;
+      return 9;
+    }
+  return 9;
+}
+
 O42Sheet *
 o42_sheet_new (const char *name)
 {
@@ -1598,8 +1621,16 @@ o42_sheet_new (const char *name)
   sheet->shapes = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_shape_free);
   sheet->next_shape_id = 1;
   sheet->dynamic = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
+  /* Excel's defaults: portrait A4 (Letter where the locale says so),
+   * three-quarters of an inch at the sides, an inch top and bottom,
+   * the header and footer half an inch in. */
   sheet->print.scale = 100;
-  sheet->print.margin = 36;
+  sheet->print.paper = default_paper ();
+  sheet->print.margin_left = sheet->print.margin_right = 54;
+  sheet->print.margin_top = sheet->print.margin_bottom = 72;
+  sheet->print.margin_header = sheet->print.margin_footer = 36;
+  sheet->print.down_then_over = TRUE;
+  sheet->print.first_page = 1;
   sheet->row_breaks = g_array_new (FALSE, FALSE, sizeof (int));
   sheet->col_breaks = g_array_new (FALSE, FALSE, sizeof (int));
   sheet->print.header = g_strdup ("&A");
@@ -7151,6 +7182,149 @@ o42_sheet_set_print_options (O42Sheet *sheet, gboolean gridlines, gboolean headi
   sheet->modified = TRUE;
 }
 
+void
+o42_sheet_set_print_titles (O42Sheet *sheet, int title_rows, int title_cols)
+{
+  g_return_if_fail (sheet != NULL);
+  sheet->print.title_rows = CLAMP (title_rows, 0, O42_MAX_ROWS - 1);
+  sheet->print.title_cols = CLAMP (title_cols, 0, O42_MAX_COLS - 1);
+  sheet->modified = TRUE;
+}
+
+void
+o42_sheet_set_print_setup (O42Sheet *sheet, const O42PrintSetup *setup)
+{
+  char *header, *footer;
+
+  g_return_if_fail (sheet != NULL && setup != NULL);
+  /* The caller may well be handing back the sheet's own struct with a
+   * field changed, so the strings are copied before anything is freed. */
+  header = g_strdup (setup->header != NULL ? setup->header : "");
+  footer = g_strdup (setup->footer != NULL ? setup->footer : "");
+  g_free (sheet->print.header);
+  g_free (sheet->print.footer);
+  sheet->print = *setup;
+  sheet->print.header = header;
+  sheet->print.footer = footer;
+  if (sheet->print.has_area)
+    sheet->print.area = o42_range_normalise (setup->area.row0, setup->area.col0,
+                                             setup->area.row1, setup->area.col1);
+  sheet->print.title_rows = CLAMP (setup->title_rows, 0, O42_MAX_ROWS - 1);
+  sheet->print.title_cols = CLAMP (setup->title_cols, 0, O42_MAX_COLS - 1);
+  sheet->print.scale = CLAMP (setup->scale, 10, 400);
+  sheet->print.fit_wide = MAX (setup->fit_wide, 0);
+  sheet->print.fit_tall = MAX (setup->fit_tall, 0);
+  sheet->print.margin_left = CLAMP (setup->margin_left, 0, 400);
+  sheet->print.margin_right = CLAMP (setup->margin_right, 0, 400);
+  sheet->print.margin_top = CLAMP (setup->margin_top, 0, 400);
+  sheet->print.margin_bottom = CLAMP (setup->margin_bottom, 0, 400);
+  sheet->print.margin_header = CLAMP (setup->margin_header, 0, 400);
+  sheet->print.margin_footer = CLAMP (setup->margin_footer, 0, 400);
+  if (sheet->print.paper <= 0)
+    sheet->print.paper = 9;
+  sheet->modified = TRUE;
+}
+
+/* Excel's paper codes, the ones a spreadsheet meets; the sizes are
+ * portrait, in points.  The names are Gnumeric's (a PWG name) and the
+ * short one Excel's dialog shows. */
+static const struct {
+  int         code;
+  double      w, h;
+  const char *name;
+  const char *pwg;
+} PAPERS[] = {
+  {  1, 612.0,  792.0, "Letter",    "na_letter"    },
+  {  5, 612.0, 1008.0, "Legal",     "na_legal"     },
+  {  7, 522.0,  756.0, "Executive", "na_executive" },
+  {  8, 842.0, 1191.0, "A3",        "iso_a3"       },
+  {  9, 595.0,  842.0, "A4",        "iso_a4"       },
+  { 11, 420.0,  595.0, "A5",        "iso_a5"       },
+  { 12, 729.0, 1032.0, "B4",        "jis_b4"       },
+  { 13, 516.0,  729.0, "B5",        "jis_b5"       },
+  { 14, 612.0,  936.0, "Folio",     "na_foolscap"  },
+  { 17, 792.0, 1224.0, "Tabloid",   "na_ledger"    },
+  { 70, 298.0,  420.0, "A6",        "iso_a6"       },
+};
+
+void
+o42_paper_size (int code, double *width_pt, double *height_pt)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (PAPERS); i++)
+    if (PAPERS[i].code == code)
+      {
+        if (width_pt != NULL) *width_pt = PAPERS[i].w;
+        if (height_pt != NULL) *height_pt = PAPERS[i].h;
+        return;
+      }
+  if (width_pt != NULL) *width_pt = 595.0;
+  if (height_pt != NULL) *height_pt = 842.0;
+}
+
+int
+o42_paper_code (double width_pt, double height_pt)
+{
+  if (width_pt > height_pt)
+    {
+      double t = width_pt;
+      width_pt = height_pt;
+      height_pt = t;
+    }
+  for (guint i = 0; i < G_N_ELEMENTS (PAPERS); i++)
+    if (fabs (PAPERS[i].w - width_pt) < 3 && fabs (PAPERS[i].h - height_pt) < 3)
+      return PAPERS[i].code;
+  return 0;
+}
+
+const char *
+o42_paper_name (int code)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (PAPERS); i++)
+    if (PAPERS[i].code == code)
+      return PAPERS[i].name;
+  return "A4";
+}
+
+int
+o42_paper_from_name (const char *name)
+{
+  if (name == NULL)
+    return 0;
+  for (guint i = 0; i < G_N_ELEMENTS (PAPERS); i++)
+    if (g_ascii_strcasecmp (PAPERS[i].name, name) == 0 ||
+        g_ascii_strcasecmp (PAPERS[i].pwg, name) == 0)
+      return PAPERS[i].code;
+  return 0;
+}
+
+int
+o42_paper_count (void)
+{
+  return (int) G_N_ELEMENTS (PAPERS);
+}
+
+int
+o42_paper_nth (int n)
+{
+  return n >= 0 && n < (int) G_N_ELEMENTS (PAPERS) ? PAPERS[n].code : 9;
+}
+
+void
+o42_print_setup_paper (const O42PrintSetup *setup, double *width_pt, double *height_pt)
+{
+  double w, h;
+
+  o42_paper_size (setup != NULL ? setup->paper : 9, &w, &h);
+  if (setup != NULL && setup->landscape)
+    {
+      double t = w;
+      w = h;
+      h = t;
+    }
+  if (width_pt != NULL) *width_pt = w;
+  if (height_pt != NULL) *height_pt = h;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Tables                                                                  */
 /* ---------------------------------------------------------------------- */
@@ -8109,7 +8283,10 @@ void
 o42_sheet_set_print_margin (O42Sheet *sheet, double points)
 {
   g_return_if_fail (sheet != NULL);
-  sheet->print.margin = CLAMP (points, 0, 200);
+  points = CLAMP (points, 0, 400);
+  sheet->print.margin_left = sheet->print.margin_right = points;
+  sheet->print.margin_top = sheet->print.margin_bottom = points;
+  sheet->print.margin_header = sheet->print.margin_footer = MIN (points / 2, 36.0);
   sheet->modified = TRUE;
 }
 

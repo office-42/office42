@@ -9,6 +9,7 @@
 #include "o42-pattern.h"
 
 #include <stdio.h>
+#include <math.h>
 #include <string.h>
 
 /* A <border> part's four sides. */
@@ -697,7 +698,6 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     }
   {
     const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
-    double inches = ps->margin / 72.0;
 
     /* Manual page breaks, before the print options as the schema
      * wants them. */
@@ -719,27 +719,57 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
           g_string_append (out, "</colBreaks>");
         }
     }
-    if (ps->gridlines || ps->headings)
-      g_string_append_printf (out, "<printOptions%s%s/>", ps->gridlines ? " gridLines=\"1\"" : "",
-                              ps->headings ? " headings=\"1\"" : "");
-    g_string_append_printf (out, "<pageMargins left=\"%.3f\" right=\"%.3f\" top=\"%.3f\" bottom=\"%.3f\" "
-                                 "header=\"0.3\" footer=\"0.3\"/>", inches, inches, inches, inches);
-    if (ps->scale != 100 || ps->fit_wide > 0 || ps->fit_tall > 0)
-      {
-        GString *setup_attrs = g_string_new (NULL);
+    if (ps->gridlines || ps->headings || ps->hcenter || ps->vcenter)
+      g_string_append_printf (out, "<printOptions%s%s%s%s/>",
+                              ps->hcenter ? " horizontalCentered=\"1\"" : "",
+                              ps->vcenter ? " verticalCentered=\"1\"" : "",
+                              ps->headings ? " headings=\"1\"" : "",
+                              ps->gridlines ? " gridLines=\"1\"" : "");
+    {
+      char l[G_ASCII_DTOSTR_BUF_SIZE], r[G_ASCII_DTOSTR_BUF_SIZE], t[G_ASCII_DTOSTR_BUF_SIZE];
+      char b[G_ASCII_DTOSTR_BUF_SIZE], h[G_ASCII_DTOSTR_BUF_SIZE], f[G_ASCII_DTOSTR_BUF_SIZE];
 
-        if (ps->fit_wide > 0 || ps->fit_tall > 0)
-          {
-            /* Excel wants to be told the sheet is fitted, in the
-             * sheet properties, as well as to how many pages. */
-            if (ps->fit_wide > 0) g_string_append_printf (setup_attrs, " fitToWidth=\"%d\"", ps->fit_wide);
-            if (ps->fit_tall > 0) g_string_append_printf (setup_attrs, " fitToHeight=\"%d\"", ps->fit_tall);
-          }
-        else
-          g_string_append_printf (setup_attrs, " scale=\"%d\"", ps->scale);
-        g_string_append_printf (out, "<pageSetup%s/>", setup_attrs->str);
-        g_string_free (setup_attrs, TRUE);
-      }
+      g_string_append_printf (out, "<pageMargins left=\"%s\" right=\"%s\" top=\"%s\" bottom=\"%s\" "
+                                   "header=\"%s\" footer=\"%s\"/>",
+                              g_ascii_formatd (l, sizeof l, "%.6g", ps->margin_left / 72.0),
+                              g_ascii_formatd (r, sizeof r, "%.6g", ps->margin_right / 72.0),
+                              g_ascii_formatd (t, sizeof t, "%.6g", ps->margin_top / 72.0),
+                              g_ascii_formatd (b, sizeof b, "%.6g", ps->margin_bottom / 72.0),
+                              g_ascii_formatd (h, sizeof h, "%.6g", ps->margin_header / 72.0),
+                              g_ascii_formatd (f, sizeof f, "%.6g", ps->margin_footer / 72.0));
+    }
+    {
+      GString *setup_attrs = g_string_new (NULL);
+
+      g_string_append_printf (setup_attrs, " paperSize=\"%d\"", ps->paper > 0 ? ps->paper : 9);
+      if (ps->fit_wide > 0 || ps->fit_tall > 0)
+        {
+          /* Excel wants to be told the sheet is fitted, in the
+           * sheet properties, as well as to how many pages. */
+          if (ps->fit_wide > 0) g_string_append_printf (setup_attrs, " fitToWidth=\"%d\"", ps->fit_wide);
+          if (ps->fit_tall > 0) g_string_append_printf (setup_attrs, " fitToHeight=\"%d\"", ps->fit_tall);
+        }
+      else if (ps->scale != 100)
+        g_string_append_printf (setup_attrs, " scale=\"%d\"", ps->scale);
+      if (ps->first_page != 1)
+        g_string_append_printf (setup_attrs, " firstPageNumber=\"%d\" useFirstPageNumber=\"1\"", ps->first_page);
+      if (!ps->down_then_over)
+        g_string_append (setup_attrs, " pageOrder=\"overThenDown\"");
+      g_string_append_printf (setup_attrs, " orientation=\"%s\"", ps->landscape ? "landscape" : "portrait");
+      if (ps->black_white)
+        g_string_append (setup_attrs, " blackAndWhite=\"1\"");
+      if (ps->draft)
+        g_string_append (setup_attrs, " draft=\"1\"");
+      if (ps->notes != O42_PRINT_NOTES_NONE)
+        g_string_append_printf (setup_attrs, " cellComments=\"%s\"",
+                                ps->notes == O42_PRINT_NOTES_AT_END ? "atEnd" : "asDisplayed");
+      if (ps->errors != O42_PRINT_ERRORS_SHOWN)
+        g_string_append_printf (setup_attrs, " errors=\"%s\"",
+                                ps->errors == O42_PRINT_ERRORS_BLANK ? "blank"
+                                : ps->errors == O42_PRINT_ERRORS_DASHES ? "dash" : "NA");
+      g_string_append_printf (out, "<pageSetup%s/>", setup_attrs->str);
+      g_string_free (setup_attrs, TRUE);
+    }
     if ((ps->header != NULL && *ps->header != '\0') || (ps->footer != NULL && *ps->footer != '\0'))
       {
         char *h = g_markup_escape_text (ps->header != NULL ? ps->header : "", -1);
@@ -1788,8 +1818,18 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
               g_string_append_printf (defs, "<definedName name=\"_xlnm.Print_Area\" localSheetId=\"%d\">'%s'!%s:%s</definedName>", i, sname, a, b);
               g_free (a); g_free (b);
             }
-          if (ps->title_rows > 0)
-            g_string_append_printf (defs, "<definedName name=\"_xlnm.Print_Titles\" localSheetId=\"%d\">'%s'!$1:$%d</definedName>", i, sname, ps->title_rows);
+          if (ps->title_rows > 0 || ps->title_cols > 0)
+            {
+              char last_col[8];
+
+              o42_col_name (MAX (ps->title_cols - 1, 0), last_col, sizeof last_col);
+              g_string_append_printf (defs, "<definedName name=\"_xlnm.Print_Titles\" localSheetId=\"%d\">", i);
+              if (ps->title_cols > 0)
+                g_string_append_printf (defs, "'%s'!$A:$%s%s", sname, last_col, ps->title_rows > 0 ? "," : "");
+              if (ps->title_rows > 0)
+                g_string_append_printf (defs, "'%s'!$1:$%d", sname, ps->title_rows);
+              g_string_append (defs, "</definedName>");
+            }
           g_free (sname);
         }
 
@@ -1996,6 +2036,7 @@ typedef struct
   O42Book    *book;
   int         in_hf;            /* 1 in oddHeader, 2 in oddFooter */
   int         in_breaks;        /* 1 in rowBreaks, 2 in colBreaks */
+  gboolean    fit_to_page;      /* the sheet properties said so */
   GHashTable *sheet_rels;       /* the sheet part's relationships, id -> target */
   char       *scenario_name;    /* the scenario being read */
   char       *scenario_comment;
@@ -2709,6 +2750,8 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
   const char *n = local (name);
   (void) ctx; (void) error;
 
+  if (strcmp (n, "pageSetUpPr") == 0 && r->sheet != NULL)
+    r->fit_to_page = attr_int (names, values, "fitToPage", 0) != 0;
   if (strcmp (n, "tabColor") == 0 && r->sheet != NULL)
     {
       guint32 colour = rgb_attr (names, values);
@@ -2743,19 +2786,57 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     r->in_breaks = 2;
   else if (strcmp (n, "pageMargins") == 0)
     {
-      const char *left = attr (names, values, "left");
-      if (left != NULL)
-        o42_sheet_set_print_margin (r->sheet, g_ascii_strtod (left, NULL) * 72.0);
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+      const char *v;
+
+      if ((v = attr (names, values, "left")) != NULL)   ps.margin_left = round (g_ascii_strtod (v, NULL) * 7200.0) / 100.0;
+      if ((v = attr (names, values, "right")) != NULL)  ps.margin_right = round (g_ascii_strtod (v, NULL) * 7200.0) / 100.0;
+      if ((v = attr (names, values, "top")) != NULL)    ps.margin_top = round (g_ascii_strtod (v, NULL) * 7200.0) / 100.0;
+      if ((v = attr (names, values, "bottom")) != NULL) ps.margin_bottom = round (g_ascii_strtod (v, NULL) * 7200.0) / 100.0;
+      if ((v = attr (names, values, "header")) != NULL) ps.margin_header = round (g_ascii_strtod (v, NULL) * 7200.0) / 100.0;
+      if ((v = attr (names, values, "footer")) != NULL) ps.margin_footer = round (g_ascii_strtod (v, NULL) * 7200.0) / 100.0;
+      o42_sheet_set_print_setup (r->sheet, &ps);
     }
   else if (strcmp (n, "pageSetup") == 0)
-    o42_sheet_set_print_scale (r->sheet, attr_int (names, values, "scale", 100),
-                               attr_int (names, values, "fitToWidth", 0),
-                               attr_int (names, values, "fitToHeight", 0));
+    {
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+      const char *v;
+
+      ps.scale = attr_int (names, values, "scale", 100);
+      ps.fit_wide = attr_int (names, values, "fitToWidth", 0);
+      ps.fit_tall = attr_int (names, values, "fitToHeight", 0);
+      /* Excel writes fitToWidth="1" fitToHeight="1" whether or not the
+       * sheet is fitted; the sheet properties say whether it is. */
+      if (!r->fit_to_page)
+        ps.fit_wide = ps.fit_tall = 0;
+      if ((v = attr (names, values, "paperSize")) != NULL)
+        ps.paper = atoi (v) > 0 ? atoi (v) : ps.paper;
+      if ((v = attr (names, values, "orientation")) != NULL)
+        ps.landscape = strcmp (v, "landscape") == 0;
+      if (attr_int (names, values, "useFirstPageNumber", 0) != 0)
+        ps.first_page = attr_int (names, values, "firstPageNumber", 1);
+      if ((v = attr (names, values, "pageOrder")) != NULL)
+        ps.down_then_over = strcmp (v, "overThenDown") != 0;
+      ps.black_white = attr_int (names, values, "blackAndWhite", 0) != 0;
+      ps.draft = attr_int (names, values, "draft", 0) != 0;
+      if ((v = attr (names, values, "cellComments")) != NULL)
+        ps.notes = strcmp (v, "atEnd") == 0 ? O42_PRINT_NOTES_AT_END
+                 : strcmp (v, "asDisplayed") == 0 ? O42_PRINT_NOTES_IN_PLACE : O42_PRINT_NOTES_NONE;
+      if ((v = attr (names, values, "errors")) != NULL)
+        ps.errors = strcmp (v, "blank") == 0 ? O42_PRINT_ERRORS_BLANK
+                  : strcmp (v, "dash") == 0 ? O42_PRINT_ERRORS_DASHES
+                  : strcmp (v, "NA") == 0 ? O42_PRINT_ERRORS_NA : O42_PRINT_ERRORS_SHOWN;
+      o42_sheet_set_print_setup (r->sheet, &ps);
+    }
   else if (strcmp (n, "printOptions") == 0)
     {
-      const O42PrintSetup *ps = o42_sheet_print_setup (r->sheet);
-      o42_sheet_set_print_options (r->sheet, attr_int (names, values, "gridLines", 0) != 0,
-                                   attr_int (names, values, "headings", 0) != 0, ps->title_rows);
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+
+      ps.gridlines = attr_int (names, values, "gridLines", 0) != 0;
+      ps.headings = attr_int (names, values, "headings", 0) != 0;
+      ps.hcenter = attr_int (names, values, "horizontalCentered", 0) != 0;
+      ps.vcenter = attr_int (names, values, "verticalCentered", 0) != 0;
+      o42_sheet_set_print_setup (r->sheet, &ps);
     }
   else if (strcmp (n, "headerFooter") == 0)
     o42_sheet_set_header_footer (r->sheet, "", "");
@@ -3491,6 +3572,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           g_hash_table_remove_all (r.shared);
           g_clear_pointer (&r.drawing_rid, g_free);
           r.filter_col = -1;
+          r.fit_to_page = FALSE;
           r.sheet_rels = o42_xlsx_read_rels (parts, part);
           ok = parse_part (parts, part, &sheet_parser, &r, error);
           g_clear_pointer (&r.sheet_rels, g_hash_table_unref);
@@ -3582,11 +3664,31 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                 }
               else if (target != NULL)
                 {
-                  const char *colon = strchr (ref, ':');
-                  int last = colon != NULL ? atoi (colon[1] == '$' ? colon + 2 : colon + 1) : 0;
+                  /* 'Sheet'!$A:$B,'Sheet'!$1:$2: either part, in either order. */
                   const O42PrintSetup *ps = o42_sheet_print_setup (target);
-                  if (last > 0)
-                    o42_sheet_set_print_options (target, ps->gridlines, ps->headings, last);
+                  int rows = ps->title_rows, cols = ps->title_cols;
+                  char **halves = g_strsplit (val, ",", -1);
+
+                  for (int k = 0; halves[k] != NULL; k++)
+                    {
+                      const char *b = strrchr (halves[k], '!');
+                      const char *q = b != NULL ? b + 1 : halves[k];
+                      const char *colon = strchr (q, ':');
+                      const char *end = colon != NULL ? colon + 1 : q;
+
+                      if (*end == '$') end++;
+                      if (g_ascii_isdigit (*end))
+                        rows = atoi (end);
+                      else if (g_ascii_isalpha (*end))
+                        {
+                          int c = 0;
+                          for (; g_ascii_isalpha (*end); end++)
+                            c = c * 26 + (g_ascii_toupper (*end) - 'A' + 1);
+                          cols = c;
+                        }
+                    }
+                  g_strfreev (halves);
+                  o42_sheet_set_print_titles (target, rows, cols);
                 }
               continue;
             }

@@ -176,7 +176,7 @@ main (int argc, char *argv[])
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
               "          picture pictures objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
-              "          pagebreak margin\n"
+              "          pagebreak margin pageopt header footer titlerows\n"
               "Python    py pyfile script scripts runscript delscript record\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
@@ -2635,19 +2635,90 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* pageopt landscape on|off; pageopt paper A4|Letter|...; pageopt margins L R T B [HEADER FOOTER];
+       * pageopt center none|h|v|both; pageopt order down|over; pageopt firstpage N;
+       * pageopt bw|draft on|off; pageopt notes none|end|inplace; pageopt errors shown|blank|dashes|na;
+       * pageopt titlecols N */
+      if (g_str_has_prefix (text, "pageopt "))
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (sheet);
+          char **w = g_strsplit (text + 8, " ", -1);
+          int n = (int) g_strv_length (w);
+          gboolean on = n >= 2 && strcmp (w[1], "on") == 0;
+          gboolean ok = n >= 2;
+
+          if (!ok)
+            ;
+          else if (strcmp (w[0], "landscape") == 0) ps.landscape = on;
+          else if (strcmp (w[0], "paper") == 0)
+            {
+              ps.paper = o42_paper_from_name (w[1]);
+              ok = ps.paper != 0;
+            }
+          else if (strcmp (w[0], "margins") == 0 && n >= 5)
+            {
+              ps.margin_left = g_ascii_strtod (w[1], NULL);
+              ps.margin_right = g_ascii_strtod (w[2], NULL);
+              ps.margin_top = g_ascii_strtod (w[3], NULL);
+              ps.margin_bottom = g_ascii_strtod (w[4], NULL);
+              if (n >= 7)
+                {
+                  ps.margin_header = g_ascii_strtod (w[5], NULL);
+                  ps.margin_footer = g_ascii_strtod (w[6], NULL);
+                }
+            }
+          else if (strcmp (w[0], "center") == 0)
+            {
+              ps.hcenter = strcmp (w[1], "h") == 0 || strcmp (w[1], "both") == 0;
+              ps.vcenter = strcmp (w[1], "v") == 0 || strcmp (w[1], "both") == 0;
+            }
+          else if (strcmp (w[0], "order") == 0) ps.down_then_over = strcmp (w[1], "down") == 0;
+          else if (strcmp (w[0], "firstpage") == 0) ps.first_page = atoi (w[1]);
+          else if (strcmp (w[0], "bw") == 0) ps.black_white = on;
+          else if (strcmp (w[0], "draft") == 0) ps.draft = on;
+          else if (strcmp (w[0], "titlecols") == 0) ps.title_cols = atoi (w[1]);
+          else if (strcmp (w[0], "notes") == 0)
+            ps.notes = strcmp (w[1], "end") == 0 ? O42_PRINT_NOTES_AT_END
+                     : strcmp (w[1], "inplace") == 0 ? O42_PRINT_NOTES_IN_PLACE : O42_PRINT_NOTES_NONE;
+          else if (strcmp (w[0], "errors") == 0)
+            ps.errors = strcmp (w[1], "blank") == 0 ? O42_PRINT_ERRORS_BLANK
+                      : strcmp (w[1], "dashes") == 0 ? O42_PRINT_ERRORS_DASHES
+                      : strcmp (w[1], "na") == 0 ? O42_PRINT_ERRORS_NA : O42_PRINT_ERRORS_SHOWN;
+          else
+            ok = FALSE;
+          if (ok)
+            o42_sheet_set_print_setup (sheet, &ps);
+          else
+            fprintf (stderr, "usage: pageopt landscape|bw|draft on|off; paper A4; margins L R T B [H F]; "
+                             "center none|h|v|both; order down|over; firstpage N; titlecols N; "
+                             "notes none|end|inplace; errors shown|blank|dashes|na\n");
+          g_strfreev (w);
+          continue;
+        }
+
       if (strcmp (text, "printsetup") == 0)
         {
           const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+          static const char *const notes[] = { "none", "end", "inplace" };
+          static const char *const errors[] = { "shown", "blank", "dashes", "na" };
           if (ps->has_area)
             {
               char *x = o42_ref_name (ps->area.row0, ps->area.col0), *y = o42_ref_name (ps->area.row1, ps->area.col1);
               printf ("area %s:%s\n", x, y);
               g_free (x); g_free (y);
             }
-          printf ("header \"%s\"\nfooter \"%s\"\ngridlines %s\nheadings %s\ntitlerows %d\n",
+          printf ("header \"%s\"\nfooter \"%s\"\ngridlines %s\nheadings %s\ntitlerows %d titlecols %d\n",
                   ps->header ? ps->header : "", ps->footer ? ps->footer : "",
-                  ps->gridlines ? "on" : "off", ps->headings ? "on" : "off", ps->title_rows);
-          printf ("scale %d fit %dx%d margin %g\n", ps->scale, ps->fit_wide, ps->fit_tall, ps->margin);
+                  ps->gridlines ? "on" : "off", ps->headings ? "on" : "off", ps->title_rows, ps->title_cols);
+          printf ("scale %d fit %dx%d\n", ps->scale, ps->fit_wide, ps->fit_tall);
+          printf ("paper %s %s margins %g %g %g %g header %g footer %g center %s order %s firstpage %d\n",
+                  o42_paper_name (ps->paper), ps->landscape ? "landscape" : "portrait",
+                  ps->margin_left, ps->margin_right, ps->margin_top, ps->margin_bottom,
+                  ps->margin_header, ps->margin_footer,
+                  ps->hcenter && ps->vcenter ? "both" : ps->hcenter ? "h" : ps->vcenter ? "v" : "none",
+                  ps->down_then_over ? "down" : "over", ps->first_page);
+          printf ("bw %s draft %s notes %s errors %s\n", ps->black_white ? "on" : "off",
+                  ps->draft ? "on" : "off", notes[CLAMP (ps->notes, 0, 2)], errors[CLAMP (ps->errors, 0, 3)]);
           {
             GArray *rb = o42_sheet_page_breaks (sheet, TRUE), *cb = o42_sheet_page_breaks (sheet, FALSE);
             printf ("breaks rows");

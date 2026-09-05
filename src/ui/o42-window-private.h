@@ -35,7 +35,6 @@ struct _O42Window {
   int         view_number;     /* 0 for the only window on the book, else 1, 2... */
   gboolean    telling;         /* inside o42_book_changed, to skip our own echo */
 
-  GtkPageSetup     *page_setup;      /* from Page Setup, or NULL for the default */
   GtkPrintSettings *print_settings;  /* remembered between prints */
 
   GtkWidget  *title_label;

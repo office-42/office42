@@ -18,13 +18,13 @@
       </section>
       <section>
         <item><attribute name="label" translatable="yes">Page Set_up...</attribute><attribute name="action">win.page-setup</attribute></item>
-        <item><attribute name="label" translatable="yes">Page Setup: S_heet...</attribute><attribute name="action">win.sheet-setup</attribute></item>
         <submenu>
           <attribute name="label" translatable="yes">Print _Area</attribute>
           <item><attribute name="label" translatable="yes">_Set Print Area</attribute><attribute name="action">win.set-print-area</attribute></item>
           <item><attribute name="label" translatable="yes">_Clear Print Area</attribute><attribute name="action">win.clear-print-area</attribute></item>
         </submenu>
         <item><attribute name="label" translatable="yes">Print Pre_view</attribute><attribute name="action">win.print-preview</attribute></item>
+        <item><attribute name="label" translatable="yes">Print Preview: Boo_k</attribute><attribute name="action">win.print-preview-book</attribute></item>
         <item><attribute name="label" translatable="yes">_Print...</attribute><attribute name="action">win.print</attribute></item>
         <item><attribute name="label" translatable="yes">Print _Book...</attribute><attribute name="action">win.print-book</attribute></item>
       </section>

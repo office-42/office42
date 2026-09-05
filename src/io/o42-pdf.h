@@ -3,10 +3,10 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Export paginates the used range onto landscape Letter pages -- across
- * first, then down, as Excel's default print order has it -- through cairo's
- * PDF surface, with the cells' own fonts and formats and the pictures where
- * they float.
+ * Export paginates the used range onto the pages the sheet's Page Setup
+ * asks for -- its paper, orientation, margins, scale, page order, headers
+ * and footers -- through cairo's PDF surface, with the cells' own fonts
+ * and formats and the pictures where they float.
  *
  * Import goes through poppler when it was available at build time.  A PDF
  * has no cells; what it has is characters with positions.  Those are grouped
@@ -35,12 +35,17 @@ gboolean o42_pdf_export_book (O42Book *book, GFile *file, GError **error);
 
 /* ---- Pagination, shared with printing --------------------------------- */
 
-/* The used range cut into pages of a given printable size, across then
- * down.  Sizes are in points; each page is drawn with its top-left corner
- * at the cairo origin, in points. */
+/* The used range cut into pages as the sheet's Page Setup says: its
+ * paper and orientation, inside its margins, at its scale, in its page
+ * order.  Each page is drawn with the paper's top-left corner at the
+ * cairo origin, in points, margins and all. */
 typedef struct _O42Pages O42Pages;
 
-O42Pages *o42_pages_new   (O42Sheet *sheet, double width_pt, double height_pt);
+O42Pages *o42_pages_new   (O42Sheet *sheet);
+
+/* The paper as printed, in points: turned if the setup is landscape. */
+void      o42_pages_paper (O42Pages *pages, double *width_pt, double *height_pt);
+O42Sheet *o42_pages_sheet (O42Pages *pages);
 
 /* The file's name, for &F in a header or footer. */
 void      o42_pages_set_document (O42Pages *pages, const char *name);

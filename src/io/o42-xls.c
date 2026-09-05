@@ -78,6 +78,9 @@ enum {
   R_HEADER = 0x0014, R_FOOTER = 0x0015, R_HCENTER = 0x0083, R_VCENTER = 0x0084,
   R_SETUP = 0x00A1, R_PRINTSIZE = 0x0033, R_PROTECT = 0x0012,
   R_PASSWORD = 0x0013,
+  R_LEFTMARGIN = 0x0026, R_RIGHTMARGIN = 0x0027, R_TOPMARGIN = 0x0028, R_BOTTOMMARGIN = 0x0029,
+  R_PRINTHEADERS = 0x002A, R_PRINTGRIDLINES = 0x002B, R_WSBOOL = 0x0081,
+  R_HORIZONTALPAGEBREAKS = 0x001B, R_VERTICALPAGEBREAKS = 0x001A,
   C_UNITS = 0x1001, C_CHART = 0x1002, C_SERIES = 0x1003, C_DATAFORMAT = 0x1006,
   C_LINEFORMAT = 0x1007, C_AREAFORMAT = 0x100A, C_SERIESTEXT = 0x100D, C_CHARTFORMAT = 0x1014,
   C_LEGEND = 0x1015, C_BAR = 0x1017, C_LINE = 0x1018, C_PIE = 0x1019, C_AREA = 0x101A,
@@ -353,6 +356,8 @@ typedef struct
   GPtrArray  *name_ranges;   /* char* "Sheet!A1:B2" or NULL per name */
   GArray     *filter_sheets; /* int: sheet index whose _FilterDatabase was seen */
   GPtrArray  *filter_ranges; /* char* range text */
+  GArray     *print_names;   /* PrintName: Print_Area and Print_Titles, per sheet */
+  gboolean    fit_to_page;   /* WSBOOL said so, for the SETUP that follows */
   int         n_format5;     /* BIFF5 FORMAT records are numbered in order */
 
   /* Current sheet */
@@ -397,6 +402,14 @@ typedef struct {
   gboolean     have_box, have_title_ref, have_cats;
   char        *title;
 } ChartDef;
+
+/* A built-in name's area, kept until the sheet it belongs to exists:
+ * Print_Area (6) or one part of Print_Titles (7). */
+typedef struct {
+  int  sheet;
+  int  kind;
+  int  row0, row1, col0, col1;
+} PrintName;
 
 /* A string in the encoding the record uses: BIFF8 unicode with flags,
  * BIFF5 bytes.  `wide_len` says whether the length is 16 bits.  Returns
@@ -1329,7 +1342,65 @@ read_name (Reader *r, const guchar *p, gsize len)
       o42_node_free (tree);
     }
 
-  if (strcmp (name, "_builtin_13") == 0)
+  /* LibreOffice writes the built-in names a second time, spelt out as
+   * Excel's files spell them; those are the same names. */
+  if (g_str_has_prefix (name, "_xlnm."))
+    {
+      const char *spelt = name + 6;
+      char *as_builtin = strcmp (spelt, "Print_Area") == 0 ? g_strdup ("_builtin_6")
+                       : strcmp (spelt, "Print_Titles") == 0 ? g_strdup ("_builtin_7")
+                       : strcmp (spelt, "_FilterDatabase") == 0 ? g_strdup ("_builtin_13")
+                       : g_strdup ("_builtin_0");
+      g_free (name);
+      name = as_builtin;
+    }
+
+  if ((strcmp (name, "_builtin_6") == 0 || strcmp (name, "_builtin_7") == 0) && itab >= 1)
+    {
+      /* Print_Area or Print_Titles: ptgArea3d tokens, a ptgUnion between
+       * the titles' rows and columns, and the ptgMemFunc and ptgParen a
+       * writer may wrap them in.  The sheet is the name's own. */
+      const guchar *q = p;
+      int kind = name[9] - '0';
+
+      while (q < end && q + cce > p ? q < p + cce : FALSE)
+        {
+          guint ptg = *q >= 0x20 ? (0x20 | (*q & 0x1F)) : *q;   /* any class */
+
+          if (ptg == 0x3B && q + 11 <= end)
+            {
+              PrintName pn = { (int) itab - 1, kind, rd16 (q + 3), rd16 (q + 5),
+                               rd16 (q + 7) & 0x3FFF, rd16 (q + 9) & 0x3FFF };
+              g_array_append_val (r->print_names, pn);
+              q += 11;
+            }
+          else if (ptg == 0x3A && q + 7 <= end)
+            {
+              PrintName pn = { (int) itab - 1, kind, rd16 (q + 3), rd16 (q + 3),
+                               rd16 (q + 5) & 0x3FFF, rd16 (q + 5) & 0x3FFF };
+              g_array_append_val (r->print_names, pn);
+              q += 7;
+            }
+          else if (*q == 0x10 || *q == 0x0F || *q == 0x15)
+            q++;
+          else if (ptg == 0x29 || ptg == 0x28)
+            q += 3;                     /* ptgMemFunc, ptgMemNoMem: a length */
+          else if (ptg == 0x26 || ptg == 0x27)
+            q += 7;                     /* ptgMemArea, ptgMemErr: a length and a count */
+          else
+            break;
+        }
+      g_ptr_array_add (r->names, g_strdup (""));
+      g_ptr_array_add (r->name_ranges, NULL);
+    }
+  else if (g_str_has_prefix (name, "_builtin_") && strcmp (name, "_builtin_13") != 0)
+    {
+      /* Criteria, Extract, Consolidate_Area and the rest: nothing the
+       * sheet keeps, and not a name of the user's. */
+      g_ptr_array_add (r->names, g_strdup (""));
+      g_ptr_array_add (r->name_ranges, NULL);
+    }
+  else if (strcmp (name, "_builtin_13") == 0)
     {
       if (range_text != NULL && itab >= 1)
         {
@@ -2157,6 +2228,105 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         o42_sheet_set_protected (r->sheet, TRUE);
       break;
 
+    /* Page Setup, a record apiece. */
+    case R_HEADER:
+    case R_FOOTER:
+      if (r->sheet != NULL)
+        {
+          const guchar *q = p;
+          char *text = len > 0 ? read_str (r, &q, p + len, r->biff >= 8) : g_strdup ("");
+          o42_sheet_set_header_footer (r->sheet, id == R_HEADER ? text : NULL, id == R_FOOTER ? text : NULL);
+          g_free (text);
+        }
+      break;
+    case R_HCENTER:
+    case R_VCENTER:
+      if (len >= 2 && r->sheet != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          if (id == R_HCENTER) ps.hcenter = rd16 (p) != 0;
+          else ps.vcenter = rd16 (p) != 0;
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      break;
+    case R_LEFTMARGIN:
+    case R_RIGHTMARGIN:
+    case R_TOPMARGIN:
+    case R_BOTTOMMARGIN:
+      if (len >= 8 && r->sheet != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          double points = rd_double (p) * 72.0;
+          if (id == R_LEFTMARGIN) ps.margin_left = points;
+          else if (id == R_RIGHTMARGIN) ps.margin_right = points;
+          else if (id == R_TOPMARGIN) ps.margin_top = points;
+          else ps.margin_bottom = points;
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      break;
+    case R_PRINTHEADERS:
+    case R_PRINTGRIDLINES:
+      if (len >= 2 && r->sheet != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          if (id == R_PRINTHEADERS) ps.headings = rd16 (p) != 0;
+          else ps.gridlines = rd16 (p) != 0;
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      break;
+    case R_WSBOOL:
+      if (len >= 2 && r->sheet != NULL)
+        r->fit_to_page = (rd16 (p) & 0x0100) != 0;
+      break;
+    case R_SETUP:
+      if (len >= 34 && r->sheet != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          guint paper = rd16 (p), scale = rd16 (p + 2), start = rd16 (p + 4);
+          guint fit_w = rd16 (p + 6), fit_h = rd16 (p + 8), opts = rd16 (p + 10);
+          gboolean no_pls = (opts & 0x0004) != 0;
+
+          if (!no_pls)
+            {
+              if (paper > 0) ps.paper = paper;
+              ps.landscape = (opts & 0x0002) == 0;
+            }
+          ps.scale = CLAMP (scale, 10, 400);
+          ps.fit_wide = r->fit_to_page ? fit_w : 0;
+          ps.fit_tall = r->fit_to_page ? fit_h : 0;
+          ps.down_then_over = (opts & 0x0001) == 0;
+          ps.black_white = (opts & 0x0008) != 0;
+          ps.draft = (opts & 0x0010) != 0;
+          ps.notes = (opts & 0x0020) == 0 ? O42_PRINT_NOTES_NONE
+                   : (opts & 0x0200) != 0 ? O42_PRINT_NOTES_AT_END : O42_PRINT_NOTES_IN_PLACE;
+          switch ((opts >> 10) & 0x03)
+            {
+            case 1: ps.errors = O42_PRINT_ERRORS_BLANK; break;
+            case 2: ps.errors = O42_PRINT_ERRORS_DASHES; break;
+            case 3: ps.errors = O42_PRINT_ERRORS_NA; break;
+            default: ps.errors = O42_PRINT_ERRORS_SHOWN; break;
+            }
+          ps.first_page = (opts & 0x0080) != 0 ? (int) (gint16) start : 1;
+          ps.margin_header = rd_double (p + 16) * 72.0;
+          ps.margin_footer = rd_double (p + 24) * 72.0;
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      break;
+    case R_HORIZONTALPAGEBREAKS:
+    case R_VERTICALPAGEBREAKS:
+      if (len >= 2 && r->sheet != NULL)
+        {
+          guint n = rd16 (p);
+          gsize each = r->biff >= 8 ? 6 : 2;
+          for (guint i = 0; i < n && 2 + (i + 1) * each <= len; i++)
+            {
+              int at = rd16 (p + 2 + i * each);
+              if (at > 0 && !o42_sheet_page_break (r->sheet, id == R_HORIZONTALPAGEBREAKS, at))
+                o42_sheet_toggle_page_break (r->sheet, id == R_HORIZONTALPAGEBREAKS, at);
+            }
+        }
+      break;
+
     case R_PASSWORD:
       if (len >= 2 && r->sheet != NULL)
         o42_sheet_set_password_hash (r->sheet, rd16 (p));
@@ -2474,6 +2644,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.name_ranges = g_ptr_array_new_with_free_func (g_free);
   r.filter_sheets = g_array_new (FALSE, FALSE, sizeof (int));
   r.filter_ranges = g_ptr_array_new_with_free_func (g_free);
+  r.print_names = g_array_new (FALSE, FALSE, sizeof (PrintName));
   r.shared = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, (GDestroyNotify) g_bytes_unref);
   r.txo_text = g_string_new (NULL);
   r.note_texts = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
@@ -2529,6 +2700,33 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
             }
           o42_node_free (tree);
         }
+      for (guint i = 0; i < r.print_names->len; i++)
+        {
+          const PrintName *pn = &g_array_index (r.print_names, PrintName, i);
+          O42Sheet *target = pn->sheet >= 0 && pn->sheet < o42_book_n_sheets (book)
+                             ? o42_book_sheet (book, pn->sheet) : NULL;
+
+          if (target == NULL)
+            continue;
+          if (pn->kind == 6)
+            {
+              O42Range area = o42_range_normalise (pn->row0, pn->col0, pn->row1, pn->col1);
+              o42_sheet_set_print_area (target, &area);
+            }
+          else
+            {
+              const O42PrintSetup *ps = o42_sheet_print_setup (target);
+              int rows = ps->title_rows, cols = ps->title_cols;
+
+              /* Whole rows repeat at the top, whole columns at the left;
+               * only runs from the first row or column can be kept. */
+              if (pn->col0 == 0 && pn->col1 >= 255 && pn->row0 == 0)
+                rows = pn->row1 + 1;
+              else if (pn->row0 == 0 && pn->row1 >= 65535 && pn->col0 == 0)
+                cols = pn->col1 + 1;
+              o42_sheet_set_print_titles (target, rows, cols);
+            }
+        }
       for (int i = 0; i < o42_book_n_sheets (book); i++)
         {
           o42_sheet_clear_undo (o42_book_sheet (book, i));
@@ -2551,6 +2749,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   g_ptr_array_unref (r.name_ranges);
   g_array_unref (r.filter_sheets);
   g_ptr_array_unref (r.filter_ranges);
+  g_array_unref (r.print_names);
   g_hash_table_unref (r.shared);
   g_string_free (r.txo_text, TRUE);
   g_hash_table_unref (r.note_texts);
@@ -3646,6 +3845,70 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
   put32 (w->out, 0x00000041); put32 (w->out, 0x00000006);
   end_record (w);
 
+  /* Page Setup, in the order Excel writes the records. */
+  {
+    const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+    GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
+    GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
+    guint opts = 0;
+
+    begin_record (w, R_PRINTHEADERS); put16 (w->out, ps->headings ? 1 : 0); end_record (w);
+    begin_record (w, R_PRINTGRIDLINES); put16 (w->out, ps->gridlines ? 1 : 0); end_record (w);
+    begin_record (w, R_WSBOOL);
+    put16 (w->out, 0x04C1 | ((ps->fit_wide > 0 || ps->fit_tall > 0) ? 0x0100 : 0));
+    end_record (w);
+    if (rb->len > 0)
+      {
+        begin_record (w, R_HORIZONTALPAGEBREAKS);
+        put16 (w->out, MIN (rb->len, 1026));
+        for (guint i = 0; i < rb->len && i < 1026; i++)
+          { put16 (w->out, g_array_index (rb, int, i)); put16 (w->out, 0); put16 (w->out, 255); }
+        end_record (w);
+      }
+    if (cb->len > 0)
+      {
+        begin_record (w, R_VERTICALPAGEBREAKS);
+        put16 (w->out, MIN (cb->len, 1026));
+        for (guint i = 0; i < cb->len && i < 1026; i++)
+          { put16 (w->out, g_array_index (cb, int, i)); put16 (w->out, 0); put16 (w->out, 65535); }
+        end_record (w);
+      }
+    begin_record (w, R_HEADER);
+    if (ps->header != NULL && *ps->header != '\0') put_ustr16 (w->out, ps->header);
+    end_record (w);
+    begin_record (w, R_FOOTER);
+    if (ps->footer != NULL && *ps->footer != '\0') put_ustr16 (w->out, ps->footer);
+    end_record (w);
+    begin_record (w, R_HCENTER); put16 (w->out, ps->hcenter ? 1 : 0); end_record (w);
+    begin_record (w, R_VCENTER); put16 (w->out, ps->vcenter ? 1 : 0); end_record (w);
+    begin_record (w, R_LEFTMARGIN); put_double (w->out, ps->margin_left / 72.0); end_record (w);
+    begin_record (w, R_RIGHTMARGIN); put_double (w->out, ps->margin_right / 72.0); end_record (w);
+    begin_record (w, R_TOPMARGIN); put_double (w->out, ps->margin_top / 72.0); end_record (w);
+    begin_record (w, R_BOTTOMMARGIN); put_double (w->out, ps->margin_bottom / 72.0); end_record (w);
+
+    if (!ps->down_then_over) opts |= 0x0001;
+    if (!ps->landscape) opts |= 0x0002;
+    if (ps->black_white) opts |= 0x0008;
+    if (ps->draft) opts |= 0x0010;
+    if (ps->notes != O42_PRINT_NOTES_NONE) opts |= 0x0020;
+    if (ps->first_page != 1) opts |= 0x0080;
+    if (ps->notes == O42_PRINT_NOTES_AT_END) opts |= 0x0200;
+    opts |= (ps->errors == O42_PRINT_ERRORS_BLANK ? 1 : ps->errors == O42_PRINT_ERRORS_DASHES ? 2
+             : ps->errors == O42_PRINT_ERRORS_NA ? 3 : 0) << 10;
+    begin_record (w, R_SETUP);
+    put16 (w->out, ps->paper > 0 ? ps->paper : 9);
+    put16 (w->out, CLAMP (ps->scale, 10, 400));
+    put16 (w->out, (guint) (gint16) ps->first_page);
+    put16 (w->out, MAX (ps->fit_wide, 1));
+    put16 (w->out, MAX (ps->fit_tall, 1));
+    put16 (w->out, opts);
+    put16 (w->out, 600); put16 (w->out, 600);
+    put_double (w->out, ps->margin_header / 72.0);
+    put_double (w->out, ps->margin_footer / 72.0);
+    put16 (w->out, 1);
+    end_record (w);
+  }
+
   begin_record (w, R_DEFCOLWIDTH);
   put16 (w->out, (guint) ((default_width - 5) / 7.0 + 0.5));
   end_record (w);
@@ -4391,6 +4654,55 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         put16 (w.out, filter.row0); put16 (w.out, filter.row1);
         put16 (w.out, filter.col0); put16 (w.out, filter.col1);
         end_record (&w);
+      }
+    /* Print_Area (6) and Print_Titles (7), built-in and sheet-scoped. */
+    for (int i = 0; i < n_sheets; i++)
+      {
+        const O42PrintSetup *ps = o42_sheet_print_setup (o42_book_sheet (book, i));
+        int parts = (ps->title_rows > 0 ? 1 : 0) + (ps->title_cols > 0 ? 1 : 0);
+
+        if (ps->has_area)
+          {
+            begin_record (&w, R_NAME);
+            put16 (w.out, 0x0020); put8 (w.out, 0);
+            put8 (w.out, 1);
+            put16 (w.out, 11);
+            put16 (w.out, i + 1); put16 (w.out, i + 1);
+            put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0);
+            put8 (w.out, 0); put8 (w.out, 0x06);
+            put8 (w.out, 0x3B);
+            put16 (w.out, i);
+            put16 (w.out, MIN (ps->area.row0, 65535)); put16 (w.out, MIN (ps->area.row1, 65535));
+            put16 (w.out, MIN (ps->area.col0, 255)); put16 (w.out, MIN (ps->area.col1, 255));
+            end_record (&w);
+          }
+        if (parts > 0)
+          {
+            begin_record (&w, R_NAME);
+            put16 (w.out, 0x0020); put8 (w.out, 0);
+            put8 (w.out, 1);
+            put16 (w.out, parts == 2 ? 23 : 11);
+            put16 (w.out, i + 1); put16 (w.out, i + 1);
+            put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0);
+            put8 (w.out, 0); put8 (w.out, 0x07);
+            if (ps->title_cols > 0)
+              {
+                put8 (w.out, 0x3B);
+                put16 (w.out, i);
+                put16 (w.out, 0); put16 (w.out, 65535);
+                put16 (w.out, 0); put16 (w.out, MIN (ps->title_cols - 1, 255));
+              }
+            if (ps->title_rows > 0)
+              {
+                put8 (w.out, 0x3B);
+                put16 (w.out, i);
+                put16 (w.out, 0); put16 (w.out, MIN (ps->title_rows - 1, 65535));
+                put16 (w.out, 0); put16 (w.out, 255);
+              }
+            if (parts == 2)
+              put8 (w.out, 0x10);
+            end_record (&w);
+          }
       }
   }
 

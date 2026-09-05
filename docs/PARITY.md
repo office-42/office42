@@ -105,7 +105,7 @@ has. The last column says what is missing, not what is there.
 | Charts | 8 | 100% | 8.0 | |
 | Objects | 5 | 100% | 5.0 | |
 | File formats | 12 | 98% | 11.8 | Excel 5 charts in `.xls` come back as pictures of themselves |
-| Printing | 6 | 100% | 6.0 | |
+| Printing | 6 | 100% | 6.0 | the four tabs of Page Setup, kept in every format |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 6 | 97% | 5.8 | arranging windows, which GTK 4 gives a program no way to do |
 | Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice |
