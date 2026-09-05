@@ -174,7 +174,7 @@ main (int argc, char *argv[])
               "          outlinelevel\n"
               "Data      sort find replace filter advfilter subtotal dedupe consolidate\n"
               "          table pivot refresh validate validations goalseek solve scenario summary\n"
-              "          analyse whatif\n"
+              "          analyse whatif split splitfixed\n"
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
               "          picture pictures objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
@@ -2290,6 +2290,67 @@ main (int argc, char *argv[])
             }
           else
             fprintf (stderr, "usage: split A1:A9 ,\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* splitfixed A1:A9 guess | 5,12,20[:gtsd] cuts at those character
+       * positions (guess works them out from the text), the letters
+       * after the colon saying per column general, text, skip or
+       * date. */
+      if (g_str_has_prefix (text, "splitfixed "))
+        {
+          char **words = g_strsplit (text + 11, " ", 2);
+          O42Range r;
+          gsize len = 0;
+
+          if (words[0] != NULL && words[1] != NULL &&
+              o42_ref_parse (words[0], &r.row0, &r.col0, &len) &&
+              (words[0][len] == '\0' ||
+               (words[0][len] == ':' && o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))))
+            {
+              GArray *breaks = g_array_new (FALSE, FALSE, sizeof (int));
+              O42SplitType types[64] = { 0 };
+              gboolean typed = FALSE;
+
+              if (words[0][len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
+              if (strcmp (words[1], "guess") == 0)
+                {
+                  o42_sheet_guess_fixed_breaks (sheet, &r, breaks);
+                  printf ("breaks at");
+                  for (guint i = 0; i < breaks->len; i++)
+                    printf (" %d", g_array_index (breaks, int, i));
+                  printf ("\n");
+                }
+              else
+                {
+                  char *colon = strchr (words[1], ':');
+                  char **nums;
+
+                  if (colon != NULL)
+                    {
+                      *colon++ = '\0';
+                      typed = TRUE;
+                      for (int i = 0; colon[i] != '\0' && i < 64; i++)
+                        types[i] = colon[i] == 't' ? O42_SPLIT_TEXT : colon[i] == 's' ? O42_SPLIT_SKIP
+                                 : colon[i] == 'd' ? O42_SPLIT_DATE : O42_SPLIT_GENERAL;
+                    }
+                  nums = g_strsplit (words[1], ",", -1);
+                  for (int i = 0; nums[i] != NULL; i++)
+                    {
+                      int b = atoi (nums[i]);
+                      if (b > 0)
+                        g_array_append_val (breaks, b);
+                    }
+                  g_strfreev (nums);
+                }
+              printf ("%d rows split\n",
+                      o42_sheet_text_to_columns_fixed (sheet, &r, (const int *) breaks->data,
+                                                       (int) breaks->len, typed ? types : NULL));
+              g_array_unref (breaks);
+            }
+          else
+            fprintf (stderr, "usage: splitfixed A1:A9 guess|5,12[:gts]\n");
           g_strfreev (words);
           continue;
         }

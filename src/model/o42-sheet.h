@@ -726,6 +726,28 @@ gboolean   o42_sheet_validate (O42Sheet *sheet, int row, int col,
 int o42_sheet_text_to_columns (O42Sheet *sheet, const O42Range *range,
                                const char *delimiter);
 
+/* The same, cut at fixed character positions: `breaks` are the
+ * offsets (in characters, ascending) where each new column starts, so
+ * n_breaks + 1 columns come out.  `types`, when given, says per column
+ * how its piece is taken: as typed, as text whatever it looks like, or
+ * not at all. */
+typedef enum {
+  O42_SPLIT_GENERAL = 0,
+  O42_SPLIT_TEXT,
+  O42_SPLIT_DATE,
+  O42_SPLIT_SKIP
+} O42SplitType;
+
+int o42_sheet_text_to_columns_fixed (O42Sheet *sheet, const O42Range *range,
+                                     const int *breaks, int n_breaks,
+                                     const O42SplitType *types);
+
+/* Where the columns seem to divide: the character positions at which
+ * every row of the range's first column that is long enough has a
+ * space and the character before is not, as Excel guesses them.
+ * Appended to `breaks` (int). */
+void o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *breaks);
+
 /* ---- View state -------------------------------------------------------- */
 
 /* How many rows and columns are frozen at the top and left: a view

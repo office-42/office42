@@ -4716,6 +4716,117 @@ o42_sheet_conditional_fmt (O42Sheet *sheet, int row, int col, O42Fmt *out)
 /* ---- Text to Columns --------------------------------------------------- */
 
 int
+o42_sheet_text_to_columns_fixed (O42Sheet *sheet, const O42Range *range,
+                                 const int *breaks, int n_breaks,
+                                 const O42SplitType *types)
+{
+  int changed = 0;
+
+  g_return_val_if_fail (sheet != NULL && range != NULL, 0);
+  g_return_val_if_fail (n_breaks == 0 || breaks != NULL, 0);
+
+  op_begin (sheet);
+  for (int row = range->row0; row <= range->row1; row++)
+    {
+      O42Value v;
+      glong length;
+
+      o42_sheet_get_value (sheet, row, range->col0, &v);
+      if (v.type != O42_VALUE_TEXT)
+        {
+          o42_value_clear (&v);
+          continue;
+        }
+      length = g_utf8_strlen (v.as.text, -1);
+      for (int i = 0; i <= n_breaks && range->col0 + i < O42_MAX_COLS; i++)
+        {
+          glong from = i == 0 ? 0 : breaks[i - 1];
+          glong to = i == n_breaks ? length : breaks[i];
+          O42SplitType type = types != NULL ? types[i] : O42_SPLIT_GENERAL;
+          char *piece;
+
+          if (type == O42_SPLIT_SKIP)
+            continue;
+          from = CLAMP (from, 0, length);
+          to = CLAMP (to, from, length);
+          piece = g_strndup (g_utf8_offset_to_pointer (v.as.text, from),
+                             g_utf8_offset_to_pointer (v.as.text, to) - g_utf8_offset_to_pointer (v.as.text, from));
+          g_strstrip (piece);
+          op_capture (sheet, row, range->col0 + i);
+          if (*piece == '\0')
+            set_input_internal (sheet, row, range->col0 + i, NULL);
+          else if (type == O42_SPLIT_TEXT && (g_ascii_isdigit (*piece) || *piece == '-' ||
+                                              *piece == '=' || *piece == '+' || *piece == '.'))
+            {
+              /* Kept as text whatever it looks like, the way an
+               * apostrophe keeps a typed one. */
+              char *quoted = g_strconcat ("'", piece, NULL);
+              set_input_internal (sheet, row, range->col0 + i, quoted);
+              g_free (quoted);
+            }
+          else
+            set_input_internal (sheet, row, range->col0 + i, piece);
+          g_free (piece);
+        }
+      o42_value_clear (&v);
+      changed++;
+    }
+  op_end (sheet);
+  return changed;
+}
+
+void
+o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *breaks)
+{
+  GPtrArray *texts = g_ptr_array_new_with_free_func (g_free);
+  glong longest = 0;
+
+  g_return_if_fail (sheet != NULL && range != NULL && breaks != NULL);
+  for (int row = range->row0; row <= range->row1 && row < range->row0 + 200; row++)
+    {
+      O42Value v;
+
+      o42_sheet_get_value (sheet, row, range->col0, &v);
+      if (v.type == O42_VALUE_TEXT)
+        {
+          longest = MAX (longest, g_utf8_strlen (v.as.text, -1));
+          g_ptr_array_add (texts, g_strdup (v.as.text));
+        }
+      o42_value_clear (&v);
+    }
+
+  /* A column starts where every row long enough to reach it goes from
+   * a space to something else -- the first character after a gap that
+   * runs down the whole block. */
+  for (glong at = 1; at < longest; at++)
+    {
+      gboolean gap_before = TRUE, content_here = FALSE;
+
+      for (guint i = 0; i < texts->len && gap_before; i++)
+        {
+          const char *t = g_ptr_array_index (texts, i);
+          glong len = g_utf8_strlen (t, -1);
+          gunichar before, here;
+
+          if (len <= at)
+            continue;
+          before = g_utf8_get_char (g_utf8_offset_to_pointer (t, at - 1));
+          here = g_utf8_get_char (g_utf8_offset_to_pointer (t, at));
+          if (before != ' ')
+            gap_before = FALSE;
+          else if (here != ' ')
+            content_here = TRUE;
+        }
+      if (gap_before && content_here)
+        {
+          int b = (int) at;
+          g_array_append_val (breaks, b);
+        }
+    }
+  g_ptr_array_unref (texts);
+}
+
+int
 o42_sheet_text_to_columns (O42Sheet *sheet, const O42Range *range,
                            const char *delimiter)
 {

@@ -1364,12 +1364,260 @@ action_validation (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* ---- Data > Text to Columns -------------------------------------------- */
 
+/* Two pages, as Excel's wizard has: split at a delimiter, or at fixed
+ * character positions shown on a ruler over the first rows, where a
+ * click puts a break, a drag moves one and a double-click takes it
+ * away.  A click on a column of the preview chooses it for the data
+ * format drop-down. */
+#define PREVIEW_ROWS 8
+
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
+  GtkWidget *notebook;
   GtkWidget *choice[4];
   GtkWidget *other;
+  GtkWidget *preview;
+  GtkWidget *type_drop;
+  GArray    *breaks;        /* int, ascending character positions */
+  GArray    *types;         /* O42SplitType, one per column */
+  GPtrArray *lines;         /* the first rows' text */
+  int        selected;      /* the column the drop-down is about */
+  int        dragging;      /* index of the break being dragged, or -1 */
+  double     char_w, line_h;
+  gboolean   updating;
 } SplitPrompt;
+
+#define RULER_H 18.0
+#define PREVIEW_PAD 6.0
+
+static int
+split_column_at (SplitPrompt *prompt, int position)
+{
+  int col = 0;
+
+  for (guint i = 0; i < prompt->breaks->len; i++)
+    if (g_array_index (prompt->breaks, int, i) <= position)
+      col = i + 1;
+  return col;
+}
+
+static void
+split_sync_type_drop (SplitPrompt *prompt)
+{
+  O42SplitType type = O42_SPLIT_GENERAL;
+
+  if (prompt->selected >= 0 && (guint) prompt->selected < prompt->types->len)
+    type = g_array_index (prompt->types, O42SplitType, prompt->selected);
+  prompt->updating = TRUE;
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->type_drop), type);
+  prompt->updating = FALSE;
+}
+
+static void
+split_preview_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data)
+{
+  SplitPrompt *prompt = data;
+  PangoLayout *layout = gtk_widget_create_pango_layout (GTK_WIDGET (area), NULL);
+  PangoFontDescription *desc = pango_font_description_from_string ("Monospace 10");
+  int tw, th;
+  double x0 = PREVIEW_PAD;
+
+  pango_layout_set_font_description (layout, desc);
+  pango_layout_set_text (layout, "0", -1);
+  pango_layout_get_pixel_size (layout, &tw, &th);
+  prompt->char_w = tw;
+  prompt->line_h = th + 2;
+
+  cairo_set_source_rgb (cr, 1, 1, 1);
+  cairo_paint (cr);
+
+  /* The chosen column, shaded. */
+  if (prompt->selected >= 0)
+    {
+      int from = prompt->selected == 0 ? 0 : g_array_index (prompt->breaks, int, prompt->selected - 1);
+      double to_x = (guint) prompt->selected < prompt->breaks->len
+                    ? x0 + g_array_index (prompt->breaks, int, prompt->selected) * tw : width;
+
+      cairo_set_source_rgb (cr, 0.85, 0.88, 0.95);
+      cairo_rectangle (cr, x0 + from * tw, RULER_H, to_x - x0 - from * tw, height - RULER_H);
+      cairo_fill (cr);
+    }
+
+  /* The ruler: a tick every character, a longer one every five, the
+   * number every ten. */
+  cairo_set_source_rgb (cr, 0.3, 0.3, 0.3);
+  cairo_set_line_width (cr, 1);
+  for (int c = 0; x0 + c * tw < width; c++)
+    {
+      double x = floor (x0 + c * tw) + 0.5;
+      double len = c % 10 == 0 ? 6 : c % 5 == 0 ? 4 : 2;
+
+      cairo_move_to (cr, x, RULER_H - 1);
+      cairo_line_to (cr, x, RULER_H - 1 - len);
+      if (c % 10 == 0 && c > 0)
+        {
+          char num[8];
+          PangoFontDescription *small = pango_font_description_from_string ("Sans 7");
+          int nw, nh;
+
+          g_snprintf (num, sizeof num, "%d", c);
+          pango_layout_set_font_description (layout, small);
+          pango_layout_set_text (layout, num, -1);
+          pango_layout_get_pixel_size (layout, &nw, &nh);
+          cairo_move_to (cr, x - nw / 2.0, 0);
+          pango_cairo_show_layout (cr, layout);
+          pango_layout_set_font_description (layout, desc);
+          pango_font_description_free (small);
+        }
+    }
+  cairo_stroke (cr);
+
+  /* The rows. */
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  for (guint i = 0; i < prompt->lines->len; i++)
+    {
+      pango_layout_set_text (layout, g_ptr_array_index (prompt->lines, i), -1);
+      cairo_move_to (cr, x0, RULER_H + 2 + i * prompt->line_h);
+      pango_cairo_show_layout (cr, layout);
+    }
+
+  /* The breaks, with an arrowhead on the ruler. */
+  for (guint i = 0; i < prompt->breaks->len; i++)
+    {
+      double x = floor (x0 + g_array_index (prompt->breaks, int, i) * tw) + 0.5;
+
+      cairo_set_source_rgb (cr, 0.1, 0.1, 0.6);
+      cairo_move_to (cr, x, RULER_H - 8);
+      cairo_line_to (cr, x, height);
+      cairo_stroke (cr);
+      cairo_move_to (cr, x - 4, RULER_H - 12);
+      cairo_line_to (cr, x + 4, RULER_H - 12);
+      cairo_line_to (cr, x, RULER_H - 6);
+      cairo_close_path (cr);
+      cairo_fill (cr);
+    }
+
+  pango_font_description_free (desc);
+  g_object_unref (layout);
+}
+
+static int
+split_break_near (SplitPrompt *prompt, double x)
+{
+  for (guint i = 0; i < prompt->breaks->len; i++)
+    if (fabs (x - (PREVIEW_PAD + g_array_index (prompt->breaks, int, i) * prompt->char_w)) <= 4)
+      return (int) i;
+  return -1;
+}
+
+static int
+split_position_at (SplitPrompt *prompt, double x)
+{
+  return prompt->char_w > 0 ? MAX (0, (int) ((x - PREVIEW_PAD) / prompt->char_w + 0.5)) : 0;
+}
+
+static void
+split_insert_break (SplitPrompt *prompt, int position)
+{
+  guint at = 0;
+  O42SplitType general = O42_SPLIT_GENERAL;
+
+  if (position <= 0)
+    return;
+  for (at = 0; at < prompt->breaks->len; at++)
+    {
+      int b = g_array_index (prompt->breaks, int, at);
+      if (b == position)
+        return;
+      if (b > position)
+        break;
+    }
+  g_array_insert_val (prompt->breaks, at, position);
+  /* The column that was cut becomes two of the same kind. */
+  g_array_insert_val (prompt->types, at + 1, general);
+  if (at + 1 < prompt->types->len)
+    g_array_index (prompt->types, O42SplitType, at + 1) = g_array_index (prompt->types, O42SplitType, at);
+}
+
+static void
+split_remove_break (SplitPrompt *prompt, int index)
+{
+  g_array_remove_index (prompt->breaks, index);
+  if ((guint) index + 1 < prompt->types->len)
+    g_array_remove_index (prompt->types, index + 1);
+  if ((guint) prompt->selected >= prompt->types->len)
+    prompt->selected = (int) prompt->types->len - 1;
+}
+
+static void
+on_split_pressed (GtkGestureClick *gesture, int n_press, double x, double y, gpointer data)
+{
+  SplitPrompt *prompt = data;
+  int near = split_break_near (prompt, x);
+
+  (void) gesture;
+  if (n_press == 2 && near >= 0)
+    {
+      split_remove_break (prompt, near);
+      prompt->dragging = -1;
+    }
+  else if (n_press == 1 && near >= 0)
+    prompt->dragging = near;
+  else if (n_press == 1)
+    {
+      int position = split_position_at (prompt, x);
+
+      if (y < RULER_H)
+        split_insert_break (prompt, position);
+      else
+        prompt->selected = split_column_at (prompt, position);
+      prompt->dragging = -1;
+    }
+  split_sync_type_drop (prompt);
+  gtk_widget_queue_draw (prompt->preview);
+}
+
+static void
+on_split_released (GtkGestureClick *gesture, int n_press, double x, double y, gpointer data)
+{
+  SplitPrompt *prompt = data;
+
+  (void) gesture; (void) n_press; (void) x; (void) y;
+  prompt->dragging = -1;
+  /* Keep the breaks in order after a drag past a neighbour. */
+  for (guint i = 1; i < prompt->breaks->len; i++)
+    if (g_array_index (prompt->breaks, int, i) <= g_array_index (prompt->breaks, int, i - 1))
+      {
+        split_remove_break (prompt, (int) i);
+        i--;
+      }
+  gtk_widget_queue_draw (prompt->preview);
+}
+
+static void
+on_split_motion (GtkEventControllerMotion *motion, double x, double y, gpointer data)
+{
+  SplitPrompt *prompt = data;
+
+  (void) motion; (void) y;
+  if (prompt->dragging < 0 || (guint) prompt->dragging >= prompt->breaks->len)
+    return;
+  g_array_index (prompt->breaks, int, prompt->dragging) = MAX (1, split_position_at (prompt, x));
+  gtk_widget_queue_draw (prompt->preview);
+}
+
+static void
+on_split_type_changed (GObject *drop, GParamSpec *pspec, gpointer data)
+{
+  SplitPrompt *prompt = data;
+
+  (void) pspec;
+  if (prompt->updating || prompt->selected < 0 || (guint) prompt->selected >= prompt->types->len)
+    return;
+  g_array_index (prompt->types, O42SplitType, prompt->selected) =
+    (O42SplitType) gtk_drop_down_get_selected (GTK_DROP_DOWN (drop));
+}
 
 static void
 on_split_ok (GtkWidget *w, gpointer data)
@@ -1391,10 +1639,27 @@ on_split_ok (GtkWidget *w, gpointer data)
   if (o42_grid_is_editing (self->grid))
     o42_grid_commit_edit (self->grid);
   o42_grid_get_selection (self->grid, &sel);
-  o42_sheet_text_to_columns (self->sheet, &sel, delim);
+  if (gtk_notebook_get_current_page (GTK_NOTEBOOK (prompt->notebook)) == 1)
+    o42_sheet_text_to_columns_fixed (self->sheet, &sel, (const int *) prompt->breaks->data,
+                                     (int) prompt->breaks->len,
+                                     (const O42SplitType *) prompt->types->data);
+  else
+    o42_sheet_text_to_columns (self->sheet, &sel, delim);
   o42_grid_refresh (self->grid);
   window_sync (self);
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_split_destroy (GtkWidget *w, gpointer data)
+{
+  SplitPrompt *prompt = data;
+
+  (void) w;
+  g_array_unref (prompt->breaks);
+  g_array_unref (prompt->types);
+  g_ptr_array_unref (prompt->lines);
+  g_free (prompt);
 }
 
 void
@@ -1402,36 +1667,109 @@ action_text_to_columns (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   SplitPrompt *prompt = g_new0 (SplitPrompt, 1);
-  GtkWidget *content, *buttons, *row, *ok;
+  GtkWidget *content, *buttons, *row, *ok, *page, *hint;
   static const char *names[4] = { "_Comma", "_Tab", "_Semicolon", "S_pace" };
+  static const char *const TYPES[] = { N_("General"), N_("Text"), N_("Date"), N_("Do not import"), NULL };
+  O42Range sel;
 
   (void) a; (void) p;
 
   prompt->window = self;
+  prompt->breaks = g_array_new (FALSE, FALSE, sizeof (int));
+  prompt->types = g_array_new (FALSE, FALSE, sizeof (O42SplitType));
+  prompt->lines = g_ptr_array_new_with_free_func (g_free);
+  prompt->dragging = -1;
   prompt->dialog = dialog_frame (self, _("Text to Columns"), TRUE, &content, &buttons);
-  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Split the selected column at:")));
 
+  prompt->notebook = gtk_notebook_new ();
+  gtk_box_append (GTK_BOX (content), prompt->notebook);
+
+  /* Delimited. */
+  page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+  gtk_widget_set_margin_top (page, 8);
+  gtk_widget_set_margin_bottom (page, 8);
+  gtk_widget_set_margin_start (page, 8);
+  gtk_widget_set_margin_end (page, 8);
+  gtk_box_append (GTK_BOX (page), gtk_label_new (_("Split the selected column at:")));
   for (int i = 0; i < 4; i++)
     {
       prompt->choice[i] = gtk_check_button_new_with_mnemonic (names[i]);
       if (i > 0)
         gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->choice[i]),
                                     GTK_CHECK_BUTTON (prompt->choice[0]));
-      gtk_box_append (GTK_BOX (content), prompt->choice[i]);
+      gtk_box_append (GTK_BOX (page), prompt->choice[i]);
     }
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->choice[0]), TRUE);
-
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("Other:")));
   prompt->other = gtk_entry_new ();
   gtk_editable_set_width_chars (GTK_EDITABLE (prompt->other), 6);
   gtk_box_append (GTK_BOX (row), prompt->other);
-  gtk_box_append (GTK_BOX (content), row);
+  gtk_box_append (GTK_BOX (page), row);
+  gtk_notebook_append_page (GTK_NOTEBOOK (prompt->notebook), page, gtk_label_new (_("Delimited")));
+
+  /* Fixed width: the first rows under a ruler. */
+  o42_grid_get_selection (self->grid, &sel);
+  o42_sheet_guess_fixed_breaks (self->sheet, &sel, prompt->breaks);
+  g_array_set_size (prompt->types, prompt->breaks->len + 1);
+  for (int r = sel.row0; r <= sel.row1 && r < sel.row0 + PREVIEW_ROWS; r++)
+    {
+      O42Value v;
+
+      o42_sheet_get_value (self->sheet, r, sel.col0, &v);
+      g_ptr_array_add (prompt->lines, v.type == O42_VALUE_TEXT ? g_strdup (v.as.text) : g_strdup (""));
+      o42_value_clear (&v);
+    }
+
+  page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+  gtk_widget_set_margin_top (page, 8);
+  gtk_widget_set_margin_bottom (page, 8);
+  gtk_widget_set_margin_start (page, 8);
+  gtk_widget_set_margin_end (page, 8);
+  hint = gtk_label_new (_("Click the ruler to put in a break, drag one to move it, "
+                          "double-click one to take it away.  Click a column to choose its format."));
+  gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
+  gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
+  gtk_label_set_max_width_chars (GTK_LABEL (hint), 56);
+  gtk_widget_add_css_class (hint, "dim-label");
+  gtk_box_append (GTK_BOX (page), hint);
+
+  prompt->preview = gtk_drawing_area_new ();
+  gtk_widget_set_size_request (prompt->preview, 480, (int) (RULER_H + 4 + PREVIEW_ROWS * 19));
+  gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (prompt->preview), split_preview_draw, prompt, NULL);
+  {
+    GtkGesture *click = gtk_gesture_click_new ();
+    GtkEventController *motion = gtk_event_controller_motion_new ();
+    GtkWidget *frame = gtk_frame_new (NULL);
+
+    g_signal_connect (click, "pressed", G_CALLBACK (on_split_pressed), prompt);
+    g_signal_connect (click, "released", G_CALLBACK (on_split_released), prompt);
+    gtk_widget_add_controller (prompt->preview, GTK_EVENT_CONTROLLER (click));
+    g_signal_connect (motion, "motion", G_CALLBACK (on_split_motion), prompt);
+    gtk_widget_add_controller (prompt->preview, motion);
+    gtk_frame_set_child (GTK_FRAME (frame), prompt->preview);
+    gtk_box_append (GTK_BOX (page), frame);
+  }
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Column data format:")));
+  prompt->type_drop = drop_down_of (TYPES);
+  g_signal_connect (prompt->type_drop, "notify::selected", G_CALLBACK (on_split_type_changed), prompt);
+  gtk_box_append (GTK_BOX (row), prompt->type_drop);
+  gtk_box_append (GTK_BOX (page), row);
+  gtk_notebook_append_page (GTK_NOTEBOOK (prompt->notebook), page, gtk_label_new (_("Fixed width")));
+  prompt->selected = 0;
+  split_sync_type_drop (prompt);
+
+  /* Text that lines up in columns with no delimiter in sight opens on
+   * the fixed-width page, as Excel's wizard guesses. */
+  if (prompt->breaks->len > 0 && prompt->lines->len > 0 &&
+      strpbrk (g_ptr_array_index (prompt->lines, 0), ",\t;") == NULL)
+    gtk_notebook_set_current_page (GTK_NOTEBOOK (prompt->notebook), 1);
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_split_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
   gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
-  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_split_destroy), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
