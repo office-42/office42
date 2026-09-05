@@ -5277,6 +5277,10 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   begin_record (&w, R_INTERFACEHDR); put16 (w.out, 0x04B0); end_record (&w);
   begin_record (&w, R_INTERFACEEND); end_record (&w);
   begin_record (&w, R_CODEPAGE); put16 (w.out, 0x04B0); end_record (&w);
+  /* A 1904 book's serials are 1904's; the record says so, and a reader
+   * that converts them (as ours does) starts from the right day. */
+  if (o42_book_date_1904 (book))
+    { begin_record (&w, R_DATEMODE); put16 (w.out, 1); end_record (&w); }
 
   begin_record (&w, R_WINDOW1);
   put16 (w.out, 0x0168); put16 (w.out, 0x001E); put16 (w.out, 0x3A5C); put16 (w.out, 0x1C8F);
