@@ -5606,6 +5606,9 @@ o42_window_dispose (GObject *object)
       /* The database first: an embedded one is a temporary file the
        * book deletes as it goes, which it cannot while it is open. */
       g_clear_pointer (&self->db, o42_db_close);
+      /* The last window on the book takes its scripts' functions with it. */
+      if (o42_book_ref_count (self->book) == 1)
+        o42_python_forget_book (self->book);
       o42_book_unref (self->book);
       self->book = NULL;
     }

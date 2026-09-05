@@ -317,6 +317,12 @@ o42_book_ref (O42Book *book)
   return book;
 }
 
+int
+o42_book_ref_count (O42Book *book)
+{
+  return book != NULL ? book->refs : 0;
+}
+
 void
 o42_book_unref (O42Book *book)
 {

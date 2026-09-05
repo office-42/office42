@@ -714,6 +714,11 @@ def open(path):
     _c.open(str(path))
 
 
+def personal_folder():
+    """The folder whose .py files run when Python starts, for every book."""
+    return _c.personal_folder()
+
+
 def _selection():
     i, r0, c0, r1, c1, _, _ = _c.selection()
     return Range(Sheet(i), r0, c0, r1, c1)
@@ -746,7 +751,12 @@ def functions():
 
 # ---- Functions for cells -----------------------------------------------
 
-_functions = {}
+# A book's scripts define functions for that book; the personal scripts
+# define them for every book.  The evaluator knows a name once; which
+# function answers it is decided here, by the book on show.
+_functions = {}             # name -> fn, the personal ones and PY
+_book_functions = {}        # book id -> {name: fn}
+_loading_personal = False
 
 
 def function(f=None, *, name=None, min_args=None, max_args=None, summary=None):
@@ -769,15 +779,29 @@ def function(f=None, *, name=None, min_args=None, max_args=None, summary=None):
         hi = -1 if any(p.kind == p.VAR_POSITIONAL for p in params) else len(params)
         signature = "%s(%s)" % (fname, ", ".join(p.name for p in params))
         doc = summary or (fn.__doc__ or "").strip().split("\n")[0] or "A function from a script."
-        _functions[fname] = fn
+        owner = _c.book_id()
+        if owner == 0 or _loading_personal:
+            _functions[fname] = fn
+        else:
+            _book_functions.setdefault(owner, {})[fname] = fn
         _c.define(fname, lo if min_args is None else min_args, hi if max_args is None else max_args, signature, doc)
         return fn
     return register(f) if f is not None else register
 
 
+def _lookup(name):
+    """The function answering NAME for the book on show, if any."""
+    fn = _book_functions.get(_c.book_id(), {}).get(name)
+    return _functions.get(name) if fn is None else fn
+
+
+def _defined_elsewhere(name, owner):
+    return name in _functions or any(name in fns for who, fns in _book_functions.items() if who != owner)
+
+
 def _call(name, args):
     """Called from C for =NAME(...) in a cell."""
-    fn = _functions.get(name)
+    fn = _lookup(name)
     if fn is None:
         return Error("#NAME?")
     try:
@@ -857,10 +881,43 @@ def _run(code, filename="<console>"):
     return ok, out.getvalue()
 
 
-def _reset():
-    for name in list(_functions):
-        if name != "PY":
+def _forget_book(owner):
+    """The book is going, or its scripts are being forgotten."""
+    for name in _book_functions.pop(owner, {}):
+        if not _defined_elsewhere(name, owner):
             _c.undefine(name)
-            del _functions[name]
+
+
+def _reset(owner):
+    _forget_book(owner)
     _namespace.clear()
     del _errors[:]
+
+
+# ---- Personal scripts --------------------------------------------------
+
+personal_scripts = []      # (path, error or None), as loaded at start
+
+
+def _load_personal(paths):
+    """Runs each personal script once, each in a namespace of its own,
+    so that what they define with @office42.function is there in every
+    book.  A script that fails is noted, not fatal."""
+    global _loading_personal
+    del personal_scripts[:]
+    _loading_personal = True
+    try:
+        for path in paths:
+            try:
+                with io.open(path, encoding="utf-8") as f:
+                    code = f.read()
+                space = {"__name__": "__personal__", "__file__": path,
+                         "office42": sys.modules[__name__]}
+                exec(compile(code, path, "exec"), space)
+                personal_scripts.append((path, None))
+            except Exception:
+                trace = traceback.format_exc().strip().split("\n")[-1]
+                personal_scripts.append((path, trace))
+                _errors.append("%s: %s" % (path, trace))
+    finally:
+        _loading_personal = False

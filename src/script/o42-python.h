@@ -32,8 +32,28 @@ gboolean o42_python_run      (O42Book *book, O42Sheet *sheet, const char *code,
 gboolean o42_python_run_file (O42Book *book, O42Sheet *sheet, GFile *file,
                               char **output);
 
-/* Forgets the console's variables and the functions scripts defined. */
+/* Forgets the console's variables and the functions the current
+ * book's scripts defined; the personal scripts' stay. */
 void o42_python_reset (void);
+
+/* A book is going: the functions its scripts defined go with it, so
+ * that another book's NPV2 is its own. */
+void o42_python_forget_book (O42Book *book);
+
+/* Personal scripts: every .py in the user's office42/scripts folder is
+ * run when Python starts, so what they define -- functions for cells,
+ * helpers for the console -- is there in every book.  They are the
+ * user's own and need no trusting.  The folder (caller frees), made
+ * if it is not there; and the scripts in it, sorted (caller frees the
+ * strv). */
+char  *o42_python_personal_folder  (void);
+char **o42_python_personal_scripts (void);
+
+/* Starts Python now if there are personal scripts, so that the
+ * functions they define are known before a file's formulas ask for
+ * them; otherwise it starts with the first script run.  TRUE if it
+ * is running. */
+gboolean o42_python_start (void);
 
 /* ---- What the window does for a script ------------------------------- */
 

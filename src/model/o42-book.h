@@ -24,6 +24,7 @@ void      o42_book_free (O42Book *book);
  * holds a reference; the last one to let go frees it. */
 O42Book  *o42_book_ref   (O42Book *book);
 void      o42_book_unref (O42Book *book);
+int       o42_book_ref_count (O42Book *book);
 
 /* Whoever shows the book asks to be told when another viewer changed
  * it: the sheets, their cells, or their names.  `what` is a hint. */

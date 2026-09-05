@@ -8,6 +8,7 @@
 
 #include "o42-window.h"
 #include "o42-types.h"
+#include "o42-python.h"
 
 #include <glib/gi18n.h>
 #include <stdlib.h>
@@ -123,6 +124,9 @@ o42_application_startup (GApplication *app)
 
   load_css ();
   load_icons ();
+  /* The user's personal scripts define functions every book may use;
+   * they are run now so that a file's formulas find them. */
+  o42_python_start ();
 
   for (guint i = 0; i < G_N_ELEMENTS (ACCELS); i++)
     gtk_application_set_accels_for_action (GTK_APPLICATION (app),

@@ -19,6 +19,7 @@
 #include "o42-pattern.h"
 
 #include <string.h>
+#include <glib/gstdio.h>
 
 /* What the window does for a script; every call NULL until it says. */
 static O42PythonHost host;
@@ -32,11 +33,40 @@ o42_python_set_host (const O42PythonHost *table)
     memset (&host, 0, sizeof host);
 }
 
+char *
+o42_python_personal_folder (void)
+{
+  char *folder = g_build_filename (g_get_user_data_dir (), "office42", "scripts", NULL);
+  g_mkdir_with_parents (folder, 0700);
+  return folder;
+}
+
+char **
+o42_python_personal_scripts (void)
+{
+  char *folder = o42_python_personal_folder ();
+  GDir *dir = g_dir_open (folder, 0, NULL);
+  GPtrArray *paths = g_ptr_array_new ();
+  const char *name;
+
+  while (dir != NULL && (name = g_dir_read_name (dir)) != NULL)
+    if (g_str_has_suffix (name, ".py"))
+      g_ptr_array_add (paths, g_build_filename (folder, name, NULL));
+  if (dir != NULL)
+    g_dir_close (dir);
+  g_ptr_array_sort_values (paths, (GCompareFunc) g_strcmp0);
+  g_ptr_array_add (paths, NULL);
+  g_free (folder);
+  return (char **) g_ptr_array_free (paths, FALSE);
+}
+
 #ifndef HAVE_PYTHON
 
 gboolean    o42_python_available (void) { return FALSE; }
 const char *o42_python_version   (void) { return NULL; }
 void        o42_python_reset     (void) { }
+void        o42_python_forget_book (O42Book *book) { (void) book; }
+gboolean    o42_python_start     (void) { return FALSE; }
 
 gboolean
 o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *filename, char **output)
@@ -153,6 +183,15 @@ cell_ok (int row, int col)
       return FALSE;
     }
   return TRUE;
+}
+
+/* The book a script runs against, as a number scripts key their
+ * functions by; 0 while the personal scripts load. */
+static PyObject *
+m_book_id (PyObject *self, PyObject *args)
+{
+  (void) self; (void) args;
+  return PyLong_FromSize_t ((size_t) (guintptr) current_book);
 }
 
 static PyObject *
@@ -874,6 +913,16 @@ m_open (PyObject *self, PyObject *args)
 }
 
 static PyObject *
+m_personal_folder (PyObject *self, PyObject *args)
+{
+  char *folder = o42_python_personal_folder ();
+  PyObject *result = PyUnicode_FromString (folder);
+  (void) self; (void) args;
+  g_free (folder);
+  return result;
+}
+
+static PyObject *
 m_calculate (PyObject *self, PyObject *args)
 {
   (void) self; (void) args;
@@ -1567,6 +1616,7 @@ static PyMethodDef METHODS[] = {
   { "remove_script",  m_remove_script,  METH_VARARGS, "Removes a script from the book." },
   { "script_options", m_script_options, METH_VARARGS, "Sets a script's shortcut letter and description." },
   { "script_info",    m_script_info,    METH_VARARGS, "A script's (shortcut letter, description)." },
+  { "book_id",        m_book_id,        METH_NOARGS,  "A number for the book the script runs against." },
   { "n_sheets",       m_n_sheets,       METH_NOARGS,  "How many sheets the book has." },
   { "sheet_name",     m_sheet_name,     METH_VARARGS, "The name of sheet i." },
   { "sheet_index",    m_sheet_index,    METH_VARARGS, "The index of the sheet named so, or -1." },
@@ -1609,6 +1659,7 @@ static PyMethodDef METHODS[] = {
   { "save",           m_save,           METH_VARARGS, "Saves the book, to a path if given." },
   { "open",           m_open,           METH_VARARGS, "Opens a file in a window of its own." },
   { "calculate",      m_calculate,      METH_NOARGS,  "Recalculates every sheet." },
+  { "personal_folder", m_personal_folder, METH_NOARGS, "The personal scripts folder." },
   { "get_input",      m_get_input,      METH_VARARGS, "What was typed into a cell." },
   { "set_input",      m_set_input,      METH_VARARGS, "Types into a cell." },
   { "get_value",      m_get_value,      METH_VARARGS, "A cell's value." },
@@ -1726,6 +1777,26 @@ ensure_interpreter (void)
   module = loaded;
   error_class = PyObject_GetAttrString (module, "Error");
   PyModule_AddStringConstant (module, "__version__", O42_VERSION);
+
+  /* The personal scripts, with no book on show: what they define is
+   * everyone's. */
+  {
+    char **paths = o42_python_personal_scripts ();
+    PyObject *list = PyList_New (0);
+    PyObject *r;
+
+    for (int i = 0; paths[i] != NULL; i++)
+      {
+        PyObject *item = PyUnicode_FromString (paths[i]);
+        PyList_Append (list, item);
+        Py_DECREF (item);
+      }
+    r = PyObject_CallMethod (module, "_load_personal", "O", list);
+    Py_XDECREF (r);
+    Py_DECREF (list);
+    PyErr_Clear ();
+    g_strfreev (paths);
+  }
   return TRUE;
 }
 
@@ -1733,6 +1804,18 @@ gboolean
 o42_python_available (void)
 {
   return TRUE;
+}
+
+gboolean
+o42_python_start (void)
+{
+  char **paths = o42_python_personal_scripts ();
+  gboolean any = paths[0] != NULL;
+
+  g_strfreev (paths);
+  if (!any && module == NULL)
+    return FALSE;
+  return ensure_interpreter ();
 }
 
 const char *
@@ -1841,7 +1924,18 @@ o42_python_reset (void)
   PyObject *r;
   if (module == NULL)
     return;
-  r = PyObject_CallMethod (module, "_reset", NULL);
+  r = PyObject_CallMethod (module, "_reset", "n", (Py_ssize_t) (guintptr) current_book);
+  Py_XDECREF (r);
+  PyErr_Clear ();
+}
+
+void
+o42_python_forget_book (O42Book *book)
+{
+  PyObject *r;
+  if (module == NULL || book == NULL)
+    return;
+  r = PyObject_CallMethod (module, "_forget_book", "n", (Py_ssize_t) (guintptr) book);
   Py_XDECREF (r);
   PyErr_Clear ();
 }

@@ -224,6 +224,8 @@ main (int argc, char *argv[])
    * is none. */
   o42_db_register_function (book);
   calc_install_host (book);
+  /* The personal scripts' functions, before any formula asks. */
+  o42_python_start ();
 
   (void) argc; (void) argv;
 
