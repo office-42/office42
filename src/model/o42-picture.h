@@ -33,6 +33,12 @@ typedef struct {
   double           rotation;   /* degrees clockwise about the centre */
   gboolean         flip_h;     /* mirrored, before turning */
   gboolean         flip_v;
+  double           crop_l;     /* the part cut away on each side, as a
+                                * fraction of the picture, 0..1 */
+  double           crop_r;
+  double           crop_t;
+  double           crop_b;
+  gboolean         lock_aspect; /* a corner handle keeps the proportions */
   cairo_surface_t *surface;    /* decoded on first draw */
 } O42Picture;
 
@@ -40,5 +46,10 @@ O42Picture      *o42_picture_new     (GBytes *data, const char *format,
                                       int pixel_w, int pixel_h);
 void             o42_picture_free    (O42Picture *picture);
 cairo_surface_t *o42_picture_surface (O42Picture *picture);
+
+/* Paints the picture, less what is cropped, into the box (0, 0,
+ * width, height) at the origin. */
+void             o42_picture_paint   (O42Picture *picture, cairo_t *cr,
+                                      double width, double height);
 
 G_END_DECLS

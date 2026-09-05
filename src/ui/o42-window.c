@@ -3605,6 +3605,7 @@ typedef struct {
   GtkWidget *dialog;
   guint      picture_id;
   GtkWidget *width, *height, *rotation, *flip_h, *flip_v;
+  GtkWidget *crop[4], *lock_aspect;     /* left, top, right, bottom, per cent */
 } PicturePrompt;
 
 static void
@@ -3623,6 +3624,11 @@ on_picture_format_ok (GtkWidget *w, gpointer data)
       pic->rotation = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->rotation));
       pic->flip_h = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_h));
       pic->flip_v = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_v));
+      pic->crop_l = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[0])) / 100;
+      pic->crop_t = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[1])) / 100;
+      pic->crop_r = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[2])) / 100;
+      pic->crop_b = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[3])) / 100;
+      pic->lock_aspect = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->lock_aspect));
       o42_sheet_end_group (prompt->window->sheet);
       o42_sheet_set_modified (prompt->window->sheet, TRUE);
       o42_grid_refresh (prompt->window->grid);
@@ -3666,7 +3672,23 @@ action_format_picture (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->height), pic->height);
   prompt->rotation = labelled (grid, 2, _("Rotation (degrees):"), gtk_spin_button_new_with_range (-360, 360, 5));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->rotation), pic->rotation);
+  {
+    /* The crop, as Excel's Picture tab has it: how much of each side
+     * is cut away. */
+    static const char *const sides[4] = { N_("Crop left (%):"), N_("Crop top (%):"),
+                                          N_("Crop right (%):"), N_("Crop bottom (%):") };
+    const double crops[4] = { pic->crop_l, pic->crop_t, pic->crop_r, pic->crop_b };
+
+    for (int i = 0; i < 4; i++)
+      {
+        prompt->crop[i] = labelled (grid, 3 + i, _(sides[i]), gtk_spin_button_new_with_range (0, 99, 1));
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->crop[i]), crops[i] * 100);
+      }
+  }
   gtk_box_append (GTK_BOX (content), grid);
+  prompt->lock_aspect = gtk_check_button_new_with_mnemonic ( _("_Lock aspect ratio"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->lock_aspect), pic->lock_aspect);
+  gtk_box_append (GTK_BOX (content), prompt->lock_aspect);
   prompt->flip_h = gtk_check_button_new_with_mnemonic ( _("Flip _horizontal"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_h), pic->flip_h);
   gtk_box_append (GTK_BOX (content), prompt->flip_h);

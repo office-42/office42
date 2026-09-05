@@ -439,17 +439,7 @@ draw_page (cairo_t      *cr,
         switch (ref->type)
           {
           case O42_OBJECT_PICTURE:
-            {
-              cairo_surface_t *surface = o42_picture_surface (ref->object);
-
-              if (surface != NULL)
-                {
-                  cairo_scale (cr, width / cairo_image_surface_get_width (surface),
-                                   height / cairo_image_surface_get_height (surface));
-                  cairo_set_source_surface (cr, surface, 0, 0);
-                  cairo_paint (cr);
-                }
-            }
+            o42_picture_paint (ref->object, cr, width, height);
             break;
           case O42_OBJECT_SHAPE:
             o42_sheet_draw_shape (sheet, ref->object, cr, width, height);

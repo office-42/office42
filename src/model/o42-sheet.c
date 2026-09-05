@@ -5905,6 +5905,9 @@ picture_copy (const O42Picture *pic)
   copy->rotation = pic->rotation;
   copy->flip_h = pic->flip_h;
   copy->flip_v = pic->flip_v;
+  copy->crop_l = pic->crop_l; copy->crop_r = pic->crop_r;
+  copy->crop_t = pic->crop_t; copy->crop_b = pic->crop_b;
+  copy->lock_aspect = pic->lock_aspect;
   return copy;
 }
 
@@ -6142,6 +6145,9 @@ obj_snap_apply (const ObjSnap *snap)
             pic->group = snap->picture->group; pic->z = snap->picture->z;
             pic->rotation = snap->picture->rotation;
             pic->flip_h = snap->picture->flip_h; pic->flip_v = snap->picture->flip_v;
+            pic->crop_l = snap->picture->crop_l; pic->crop_r = snap->picture->crop_r;
+            pic->crop_t = snap->picture->crop_t; pic->crop_b = snap->picture->crop_b;
+            pic->lock_aspect = snap->picture->lock_aspect;
           }
         else
           g_ptr_array_add (sheet->pictures, picture_copy (snap->picture));

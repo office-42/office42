@@ -4832,6 +4832,26 @@ on_motion (GtkEventControllerMotion *controller,
       if (nw < 16) { if (hx == 0) nx = self->resize_x0 + self->resize_w0 - 16; nw = 16; }
       if (nh < 16) { if (hy == 0) ny = self->resize_y0 + self->resize_h0 - 16; nh = 16; }
 
+      /* A corner of a picture that keeps its proportions: whichever
+       * way the pointer has gone further sets the size, the other
+       * follows, about the corner opposite. */
+      if (hx != 0.5 && hy != 0.5 && self->resize_w0 > 0 && self->resize_h0 > 0)
+        {
+          O42Picture *pic = o42_grid_selected_picture (self);
+
+          if (pic != NULL && pic->lock_aspect)
+            {
+              double ratio = self->resize_w0 / self->resize_h0;
+
+              if (nw / self->resize_w0 >= nh / self->resize_h0)
+                nh = nw / ratio;
+              else
+                nw = nh * ratio;
+              if (hx == 0) nx = self->resize_x0 + self->resize_w0 - nw;
+              if (hy == 0) ny = self->resize_y0 + self->resize_h0 - nh;
+            }
+        }
+
       selected_object_set_rect (self, nx, ny, nw, nh);
       gtk_widget_queue_draw (GTK_WIDGET (self));
       return;
@@ -5861,20 +5881,7 @@ paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, doub
       switch (ref->type)
         {
         case O42_OBJECT_PICTURE:
-          {
-            cairo_surface_t *surface = o42_picture_surface (ref->object);
-
-            if (surface != NULL)
-              {
-                cairo_save (cr);
-                cairo_scale (cr, ow / cairo_image_surface_get_width (surface),
-                                 oh / cairo_image_surface_get_height (surface));
-                cairo_set_source_surface (cr, surface, 0, 0);
-                cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
-                cairo_paint (cr);
-                cairo_restore (cr);
-              }
-          }
+          o42_picture_paint (ref->object, cr, ow, oh);
           break;
         case O42_OBJECT_SHAPE:
           o42_sheet_draw_shape (self->sheet, ref->object, cr, ow, oh);

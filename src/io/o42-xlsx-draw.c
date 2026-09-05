@@ -463,6 +463,20 @@ xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
   return buffer;
 }
 
+/* A cropped picture's a:srcRect, the margins in thousandths of a per
+ * cent; nothing for one that is whole.  A static buffer, as above. */
+static const char *
+src_rect (const O42Picture *pic)
+{
+  static char buffer[96];
+
+  if (pic->crop_l <= 0 && pic->crop_r <= 0 && pic->crop_t <= 0 && pic->crop_b <= 0)
+    return "";
+  g_snprintf (buffer, sizeof buffer, "<a:srcRect l=\"%.0f\" t=\"%.0f\" r=\"%.0f\" b=\"%.0f\"/>",
+              pic->crop_l * 100000, pic->crop_t * 100000, pic->crop_r * 100000, pic->crop_b * 100000);
+  return buffer;
+}
+
 int
 o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                      GString *content_types, GHashTable *extensions_seen,
@@ -514,11 +528,12 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
 
             append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height);
             g_string_append_printf (dr,
-              "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr></xdr:nvPicPr>"
-              "<xdr:blipFill><a:blip r:embed=\"rId%d\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
+              "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"%d\"/></xdr:cNvPicPr></xdr:nvPicPr>"
+              "<xdr:blipFill><a:blip r:embed=\"rId%d\"/>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
               "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
               "<xdr:clientData/></xdr:twoCellAnchor>",
-              shape, i + 1, rid, xfrm_attrs (pic->rotation, pic->flip_h, pic->flip_v),
+              shape, i + 1, pic->lock_aspect ? 1 : 0, rid, src_rect (pic),
+              xfrm_attrs (pic->rotation, pic->flip_h, pic->flip_v),
               pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
             rid++;
             shape++;
@@ -1090,6 +1105,8 @@ typedef struct
   O42HeadSize head_start_size, head_end_size;
   double      rotation;    /* degrees, from a:xfrm */
   gboolean    flip_h, flip_v;
+  double      crop[4];     /* a:srcRect l, t, r, b as fractions */
+  gboolean    lock_aspect;
   GString    *body;
 } DrawReader;
 
@@ -1133,6 +1150,8 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->dash = O42_DASH_SOLID;
       d->rotation = 0;
       d->flip_h = d->flip_v = FALSE;
+      d->crop[0] = d->crop[1] = d->crop[2] = d->crop[3] = 0;
+      d->lock_aspect = TRUE;
       d->head_start = d->head_end = O42_HEAD_NONE;
       d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
       g_string_truncate (d->body, 0);
@@ -1148,6 +1167,21 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *x = attr (names, values, "x"), *y = attr (names, values, "y");
       if (x) d->abs_x = g_ascii_strtod (x, NULL) / EMU_PER_PX;
       if (y) d->abs_y = g_ascii_strtod (y, NULL) / EMU_PER_PX;
+    }
+  else if (strcmp (n, "srcRect") == 0)
+    {
+      static const char *const SIDES[4] = { "l", "t", "r", "b" };
+
+      for (int i = 0; i < 4; i++)
+        {
+          const char *v = attr (names, values, SIDES[i]);
+          d->crop[i] = v != NULL ? CLAMP (g_ascii_strtod (v, NULL) / 100000, 0, 0.99) : 0;
+        }
+    }
+  else if (strcmp (n, "picLocks") == 0)
+    {
+      const char *v = attr (names, values, "noChangeAspect");
+      d->lock_aspect = v != NULL && strcmp (v, "0") != 0 && strcmp (v, "false") != 0;
     }
   else if (strcmp (n, "xfrm") == 0)
     {
@@ -1314,6 +1348,9 @@ finish_anchor (DrawReader *d)
               pic->rotation = d->rotation;
               pic->flip_h = d->flip_h;
               pic->flip_v = d->flip_v;
+              pic->crop_l = d->crop[0]; pic->crop_t = d->crop[1];
+              pic->crop_r = d->crop[2]; pic->crop_b = d->crop[3];
+              pic->lock_aspect = d->lock_aspect;
             }
         }
       g_free (part);

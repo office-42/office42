@@ -1098,6 +1098,11 @@ main (int argc, char *argv[])
               double number = g_ascii_strtod (words[3], NULL);
 
               if (strcmp (words[2], "rotation") == 0)    pic->rotation = number;
+              else if (strcmp (words[2], "cropl") == 0)  pic->crop_l = number;
+              else if (strcmp (words[2], "cropr") == 0)  pic->crop_r = number;
+              else if (strcmp (words[2], "cropt") == 0)  pic->crop_t = number;
+              else if (strcmp (words[2], "cropb") == 0)  pic->crop_b = number;
+              else if (strcmp (words[2], "lockaspect") == 0) pic->lock_aspect = number != 0;
               else if (strcmp (words[2], "fliph") == 0)  pic->flip_h = number != 0;
               else if (strcmp (words[2], "flipv") == 0)  pic->flip_v = number != 0;
               else if (strcmp (words[2], "width") == 0)  pic->width = number;
@@ -1105,7 +1110,8 @@ main (int argc, char *argv[])
               else fprintf (stderr, "no such field\n");
             }
           else
-            fprintf (stderr, "usage: pictureset ID rotation|fliph|flipv|width|height VALUE\n");
+            fprintf (stderr, "usage: pictureset ID rotation|fliph|flipv|width|height|"
+                             "cropl|cropr|cropt|cropb|lockaspect VALUE\n");
           g_strfreev (words);
           continue;
         }
@@ -1193,6 +1199,10 @@ main (int argc, char *argv[])
                           pic->format != NULL ? pic->format : "?", at, pic->width, pic->height);
                   if (pic->rotation != 0 || pic->flip_h || pic->flip_v)
                     printf (" turned %g%s%s", pic->rotation, pic->flip_h ? " flip-h" : "", pic->flip_v ? " flip-v" : "");
+                  if (pic->crop_l > 0 || pic->crop_r > 0 || pic->crop_t > 0 || pic->crop_b > 0)
+                    printf (" crop %g %g %g %g", pic->crop_l, pic->crop_t, pic->crop_r, pic->crop_b);
+                  if (!pic->lock_aspect)
+                    printf (" free");
                   printf ("\n");
                   g_free (at);
                 }
