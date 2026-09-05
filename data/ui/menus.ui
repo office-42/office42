@@ -272,6 +272,10 @@
           <item><attribute name="label" translatable="yes">Group _Columns</attribute><attribute name="action">win.group-cols</attribute></item>
           <item><attribute name="label" translatable="yes">Ungroup R_ows</attribute><attribute name="action">win.ungroup-rows</attribute></item>
           <item><attribute name="label" translatable="yes">Ungroup Co_lumns</attribute><attribute name="action">win.ungroup-cols</attribute></item>
+          <item><attribute name="label" translatable="yes">_Show Detail</attribute><attribute name="action">win.show-detail</attribute></item>
+          <item><attribute name="label" translatable="yes">_Hide Detail</attribute><attribute name="action">win.hide-detail</attribute></item>
+          <item><attribute name="label" translatable="yes">_Auto Outline</attribute><attribute name="action">win.auto-outline</attribute></item>
+          <item><attribute name="label" translatable="yes">Cl_ear Outline</attribute><attribute name="action">win.clear-outline</attribute></item>
         </submenu>
       </section>
     </submenu>

@@ -1190,6 +1190,58 @@ void action_group_cols (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(vo
 void action_ungroup_rows (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; outline_action (d, TRUE, FALSE); }
 void action_ungroup_cols (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; outline_action (d, FALSE, FALSE); }
 
+void
+action_auto_outline (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  int made;
+
+  (void) a; (void) p;
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  made = o42_sheet_auto_outline (self->sheet);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  if (made == 0)
+    gtk_label_set_text (GTK_LABEL (self->status_label),
+                        _("No formula sums up the rows above it or the columns to its left."));
+}
+
+void
+action_clear_outline (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  o42_sheet_clear_outline (self->sheet);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+}
+
+/* Show Detail and Hide Detail work on the active cell's row, or its
+ * column when the row is in no group and its column is. */
+static void
+detail_action (O42Window *self, gboolean show)
+{
+  int row, col;
+  gboolean done;
+
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  o42_grid_get_active (self->grid, &row, &col);
+  done = o42_sheet_outline_detail (self->sheet, TRUE, row, show);
+  if (!done)
+    done = o42_sheet_outline_detail (self->sheet, FALSE, col, show);
+  if (!done)
+    gtk_label_set_text (GTK_LABEL (self->status_label),
+                        _("The active cell is in no group and below none."));
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+}
+
+void action_show_detail (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; detail_action (d, TRUE); }
+void action_hide_detail (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; detail_action (d, FALSE); }
+
 /* ---- Data > Validation -------------------------------------------------- */
 
 typedef struct {

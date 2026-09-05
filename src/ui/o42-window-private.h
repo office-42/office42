@@ -131,6 +131,10 @@ void action_group_rows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_cols (GSimpleAction *a, GVariant *p, gpointer data);
 void action_ungroup_rows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_ungroup_cols (GSimpleAction *a, GVariant *p, gpointer data);
+void action_auto_outline (GSimpleAction *a, GVariant *p, gpointer data);
+void action_clear_outline (GSimpleAction *a, GVariant *p, gpointer data);
+void action_show_detail (GSimpleAction *a, GVariant *p, gpointer data);
+void action_hide_detail (GSimpleAction *a, GVariant *p, gpointer data);
 
 /* The actions dialogs-tools.c answers. */
 void action_analysis (GSimpleAction *a, GVariant *p, gpointer data);

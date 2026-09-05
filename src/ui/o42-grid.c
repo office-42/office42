@@ -1113,8 +1113,10 @@ outline_sync (O42Grid *self)
 {
   int rl = self->sheet ? o42_sheet_max_row_level (self->sheet) : 0;
   int cl = self->sheet ? o42_sheet_max_col_level (self->sheet) : 0;
-  int w = rl > 0 ? rl * OUTLINE_STEP + 6 : 0;
-  int h = cl > 0 ? cl * OUTLINE_STEP + 6 : 0;
+  /* One step more than the deepest level, for the level buttons in
+   * the corner: 1 2 3 for a two-level outline. */
+  int w = rl > 0 ? (rl + 1) * OUTLINE_STEP + 6 : 0;
+  int h = cl > 0 ? (cl + 1) * OUTLINE_STEP + 6 : 0;
   int digits = 3;
   int header_w;
 
@@ -3491,6 +3493,7 @@ void
 o42_grid_refresh (O42Grid *self)
 {
   g_return_if_fail (O42_IS_GRID (self));
+  outline_sync (self);
   gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
@@ -5678,10 +5681,71 @@ paint_outline (O42Grid *self, cairo_t *cr, gboolean rows, double hx, double hy,
   cairo_restore (cr);
 }
 
+/* Excel's level buttons, 1 2 3, in the corner against the outline
+ * margin: across the top of the row margin, down the side of the
+ * column one.  Pressing N shows the rows (columns) shallower than N. */
+static void
+paint_level_buttons (O42Grid *self, cairo_t *cr, gboolean rows, double hx, double hy)
+{
+  int levels = rows ? o42_sheet_max_row_level (self->sheet) : o42_sheet_max_col_level (self->sheet);
+  PangoFontDescription *desc = pango_font_description_from_string ("Sans 7");
+
+  pango_layout_set_font_description (self->layout, desc);
+  pango_font_description_free (desc);
+  for (int level = 1; level <= levels + 1; level++)
+    {
+      double centre = 3 + (level - 1) * OUTLINE_STEP + OUTLINE_STEP / 2.0;
+      double bx = rows ? hx + centre - 5 : hx + self->outline_w + 4;
+      double by = rows ? hy + self->outline_h + 4 : hy + centre - 5;
+      char digit[4];
+      int tw, th;
+
+      cairo_set_source_rgb (cr, 1, 1, 1);
+      cairo_rectangle (cr, bx, by, 11, 11);
+      cairo_fill (cr);
+      cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
+      cairo_rectangle (cr, floor (bx) + 0.5, floor (by) + 0.5, 11, 11);
+      cairo_stroke (cr);
+      g_snprintf (digit, sizeof digit, "%d", level);
+      pango_layout_set_text (self->layout, digit, -1);
+      pango_layout_get_pixel_size (self->layout, &tw, &th);
+      cairo_move_to (cr, bx + (11 - tw) / 2.0, by + (11 - th) / 2.0);
+      pango_cairo_show_layout (cr, self->layout);
+    }
+}
+
+/* A click on a level button: TRUE if the point was on one, and the
+ * outline folded to that level. */
+static gboolean
+level_button_click (O42Grid *self, double x, double y)
+{
+  gboolean rows;
+  int levels, level;
+
+  if (self->sheet == NULL || x >= HEADER_W || y >= HEADER_H)
+    return FALSE;
+  if (self->outline_w > 0 && x < self->outline_w && y >= self->outline_h)
+    { rows = TRUE; level = (int) ((x - 3) / OUTLINE_STEP) + 1; }
+  else if (self->outline_h > 0 && y < self->outline_h && x >= self->outline_w)
+    { rows = FALSE; level = (int) ((y - 3) / OUTLINE_STEP) + 1; }
+  else
+    return FALSE;
+  levels = rows ? o42_sheet_max_row_level (self->sheet) : o42_sheet_max_col_level (self->sheet);
+  if (level < 1 || level > levels + 1)
+    return TRUE;
+  o42_sheet_outline_to_level (self->sheet, rows, level);
+  gtk_widget_queue_resize (GTK_WIDGET (self));
+  sheet_changed (self);
+  return TRUE;
+}
+
 /* A click in the outline margin: which run's box, if any, and toggle it. */
 static gboolean
 outline_click (O42Grid *self, double x, double y)
 {
+  if (level_button_click (self, x, y))
+    return TRUE;
+
   gboolean rows;
   int levels, level;
   double along, across;
@@ -6372,6 +6436,10 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
     cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
     cairo_rectangle (cr, hx, hy, HEADER_W, HEADER_H);
     cairo_fill (cr);
+    if (self->outline_w > 0)
+      paint_level_buttons (self, cr, TRUE, hx, hy);
+    if (self->outline_h > 0)
+      paint_level_buttons (self, cr, FALSE, hx, hy);
 
     cairo_set_source_rgb (cr, 0.50, 0.50, 0.50);
     cairo_move_to (cr, hx, hy + HEADER_H - 0.5);

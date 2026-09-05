@@ -6461,6 +6461,179 @@ o42_sheet_group (O42Sheet *sheet, gboolean rows, int lo, int hi, gboolean group)
   op_end (sheet);
 }
 
+void
+o42_sheet_clear_outline (O42Sheet *sheet)
+{
+  O42Range used;
+
+  g_return_if_fail (sheet != NULL);
+  o42_sheet_used_range (sheet, &used);
+  op_begin (sheet);
+  for (int r = 0; r <= used.row1 + 1 && r < O42_MAX_ROWS; r++)
+    while (o42_sheet_row_level (sheet, r) > 0)
+      o42_sheet_group (sheet, TRUE, r, r, FALSE);
+  for (int c = 0; c <= used.col1 + 1 && c < O42_MAX_COLS; c++)
+    while (o42_sheet_col_level (sheet, c) > 0)
+      o42_sheet_group (sheet, FALSE, c, c, FALSE);
+  op_end (sheet);
+}
+
+typedef struct {
+  GArray *row_runs;   /* O42Range: the rows a formula below sums up */
+  GArray *col_runs;   /* O42Range: the columns one to the right does */
+} OutlineScan;
+
+static gboolean
+runs_have (GArray *runs, const O42Range *r)
+{
+  for (guint i = 0; i < runs->len; i++)
+    {
+      const O42Range *o = &g_array_index (runs, O42Range, i);
+      if (o->row0 == r->row0 && o->row1 == r->row1 && o->col0 == r->col0 && o->col1 == r->col1)
+        return TRUE;
+    }
+  return FALSE;
+}
+
+/* A formula's precedents on its own sheet: a run of rows ending just
+ * above it in its own column, or of columns ending just left of it in
+ * its own row, is what a summary row sums up. */
+static void
+outline_scan_cell (O42Sheet *sheet, int row, int col, gpointer user)
+{
+  OutlineScan *scan = user;
+  O42Cell *cell = sheet_find (sheet, row, col);
+
+  if (cell == NULL || cell->ast == NULL || cell->precedents == NULL)
+    return;
+  for (guint i = 0; i < cell->precedents->len; i++)
+    {
+      const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
+      O42Range r;
+
+      if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+        continue;
+      r = o42_range_normalise (p->range.row0, p->range.col0, p->range.row1, p->range.col1);
+      if (r.row1 > r.row0 && r.col0 <= col && col <= r.col1 && r.row1 == row - 1 &&
+          r.row1 - r.row0 < 100000)
+        {
+          O42Range run = { r.row0, 0, r.row1, 0 };
+          if (!runs_have (scan->row_runs, &run))
+            g_array_append_val (scan->row_runs, run);
+        }
+      if (r.col1 > r.col0 && r.row0 <= row && row <= r.row1 && r.col1 == col - 1 &&
+          r.col1 - r.col0 < 10000)
+        {
+          O42Range run = { 0, r.col0, 0, r.col1 };
+          if (!runs_have (scan->col_runs, &run))
+            g_array_append_val (scan->col_runs, run);
+        }
+    }
+}
+
+int
+o42_sheet_auto_outline (O42Sheet *sheet)
+{
+  OutlineScan scan;
+  int made = 0;
+
+  g_return_val_if_fail (sheet != NULL, 0);
+  scan.row_runs = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  scan.col_runs = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  o42_sheet_foreach_cell (sheet, outline_scan_cell, &scan);
+
+  op_begin (sheet);
+  o42_sheet_clear_outline (sheet);
+  for (guint i = 0; i < scan.row_runs->len; i++)
+    {
+      const O42Range *r = &g_array_index (scan.row_runs, O42Range, i);
+      if (o42_sheet_row_level (sheet, r->row0) < 7)
+        {
+          o42_sheet_group (sheet, TRUE, r->row0, r->row1, TRUE);
+          made++;
+        }
+    }
+  for (guint i = 0; i < scan.col_runs->len; i++)
+    {
+      const O42Range *r = &g_array_index (scan.col_runs, O42Range, i);
+      if (o42_sheet_col_level (sheet, r->col0) < 7)
+        {
+          o42_sheet_group (sheet, FALSE, r->col0, r->col1, TRUE);
+          made++;
+        }
+    }
+  op_end (sheet);
+  g_array_unref (scan.row_runs);
+  g_array_unref (scan.col_runs);
+  return made;
+}
+
+static int
+line_level (O42Sheet *sheet, gboolean rows, int i)
+{
+  return rows ? o42_sheet_row_level (sheet, i) : o42_sheet_col_level (sheet, i);
+}
+
+static void
+line_hide (O42Sheet *sheet, gboolean rows, int i, gboolean hide)
+{
+  if (rows)
+    o42_sheet_set_row_hidden (sheet, i, hide);
+  else
+    o42_sheet_set_col_hidden (sheet, i, hide);
+}
+
+gboolean
+o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gboolean show)
+{
+  int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
+  int level, start, end;
+
+  g_return_val_if_fail (sheet != NULL, FALSE);
+  if (at < 0 || at >= limit)
+    return FALSE;
+  level = line_level (sheet, rows, at);
+  /* A summary row sits just below a deeper run: that run is its
+   * detail.  A row in no group and below none has nothing to fold. */
+  if (at > 0 && line_level (sheet, rows, at - 1) > level)
+    {
+      at--;
+      level = line_level (sheet, rows, at);
+    }
+  if (level == 0)
+    return FALSE;
+  start = end = at;
+  while (start > 0 && line_level (sheet, rows, start - 1) >= level)
+    start--;
+  while (end + 1 < limit && line_level (sheet, rows, end + 1) >= level)
+    end++;
+  op_begin (sheet);
+  for (int i = start; i <= end; i++)
+    line_hide (sheet, rows, i, !show);
+  op_end (sheet);
+  return TRUE;
+}
+
+void
+o42_sheet_outline_to_level (O42Sheet *sheet, gboolean rows, int level)
+{
+  O42Range used;
+  int last;
+
+  g_return_if_fail (sheet != NULL);
+  o42_sheet_used_range (sheet, &used);
+  last = rows ? used.row1 : used.col1;
+  op_begin (sheet);
+  for (int i = 0; i <= last + 1 && i < (rows ? O42_MAX_ROWS : O42_MAX_COLS); i++)
+    {
+      int l = line_level (sheet, rows, i);
+
+      if (l > 0)
+        line_hide (sheet, rows, i, l >= level);
+    }
+  op_end (sheet);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Pivot tables                                                            */
 /* ---------------------------------------------------------------------- */

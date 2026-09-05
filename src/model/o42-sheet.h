@@ -351,6 +351,23 @@ int  o42_sheet_max_col_level (O42Sheet *sheet);
  * ungroup lowers it. */
 void o42_sheet_group (O42Sheet *sheet, gboolean rows, int lo, int hi, gboolean group);
 
+/* Data > Group and Outline > Auto Outline: the rows a formula sums up
+ * from directly above it (SUM(B2:B9) in B10) become a group, and the
+ * columns one sums up from directly to its left likewise; nested sums
+ * nest.  Any outline there was goes first.  Returns how many groups
+ * were made.  Clear Outline takes every level away. */
+int  o42_sheet_auto_outline  (O42Sheet *sheet);
+void o42_sheet_clear_outline (O42Sheet *sheet);
+
+/* Show Detail and Hide Detail for the row (column) `at`: the group it
+ * is in, or the one ending just above (left of) it when it is a
+ * summary row, is unfolded or folded. */
+gboolean o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gboolean show);
+
+/* The outline's level buttons: everything deeper than `level` folded,
+ * everything at or above it shown. */
+void o42_sheet_outline_to_level (O42Sheet *sheet, gboolean rows, int level);
+
 /* ---- Pivot tables -------------------------------------------------------- */
 
 /* A pivot table: a source table with a header row, a field whose values

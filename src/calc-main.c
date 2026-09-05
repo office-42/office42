@@ -170,7 +170,8 @@ main (int argc, char *argv[])
               "Formats   format font fontinfo border pattern rich runs indent rotate fmtinfo\n"
               "          style defstyle styleat autoformat cond conds uncond\n"
               "Sheets    sheet rename delsheet freeze split hiderows levels group protect\n"
-              "          lock hide editable chartsheet\n"
+              "          lock hide editable chartsheet autooutline clearoutline detail\n"
+              "          outlinelevel\n"
               "Data      sort find replace filter advfilter subtotal dedupe consolidate\n"
               "          table pivot refresh validate validations goalseek solve scenario summary\n"
               "          analyse whatif\n"
@@ -2364,6 +2365,40 @@ main (int argc, char *argv[])
             }
           else
             fprintf (stderr, "usage: group rows 2 5 | group cols B D\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* autooutline groups what the sums add up; clearoutline takes
+       * every level away; detail show|hide rows|cols N folds or unfolds
+       * the group at row (column) N; outlinelevel rows|cols N is the
+       * level button. */
+      if (strcmp (text, "autooutline") == 0)
+        {
+          printf ("%d groups\n", o42_sheet_auto_outline (sheet));
+          continue;
+        }
+      if (strcmp (text, "clearoutline") == 0)
+        {
+          o42_sheet_clear_outline (sheet);
+          continue;
+        }
+      if (g_str_has_prefix (text, "detail ") || g_str_has_prefix (text, "outlinelevel "))
+        {
+          char **words = g_strsplit (text, " ", -1);
+          int n = g_strv_length (words);
+          gboolean ok = FALSE;
+
+          if (words[0][0] == 'd' && n == 4)
+            ok = o42_sheet_outline_detail (sheet, strcmp (words[2], "rows") == 0,
+                                           atoi (words[3]) - 1, strcmp (words[1], "show") == 0);
+          else if (words[0][0] == 'o' && n == 3)
+            {
+              o42_sheet_outline_to_level (sheet, strcmp (words[1], "rows") == 0, atoi (words[2]));
+              ok = TRUE;
+            }
+          if (!ok)
+            fprintf (stderr, "usage: detail show|hide rows|cols N; outlinelevel rows|cols N\n");
           g_strfreev (words);
           continue;
         }
