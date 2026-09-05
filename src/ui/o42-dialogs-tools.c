@@ -1907,6 +1907,7 @@ typedef struct {
   O42Window *window;
   GtkWidget *dialog;
   GtkWidget *target, *goal, *value, *changing, *bounds, *status;
+  GtkWidget *nonneg, *report;
 } SolverPrompt;
 
 static const char *SOLVER_GOALS[] = { N_("Max"), N_("Min"), N_("Value of"), NULL };
@@ -1915,9 +1916,8 @@ static void
 on_solver_solve (GtkWidget *w, gpointer data)
 {
   SolverPrompt *prompt = data;
-  O42Ref changing[16];
-  O42SolverBound bounds[16];
-  int n_changing = 0, n_bounds = 0;
+  GArray *changing = g_array_new (FALSE, FALSE, sizeof (O42Ref));
+  GArray *bounds = g_array_new (FALSE, FALSE, sizeof (O42SolverBound));
   int trow, tcol;
   guint goal = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->goal));
   double reached = 0;
@@ -1929,15 +1929,18 @@ on_solver_solve (GtkWidget *w, gpointer data)
   if (!o42_ref_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->target)), &trow, &tcol, NULL))
     {
       gtk_label_set_text (GTK_LABEL (prompt->status), _("That is not a cell to aim at."));
+      g_array_unref (changing);
+      g_array_unref (bounds);
       return;
     }
 
   cells = g_strsplit_set (gtk_editable_get_text (GTK_EDITABLE (prompt->changing)), ",; ", -1);
-  for (int i = 0; cells[i] != NULL && n_changing < 16; i++)
+  for (int i = 0; cells[i] != NULL; i++)
     {
       char *cell = g_strstrip (cells[i]);
       gsize len = 0;
       int row, col, row1, col1;
+      O42Ref ref;
 
       if (*cell == '\0')
         continue;
@@ -1946,17 +1949,19 @@ on_solver_solve (GtkWidget *w, gpointer data)
         {
           /* A range of changing cells, cell by cell. */
           O42Range r = o42_range_normalise (row, col, row1, col1);
-          for (int rr = r.row0; rr <= r.row1 && n_changing < 16; rr++)
-            for (int cc = r.col0; cc <= r.col1 && n_changing < 16; cc++)
-              { changing[n_changing].row = rr; changing[n_changing].col = cc; n_changing++; }
+          for (int rr = r.row0; rr <= r.row1; rr++)
+            for (int cc = r.col0; cc <= r.col1; cc++)
+              { ref.row = rr; ref.col = cc; g_array_append_val (changing, ref); }
         }
       else if (o42_ref_parse (cell, &row, &col, NULL))
-        { changing[n_changing].row = row; changing[n_changing].col = col; n_changing++; }
+        { ref.row = row; ref.col = col; g_array_append_val (changing, ref); }
     }
   g_strfreev (cells);
-  if (n_changing == 0)
+  if (changing->len == 0)
     {
       gtk_label_set_text (GTK_LABEL (prompt->status), _("Name at least one cell to change."));
+      g_array_unref (changing);
+      g_array_unref (bounds);
       return;
     }
 
@@ -1964,11 +1969,12 @@ on_solver_solve (GtkWidget *w, gpointer data)
   lines = gtk_text_buffer_get_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->bounds)), &a, &b, FALSE);
   {
     char **each = g_strsplit (lines, "\n", -1);
-    for (int i = 0; each[i] != NULL && n_bounds < 16; i++)
+    for (int i = 0; each[i] != NULL; i++)
       {
         char *line = g_strstrip (each[i]);
         const char *op = strstr (line, "<=");
         O42SolverOp which = O42_SOLVER_LE;
+        O42SolverBound bound;
         char *cell;
 
         if (*line == '\0')
@@ -1978,11 +1984,20 @@ on_solver_solve (GtkWidget *w, gpointer data)
         if (op == NULL)
           continue;
         cell = g_strstrip (g_strndup (line, (gsize) (op - line)));
-        if (o42_ref_parse (cell, &bounds[n_bounds].row, &bounds[n_bounds].col, NULL))
+        if (o42_ref_parse (cell, &bound.row, &bound.col, NULL))
           {
-            bounds[n_bounds].op = which;
-            bounds[n_bounds].value = g_strtod (op + (which == O42_SOLVER_EQ ? 1 : 2), NULL);
-            n_bounds++;
+            char *rhs = g_strstrip (g_strdup (op + (which == O42_SOLVER_EQ ? 1 : 2)));
+
+            bound.op = which;
+            bound.value = 0;
+            if (which == O42_SOLVER_EQ && (g_ascii_strcasecmp (rhs, "int") == 0 || g_ascii_strcasecmp (rhs, "integer") == 0))
+              bound.op = O42_SOLVER_INT;
+            else if (which == O42_SOLVER_EQ && (g_ascii_strcasecmp (rhs, "bin") == 0 || g_ascii_strcasecmp (rhs, "binary") == 0))
+              bound.op = O42_SOLVER_BIN;
+            else
+              bound.value = g_strtod (rhs, NULL);
+            g_array_append_val (bounds, bound);
+            g_free (rhs);
           }
         g_free (cell);
       }
@@ -1990,15 +2005,62 @@ on_solver_solve (GtkWidget *w, gpointer data)
   }
   g_free (lines);
 
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->nonneg)))
+    for (guint i = 0; i < changing->len; i++)
+      {
+        const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+        O42SolverBound bound = { ref->row, ref->col, O42_SOLVER_GE, 0 };
+        g_array_append_val (bounds, bound);
+      }
+
   {
-    gboolean ok = o42_sheet_solve (prompt->window->sheet, trow, tcol,
-                                   goal == 1 ? O42_SOLVER_MIN : goal == 2 ? O42_SOLVER_VALUE : O42_SOLVER_MAX,
-                                   g_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->value)), NULL),
-                                   changing, n_changing, bounds, n_bounds, &reached);
-    char *message = g_strdup_printf (ok ? "The target reached %g." : "The search gave up at %g.", reached);
+    O42Sheet *sheet = prompt->window->sheet;
+    O42SolverGoal which = goal == 1 ? O42_SOLVER_MIN : goal == 2 ? O42_SOLVER_VALUE : O42_SOLVER_MAX;
+    double goal_value = g_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->value)), NULL);
+    double *original = g_new0 (double, changing->len);
+    double original_target = 0;
+    gboolean ok;
+    char *message;
+
+    for (guint i = 0; i < changing->len; i++)
+      {
+        const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+        O42Value v;
+        O42ErrorCode e;
+
+        o42_sheet_get_value (sheet, ref->row, ref->col, &v);
+        if (v.type == O42_VALUE_NUMBER)
+          o42_value_to_number (&v, &original[i], &e);
+        o42_value_clear (&v);
+      }
+    {
+      O42Value v;
+      O42ErrorCode e;
+
+      o42_sheet_get_value (sheet, trow, tcol, &v);
+      if (v.type == O42_VALUE_NUMBER)
+        o42_value_to_number (&v, &original_target, &e);
+      o42_value_clear (&v);
+    }
+    ok = o42_sheet_solve (sheet, trow, tcol, which, goal_value,
+                          (const O42Ref *) changing->data, (int) changing->len,
+                          (const O42SolverBound *) bounds->data, (int) bounds->len, &reached);
+    message = g_strdup_printf (ok ? "The target reached %g." : "The search gave up at %g.", reached);
     gtk_label_set_text (GTK_LABEL (prompt->status), message);
     g_free (message);
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->report)))
+      {
+        O42Sheet *made = o42_sheet_solver_report (sheet, trow, tcol, which, goal_value,
+                                                  (const O42Ref *) changing->data, (int) changing->len,
+                                                  (const O42SolverBound *) bounds->data, (int) bounds->len,
+                                                  original, original_target);
+        if (made != NULL)
+          window_show_sheet (prompt->window, o42_book_sheet_index (prompt->window->book, made));
+      }
+    g_free (original);
   }
+  g_array_unref (changing);
+  g_array_unref (bounds);
   o42_grid_refresh (prompt->window->grid);
   window_sync (prompt->window);
 }
@@ -2032,7 +2094,7 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_editable_set_text (GTK_EDITABLE (prompt->target), name);
   g_free (name);
 
-  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Keeping these in bounds, one to a line:")));
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Subject to the constraints, one to a line:")));
   prompt->bounds = gtk_text_view_new ();
   gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->bounds), TRUE);
   gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->bounds), 4);
@@ -2042,15 +2104,20 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_add_css_class (scrolled, "frame");
   gtk_box_append (GTK_BOX (content), scrolled);
   {
-    GtkWidget *hint = gtk_label_new ("D1<=10, A1>=0, B2=5. The search is a downhill simplex with the "
-                                     "broken bounds counted against it: it finds a good answer, not "
-                                     "always the best one.");
+    GtkWidget *hint = gtk_label_new ("D1<=10, A1>=0, B2=5, C1=int, C2=bin. The search is a downhill "
+                                     "simplex with the broken constraints counted against it, branching "
+                                     "on the whole-number cells: it finds a good answer, not always the "
+                                     "best one.");
     gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (hint), 46);
     gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
     gtk_widget_add_css_class (hint, "dim-label");
     gtk_box_append (GTK_BOX (content), hint);
   }
+  prompt->nonneg = gtk_check_button_new_with_mnemonic ( _("Assume _non-negative"));
+  gtk_box_append (GTK_BOX (content), prompt->nonneg);
+  prompt->report = gtk_check_button_new_with_mnemonic ( _("Write an Answer _Report"));
+  gtk_box_append (GTK_BOX (content), prompt->report);
   prompt->status = gtk_label_new ("");
   gtk_label_set_xalign (GTK_LABEL (prompt->status), 0.0);
   gtk_box_append (GTK_BOX (content), prompt->status);

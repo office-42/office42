@@ -506,7 +506,10 @@ gboolean o42_sheet_formula_hidden (O42Sheet *sheet, int row, int col);
  * the small problems a spreadsheet poses.  The whole search is one
  * undo step. */
 typedef enum { O42_SOLVER_MAX = 0, O42_SOLVER_MIN, O42_SOLVER_VALUE } O42SolverGoal;
-typedef enum { O42_SOLVER_LE = 0, O42_SOLVER_GE, O42_SOLVER_EQ } O42SolverOp;
+/* INT and BIN name a changing cell that must come out a whole number,
+ * or 0 or 1; the search branches on such a cell -- no more than its
+ * floor, no less than its ceiling -- until every one is whole. */
+typedef enum { O42_SOLVER_LE = 0, O42_SOLVER_GE, O42_SOLVER_EQ, O42_SOLVER_INT, O42_SOLVER_BIN } O42SolverOp;
 
 typedef struct {
   int          row, col;   /* the cell that must stay in bounds */
@@ -519,6 +522,16 @@ gboolean o42_sheet_solve (O42Sheet *sheet, int target_row, int target_col,
                           const O42Ref *changing, int n_changing,
                           const O42SolverBound *bounds, int n_bounds,
                           double *reached);
+
+/* Excel's Answer Report on a sheet of its own: the target, the
+ * adjustable cells and the constraints, each with what it was and what
+ * it came to.  `original` holds the changing cells' values before the
+ * search, and `original_target` the target's. */
+O42Sheet *o42_sheet_solver_report (O42Sheet *sheet, int target_row, int target_col,
+                                   O42SolverGoal goal, double goal_value,
+                                   const O42Ref *changing, int n_changing,
+                                   const O42SolverBound *bounds, int n_bounds,
+                                   const double *original, double original_target);
 
 /* ---- Advanced filter ----------------------------------------------------- */
 

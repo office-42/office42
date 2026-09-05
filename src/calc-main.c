@@ -585,6 +585,9 @@ main (int argc, char *argv[])
         }
 
       /* solve TARGET max|min|VALUE A1,B1 [A2<=10] [B2>=0] ... */
+      /* solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [B2=bin]
+       * [nonneg] [report]: nonneg keeps every changing cell at or
+       * above zero, report writes the Answer Report sheet. */
       if (g_str_has_prefix (text, "solve "))
         {
           char **words = g_strsplit (text + 6, " ", -1);
@@ -592,10 +595,9 @@ main (int argc, char *argv[])
           int trow, tcol;
           O42SolverGoal goal = O42_SOLVER_MAX;
           double goal_value = 0;
-          O42Ref changing[16];
-          int n_changing = 0;
-          O42SolverBound bounds[16];
-          int n_bounds = 0;
+          GArray *changing = g_array_new (FALSE, FALSE, sizeof (O42Ref));
+          GArray *bounds = g_array_new (FALSE, FALSE, sizeof (O42SolverBound));
+          gboolean nonneg = FALSE, report = FALSE;
 
           if (n >= 3 && o42_ref_parse (words[0], &trow, &tcol, NULL))
             {
@@ -606,42 +608,107 @@ main (int argc, char *argv[])
               else { goal = O42_SOLVER_VALUE; goal_value = g_ascii_strtod (words[1], NULL); }
 
               cells = g_strsplit (words[2], ",", -1);
-              for (int i = 0; cells[i] != NULL && n_changing < 16; i++)
-                if (o42_ref_parse (cells[i], &changing[n_changing].row, &changing[n_changing].col, NULL))
-                  n_changing++;
+              for (int i = 0; cells[i] != NULL; i++)
+                {
+                  O42Ref ref;
+                  O42Range r;
+                  gsize len = 0;
+
+                  if (o42_ref_parse (cells[i], &r.row0, &r.col0, &len) && cells[i][len] == ':' &&
+                      o42_ref_parse (cells[i] + len + 1, &r.row1, &r.col1, NULL))
+                    {
+                      r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+                      for (int rr = r.row0; rr <= r.row1; rr++)
+                        for (int cc = r.col0; cc <= r.col1; cc++)
+                          { ref.row = rr; ref.col = cc; g_array_append_val (changing, ref); }
+                    }
+                  else if (o42_ref_parse (cells[i], &ref.row, &ref.col, NULL))
+                    g_array_append_val (changing, ref);
+                }
               g_strfreev (cells);
 
-              for (int i = 3; i < n && n_bounds < 16; i++)
+              for (int i = 3; i < n; i++)
                 {
                   const char *op = strstr (words[i], "<=");
                   O42SolverOp which = O42_SOLVER_LE;
+                  O42SolverBound bound;
                   char *cell;
 
+                  if (strcmp (words[i], "nonneg") == 0) { nonneg = TRUE; continue; }
+                  if (strcmp (words[i], "report") == 0) { report = TRUE; continue; }
                   if (op == NULL) { op = strstr (words[i], ">="); which = O42_SOLVER_GE; }
                   if (op == NULL) { op = strchr (words[i], '='); which = O42_SOLVER_EQ; }
                   if (op == NULL) continue;
                   cell = g_strndup (words[i], (gsize) (op - words[i]));
-                  if (o42_ref_parse (cell, &bounds[n_bounds].row, &bounds[n_bounds].col, NULL))
+                  if (o42_ref_parse (cell, &bound.row, &bound.col, NULL))
                     {
-                      bounds[n_bounds].op = which;
-                      bounds[n_bounds].value = g_ascii_strtod (op + (which == O42_SOLVER_EQ ? 1 : 2), NULL);
-                      n_bounds++;
+                      const char *rhs = op + (which == O42_SOLVER_EQ ? 1 : 2);
+
+                      bound.op = which;
+                      bound.value = 0;
+                      if (which == O42_SOLVER_EQ && strcmp (rhs, "int") == 0)
+                        bound.op = O42_SOLVER_INT;
+                      else if (which == O42_SOLVER_EQ && strcmp (rhs, "bin") == 0)
+                        bound.op = O42_SOLVER_BIN;
+                      else
+                        bound.value = g_ascii_strtod (rhs, NULL);
+                      g_array_append_val (bounds, bound);
                     }
                   g_free (cell);
                 }
+              if (nonneg)
+                for (guint i = 0; i < changing->len; i++)
+                  {
+                    const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+                    O42SolverBound bound = { ref->row, ref->col, O42_SOLVER_GE, 0 };
+                    g_array_append_val (bounds, bound);
+                  }
 
-              if (n_changing > 0)
+              if (changing->len > 0)
                 {
                   double reached = 0;
-                  gboolean ok = o42_sheet_solve (sheet, trow, tcol, goal, goal_value,
-                                                 changing, n_changing, bounds, n_bounds, &reached);
+                  double *original = g_new0 (double, changing->len);
+                  double original_target = 0;
+                  gboolean ok;
+
+                  for (guint i = 0; i < changing->len; i++)
+                    {
+                      const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+                      O42Value v;
+                      O42ErrorCode e;
+                      o42_sheet_get_value (sheet, ref->row, ref->col, &v);
+                      if (v.type == O42_VALUE_NUMBER) o42_value_to_number (&v, &original[i], &e);
+                      o42_value_clear (&v);
+                    }
+                  {
+                    O42Value v;
+                    O42ErrorCode e;
+                    o42_sheet_get_value (sheet, trow, tcol, &v);
+                    if (v.type == O42_VALUE_NUMBER) o42_value_to_number (&v, &original_target, &e);
+                    o42_value_clear (&v);
+                  }
+                  ok = o42_sheet_solve (sheet, trow, tcol, goal, goal_value,
+                                        (const O42Ref *) changing->data, (int) changing->len,
+                                        (const O42SolverBound *) bounds->data, (int) bounds->len, &reached);
                   printf ("%s %g\n", ok ? "reached" : "gave up at", reached);
+                  if (report)
+                    {
+                      O42Sheet *made = o42_sheet_solver_report (sheet, trow, tcol, goal, goal_value,
+                                                                (const O42Ref *) changing->data, (int) changing->len,
+                                                                (const O42SolverBound *) bounds->data, (int) bounds->len,
+                                                                original, original_target);
+                      if (made != NULL)
+                        sheet = made;
+                    }
+                  g_free (original);
                 }
               else
-                fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10]...\n");
+                fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [nonneg] [report]\n");
             }
           else
-            fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10]...\n");
+            fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [nonneg] [report]\n");
+          g_array_unref (changing);
+          g_array_unref (bounds);
           g_strfreev (words);
           continue;
         }
