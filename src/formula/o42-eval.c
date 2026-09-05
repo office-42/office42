@@ -1337,6 +1337,184 @@ vector_length (const O42Range *r, gboolean vertical)
   return vertical ? r->row1 - r->row0 + 1 : r->col1 - r->col0 + 1;
 }
 
+/* ---- An index over a lookup vector ---- */
+
+/* The first place each value stands in a lookup vector, for an exact
+ * match: built once by walking the vector, kept while nothing on any
+ * sheet changes, and thrown away for the next when there are too many.
+ * VLOOKUP down a long column, once for every row of another, is the
+ * case that wants it: without it every call walks the whole column. */
+typedef struct {
+  const char *sheet;      /* the sheet's key, from the context */
+  O42Range    range;
+  gboolean    vertical;
+  gboolean    building;   /* being walked: a touch meanwhile spoils it */
+  gboolean    spoilt;
+  GHashTable *first;      /* key -> index + 1 */
+} LookupIndex;
+
+static GPtrArray *lookup_indexes;
+#define LOOKUP_INDEX_MIN   32   /* shorter vectors are walked */
+#define LOOKUP_INDEXES_MAX 16
+
+static void
+lookup_index_free (gpointer data)
+{
+  LookupIndex *ix = data;
+  g_hash_table_unref (ix->first);
+  g_free (ix);
+}
+
+void
+o42_eval_cell_touched (const char *sheet_key, int row, int col)
+{
+  if (lookup_indexes == NULL)
+    return;
+  for (guint i = 0; i < lookup_indexes->len; )
+    {
+      LookupIndex *ix = g_ptr_array_index (lookup_indexes, i);
+
+      if (ix->sheet == sheet_key && o42_range_contains (&ix->range, row, col))
+        {
+          if (ix->building)
+            { ix->spoilt = TRUE; i++; }
+          else
+            g_ptr_array_remove_index (lookup_indexes, i);
+        }
+      else
+        i++;
+    }
+}
+
+void
+o42_eval_sheet_changed (const char *sheet_key)
+{
+  if (lookup_indexes == NULL)
+    return;
+  for (guint i = 0; i < lookup_indexes->len; )
+    {
+      LookupIndex *ix = g_ptr_array_index (lookup_indexes, i);
+
+      if (sheet_key == NULL || ix->sheet == sheet_key)
+        {
+          if (ix->building)
+            { ix->spoilt = TRUE; i++; }
+          else
+            g_ptr_array_remove_index (lookup_indexes, i);
+        }
+      else
+        i++;
+    }
+}
+
+/* What a value is filed under: its kind and itself, text folded, so
+ * that 1 and "1" stay apart and "Apple" finds "apple", as Excel has it. */
+static char *
+lookup_key (const O42Value *v)
+{
+  switch (v->type)
+    {
+    case O42_VALUE_NUMBER:
+      {
+        char buf[G_ASCII_DTOSTR_BUF_SIZE];
+        return g_strconcat ("n", g_ascii_formatd (buf, sizeof buf, "%.15g", v->as.number), NULL);
+      }
+    case O42_VALUE_TEXT:
+      {
+        char *folded = g_utf8_casefold (v->as.text, -1);
+        char *key = g_strconcat ("t", folded, NULL);
+        g_free (folded);
+        return key;
+      }
+    case O42_VALUE_BOOL:
+      return g_strdup (v->as.boolean ? "b1" : "b0");
+    default:
+      return NULL;
+    }
+}
+
+/* The exact match of `needle` in the vector through the index, or -1
+ * for none; -2 when the index is not for this (a short vector, an array
+ * made up in the formula, a needle with wildcards, no serial to trust). */
+static int
+lookup_index_find (O42EvalContext *ctx, const O42Value *needle,
+                   const O42Operand *op, gboolean vertical)
+{
+  const O42Range *r = &op->range;
+  int len = vector_length (r, vertical);
+  LookupIndex *ix = NULL;
+  const char *sheet_key;
+  char *key;
+  gpointer found;
+
+  if (ctx->sheet_key == NULL || len < LOOKUP_INDEX_MIN ||
+      (op->sheet != NULL && op->sheet[0] == '\001'))
+    return -2;
+  if (needle->type == O42_VALUE_TEXT &&
+      (strchr (needle->as.text, '*') != NULL || strchr (needle->as.text, '?') != NULL))
+    return -2;
+  sheet_key = ctx->sheet_key (ctx, op->sheet);
+  if (sheet_key == NULL)
+    return -2;
+  key = lookup_key (needle);
+  if (key == NULL)
+    return -2;
+
+  if (lookup_indexes == NULL)
+    lookup_indexes = g_ptr_array_new_with_free_func (lookup_index_free);
+  for (guint i = 0; i < lookup_indexes->len; i++)
+    {
+      LookupIndex *cand = g_ptr_array_index (lookup_indexes, i);
+      if (cand->sheet == sheet_key && cand->vertical == vertical && !cand->building &&
+          cand->range.row0 == r->row0 && cand->range.row1 == r->row1 &&
+          cand->range.col0 == r->col0 && cand->range.col1 == r->col1)
+        {
+          ix = cand;
+          break;
+        }
+    }
+  if (ix == NULL)
+    {
+      ix = g_new0 (LookupIndex, 1);
+      ix->sheet = sheet_key;
+      ix->range = *r;
+      ix->vertical = vertical;
+      ix->building = TRUE;
+      ix->first = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+      if (lookup_indexes->len >= LOOKUP_INDEXES_MAX)
+        g_ptr_array_remove_index (lookup_indexes, 0);
+      g_ptr_array_add (lookup_indexes, ix);
+      for (int i = 0; i < len; i++)
+        {
+          O42Value v;
+          char *k;
+
+          vector_get (ctx, op, vertical, i, &v);
+          k = lookup_key (&v);
+          o42_value_clear (&v);
+          if (k == NULL)
+            continue;
+          if (g_hash_table_contains (ix->first, k))
+            g_free (k);
+          else
+            g_hash_table_insert (ix->first, k, GINT_TO_POINTER (i + 1));
+        }
+      ix->building = FALSE;
+      /* Walking the vector evaluated its formulas; had one of them been
+       * touched meanwhile, what was gathered is not to be trusted. */
+      if (ix->spoilt)
+        {
+          g_ptr_array_remove (lookup_indexes, ix);
+          g_free (key);
+          return -2;
+        }
+    }
+
+  found = g_hash_table_lookup (ix->first, key);
+  g_free (key);
+  return found != NULL ? GPOINTER_TO_INT (found) - 1 : -1;
+}
+
 /* MATCH's three modes, shared by LOOKUP and the approximate forms of
  * VLOOKUP and HLOOKUP.  Type 1 wants the vector ascending and finds the
  * last value not above the needle; -1 wants it descending and finds the
@@ -1352,20 +1530,41 @@ match_in_vector (O42EvalContext *ctx, const O42Value *needle,
 
   if (type == 0)
     {
-      Criterion crit;
+      GPatternSpec *pattern = NULL;
+      int indexed = lookup_index_find (ctx, needle, op, vertical);
 
-      criterion_init (&crit, needle);
+      if (indexed != -2)
+        return indexed;
+
+      /* An exact match is the value itself -- a needle of ">5" is the
+       * text ">5", not a comparison, unlike a COUNTIF criterion -- with
+       * * and ? standing for any characters in text. */
+      if (needle->type == O42_VALUE_TEXT &&
+          (strchr (needle->as.text, '*') != NULL || strchr (needle->as.text, '?') != NULL))
+        {
+          char *folded = g_utf8_casefold (needle->as.text, -1);
+          pattern = g_pattern_spec_new (folded);
+          g_free (folded);
+        }
       for (int i = 0; i < len; i++)
         {
           O42Value v;
           gboolean hit;
 
           vector_get (ctx, op, vertical, i, &v);
-          hit = criterion_match (&crit, &v);
+          if (pattern != NULL)
+            {
+              char *folded = v.type == O42_VALUE_TEXT ? g_utf8_casefold (v.as.text, -1) : NULL;
+              hit = folded != NULL && g_pattern_spec_match_string (pattern, folded);
+              g_free (folded);
+            }
+          else
+            hit = v.type == needle->type && o42_value_compare (&v, needle) == 0;
           o42_value_clear (&v);
           if (hit) { best = i; break; }
         }
-      criterion_clear (&crit);
+      if (pattern != NULL)
+        g_pattern_spec_free (pattern);
       return best;
     }
 
