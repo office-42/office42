@@ -1582,6 +1582,7 @@ read_xf (Reader *r, const guchar *p, gsize len)
         guint rot = p[7], ind = p[8] & 0x0F;
         f.rotation = rot <= 90 ? (gint16) rot : rot <= 180 ? (gint16) (90 - (int) rot) : 0;
         f.indent = (guint8) ind;
+        f.shrink = (p[8] & 0x10) != 0;
       }
       xls_apply_fill (r, &f, pattern, fill & 0x7F, (fill >> 7) & 0x7F);
     }
@@ -5759,7 +5760,7 @@ write_xf (Writer *w, const O42Fmt *f, gboolean style)
   put16 (w->out, style ? 0xFFF5 : (f->locked ? 0x0001 : 0) | (f->hidden ? 0x0002 : 0));
   put8 (w->out, style ? 0x20 : align);
   put8 (w->out, style ? 0 : (f->rotation >= 0 ? f->rotation : 90 - f->rotation));
-  put8 (w->out, style ? 0 : (f->indent & 0x0F));
+  put8 (w->out, style ? 0 : ((f->indent & 0x0F) | (f->shrink ? 0x10 : 0)));
   put8 (w->out, style ? 0x00 : 0xF8);
   {
     guint32 b1 = xls_border_code (f->border_style[O42_SIDE_LEFT]) | (xls_border_code (f->border_style[O42_SIDE_RIGHT]) << 4) |
