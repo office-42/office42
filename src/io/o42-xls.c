@@ -84,7 +84,8 @@ enum {
   R_EXTERNNAME = 0x0023, R_CONTINUE = 0x003C, R_CODEPAGE = 0x0042, R_PANE = 0x0041,
   R_FONT = 0x0031, R_WINDOW1 = 0x003D, R_DEFCOLWIDTH = 0x0055, R_COLINFO = 0x007D,
   R_BOUNDSHEET = 0x0085, R_PALETTE = 0x0092, R_AUTOFILTERINFO = 0x009D,
-  R_AUTOFILTER = 0x009E, R_FILTERMODE = 0x009B,
+  R_AUTOFILTER = 0x009E, R_FILTERMODE = 0x009B, R_FILEPASS = 0x002F,
+  R_DATEMODE = 0x0022, R_SHEETEXT = 0x0862, R_GUTS = 0x0080,
   R_MULRK = 0x00BD, R_MULBLANK = 0x00BE, R_RSTRING = 0x00D6, R_XF = 0x00E0,
   R_MERGECELLS = 0x00E5, R_SST = 0x00FC, R_LABELSST = 0x00FD, R_EXTSST = 0x00FF,
   R_DIMENSIONS = 0x0200, R_BLANK = 0x0201, R_NUMBER = 0x0203, R_LABEL = 0x0204,
@@ -424,6 +425,8 @@ typedef struct
   gboolean    in_series;
   int         chart_depth;
   gboolean    chart_sheet;      /* the substream being read is a chart sheet's */
+  gboolean    frozen;           /* WINDOW2 said the panes are frozen, not split */
+  gboolean    dates_1904;       /* DATEMODE: serial dates count from 1904 */
 } Reader;
 
 typedef struct {
@@ -1356,10 +1359,40 @@ rk_value (guint32 rk)
   return v;
 }
 
+/* A number in a 1904-dated book that its format shows as a date is
+ * 1462 days short of the same day counted from 1900. */
+static double
+dated_1904 (Reader *r, guint xf, double v)
+{
+  if (r->dates_1904 && xf < r->xfs->len)
+    {
+      const O42Fmt *f = &g_array_index (r->xfs, O42Fmt, xf);
+      gboolean date = f->number == O42_NUM_DATE || f->number == O42_NUM_DATETIME;
+      if (f->custom != NULL)
+        {
+          /* A custom code with a day, month or year in it, outside
+           * quotes and brackets. */
+          gboolean quoted = FALSE, bracket = FALSE;
+          for (const char *q = f->custom; *q != 0 && !date; q++)
+            {
+              if (*q == '"') quoted = !quoted;
+              else if (!quoted && *q == '[') bracket = TRUE;
+              else if (!quoted && *q == ']') bracket = FALSE;
+              else if (!quoted && !bracket && (*q == 'd' || *q == 'D' || *q == 'y' || *q == 'Y'))
+                date = TRUE;
+            }
+        }
+      if (date)
+        return v + 1462;
+    }
+  return v;
+}
+
 static void
 set_number (Reader *r, int row, int col, guint xf, double v)
 {
   char buf[G_ASCII_DTOSTR_BUF_SIZE];
+  v = dated_1904 (r, xf, v);
   g_ascii_formatd (buf, sizeof buf, "%.15g", v);
   if (g_ascii_strtod (buf, NULL) != v)
     g_ascii_formatd (buf, sizeof buf, "%.17g", v);
@@ -1620,6 +1653,15 @@ read_name (Reader *r, const guchar *p, gsize len)
       g_ptr_array_add (r->names, g_strdup (""));
       g_ptr_array_add (r->name_ranges, NULL);
     }
+  else if (g_str_has_prefix (name, "_builtin_") &&
+           strcmp (name, "_builtin_6") != 0 && strcmp (name, "_builtin_7") != 0)
+    {
+      /* Criteria, Extract, Consolidate_Area, Database and the rest of
+       * Excel's own: not names the user made, so not shown as such.
+       * The print area and titles (6 and 7) are taken up elsewhere. */
+      g_ptr_array_add (r->names, g_strdup (""));
+      g_ptr_array_add (r->name_ranges, NULL);
+    }
   else
     {
       g_ptr_array_add (r->names, g_strdup (name));
@@ -1756,10 +1798,18 @@ read_cf (Reader *r, const guchar *p, gsize len)
                                      O42_COND_GREATER, O42_COND_LESS, O42_COND_GREATER_EQUAL, O42_COND_LESS_EQUAL };
     c.op = ops[op - 1];
   }
-  p += 12;   /* the header, then two reserved bytes */
-
-  if (flags & (1u << 25))   /* number format block */
-    p += 2;
+  {
+    /* The number format block, when there is one, is a format index
+     * in two bytes, or a counted string when the flags' second word
+     * says the format is the user's. */
+    guint flags2 = rd16 (p + 10);
+    p += 12;   /* the header, and the second flags word */
+    if (flags & (1u << 25))
+      {
+        if (flags2 & 0x0001) { if (p >= end) return; p += MAX (p[0], 1); }
+        else p += 2;
+      }
+  }
   if (flags & (1u << 26))   /* font block, 118 bytes */
     {
       if (p + 118 > end) return;
@@ -2528,16 +2578,31 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
 
     case R_WINDOW2:
       if (len >= 2 && r->sheet)
-        r->pending = FALSE;
+        {
+          r->pending = FALSE;
+          r->frozen = (rd16 (p) & 0x0008) != 0;
+        }
       break;
     case R_PANE:
       if (len >= 9 && r->sheet)
         {
-          /* Only frozen panes are kept; WINDOW2's frozen flag is
-           * assumed when the split is at whole rows and columns. */
+          /* Frozen panes are kept.  A window merely split has its
+           * positions in twips and character widths, which are not
+           * rows and columns; the sheet has no such split, so it is
+           * left alone. */
           guint x = rd16 (p), y = rd16 (p + 2);
-          if (x < O42_MAX_COLS && y < O42_MAX_ROWS)
+          if (r->frozen && x < O42_MAX_COLS && y < O42_MAX_ROWS)
             o42_sheet_set_frozen (r->sheet, y, x);
+        }
+      break;
+    case R_SHEETEXT:
+      /* The tab's colour, in the record's second part: after the 12-byte
+       * FRT header and the size, the colour index in the low byte. */
+      if (len >= 20 && r->sheet)
+        {
+          guint icv = p[16] & 0x7F;
+          if (icv >= 8 && icv < 64)
+            o42_sheet_set_tab_colour (r->sheet, palette_colour (r, icv));
         }
       break;
     default:
@@ -2706,6 +2771,14 @@ read_workbook (Reader *r, GError **error)
               o42_sheet_autofilter_refresh (r->sheet);
             }
           r->sheet = NULL;
+          break;
+        case R_FILEPASS:
+          g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                       "This file is encrypted with a password, which office42 cannot open.");
+          return FALSE;
+        case R_DATEMODE:
+          if (in_globals && len >= 2)
+            r->dates_1904 = rd16 (body) == 1;
           break;
         case R_BOUNDSHEET:
           if (in_globals && len >= 8)
@@ -4174,6 +4247,22 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
   put32 (w->out, 0x00000041); put32 (w->out, 0x00000006);
   end_record (w);
 
+  {
+    /* GUTS: how much room the outline symbols take, from the deepest
+     * row and column level; Excel sizes the gutter by it. */
+    int row_levels = 0, col_levels = 0;
+    for (int col = 0; col < O42_XLS_MAX_COLS; col++)
+      col_levels = MAX (col_levels, o42_sheet_col_level (sheet, col));
+    for (int row = 0; row <= used.row1 && row < O42_XLS_MAX_ROWS; row++)
+      row_levels = MAX (row_levels, o42_sheet_row_level (sheet, row));
+    begin_record (w, R_GUTS);
+    put16 (w->out, row_levels > 0 ? 12 * row_levels + 17 : 0);
+    put16 (w->out, col_levels > 0 ? 12 * col_levels + 17 : 0);
+    put16 (w->out, row_levels > 0 ? row_levels + 1 : 0);
+    put16 (w->out, col_levels > 0 ? col_levels + 1 : 0);
+    end_record (w);
+  }
+
   begin_record (w, R_DEFCOLWIDTH);
   put16 (w->out, (guint) ((default_width - 5) / 7.0 + 0.5));
   end_record (w);
@@ -4440,6 +4529,18 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
   put16 (w->out, 0); put16 (w->out, 0);
   put32 (w->out, 0x40); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
   end_record (w);
+  if (o42_sheet_tab_colour (sheet) != O42_TAB_NO_COLOUR)
+    {
+      /* SHEETEXT: the tab's colour as a palette index, after the FRT
+       * header that names the record again. */
+      begin_record (w, R_SHEETEXT);
+      put16 (w->out, R_SHEETEXT); put16 (w->out, 0);
+      put32 (w->out, 0); put32 (w->out, 0);
+      put32 (w->out, 0x28);
+      put32 (w->out, palette_index (w, o42_sheet_tab_colour (sheet)) & 0x7F);
+      for (int k = 0; k < 20; k++) put8 (w->out, 0);
+      end_record (w);
+    }
   if (frozen_rows > 0 || frozen_cols > 0)
     {
       begin_record (w, R_PANE);
@@ -4945,6 +5046,12 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   begin_record (&w, R_STYLE);
   put16 (w.out, 0x8000); put8 (w.out, 0); put8 (w.out, 0xFF);
   end_record (&w);
+
+  /* The tabs' colours are palette entries too, and the palette goes
+   * out before the sheets do. */
+  for (int i = 0; i < n_sheets; i++)
+    if (o42_sheet_tab_colour (o42_book_sheet (book, i)) != O42_TAB_NO_COLOUR)
+      palette_index (&w, o42_sheet_tab_colour (o42_book_sheet (book, i)));
 
   if (w.palette->len > 0)
     {
