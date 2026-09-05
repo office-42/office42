@@ -16,6 +16,7 @@
  */
 
 #include "o42-grid.h"
+#include "o42-pyquote.h"
 #include "o42-entry.h"
 #include "o42-shape.h"
 #include "o42-pattern.h"
@@ -3432,6 +3433,27 @@ o42_grid_insert_chart (O42Grid *self, O42ChartKind kind, const char *title,
   chart->series_in_rows = series_in_rows;
   chart->first_row_labels = first_row_labels;
   chart->first_col_labels = first_col_labels;
+
+  /* The macro recorder gets the one line that makes the same chart. */
+  {
+    O42Book *book = o42_sheet_get_book (self->sheet);
+
+    if (book != NULL && o42_book_recording (book))
+      {
+        char *a = o42_ref_name (range.row0, range.col0), *b = o42_ref_name (range.row1, range.col1);
+        char *at = o42_ref_name (row, col);
+        char *quoted = o42_python_quote (title != NULL ? title : "");
+        char *line = g_strdup_printf ("sheet.add_chart(\"%s\", \"%s:%s\", \"%s\", title=%s, series_in_rows=%s, "
+                                      "first_row_labels=%s, first_col_labels=%s)",
+                                      o42_chart_kind_name (kind), a, b, at, quoted,
+                                      series_in_rows ? "True" : "False",
+                                      first_row_labels ? "True" : "False",
+                                      first_col_labels ? "True" : "False");
+        o42_book_record_sheet (book, o42_sheet_get_name (self->sheet));
+        o42_book_record_line (book, line);
+        g_free (line); g_free (quoted); g_free (at); g_free (a); g_free (b);
+      }
+  }
 
   self->selected_picture = chart->id;
   self->selected_is_chart = TRUE;
@@ -7280,6 +7302,23 @@ o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, cons
       g_free (shape->text);
       shape->text = g_strdup (text);
     }
+  {
+    O42Book *book = o42_sheet_get_book (self->sheet);
+
+    if (book != NULL && o42_book_recording (book))
+      {
+        const char *name = (kind == O42_SHAPE_RECT && geom != O42_GEOM_RECT)
+                           ? o42_shape_geom_name (geom) : o42_shape_kind_name (kind);
+        char *at = o42_ref_name (row, col);
+        char *quoted = text != NULL && *text != '\0' ? o42_python_quote (text) : NULL;
+        char *line = quoted != NULL
+                     ? g_strdup_printf ("sheet.add_shape(\"%s\", \"%s\", text=%s)", name, at, quoted)
+                     : g_strdup_printf ("sheet.add_shape(\"%s\", \"%s\")", name, at);
+        o42_book_record_sheet (book, o42_sheet_get_name (self->sheet));
+        o42_book_record_line (book, line);
+        g_free (line); g_free (quoted); g_free (at);
+      }
+  }
   self->selected_picture = shape->id;
   self->selected_is_chart = FALSE;
   self->selected_is_shape = TRUE;

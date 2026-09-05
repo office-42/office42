@@ -54,6 +54,7 @@
 #include "o42-ods.h"
 #include "o42-html.h"
 #include "o42-book.h"
+#include "o42-pyquote.h"
 #include "o42-eval.h"
 #include "o42-formula.h"
 #include "o42-python.h"
@@ -450,6 +451,22 @@ on_picture_response (GObject *source, GAsyncResult *result, gpointer data)
         {
           o42_grid_insert_picture (self->grid, bytes, format, width, height);
           g_bytes_unref (bytes);
+          if (o42_book_recording (self->book))
+            {
+              /* The recorder gets the picture by its path, which is all
+               * a macro can be given. */
+              int row, col;
+              char *path = g_file_get_path (file);
+              char *quoted = o42_python_quote (path != NULL ? path : "");
+              char *at, *line;
+
+              o42_grid_get_active (self->grid, &row, &col);
+              at = o42_ref_name (row, col);
+              line = g_strdup_printf ("sheet.add_picture(%s, \"%s\")", quoted, at);
+              o42_book_record_sheet (self->book, o42_sheet_get_name (self->sheet));
+              o42_book_record_line (self->book, line);
+              g_free (line); g_free (at); g_free (quoted); g_free (path);
+            }
         }
       else
         show_error (self, "office42 could not insert that picture.", error);

@@ -5438,6 +5438,17 @@ o42_sheet_set_note (O42Sheet *sheet, int row, int col, const char *text)
   op_begin (sheet);
   obj_capture (sheet, OBJ_NOTE, 0, key);
   op_end (sheet);
+  if (o42_book_recording (sheet->book))
+    {
+      O42Range one = { row, col, row, col };
+      char *where = record_range_text (sheet, &one);
+      char *quoted = text != NULL && *text != '\0' ? o42_python_quote (text) : g_strdup ("None");
+      char *line = g_strdup_printf ("%s.note = %s", where, quoted);
+
+      if (o42_book_record_sheet (sheet->book, sheet->name))
+        o42_book_record_line (sheet->book, line);
+      g_free (line); g_free (quoted); g_free (where);
+    }
 
   if (text == NULL || *text == '\0')
     g_hash_table_remove (sheet->notes, &key);
@@ -5477,6 +5488,17 @@ o42_sheet_set_link (O42Sheet *sheet, int row, int col, const char *target)
   op_begin (sheet);
   obj_capture (sheet, OBJ_LINK, 0, key);
   op_end (sheet);
+  if (o42_book_recording (sheet->book))
+    {
+      O42Range one = { row, col, row, col };
+      char *where = record_range_text (sheet, &one);
+      char *quoted = target != NULL && *target != '\0' ? o42_python_quote (target) : g_strdup ("None");
+      char *line = g_strdup_printf ("%s.hyperlink = %s", where, quoted);
+
+      if (o42_book_record_sheet (sheet->book, sheet->name))
+        o42_book_record_line (sheet->book, line);
+      g_free (line); g_free (quoted); g_free (where);
+    }
 
   if (target == NULL || *target == '\0')
     g_hash_table_remove (sheet->links, &key);
@@ -6255,6 +6277,22 @@ o42_sheet_add_validation (O42Sheet *sheet, const O42Validation *v)
   O42Validation copy;
 
   g_return_if_fail (sheet != NULL && v != NULL);
+  if (o42_book_recording (sheet->book))
+    {
+      static const char *const kinds[] = { "any", "whole", "decimal", "list", "date", "time", "length" };
+      static const char *const ops[] = { "between", "not_between", "==", "!=", ">", "<", ">=", "<=" };
+      char *where = record_range_text (sheet, &v->range);
+      char *value = o42_python_quote (v->value != NULL ? v->value : "");
+      char *value2 = o42_python_quote (v->value2 != NULL ? v->value2 : "");
+      char *message = o42_python_quote (v->message != NULL ? v->message : "");
+      char *line = g_strdup_printf ("%s.validate(\"%s\", \"%s\", %s, %s, %s, %s)", where,
+                                    kinds[CLAMP (v->kind, 0, 6)], ops[CLAMP (v->op, 0, 7)],
+                                    value, value2, message, v->allow_blank ? "True" : "False");
+
+      if (o42_book_record_sheet (sheet->book, sheet->name))
+        o42_book_record_line (sheet->book, line);
+      g_free (line); g_free (message); g_free (value2); g_free (value); g_free (where);
+    }
   copy = *v;
   copy.value = g_strdup (v->value ? v->value : "");
   copy.value2 = g_strdup (v->value2 ? v->value2 : "");

@@ -404,34 +404,44 @@ fire_activate (gpointer data)
   if (windows != NULL && self->activate != NULL)
     {
       /* "zoom(150)" carries an integer parameter and "shape(checkbox)" a
-       * string one; a bare name has none. */
-      char *name = g_strdup (self->activate);
-      char *paren = strchr (name, '(');
-      GVariant *param = NULL;
-
-      if (paren != NULL)
-        {
-          char *end = strchr (paren, ')');
-          char *inside;
-
-          *paren = '\0';
-          inside = g_strdup (paren + 1);
-          end = strchr (inside, ')');
-          if (end != NULL)
-            *end = '\0';
-          if (inside[0] != '\0' && strspn (inside, "-0123456789") == strlen (inside))
-            param = g_variant_new_int32 (atoi (inside));
-          else
-            param = g_variant_new_string (inside);
-          g_free (inside);
-        }
+       * string one; a bare name has none.  Several actions may be given
+       * with semicolons between them, in the order they are to fire:
+       * "record-macro;shape(star5);record-macro". */
+      char **actions = g_strsplit (self->activate, ";", -1);
 
       o42_window_set_dialogs_modal (FALSE);
-      g_action_group_activate_action (G_ACTION_GROUP (windows->data), name, param);
-      g_free (name);
-      /* The action may have closed the window: the list is asked for
-       * again rather than read after the fact. */
-      windows = gtk_application_get_windows (GTK_APPLICATION (self));
+      for (int i = 0; actions[i] != NULL && windows != NULL; i++)
+        {
+          char *name = g_strdup (g_strstrip (actions[i]));
+          char *paren = strchr (name, '(');
+          GVariant *param = NULL;
+
+          if (*name == '\0')
+            { g_free (name); continue; }
+          if (paren != NULL)
+            {
+              char *end = strchr (paren, ')');
+              char *inside;
+
+              *paren = '\0';
+              inside = g_strdup (paren + 1);
+              end = strchr (inside, ')');
+              if (end != NULL)
+                *end = '\0';
+              if (inside[0] != '\0' && strspn (inside, "-0123456789") == strlen (inside))
+                param = g_variant_new_int32 (atoi (inside));
+              else
+                param = g_variant_new_string (inside);
+              g_free (inside);
+            }
+
+          g_action_group_activate_action (G_ACTION_GROUP (windows->data), name, param);
+          g_free (name);
+          /* The action may have closed the window: the list is asked for
+           * again rather than read after the fact. */
+          windows = gtk_application_get_windows (GTK_APPLICATION (self));
+        }
+      g_strfreev (actions);
     }
 
   /* --type "=SUM(" opens the editor with that in it, and --point B2 or
