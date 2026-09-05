@@ -35,7 +35,7 @@ from contextlib import redirect_stdout, redirect_stderr
 
 import _office42 as _c
 
-__all__ = ["Book", "Sheet", "Range", "Chart", "Shape", "Picture", "Error", "book", "sheet", "function",
+__all__ = ["Book", "Sheet", "Range", "Chart", "Shape", "Picture", "Error", "book", "sheet", "function", "on", "off",
            "evaluate", "functions"]
 
 
@@ -1197,6 +1197,92 @@ def _bind():
     _namespace["function"] = function
 
 
+# ---- Events -----------------------------------------------------------
+#
+# What Excel's Worksheet_Change, Worksheet_SelectionChange,
+# Workbook_BeforeSave, Workbook_Open and Workbook_BeforeClose are:
+# functions a book's script registers with office42.on(), or names in
+# the script that are taken as registered when it runs -- on_change,
+# on_selection_change, on_before_save, on_open, on_close.  A handler is
+# called with (sheet, range) for the first two and (book) for the rest.
+# A change a handler makes does not call the handlers again.
+
+EVENTS = ("change", "selection", "before_save", "open", "close")
+_NAMED_HANDLERS = {"on_change": "change", "on_selection_change": "selection",
+                   "on_before_save": "before_save", "on_open": "open", "on_close": "close"}
+_handlers = {}     # book id -> {event: {name: fn}}
+_forgotten = set() # ids of functions off() was given: the convention does not bring them back
+
+
+def _count_handlers():
+    n = sum(len(fns) for events in _handlers.values() for fns in events.values())
+    _c.events_count(n)
+
+
+def on(event, fn=None, *, name=None):
+    """Registers fn for an event: office42.on("change", fn), or as a
+    decorator @office42.on("change").  A second registration under the
+    same name replaces the first, so a script may be run again."""
+    if event not in EVENTS:
+        raise ValueError("event is one of %s, not %r" % (", ".join(EVENTS), event))
+
+    def register(f):
+        key = name or getattr(f, "__name__", None) or repr(f)
+        _handlers.setdefault(_c.book_id(), {}).setdefault(event, {})[key] = f
+        _count_handlers()
+        return f
+    return register if fn is None else register(fn)
+
+
+def off(event, fn_or_name=None):
+    """Forgets a handler, or with None every handler of the event."""
+    events = _handlers.get(_c.book_id(), {})
+    if fn_or_name is None:
+        for f in events.pop(event, {}).values():
+            _forgotten.add(id(f))
+    else:
+        fns = events.get(event, {})
+        for key in [k for k, f in fns.items() if f is fn_or_name or k == fn_or_name]:
+            _forgotten.add(id(fns[key]))
+            del fns[key]
+    _count_handlers()
+
+
+def _register_named_handlers():
+    """The convention: a function named on_change and the like in what
+    just ran is a handler."""
+    for name, event in _NAMED_HANDLERS.items():
+        f = _namespace.get(name)
+        if callable(f) and id(f) not in _forgotten:
+            on(event, f, name=name)
+
+
+def _fire(event, sheet_index, r0, c0, r1, c1):
+    """Called from C when the event happens; errors are reported, not raised."""
+    _bind()
+    fns = list(_handlers.get(_c.book_id(), {}).get(event, {}).values())
+    if not fns:
+        return ""
+    out = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(out):
+        for f in fns:
+            try:
+                if event in ("change", "selection"):
+                    sh = Sheet(sheet_index)
+                    f(sh, Range(sh, r0, c0, r1, c1))
+                else:
+                    f(book)
+            except BaseException:
+                lines = traceback.format_exc().splitlines()
+                print("\n".join(l for l in lines if "office42.py" not in l))
+    return out.getvalue()
+
+
+def _forget_handlers(owner):
+    _handlers.pop(owner, None)
+    _count_handlers()
+
+
 def _run(code, filename="<console>"):
     """Runs code in the console's namespace; (ok, what it printed)."""
     _bind()
@@ -1215,6 +1301,7 @@ def _run(code, filename="<console>"):
                     print(repr(result))
             else:
                 exec(compile(code, filename, "exec"), _namespace)
+                _register_named_handlers()
         except SystemExit:
             pass
         except BaseException:
@@ -1227,6 +1314,7 @@ def _run(code, filename="<console>"):
 
 def _forget_book(owner):
     """The book is going, or its scripts are being forgotten."""
+    _forget_handlers(owner)
     for name in _book_functions.pop(owner, {}):
         if not _defined_elsewhere(name, owner):
             _c.undefine(name)

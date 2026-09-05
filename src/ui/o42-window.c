@@ -4805,6 +4805,8 @@ window_save_to (O42Window *self, GFile *file)
   GError *error = NULL;
   gboolean ok;
 
+  o42_window_fire_event (self, "before_save", NULL);
+
   if (file_is_csv (file))
     ok = o42_csv_save (self->sheet, file, &error);
   else if (file_is_dif (file))
@@ -5049,6 +5051,7 @@ o42_window_close_request (GtkWindow *window)
       const char *code = o42_book_script_code (self->book, "Auto_Close");
       if (code != NULL)
         o42_window_run_script (self, "Auto_Close", code);
+      o42_window_fire_event (self, "close", NULL);
     }
 
   if (!o42_book_is_modified (self->book))
@@ -6025,6 +6028,24 @@ on_grid_selection_changed (O42Grid *grid, gpointer data)
       o42_book_record_selection (self->book, o42_sheet_get_name (self->sheet), &sel, row, col);
     }
   on_grid_changed (grid, data);
+  if (self->sheet != NULL)
+    {
+      O42Range sel;
+      o42_grid_get_selection (grid, &sel);
+      o42_window_fire_event (self, "selection", &sel);
+    }
+}
+
+/* Cells the user edited, for a script's on_change. */
+static void
+on_grid_cells_edited (O42Grid *grid, int row0, int col0, int row1, int col1, gpointer data)
+{
+  O42Window *self = data;
+  O42Range range = { row0, col0, row1, col1 };
+
+  (void) grid;
+  if (self->sheet != NULL)
+    o42_window_fire_event (self, "change", &range);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -6455,6 +6476,7 @@ o42_window_init (O42Window *self)
   o42_grid_set_mirror (self->grid, self->formula_entry);
 
   g_signal_connect (self->grid, "selection-changed", G_CALLBACK (on_grid_selection_changed), self);
+  g_signal_connect (self->grid, "cells-edited",      G_CALLBACK (on_grid_cells_edited), self);
   g_signal_connect (self->grid, "sheet-changed",     G_CALLBACK (on_grid_changed), self);
   g_signal_connect (self->grid, "run-script",        G_CALLBACK (on_grid_run_script), self);
   g_signal_connect (self->grid, "map", G_CALLBACK (on_grid_mapped), self);

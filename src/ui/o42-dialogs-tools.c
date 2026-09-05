@@ -369,14 +369,11 @@ o42_scripts_bar_hide (O42Window *self)
 
 /* Runs code the book holds, telling the console if there is one and
  * a message otherwise; TRUE if it got through. */
-gboolean
-o42_window_run_script (O42Window *self, const char *name, const char *code)
+/* What a script (or an event handler) printed, shown in the console
+ * when there is one and in a message otherwise. */
+static void
+script_said (O42Window *self, const char *name, const char *output, gboolean ok)
 {
-  char *output = NULL;
-  gboolean ok = o42_python_run (self->book, self->sheet, code, name, &output);
-
-  o42_grid_refresh (self->grid);
-  window_sync (self);
   if (self->python_console != NULL)
     {
       PyConsole *console = self->python_console;
@@ -393,8 +390,39 @@ o42_window_run_script (O42Window *self, const char *name, const char *code)
       gtk_alert_dialog_show (alert, GTK_WINDOW (self));
       g_object_unref (alert);
     }
+}
+
+gboolean
+o42_window_run_script (O42Window *self, const char *name, const char *code)
+{
+  char *output = NULL;
+  gboolean ok = o42_python_run (self->book, self->sheet, code, name, &output);
+
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  script_said (self, name, output, ok);
   g_free (output);
   return ok;
+}
+
+/* An event a book's script may listen for: "change" of a range,
+ * "selection", "before_save", "open", "close".  Costs nothing when no
+ * handler is registered. */
+void
+o42_window_fire_event (O42Window *self, const char *event, const O42Range *range)
+{
+  char *output = NULL;
+
+  if (!o42_python_available () || self->book == NULL)
+    return;
+  o42_python_fire (self->book, event, range != NULL ? self->sheet : NULL, range, &output);
+  if (output != NULL)
+    {
+      o42_grid_refresh (self->grid);
+      window_sync (self);
+      script_said (self, event, output, strstr (output, "Traceback") == NULL);
+      g_free (output);
+    }
 }
 
 void
@@ -427,6 +455,9 @@ action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data)
     o42_sheet_touch_volatiles (o42_book_sheet (self->book, i));
   o42_window_tell_book (self, "cells");
   scripts_bar_hide (self);
+  /* The scripts have run, so their handlers are registered: the book
+   * is open, as far as a Workbook_Open is concerned. */
+  o42_window_fire_event (self, "open", NULL);
 }
 
 typedef struct {

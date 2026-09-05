@@ -102,6 +102,7 @@ void o42_window_show_sheet (O42Window *self, int index);
 /* Runs one of the book's scripts, and takes away the bar that offers
  * to run them. */
 gboolean o42_window_run_script (O42Window *self, const char *name, const char *code);
+void     o42_window_fire_event (O42Window *self, const char *event, const O42Range *range);
 /* Opens Scripts in this Book on the script of that name (NULL for the first). */
 void     o42_window_edit_script (O42Window *self, const char *which);
 void o42_scripts_bar_hide  (O42Window *self);

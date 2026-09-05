@@ -55,6 +55,19 @@ char **o42_python_personal_scripts (void);
  * is running. */
 gboolean o42_python_start (void);
 
+/* ---- Events ----------------------------------------------------------- */
+
+/* Something happened that a book's script may have asked to hear of:
+ * "change" (cells of `range` on `sheet` were edited by hand), "selection"
+ * (the selection moved to `range`), "before_save", "open" or "close"
+ * (the book; sheet and range NULL).  Nothing happens unless Python is
+ * up, the book's scripts are trusted and a handler is registered, so
+ * the call costs nothing when no script listens; a handler's own
+ * changes do not fire it again.  `output` (may be NULL) gets what the
+ * handlers printed, tracebacks included; the caller frees it. */
+void o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet,
+                      const O42Range *range, char **output);
+
 /* ---- What the window does for a script ------------------------------- */
 
 /* Excel's macros see the selection, put up message boxes and save

@@ -66,6 +66,9 @@ o42_python_personal_scripts (void)
 
 gboolean    o42_python_available (void) { return FALSE; }
 const char *o42_python_version   (void) { return NULL; }
+void        o42_python_fire      (O42Book *book, const char *event, O42Sheet *sheet,
+                                  const O42Range *range, char **output)
+{ (void) book; (void) event; (void) sheet; (void) range; if (output != NULL) *output = NULL; }
 void        o42_python_reset     (void) { }
 void        o42_python_forget_book (O42Book *book) { (void) book; }
 gboolean    o42_python_start     (void) { return FALSE; }
@@ -103,6 +106,8 @@ static PyObject *error_class   = NULL;   /* office42.Error */
 static char     *init_failure  = NULL;
 static gboolean  book_touched  = FALSE;  /* cells changed since the run began */
 static gboolean  sheets_touched = FALSE; /* sheets added, removed or renamed */
+static int       handler_count = 0;      /* event handlers registered, all books */
+static int       firing        = 0;      /* inside a handler: no handlers fire */
 
 /* ---- Between the two value systems --------------------------------- */
 
@@ -1432,6 +1437,19 @@ m_get_format (PyObject *self, PyObject *args)
   return fmt_to_dict (o42_sheet_get_fmt (sheet, row, col));
 }
 
+/* events_count(n): how many handlers office42.on has registered, so
+ * that firing costs nothing while there are none. */
+static PyObject *
+m_events_count (PyObject *self, PyObject *args)
+{
+  int n;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &n))
+    return NULL;
+  handler_count = n;
+  Py_RETURN_NONE;
+}
+
 /* ---- Objects: charts, shapes and pictures ------------------------------ */
 
 /* The kind of object a script names: "chart", "shape" or "picture". */
@@ -2400,6 +2418,7 @@ static PyMethodDef METHODS[] = {
   { "is_builtin",     m_is_builtin,     METH_VARARGS, "Whether a name is a built-in function." },
   { "function_names", m_function_names, METH_NOARGS,  "Every function the evaluator knows." },
   { "evaluate",       m_evaluate,       METH_VARARGS, "Evaluates a formula on the current sheet." },
+  { "events_count",   m_events_count,   METH_VARARGS, "How many event handlers are registered." },
   { "objects",        m_objects,        METH_VARARGS, "The sheet's objects, back to front: (type, id)." },
   { "add_chart",      m_add_chart,      METH_VARARGS, "Adds a chart over a range at a cell; its id." },
   { "add_shape",      m_add_shape,      METH_VARARGS, "Adds a shape at a cell; its id." },
@@ -2634,6 +2653,49 @@ o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *fi
   book_touched = saved_touched;
   sheets_touched = saved_sheets;
   return ok;
+}
+
+void
+o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet, const O42Range *range, char **output)
+{
+  O42Sheet *saved_sheet = current_sheet;
+  O42Book *saved_book = current_book;
+  gboolean saved_touched = book_touched, saved_sheets = sheets_touched;
+  PyObject *result;
+  int index = -1;
+
+  if (output != NULL)
+    *output = NULL;
+  if (book == NULL || event == NULL || handler_count == 0 || firing > 0 || module == NULL ||
+      !o42_book_scripts_trusted (book))
+    return;
+  if (sheet != NULL)
+    index = o42_book_sheet_index (book, sheet);
+  firing++;
+  current_book = book;
+  current_sheet = sheet != NULL ? sheet : o42_book_sheet (book, 0);
+  book_touched = sheets_touched = FALSE;
+  result = PyObject_CallMethod (module, "_fire", "siiiii", event, index,
+                                range != NULL ? range->row0 : -1, range != NULL ? range->col0 : -1,
+                                range != NULL ? range->row1 : -1, range != NULL ? range->col1 : -1);
+  if (result != NULL && PyUnicode_Check (result))
+    {
+      const char *text = PyUnicode_AsUTF8 (result);
+      if (output != NULL && text != NULL && *text != '\0')
+        *output = g_strdup (text);
+    }
+  else
+    PyErr_Clear ();
+  Py_XDECREF (result);
+  if (sheets_touched)
+    o42_book_changed (book, "sheets");
+  else if (book_touched)
+    o42_book_changed (book, "cells");
+  current_sheet = saved_sheet;
+  current_book = saved_book;
+  book_touched = saved_touched;
+  sheets_touched = saved_sheets;
+  firing--;
 }
 
 gboolean
