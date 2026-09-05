@@ -729,13 +729,30 @@ void        o42_sheet_auto_format (O42Sheet *sheet, const O42Range *range, int w
 
 /* Excel's Data > Table.  The rectangle's edges hold what an input may
  * be and its corner the formula -- or, with one variable, the top row
- * or left column holds the formulas.  Each value is put into the input
- * cell named, everything is worked out, and the answer is written into
- * the inside of the rectangle.  Pass -1 for an input that is not used;
+ * or left column holds the formulas.  The inside is filled with
+ * =TABLE(row_input, column_input), Excel's own array formula, whose
+ * cells show what the corner comes to with each edge value put into
+ * the input cell: worked out again whenever anything on the sheet
+ * changes, as Excel does.  Pass -1 for an input that is not used;
  * FALSE if neither is given or the rectangle is too small. */
+typedef struct {
+  O42Range range;                      /* edges included */
+  int      row_input_row, row_input_col;   /* -1 when not used */
+  int      col_input_row, col_input_col;
+} O42DataTable;
+
 gboolean o42_sheet_data_table (O42Sheet *sheet, const O42Range *range,
                                int row_input_row, int row_input_col,
                                int col_input_row, int col_input_col);
+
+/* For the files: remembers a table and fills it (the cells' own TABLE
+ * formulas are written by the reader or here); the table whose inside
+ * holds a cell; all of them; one taken away, its cells left as values. */
+void                o42_sheet_define_data_table (O42Sheet *sheet, const O42DataTable *table);
+const O42DataTable *o42_sheet_data_table_at    (O42Sheet *sheet, int row, int col);
+GArray             *o42_sheet_data_tables      (O42Sheet *sheet);   /* O42DataTable */
+void                o42_sheet_remove_data_table (O42Sheet *sheet, const O42Range *range);
+void                o42_sheet_refresh_data_tables (O42Sheet *sheet);
 
 /* ---- Database queries --------------------------------------------------- */
 

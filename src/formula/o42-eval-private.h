@@ -50,6 +50,7 @@ extern const O42Function     O42_FUNCS_INFO[];
 extern const O42Function     O42_FUNCS_BESSEL[];
 extern const O42Function     O42_FUNCS_RANDOM[];
 extern const O42Function     O42_FUNCS_OPTIONS[];
+extern const O42Function     O42_FUNCS_TABLE[];
 extern const O42FunctionHelp O42_HELP_STATISTICS[];
 extern const O42FunctionHelp O42_HELP_DATES[];
 extern const O42FunctionHelp O42_HELP_TEXT[];
@@ -61,6 +62,7 @@ extern const O42FunctionHelp O42_HELP_INFO[];
 extern const O42FunctionHelp O42_HELP_BESSEL[];
 extern const O42FunctionHelp O42_HELP_RANDOM[];
 extern const O42FunctionHelp O42_HELP_OPTIONS[];
+extern const O42FunctionHelp O42_HELP_TABLE[];
 
 /* ---- The machine, for the families to lean on -------------------------- */
 

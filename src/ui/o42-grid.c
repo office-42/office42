@@ -2954,6 +2954,15 @@ entry_allowed (O42Grid *self, const char *text)
   GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
   GtkWindow *parent = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL;
 
+  /* The inside of a What-If table is the table's to write, as in Excel. */
+  if (o42_sheet_data_table_at (self->sheet, self->active_row, self->active_col) != NULL)
+    {
+      GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", _("Cannot change part of a data table."));
+      gtk_alert_dialog_set_detail (alert, _("Data > Table made these cells; change the edges or the formula instead."));
+      gtk_alert_dialog_show (alert, parent);
+      g_object_unref (alert);
+      return FALSE;
+    }
   if (o42_sheet_validate (self->sheet, self->active_row, self->active_col, text, &message))
     return TRUE;
   v = o42_sheet_validation_at (self->sheet, self->active_row, self->active_col);

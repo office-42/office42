@@ -1003,6 +1003,23 @@ write_sheet (GString *out, O42Sheet *sheet)
     }
   g_string_append (w.out, "      </gnm:Rows>\n");
 
+  /* What-If tables: the rectangle and its input cells; the inside holds
+   * TABLE formulas, which Gnumeric would not know, so the values are in
+   * the cells too. */
+  {
+    GArray *tables = o42_sheet_data_tables (sheet);
+    for (guint i = 0; i < tables->len; i++)
+      {
+        const O42DataTable *t = &g_array_index (tables, O42DataTable, i);
+        char *a = o42_ref_name (t->range.row0, t->range.col0);
+        char *b = o42_ref_name (t->range.row1, t->range.col1);
+        char *ri = t->row_input_row >= 0 ? o42_ref_name (t->row_input_row, t->row_input_col) : g_strdup ("");
+        char *ci = t->col_input_row >= 0 ? o42_ref_name (t->col_input_row, t->col_input_col) : g_strdup ("");
+        g_string_append_printf (w.out, "      <gnm:o42-DataTable Range=\"%s:%s\" RowInput=\"%s\" ColInput=\"%s\"/>\n", a, b, ri, ci);
+        g_free (a); g_free (b); g_free (ri); g_free (ci);
+      }
+  }
+
   /* Pivot tables: office42's own element, since Gnumeric has none. */
   for (int i = 0; i < o42_sheet_n_scenarios (sheet); i++)
     {
@@ -1512,6 +1529,7 @@ typedef struct {
   O42FmtMask  style_mask;
   gboolean    in_names;         /* inside gnm:Names */
   gboolean    in_print_info;    /* inside gnm:PrintInformation */
+  GArray     *data_tables;      /* O42DataTable, defined when the sheet ends */
   int         print_text;       /* 1 in its order, 2 orientation, 3 paper */
   GString    *text;             /* what they say */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
@@ -2360,6 +2378,29 @@ start_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (strcmp (name, "o42-DataTable") == 0 && r->sheet != NULL)
+    {
+      O42DataTable t;
+      const char *range = attr (names, values, "Range");
+      const char *ri = attr (names, values, "RowInput"), *ci = attr (names, values, "ColInput");
+      gsize used;
+
+      memset (&t, 0, sizeof t);
+      t.row_input_row = t.row_input_col = t.col_input_row = t.col_input_col = -1;
+      if (range != NULL && o42_ref_parse (range, &t.range.row0, &t.range.col0, &used) && range[used] == ':' &&
+          o42_ref_parse (range + used + 1, &t.range.row1, &t.range.col1, NULL))
+        {
+          if (ri != NULL && *ri != '\0') o42_ref_parse (ri, &t.row_input_row, &t.row_input_col, NULL);
+          if (ci != NULL && *ci != '\0') o42_ref_parse (ci, &t.col_input_row, &t.col_input_col, NULL);
+          /* The cells hold the TABLE formulas already; the table is defined
+           * and worked out once every cell is in, at the sheet's end. */
+          if (r->data_tables == NULL)
+            r->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
+          g_array_append_val (r->data_tables, t);
+        }
+      return;
+    }
+
   if (strcmp (name, "o42-Pivot") == 0)
     {
       /* The definition only: the values are in the cells already, and
@@ -2989,6 +3030,12 @@ end_element (GMarkupParseContext *context, const char *element,
     return;
 
   /* The filter's choices were applied before the cells arrived. */
+  if (strcmp (name, "Sheet") == 0 && r->data_tables != NULL && r->sheet != NULL)
+    {
+      for (guint i = 0; i < r->data_tables->len; i++)
+        o42_sheet_define_data_table (r->sheet, &g_array_index (r->data_tables, O42DataTable, i));
+      g_clear_pointer (&r->data_tables, g_array_unref);
+    }
   if (strcmp (name, "Sheet") == 0)
     {
       o42_sheet_autofilter_refresh (r->sheet);

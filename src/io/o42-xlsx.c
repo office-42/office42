@@ -218,6 +218,52 @@ append_cell (Writer *w, GString *out, O42Sheet *sheet, int row, int col, guint x
   if (xf != 0)
     g_string_append_printf (out, " s=\"%u\"", xf);
 
+  {
+    /* The inside of a What-If table: Excel's <f t="dataTable"> on the
+     * first cell, r1 the row input and r2 the column input, and bare
+     * values on the rest. */
+    const O42DataTable *table = input != NULL && input[0] == '=' ? o42_sheet_data_table_at (sheet, row, col) : NULL;
+
+    if (table != NULL)
+      {
+        g_free (input);
+        input = NULL;
+        if (row == table->range.row0 + 1 && col == table->range.col0 + 1)
+          {
+            char *a = o42_ref_name (row, col);
+            char *b = o42_ref_name (table->range.row1, table->range.col1);
+            gboolean two = table->row_input_row >= 0 && table->col_input_row >= 0;
+            char *r1 = two || table->row_input_row >= 0 ? o42_ref_name (table->row_input_row, table->row_input_col)
+                                                         : o42_ref_name (table->col_input_row, table->col_input_col);
+            char *r2 = two ? o42_ref_name (table->col_input_row, table->col_input_col) : NULL;
+
+            g_string_append_printf (out, "><f t=\"dataTable\" ref=\"%s:%s\" dt2D=\"%d\" dtr=\"%d\" r1=\"%s\"%s%s%s ca=\"1\"/>",
+                                    a, b, two ? 1 : 0, !two && table->row_input_row >= 0 ? 1 : 0, r1,
+                                    r2 != NULL ? " r2=\"" : "", r2 != NULL ? r2 : "", r2 != NULL ? "\"" : "");
+            g_free (a); g_free (b); g_free (r1); g_free (r2);
+          }
+        else
+          g_string_append_c (out, '>');
+        switch (value.type)
+          {
+          case O42_VALUE_NUMBER:
+            g_string_append (out, "<v>");
+            append_number (out, value.as.number);
+            g_string_append (out, "</v>");
+            break;
+          case O42_VALUE_ERROR:
+            g_string_append_printf (out, "<v>%s</v>", o42_error_name (value.as.error));
+            break;
+          default:
+            break;
+          }
+        g_string_append (out, "</c>");
+        o42_value_clear (&value);
+        g_free (ref);
+        return;
+      }
+  }
+
   if (input != NULL && input[0] == '=')
     {
       char *escaped;
@@ -2156,6 +2202,7 @@ typedef struct
   gboolean    in_f, in_v, in_is, has_f;
   char       *shared_si;
   char       *array_ref;    /* <f t="array" ref=...>: the block to spread over */
+  GArray     *data_tables;  /* O42DataTable from <f t="dataTable">, made when the sheet is read */
   GHashTable *shared;       /* si -> master formula "row,col,text" */
   int         default_width, default_height;
   char       *drawing_rid;  /* the sheet's <drawing r:id>, if any */
@@ -3014,6 +3061,43 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         r->shared_si = g_strdup (si);
       if (t != NULL && strcmp (t, "array") == 0 && attr (names, values, "ref") != NULL)
         r->array_ref = g_strdup (attr (names, values, "ref"));
+      if (t != NULL && strcmp (t, "dataTable") == 0 && attr (names, values, "ref") != NULL &&
+          attr (names, values, "r1") != NULL)
+        {
+          /* A What-If table's inside: ref is the inside, the edges lie
+           * one row and column outside it; dt2D has r1 the row input and
+           * r2 the column input, else dtr says which r1 is. */
+          O42DataTable table;
+          const char *ref = attr (names, values, "ref");
+          gsize used = 0;
+          int a_row, a_col;
+
+          memset (&table, 0, sizeof table);
+          table.row_input_row = table.row_input_col = table.col_input_row = table.col_input_col = -1;
+          if (o42_ref_parse (ref, &table.range.row0, &table.range.col0, &used) && ref[used] == ':' &&
+              o42_ref_parse (ref + used + 1, &table.range.row1, &table.range.col1, NULL) &&
+              table.range.row0 > 0 && table.range.col0 > 0 &&
+              o42_ref_parse (attr (names, values, "r1"), &a_row, &a_col, NULL))
+            {
+              gboolean two = attr_int (names, values, "dt2D", 0) != 0;
+              gboolean row_wise = attr_int (names, values, "dtr", 0) != 0;
+              int b_row = -1, b_col = -1;
+
+              table.range.row0--;
+              table.range.col0--;
+              if (two && attr (names, values, "r2") != NULL)
+                o42_ref_parse (attr (names, values, "r2"), &b_row, &b_col, NULL);
+              if (two)
+                { table.row_input_row = a_row; table.row_input_col = a_col; table.col_input_row = b_row; table.col_input_col = b_col; }
+              else if (row_wise)
+                { table.row_input_row = a_row; table.row_input_col = a_col; }
+              else
+                { table.col_input_row = a_row; table.col_input_col = a_col; }
+              if (r->data_tables == NULL)
+                r->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
+              g_array_append_val (r->data_tables, table);
+            }
+        }
     }
   else if (strcmp (n, "v") == 0)
     r->in_v = TRUE;
@@ -3684,6 +3768,17 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           r.fit_to_page = FALSE;
           r.sheet_rels = o42_xlsx_read_rels (parts, part);
           ok = parse_part (parts, part, &sheet_parser, &r, error);
+          if (r.data_tables != NULL)
+            {
+              /* The tables, now that the edges and the corner are in. */
+              for (guint k = 0; k < r.data_tables->len; k++)
+                {
+                  const O42DataTable *t = &g_array_index (r.data_tables, O42DataTable, k);
+                  o42_sheet_data_table (r.sheet, &t->range, t->row_input_row, t->row_input_col,
+                                        t->col_input_row, t->col_input_col);
+                }
+              g_clear_pointer (&r.data_tables, g_array_unref);
+            }
           g_clear_pointer (&r.sheet_rels, g_hash_table_unref);
           if (ok)
             {

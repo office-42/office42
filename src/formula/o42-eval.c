@@ -9630,7 +9630,8 @@ static const O42Function *const FAMILY_FUNCS[] = {
   O42_FUNCS_INFO,
   O42_FUNCS_RANDOM,
   O42_FUNCS_BESSEL,
-  O42_FUNCS_OPTIONS
+  O42_FUNCS_OPTIONS,
+  O42_FUNCS_TABLE
 };
 
 static const O42FunctionHelp *const FAMILY_HELP[] = {
@@ -9644,7 +9645,8 @@ static const O42FunctionHelp *const FAMILY_HELP[] = {
   O42_HELP_INFO,
   O42_HELP_RANDOM,
   O42_HELP_BESSEL,
-  O42_HELP_OPTIONS
+  O42_HELP_OPTIONS,
+  O42_HELP_TABLE
 };
 
 static int

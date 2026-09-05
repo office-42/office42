@@ -121,6 +121,10 @@ struct _O42Sheet {
   guint16      password;      /* the protection hash, 0 for none */
   gboolean     cycle_seen;    /* a formula asked for itself while evaluating */
   gboolean     recalculating; /* inside o42_sheet_recalculate */
+  GArray      *data_tables;   /* O42DataTable: What-If tables kept live */
+  GHashTable  *table_values;  /* key -> O42Value*, what TABLE() shows */
+  gboolean     tables_stale;  /* something changed since the tables were filled */
+  gboolean     filling_tables;
   guint        sizes_stamp;   /* bumped whenever a width or a height moves */
   GArray      *row_stops;     /* SizeStop: the rows that differ from the default */
   GArray      *col_stops;
@@ -354,6 +358,8 @@ static void sheet_get_cell_value (O42EvalContext *ctx, const char *sheet_name,
 static const O42Range *array_at (O42Sheet *sheet, int row, int col);
 static void set_input_internal (O42Sheet *sheet, int row, int col,
                                 const char *text);
+static void data_tables_fill (O42Sheet *sheet);
+static void value_free (O42Value *v);
 static void autofilter_apply (O42Sheet *sheet);
 static gboolean ranges_overlap (const O42Range *a, const O42Range *b);
 
@@ -918,6 +924,20 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
     }
   if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
     return FALSE;
+
+  if (strcmp (what, "table") == 0)
+    {
+      /* What TABLE() in this cell shows: the value the What-If table
+       * worked out for it, filled again first if the sheet changed. */
+      guint64 key = o42_key (row, col);
+      O42Value *v;
+
+      if (sheet->tables_stale && !sheet->filling_tables)
+        data_tables_fill (sheet);
+      v = g_hash_table_lookup (sheet->table_values, &key);
+      *out = v != NULL ? o42_value_copy (v) : o42_value_error (O42_ERR_NA);
+      return TRUE;
+    }
   fmt = o42_sheet_get_fmt (sheet, row, col);
 
   if (strcmp (what, "format") == 0)
@@ -1681,6 +1701,8 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
 static void
 sheet_invalidate (O42Sheet *sheet, int row, int col)
 {
+  if (sheet->data_tables->len > 0 && !sheet->filling_tables)
+    sheet->tables_stale = TRUE;
   sheet_invalidate_named (sheet, sheet->name, row, col);
 
   if (sheet->book != NULL)
@@ -1973,6 +1995,8 @@ o42_sheet_new (const char *name)
   sheet->print.footer = g_strdup ("Page &P");
   sheet->print.gridlines = TRUE;
   sheet->pivots = g_array_new (FALSE, FALSE, sizeof (O42Pivot));
+  sheet->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
+  sheet->table_values = g_hash_table_new_full (key_hash, key_equal, g_free, (GDestroyNotify) value_free);
   sheet->formats = o42_fmt_table_new ();
   sheet->stack = o42_undo_stack_new ();
   sheet->owns_stack = TRUE;
@@ -2033,6 +2057,8 @@ o42_sheet_free (O42Sheet *sheet)
   g_ptr_array_free (sheet->shapes, TRUE);
   g_array_free (sheet->arrays, TRUE);
   g_hash_table_destroy (sheet->dynamic);
+  g_array_unref (sheet->data_tables);
+  g_hash_table_unref (sheet->table_values);
   g_free (sheet->print.header);
   g_free (sheet->print.footer);
   g_array_unref (sheet->row_breaks);
@@ -2703,6 +2729,8 @@ o42_sheet_set_input (O42Sheet *sheet, int row, int col, const char *text)
   op_begin (sheet);
   op_capture (sheet, row, col);
   set_input_internal (sheet, row, col, text);
+  if (sheet->tables_stale)
+    data_tables_fill (sheet);
   op_end (sheet);
 }
 
@@ -10910,6 +10938,182 @@ o42_sheet_auto_format (O42Sheet *sheet, const O42Range *range, int which)
  * as it does with a pivot table, and Data > Table can be asked again.
  * What it does is honest either way: each value is put into the input
  * cell, everything is worked out, and the answer is copied back. */
+static void
+value_free (O42Value *v)
+{
+  o42_value_clear (v);
+  g_free (v);
+}
+
+/* The TABLE formula the inside cells hold: =TABLE(row_input, col_input),
+ * an argument left empty when the table has one variable only. */
+static char *
+data_table_formula (const O42DataTable *t)
+{
+  char *r1 = t->row_input_row >= 0 ? o42_ref_name (t->row_input_row, t->row_input_col) : g_strdup ("");
+  char *r2 = t->col_input_row >= 0 ? o42_ref_name (t->col_input_row, t->col_input_col) : g_strdup ("");
+  char *f = g_strdup_printf ("=TABLE(%s,%s)", r1, r2);
+
+  g_free (r1);
+  g_free (r2);
+  return f;
+}
+
+/* Works one table out: each edge value into its input cell, the
+ * corner (or edge) formula asked, the answer kept for TABLE() to show;
+ * the inputs put back as they were. */
+static void
+data_table_compute (O42Sheet *sheet, const O42DataTable *t)
+{
+  gboolean has_row_input = t->row_input_row >= 0 && t->row_input_col >= 0;
+  gboolean has_col_input = t->col_input_row >= 0 && t->col_input_col >= 0;
+  char *row_was = NULL, *col_was = NULL;
+  const O42Range *r = &t->range;
+
+  if (has_row_input)
+    row_was = o42_sheet_get_input (sheet, t->row_input_row, t->row_input_col);
+  if (has_col_input)
+    col_was = o42_sheet_get_input (sheet, t->col_input_row, t->col_input_col);
+
+  for (int row = r->row0 + 1; row <= r->row1; row++)
+    for (int col = r->col0 + 1; col <= r->col1; col++)
+      {
+        int formula_row, formula_col;
+        O42Value *answer = g_new0 (O42Value, 1);
+        guint64 key = o42_key (row, col);
+        char *text;
+
+        if (has_row_input && has_col_input)
+          {
+            formula_row = r->row0;
+            formula_col = r->col0;
+            text = o42_sheet_get_display (sheet, r->row0, col);
+            set_input_internal (sheet, t->row_input_row, t->row_input_col, text);
+            g_free (text);
+            text = o42_sheet_get_display (sheet, row, r->col0);
+            set_input_internal (sheet, t->col_input_row, t->col_input_col, text);
+            g_free (text);
+          }
+        else if (has_col_input)
+          {
+            formula_row = r->row0;
+            formula_col = col;
+            text = o42_sheet_get_display (sheet, row, r->col0);
+            set_input_internal (sheet, t->col_input_row, t->col_input_col, text);
+            g_free (text);
+          }
+        else
+          {
+            formula_row = row;
+            formula_col = r->col0;
+            text = o42_sheet_get_display (sheet, r->row0, col);
+            set_input_internal (sheet, t->row_input_row, t->row_input_col, text);
+            g_free (text);
+          }
+
+        o42_sheet_get_value (sheet, formula_row, formula_col, answer);
+        g_hash_table_replace (sheet->table_values, g_memdup2 (&key, sizeof key), answer);
+      }
+
+  if (has_row_input)
+    set_input_internal (sheet, t->row_input_row, t->row_input_col, row_was);
+  if (has_col_input)
+    set_input_internal (sheet, t->col_input_row, t->col_input_col, col_was);
+  g_free (row_was);
+  g_free (col_was);
+}
+
+/* Every table of the sheet, worked out again; the TABLE cells are
+ * staled so that they show the new answers. */
+static void
+data_tables_fill (O42Sheet *sheet)
+{
+  if (sheet->filling_tables || sheet->data_tables->len == 0)
+    {
+      sheet->tables_stale = FALSE;
+      return;
+    }
+  sheet->filling_tables = TRUE;
+  for (guint i = 0; i < sheet->data_tables->len; i++)
+    data_table_compute (sheet, &g_array_index (sheet->data_tables, O42DataTable, i));
+  sheet->tables_stale = FALSE;
+  for (guint i = 0; i < sheet->data_tables->len; i++)
+    {
+      const O42DataTable *t = &g_array_index (sheet->data_tables, O42DataTable, i);
+      for (int row = t->range.row0 + 1; row <= t->range.row1; row++)
+        for (int col = t->range.col0 + 1; col <= t->range.col1; col++)
+          {
+            O42Cell *cell = sheet_find (sheet, row, col);
+            if (cell != NULL && cell->ast != NULL)
+              {
+                cell->dirty = 1;
+                sheet_invalidate (sheet, row, col);
+              }
+          }
+    }
+  sheet->filling_tables = FALSE;
+}
+
+void
+o42_sheet_define_data_table (O42Sheet *sheet, const O42DataTable *table)
+{
+  O42DataTable t;
+
+  g_return_if_fail (sheet != NULL && table != NULL);
+  t = *table;
+  t.range = o42_range_normalise (table->range.row0, table->range.col0, table->range.row1, table->range.col1);
+  o42_sheet_remove_data_table (sheet, &t.range);
+  g_array_append_val (sheet->data_tables, t);
+  sheet->tables_stale = TRUE;
+  data_tables_fill (sheet);
+  sheet->modified = TRUE;
+}
+
+const O42DataTable *
+o42_sheet_data_table_at (O42Sheet *sheet, int row, int col)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  for (guint i = 0; i < sheet->data_tables->len; i++)
+    {
+      const O42DataTable *t = &g_array_index (sheet->data_tables, O42DataTable, i);
+      if (row > t->range.row0 && row <= t->range.row1 && col > t->range.col0 && col <= t->range.col1)
+        return t;
+    }
+  return NULL;
+}
+
+GArray *
+o42_sheet_data_tables (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  return sheet->data_tables;
+}
+
+void
+o42_sheet_remove_data_table (O42Sheet *sheet, const O42Range *range)
+{
+  g_return_if_fail (sheet != NULL && range != NULL);
+  for (guint i = 0; i < sheet->data_tables->len; )
+    {
+      const O42DataTable *t = &g_array_index (sheet->data_tables, O42DataTable, i);
+      if (ranges_overlap (&t->range, range))
+        {
+          g_array_remove_index (sheet->data_tables, i);
+          sheet->modified = TRUE;
+        }
+      else
+        i++;
+    }
+}
+
+void
+o42_sheet_refresh_data_tables (O42Sheet *sheet)
+{
+  g_return_if_fail (sheet != NULL);
+  sheet->tables_stale = TRUE;
+  data_tables_fill (sheet);
+}
+
 gboolean
 o42_sheet_data_table (O42Sheet *sheet, const O42Range *range,
                       int row_input_row, int row_input_col,
@@ -10917,81 +11121,33 @@ o42_sheet_data_table (O42Sheet *sheet, const O42Range *range,
 {
   gboolean has_row_input = row_input_row >= 0 && row_input_col >= 0;
   gboolean has_col_input = col_input_row >= 0 && col_input_col >= 0;
-  char *row_was = NULL, *col_was = NULL;
-  O42Range r;
+  O42DataTable t;
+  char *formula;
 
   g_return_val_if_fail (sheet != NULL && range != NULL, FALSE);
   if (!has_row_input && !has_col_input)
     return FALSE;
 
-  r = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
-  if (r.row1 <= r.row0 || r.col1 <= r.col0)
+  t.range = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
+  if (t.range.row1 <= t.range.row0 || t.range.col1 <= t.range.col0)
     return FALSE;
+  t.row_input_row = has_row_input ? row_input_row : -1;
+  t.row_input_col = has_row_input ? row_input_col : -1;
+  t.col_input_row = has_col_input ? col_input_row : -1;
+  t.col_input_col = has_col_input ? col_input_col : -1;
 
-  if (has_row_input)
-    row_was = o42_sheet_get_input (sheet, row_input_row, row_input_col);
-  if (has_col_input)
-    col_was = o42_sheet_get_input (sheet, col_input_row, col_input_col);
-
+  /* The inside becomes TABLE formulas, then the table is worked out. */
   op_begin (sheet);
-
-  for (int row = r.row0 + 1; row <= r.row1; row++)
-    for (int col = r.col0 + 1; col <= r.col1; col++)
+  formula = data_table_formula (&t);
+  o42_sheet_remove_data_table (sheet, &t.range);
+  for (int row = t.range.row0 + 1; row <= t.range.row1; row++)
+    for (int col = t.range.col0 + 1; col <= t.range.col1; col++)
       {
-        int formula_row, formula_col;
-        O42Value answer;
-        char *text;
-
-        /* Which cell holds the formula for this one, and what goes
-         * into the input cells. */
-        if (has_row_input && has_col_input)
-          {
-            formula_row = r.row0;
-            formula_col = r.col0;
-            text = o42_sheet_get_display (sheet, r.row0, col);
-            set_input_internal (sheet, row_input_row, row_input_col, text);
-            g_free (text);
-            text = o42_sheet_get_display (sheet, row, r.col0);
-            set_input_internal (sheet, col_input_row, col_input_col, text);
-            g_free (text);
-          }
-        else if (has_col_input)
-          {
-            /* The values run down the left column. */
-            formula_row = r.row0;
-            formula_col = col;
-            text = o42_sheet_get_display (sheet, row, r.col0);
-            set_input_internal (sheet, col_input_row, col_input_col, text);
-            g_free (text);
-          }
-        else
-          {
-            /* The values run along the top row. */
-            formula_row = row;
-            formula_col = r.col0;
-            text = o42_sheet_get_display (sheet, r.row0, col);
-            set_input_internal (sheet, row_input_row, row_input_col, text);
-            g_free (text);
-          }
-
-        o42_sheet_get_value (sheet, formula_row, formula_col, &answer);
-        text = value_input_text (&answer);
         op_capture (sheet, row, col);
-        set_input_internal (sheet, row, col,
-                            answer.type == O42_VALUE_TEXT ? NULL : text);
-        o42_value_clear (&answer);
-        g_free (text);
+        set_input_internal (sheet, row, col, formula);
       }
-
-  /* The input cells are put back as they were, and everything that
-   * depended on them worked out again. */
-  if (has_row_input)
-    set_input_internal (sheet, row_input_row, row_input_col, row_was);
-  if (has_col_input)
-    set_input_internal (sheet, col_input_row, col_input_col, col_was);
-  g_free (row_was);
-  g_free (col_was);
-
+  g_free (formula);
+  o42_sheet_define_data_table (sheet, &t);
   op_end (sheet);
   sheet->modified = TRUE;
   return TRUE;
@@ -11547,6 +11703,8 @@ o42_sheet_recalculate (O42Sheet *sheet)
   sheet->recalculating = TRUE;
   sheet->cycle_seen = FALSE;
 
+  if (sheet->data_tables->len > 0)
+    sheet->tables_stale = TRUE;
   recalculate_once (sheet);
 
   /* A formula that depends on itself is worked out again and again
