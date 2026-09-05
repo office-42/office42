@@ -78,6 +78,14 @@ def _to_input(value):
     return str(value)
 
 
+def _shift_is_vertical(shift, vertical, horizontal):
+    if shift == vertical:
+        return True
+    if shift == horizontal:
+        return False
+    raise ValueError("shift is %r or %r" % (vertical, horizontal))
+
+
 class Range:
     """A rectangle of cells on a sheet."""
 
@@ -212,6 +220,33 @@ class Range:
     def clear(self):
         self.value = None
 
+    # -- the cells themselves ------------------------------------------
+    def merge(self):
+        """Makes the range one cell, keeping the top-left cell's content."""
+        _c.merge(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
+        return self
+
+    def unmerge(self):
+        """Takes apart every merge the range touches."""
+        _c.unmerge(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
+        return self
+
+    @property
+    def merged(self):
+        """The merged range the top-left cell is in, or None."""
+        r = _c.merged_at(self.sheet.index, self.row0, self.col0)
+        return None if r is None else Range(self.sheet, *r)
+
+    def insert_cells(self, shift="down"):
+        """Insert > Cells: empty cells here, the rest moved down or right."""
+        _c.shift_cells(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                       _shift_is_vertical(shift, "down", "right"), True)
+
+    def delete_cells(self, shift="up"):
+        """Edit > Delete: the cells go, and the rest move up or left."""
+        _c.shift_cells(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                       _shift_is_vertical(shift, "up", "left"), False)
+
     def __iter__(self):
         """The values, row by row."""
         for line in self.values:
@@ -315,6 +350,56 @@ class Sheet:
         """The value of a formula on this sheet, without putting it in a cell."""
         return _c.evaluate(formula, self.index)
 
+    # -- rows and columns ----------------------------------------------
+    def insert_rows(self, at, count=1):
+        """Inserts count empty rows before row `at` (0-based)."""
+        _c.insert_rows(self.index, at, count)
+
+    def delete_rows(self, at, count=1):
+        _c.delete_rows(self.index, at, count)
+
+    def insert_cols(self, at, count=1):
+        """Inserts count empty columns before column `at` (0-based)."""
+        _c.insert_cols(self.index, at, count)
+
+    def delete_cols(self, at, count=1):
+        _c.delete_cols(self.index, at, count)
+
+    def row_height(self, row, height=None):
+        """A row's height in pixels; with `height`, sets it."""
+        return _c.row_height(self.index, row) if height is None else _c.row_height(self.index, row, int(height))
+
+    def col_width(self, col, width=None):
+        """A column's width in pixels; with `width`, sets it."""
+        return _c.col_width(self.index, col) if width is None else _c.col_width(self.index, col, int(width))
+
+    def hide_rows(self, first, last=None):
+        _c.set_hidden(self.index, True, first, first if last is None else last, True)
+
+    def unhide_rows(self, first, last=None):
+        _c.set_hidden(self.index, True, first, first if last is None else last, False)
+
+    def hide_cols(self, first, last=None):
+        _c.set_hidden(self.index, False, first, first if last is None else last, True)
+
+    def unhide_cols(self, first, last=None):
+        _c.set_hidden(self.index, False, first, first if last is None else last, False)
+
+    def row_hidden(self, row):
+        return _c.hidden(self.index, True, row)
+
+    def col_hidden(self, col):
+        return _c.hidden(self.index, False, col)
+
+    def freeze(self, rows=0, cols=0):
+        """Freezes so many rows at the top and columns at the left; (0, 0) unfreezes."""
+        return _c.frozen(self.index, rows, cols)
+
+    @property
+    def frozen(self):
+        """(rows, cols) frozen at the top and left."""
+        return _c.frozen(self.index)
+
 
 class Book:
     """The book: its sheets, and the one on show."""
@@ -349,8 +434,18 @@ class Book:
     def add_sheet(self, name, index=-1):
         return Sheet(_c.add_sheet(name, index))
 
+    def _sheet(self, which):
+        return which if isinstance(which, Sheet) else self[which]
+
     def remove_sheet(self, which):
-        _c.remove_sheet(which.index if isinstance(which, Sheet) else self[which].index)
+        _c.remove_sheet(self._sheet(which).index)
+
+    def rename_sheet(self, which, name):
+        self._sheet(which).name = name
+
+    def move_sheet(self, which, to):
+        """Moves a sheet so that it is the `to`th tab (0-based)."""
+        _c.move_sheet(self._sheet(which).index, to)
 
     @property
     def names(self):

@@ -2237,15 +2237,11 @@ window_move_sheet (O42Window *self, int by)
   if (at < 0 || to < 0 || to >= o42_book_n_sheets (self->book))
     return;
 
-  o42_sheet_begin_group (self->sheet);
-  o42_sheet_undo_capture_sheet (self->sheet, FALSE);
-  if (o42_book_detach_sheet (self->book, at))
-    o42_book_attach_sheet (self->book, self->sheet, to);
-  o42_sheet_end_group (self->sheet);
-
-  o42_book_set_modified (self->book, TRUE);
+  /* The book tells the other windows; this one rebuilds its tabs itself. */
+  self->telling = TRUE;
+  o42_book_move_sheet (self->book, at, to);
+  self->telling = FALSE;
   window_rebuild_tabs (self);
-  window_tell_book (self, "sheets");
   window_sync (self);
 }
 

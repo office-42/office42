@@ -108,9 +108,10 @@ gboolean           o42_book_remove_view (O42Book *book, const char *name);
 
 /* Excel records a macro by writing down what you do; office42 writes
  * Python, the language it runs.  What is recorded is what the Python
- * API can put back: the text typed into cells and the formats applied
- * to them, wherever they came from -- so an insert of rows is recorded
- * as the cells it moved, which replays to the same sheet. */
+ * API can put back: the text typed into cells, the formats applied to
+ * them, and the operations on whole ranges, rows, columns and sheets
+ * -- an insert of rows is one line, sheet.insert_rows(at, count), and
+ * the cells it moves are not written down one by one. */
 void      o42_book_record_start (O42Book *book);
 gboolean  o42_book_recording    (O42Book *book);
 /* The script recorded so far, and an end to the recording.  The caller
@@ -123,6 +124,16 @@ void      o42_book_record_line  (O42Book *book, const char *line);
 /* The sheet a recorded line is about, so that "sheet = book[...]" is
  * written when it changes.  Returns FALSE when nothing is recording. */
 gboolean  o42_book_record_sheet (O42Book *book, const char *sheet_name);
+
+/* An operation the API has one call for: the line is written (when
+ * recording) and everything the model does until the matching end --
+ * the cells an insert moves, the formats a paste carries -- is not.
+ * The pair nests, and is balanced whether recording or not. */
+void      o42_book_record_op_begin (O42Book *book, const char *sheet_name, const char *line);
+void      o42_book_record_op_end   (O42Book *book);
+
+/* Moves the sheet at `from` so that it sits at `to`; one undo step. */
+gboolean  o42_book_move_sheet (O42Book *book, int from, int to);
 
 /* Scripts kept in the book, and so in its file: Python source under a
  * name, as Excel keeps macros.  The book only stores them; running is

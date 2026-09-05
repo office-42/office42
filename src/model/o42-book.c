@@ -28,6 +28,7 @@ struct _O42Book {
   GPtrArray *views;        /* O42BookView *, the named window states */
   GString *recording;      /* the macro being recorded, or NULL */
   char    *recorded_sheet; /* the sheet its last line was about */
+  int      record_quiet;   /* inside an operation recorded as one line */
   GPtrArray    *sheets;   /* O42Sheet*, owned, in tab order */
   O42UndoStack *stack;    /* shared by every sheet */
   GHashTable   *names;    /* upper-case name -> NamedRange*, owned */
@@ -58,6 +59,8 @@ typedef struct {
   O42Fmt     fmt;
   O42FmtMask mask;
 } Style;
+
+static void record_book_line (O42Book *book, const char *format, ...) G_GNUC_PRINTF (2, 3);
 
 static void
 script_free (gpointer data)
@@ -379,8 +382,49 @@ o42_book_add_sheet (O42Book *book, const char *name, int index)
     g_ptr_array_insert (book->sheets, index, sheet);
   o42_sheet_end_group (sheet);
 
+  if (o42_book_recording (book))
+    {
+      char *quoted = o42_python_quote (name);
+      if (index < 0 || index >= (int) book->sheets->len - 1)
+        record_book_line (book, "book.add_sheet(%s)", quoted);
+      else
+        record_book_line (book, "book.add_sheet(%s, %d)", quoted, index);
+      g_free (quoted);
+    }
+
   g_free (fresh);
   return sheet;
+}
+
+gboolean
+o42_book_move_sheet (O42Book *book, int from, int to)
+{
+  O42Sheet *sheet;
+
+  g_return_val_if_fail (book != NULL, FALSE);
+  if (from < 0 || from >= (int) book->sheets->len || to < 0 || to >= (int) book->sheets->len)
+    return FALSE;
+  if (from == to)
+    return TRUE;
+
+  /* Taken out of the book and put back somewhere else -- which is what
+   * undo does with a deleted sheet, so the history follows. */
+  sheet = g_ptr_array_index (book->sheets, from);
+  o42_sheet_begin_group (sheet);
+  o42_sheet_undo_capture_sheet (sheet, FALSE);
+  if (o42_book_detach_sheet (book, from))
+    o42_book_attach_sheet (book, sheet, to);
+  o42_sheet_end_group (sheet);
+
+  if (o42_book_recording (book))
+    {
+      char *quoted = o42_python_quote (o42_sheet_get_name (sheet));
+      record_book_line (book, "book.move_sheet(%s, %d)", quoted, to);
+      g_free (quoted);
+    }
+  o42_book_set_modified (book, TRUE);
+  o42_book_changed (book, "sheets");
+  return TRUE;
 }
 
 gboolean
@@ -436,6 +480,16 @@ o42_book_remove_sheet (O42Book *book, int index)
    * everything on it.  Formulas that read it give #REF! while it is
    * away and come right again when it returns, which is why they are
    * not rewritten.  Excel cannot undo this at all. */
+  if (o42_book_recording (book))
+    {
+      char *quoted = o42_python_quote (o42_sheet_get_name (gone));
+      record_book_line (book, "book.remove_sheet(%s)", quoted);
+      g_free (quoted);
+      /* The next cell line names its sheet afresh: the one the last
+       * line was about may be this one. */
+      g_clear_pointer (&book->recorded_sheet, g_free);
+    }
+
   o42_sheet_begin_group (survivor);
   o42_sheet_undo_capture_sheet (gone, FALSE);
   o42_book_detach_sheet (book, index);
@@ -497,6 +551,20 @@ book_rename (O42Book *book, int index, const char *name, gboolean record)
       for (guint i = 0; i < book->sheets->len; i++)
         o42_sheet_rename_references (g_ptr_array_index (book->sheets, i), old, name);
       o42_sheet_end_group (sheet);
+
+      if (o42_book_recording (book))
+        {
+          char *was = o42_python_quote (old), *now = o42_python_quote (name);
+          record_book_line (book, "book[%s].name = %s", was, now);
+          g_free (was);
+          g_free (now);
+          /* The macro's `sheet`, if it was this one, still is. */
+          if (g_strcmp0 (book->recorded_sheet, old) == 0)
+            {
+              g_free (book->recorded_sheet);
+              book->recorded_sheet = g_strdup (name);
+            }
+        }
     }
   else
     {
@@ -956,7 +1024,7 @@ o42_book_record_start (O42Book *book)
 gboolean
 o42_book_recording (O42Book *book)
 {
-  return book != NULL && book->recording != NULL;
+  return book != NULL && book->recording != NULL && book->record_quiet == 0;
 }
 
 char *
@@ -985,7 +1053,7 @@ o42_book_record_line (O42Book *book, const char *line)
 gboolean
 o42_book_record_sheet (O42Book *book, const char *sheet_name)
 {
-  if (book == NULL || book->recording == NULL)
+  if (!o42_book_recording (book))
     return FALSE;
   if (sheet_name != NULL && g_strcmp0 (book->recorded_sheet, sheet_name) != 0)
     {
@@ -997,6 +1065,43 @@ o42_book_record_sheet (O42Book *book, const char *sheet_name)
       book->recorded_sheet = g_strdup (sheet_name);
     }
   return TRUE;
+}
+
+void
+o42_book_record_op_begin (O42Book *book, const char *sheet_name, const char *line)
+{
+  if (book == NULL)
+    return;
+  if (o42_book_recording (book) && line != NULL)
+    {
+      if (sheet_name != NULL)
+        o42_book_record_sheet (book, sheet_name);
+      o42_book_record_line (book, line);
+    }
+  book->record_quiet++;
+}
+
+void
+o42_book_record_op_end (O42Book *book)
+{
+  if (book != NULL && book->record_quiet > 0)
+    book->record_quiet--;
+}
+
+/* A line about the book rather than a sheet: no "sheet = ..." first. */
+static void
+record_book_line (O42Book *book, const char *format, ...)
+{
+  va_list args;
+  char *line;
+
+  if (!o42_book_recording (book))
+    return;
+  va_start (args, format);
+  line = g_strdup_vprintf (format, args);
+  va_end (args);
+  o42_book_record_line (book, line);
+  g_free (line);
 }
 
 /* ---------------------------------------------------------------------- */

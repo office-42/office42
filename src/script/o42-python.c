@@ -231,6 +231,197 @@ m_rename_sheet (PyObject *self, PyObject *args)
 }
 
 static PyObject *
+m_move_sheet (PyObject *self, PyObject *args)
+{
+  int from, to;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "ii", &from, &to) || sheet_arg (from) == NULL)
+    return NULL;
+  if (!o42_book_move_sheet (current_book, from, to))
+    return PyErr_Format (PyExc_IndexError, "no place %d for a sheet", to);
+  sheets_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+/* ---- Rows, columns and the shape of the sheet ---------------------- */
+
+/* insert_rows(i, at, count), and its three siblings. */
+static PyObject *
+shift_band (PyObject *args, gboolean rows, gboolean insert)
+{
+  int index, at, count = 1;
+  O42Sheet *sheet;
+  int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
+  if (!PyArg_ParseTuple (args, "ii|i", &index, &at, &count) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (at < 0 || at >= limit || count < 0)
+    return PyErr_Format (PyExc_IndexError, "%s %d is off the sheet", rows ? "row" : "column", at);
+  if (rows)
+    {
+      if (insert) o42_sheet_insert_rows (sheet, at, count);
+      else        o42_sheet_delete_rows (sheet, at, count);
+    }
+  else
+    {
+      if (insert) o42_sheet_insert_cols (sheet, at, count);
+      else        o42_sheet_delete_cols (sheet, at, count);
+    }
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *m_insert_rows (PyObject *self, PyObject *args) { (void) self; return shift_band (args, TRUE, TRUE); }
+static PyObject *m_delete_rows (PyObject *self, PyObject *args) { (void) self; return shift_band (args, TRUE, FALSE); }
+static PyObject *m_insert_cols (PyObject *self, PyObject *args) { (void) self; return shift_band (args, FALSE, TRUE); }
+static PyObject *m_delete_cols (PyObject *self, PyObject *args) { (void) self; return shift_band (args, FALSE, FALSE); }
+
+/* A range's corners, checked and put the right way round. */
+static gboolean
+range_ok (O42Range *r)
+{
+  if (!cell_ok (r->row0, r->col0) || !cell_ok (r->row1, r->col1))
+    return FALSE;
+  *r = o42_range_normalise (r->row0, r->col0, r->row1, r->col1);
+  return TRUE;
+}
+
+/* The (i, row0, col0, row1, col1) most range calls begin with. */
+#define RANGE_ARGS(args, index, r) \
+  (PyArg_ParseTuple (args, "iiiii", &index, &(r).row0, &(r).col0, &(r).row1, &(r).col1) && range_ok (&r))
+
+static PyObject *
+m_shift_cells (PyObject *self, PyObject *args)
+{
+  int index, down, insert;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiipp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &down, &insert) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_shift_cells (sheet, &r, down, insert);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_merge (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!RANGE_ARGS (args, index, r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_merge (sheet, &r);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_unmerge (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!RANGE_ARGS (args, index, r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_unmerge (sheet, &r);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_merged_at (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  O42Sheet *sheet;
+  O42Range r;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iii", &index, &row, &col) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  if (!o42_sheet_merged_at (sheet, row, col, &r))
+    Py_RETURN_NONE;
+  return Py_BuildValue ("(iiii)", r.row0, r.col0, r.row1, r.col1);
+}
+
+/* row_height(i, row) and row_height(i, row, height): pixels at 96 dpi. */
+static PyObject *
+line_size (PyObject *args, gboolean rows)
+{
+  int index, at, size = -1;
+  O42Sheet *sheet;
+  if (!PyArg_ParseTuple (args, "ii|i", &index, &at, &size) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (at < 0 || at >= (rows ? O42_MAX_ROWS : O42_MAX_COLS))
+    return PyErr_Format (PyExc_IndexError, "%s %d is off the sheet", rows ? "row" : "column", at);
+  if (size >= 0)
+    {
+      if (rows) o42_sheet_set_row_height (sheet, at, size);
+      else      o42_sheet_set_col_width (sheet, at, size);
+      book_touched = TRUE;
+    }
+  return PyLong_FromLong (rows ? o42_sheet_row_height (sheet, at) : o42_sheet_col_width (sheet, at));
+}
+
+static PyObject *m_row_height (PyObject *self, PyObject *args) { (void) self; return line_size (args, TRUE); }
+static PyObject *m_col_width  (PyObject *self, PyObject *args) { (void) self; return line_size (args, FALSE); }
+
+/* set_hidden(i, rows, first, last, hidden) and hidden(i, rows, at). */
+static PyObject *
+m_set_hidden (PyObject *self, PyObject *args)
+{
+  int index, rows, first, last, hidden;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "ipiip", &index, &rows, &first, &last, &hidden) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (first < 0 || last >= (rows ? O42_MAX_ROWS : O42_MAX_COLS) || last < first)
+    return PyErr_Format (PyExc_IndexError, "%s %d to %d are not on the sheet", rows ? "rows" : "columns", first, last);
+  o42_sheet_begin_group (sheet);
+  for (int at = first; at <= last; at++)
+    {
+      if (rows) o42_sheet_set_row_hidden (sheet, at, hidden);
+      else      o42_sheet_set_col_hidden (sheet, at, hidden);
+    }
+  o42_sheet_end_group (sheet);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_hidden (PyObject *self, PyObject *args)
+{
+  int index, rows, at;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "ipi", &index, &rows, &at) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (at < 0 || at >= (rows ? O42_MAX_ROWS : O42_MAX_COLS))
+    return PyErr_Format (PyExc_IndexError, "%s %d is off the sheet", rows ? "row" : "column", at);
+  return PyBool_FromLong (rows ? o42_sheet_row_hidden (sheet, at) : o42_sheet_col_hidden (sheet, at));
+}
+
+/* frozen(i) -> (rows, cols); frozen(i, rows, cols) sets them. */
+static PyObject *
+m_frozen (PyObject *self, PyObject *args)
+{
+  int index, rows = -1, cols = -1;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i|ii", &index, &rows, &cols) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (rows >= 0 && cols >= 0)
+    {
+      o42_sheet_set_frozen (sheet, rows, cols);
+      book_touched = TRUE;
+    }
+  o42_sheet_get_frozen (sheet, &rows, &cols);
+  return Py_BuildValue ("(ii)", rows, cols);
+}
+
+static PyObject *
 m_get_input (PyObject *self, PyObject *args)
 {
   int index, row, col;
@@ -773,6 +964,20 @@ static PyMethodDef METHODS[] = {
   { "add_sheet",      m_add_sheet,      METH_VARARGS, "Adds a sheet; its index." },
   { "remove_sheet",   m_remove_sheet,   METH_VARARGS, "Removes sheet i." },
   { "rename_sheet",   m_rename_sheet,   METH_VARARGS, "Renames sheet i." },
+  { "move_sheet",     m_move_sheet,     METH_VARARGS, "Moves sheet i to place j." },
+  { "insert_rows",    m_insert_rows,    METH_VARARGS, "Inserts count rows before row at." },
+  { "delete_rows",    m_delete_rows,    METH_VARARGS, "Deletes count rows from row at." },
+  { "insert_cols",    m_insert_cols,    METH_VARARGS, "Inserts count columns before column at." },
+  { "delete_cols",    m_delete_cols,    METH_VARARGS, "Deletes count columns from column at." },
+  { "shift_cells",    m_shift_cells,    METH_VARARGS, "Inserts or deletes a range's cells, shifting the rest." },
+  { "merge",          m_merge,          METH_VARARGS, "Merges a range into one cell." },
+  { "unmerge",        m_unmerge,        METH_VARARGS, "Takes the merges touching a range apart." },
+  { "merged_at",      m_merged_at,      METH_VARARGS, "The merged range a cell is in, or None." },
+  { "row_height",     m_row_height,     METH_VARARGS, "A row's height in pixels; sets it with a third argument." },
+  { "col_width",      m_col_width,      METH_VARARGS, "A column's width in pixels; sets it with a third argument." },
+  { "set_hidden",     m_set_hidden,     METH_VARARGS, "Hides or shows rows (or columns) first..last." },
+  { "hidden",         m_hidden,         METH_VARARGS, "Whether a row (or column) is hidden." },
+  { "frozen",         m_frozen,         METH_VARARGS, "The frozen (rows, cols); sets them with two more arguments." },
   { "get_input",      m_get_input,      METH_VARARGS, "What was typed into a cell." },
   { "set_input",      m_set_input,      METH_VARARGS, "Types into a cell." },
   { "get_value",      m_get_value,      METH_VARARGS, "A cell's value." },
