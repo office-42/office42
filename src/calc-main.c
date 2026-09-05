@@ -1659,9 +1659,10 @@ main (int argc, char *argv[])
               printf ("pattern %s/%06X on ", o42_pattern_name ((O42Pattern) f->pattern),
                       f->pattern_colour);
               if (f->fill == O42_FILL_NONE)
-                printf ("none\n");
+                printf ("none");
               else
-                printf ("%06X\n", f->fill);
+                printf ("%06X", f->fill);
+              printf (" %s%s\n", f->locked ? "locked" : "unlocked", f->hidden ? " hidden" : "");
             }
           continue;
         }

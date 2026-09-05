@@ -47,6 +47,25 @@ xls_border_style (guint code)
     default: return O42_BORDER_THIN;
     }
 }
+
+/* Fill patterns as BIFF numbers them (fls): 1 is solid, and 2 to 18
+ * the shadings in Excel's order. */
+static const O42Pattern FLS_PATTERNS[19] = {
+  O42_PATTERN_NONE, O42_PATTERN_SOLID, O42_PATTERN_GRAY50, O42_PATTERN_GRAY75,
+  O42_PATTERN_GRAY25, O42_PATTERN_HORIZONTAL, O42_PATTERN_VERTICAL, O42_PATTERN_DOWN,
+  O42_PATTERN_UP, O42_PATTERN_GRID, O42_PATTERN_TRELLIS, O42_PATTERN_THIN_HORIZONTAL,
+  O42_PATTERN_THIN_VERTICAL, O42_PATTERN_THIN_DOWN, O42_PATTERN_THIN_UP,
+  O42_PATTERN_THIN_GRID, O42_PATTERN_THIN_TRELLIS, O42_PATTERN_GRAY125, O42_PATTERN_GRAY0625
+};
+
+static guint
+xls_fls_code (O42Pattern pattern)
+{
+  for (guint i = 2; i < G_N_ELEMENTS (FLS_PATTERNS); i++)
+    if (FLS_PATTERNS[i] == pattern)
+      return i;
+  return 1;
+}
 #include <stdlib.h>
 #include <math.h>
 
@@ -1221,7 +1240,17 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
 static void
 apply_xf (Reader *r, int row, int col, guint xf)
 {
-  if (xf < r->xfs->len && xf != 15)
+  /* XF 15 is Excel's default cell format, and most cells wear it;
+   * applying it to each would be work for nothing.  A file from
+   * elsewhere may have put something else there, and then it counts. */
+  if (xf == 15 && xf < r->xfs->len)
+    {
+      O42Fmt plain;
+      o42_fmt_init_default (&plain);
+      if (memcmp (&plain, &g_array_index (r->xfs, O42Fmt, xf), sizeof plain) == 0)
+        return;
+    }
+  if (xf < r->xfs->len)
     {
       O42Range one = { row, col, row, col };
       o42_sheet_apply_fmt (r->sheet, &one, O42_FMT_ALL, &g_array_index (r->xfs, O42Fmt, xf));
@@ -1313,6 +1342,28 @@ read_font (Reader *r, const guchar *p, gsize len)
   g_array_append_val (r->fonts, f);
 }
 
+/* A cell's shading from the XF's pattern and two colours: a solid
+ * fill is the foreground colour; any other pattern is drawn in the
+ * foreground colour over the background.  Colours 0x40 and 0x41 are
+ * the system's, which is no shading. */
+static void
+xls_apply_fill (Reader *r, O42Fmt *f, guint fls, guint fg, guint bg)
+{
+  gboolean fg_set = fg >= 8 && fg < 64, bg_set = bg >= 8 && bg < 64;
+
+  if (fls == 1)
+    {
+      if (fg_set)
+        f->fill = palette_colour (r, fg);
+    }
+  else if (fls >= 2 && fls < G_N_ELEMENTS (FLS_PATTERNS))
+    {
+      f->pattern = FLS_PATTERNS[fls];
+      f->pattern_colour = fg_set ? palette_colour (r, fg) : 0x000000;
+      f->fill = bg_set ? palette_colour (r, bg) : O42_FILL_NONE;
+    }
+}
+
 static void
 read_xf (Reader *r, const guchar *p, gsize len)
 {
@@ -1328,10 +1379,12 @@ read_xf (Reader *r, const guchar *p, gsize len)
   else
     o42_fmt_init_default (&f);
 
+  /* Fill and justify read as left, centre across selection and
+   * distributed as centre: the nearest of the alignments here. */
   switch (align & 0x07)
     {
-    case 1: f.halign = O42_HALIGN_LEFT; break;
-    case 2: f.halign = O42_HALIGN_CENTRE; break;
+    case 1: case 4: case 5: f.halign = O42_HALIGN_LEFT; break;
+    case 2: case 6: case 7: f.halign = O42_HALIGN_CENTRE; break;
     case 3: f.halign = O42_HALIGN_RIGHT; break;
     default: break;
     }
@@ -1339,8 +1392,13 @@ read_xf (Reader *r, const guchar *p, gsize len)
   switch ((align >> 4) & 0x07)
     {
     case 0: f.valign = O42_VALIGN_TOP; break;
-    case 1: f.valign = O42_VALIGN_MIDDLE; break;
+    case 1: case 4: f.valign = O42_VALIGN_MIDDLE; break;
     default: break;
+    }
+  if (len >= 6)
+    {
+      f.locked = (p[4] & 0x01) != 0;
+      f.hidden = (p[4] & 0x02) != 0;
     }
 
   if (r->biff >= 8 && len >= 20)
@@ -1362,23 +1420,25 @@ read_xf (Reader *r, const guchar *p, gsize len)
         f.rotation = rot <= 90 ? (gint16) rot : rot <= 180 ? (gint16) (90 - (int) rot) : 0;
         f.indent = (guint8) ind;
       }
-      if (pattern != 0)
-        {
-          guint fg = fill & 0x7F;
-          if (fg >= 8 && fg < 64)
-            f.fill = palette_colour (r, fg);
-        }
+      xls_apply_fill (r, &f, pattern, fill & 0x7F, (fill >> 7) & 0x7F);
     }
   else if (len >= 16)
     {
+      /* BIFF5: the colours, the pattern with the bottom border, then
+       * the other three borders in a longword. */
       guint fill = rd16 (p + 8);
-      guint pattern = rd16 (p + 10) & 0x3F;
-      if (pattern != 0)
-        {
-          guint fg = fill & 0x7F;
-          if (fg >= 8 && fg < 64)
-            f.fill = palette_colour (r, fg);
-        }
+      guint b1 = rd16 (p + 10);
+      guint32 b2 = rd32 (p + 12);
+      xls_apply_fill (r, &f, b1 & 0x3F, fill & 0x7F, (fill >> 7) & 0x7F);
+      f.border_style[O42_SIDE_BOTTOM] = xls_border_style ((b1 >> 6) & 0x07);
+      f.border_colour[O42_SIDE_BOTTOM] = xls_border_palette (r, (b1 >> 9) & 0x7F);
+      f.border_style[O42_SIDE_TOP] = xls_border_style (b2 & 0x07);
+      f.border_style[O42_SIDE_LEFT] = xls_border_style ((b2 >> 3) & 0x07);
+      f.border_style[O42_SIDE_RIGHT] = xls_border_style ((b2 >> 6) & 0x07);
+      f.border_colour[O42_SIDE_TOP] = xls_border_palette (r, (b2 >> 9) & 0x7F);
+      f.border_colour[O42_SIDE_LEFT] = xls_border_palette (r, (b2 >> 16) & 0x7F);
+      f.border_colour[O42_SIDE_RIGHT] = xls_border_palette (r, (b2 >> 23) & 0x7F);
+      o42_fmt_sync_borders (&f);
     }
 
   code = g_hash_table_lookup (r->formats, GINT_TO_POINTER ((int) format));
@@ -4483,7 +4543,7 @@ write_xf (Writer *w, const O42Fmt *f, gboolean style)
     put16 (w->out, font == 0 ? 0 : font + 4);
   }
   put16 (w->out, format_id (w, f));
-  put16 (w->out, style ? 0xFFF5 : 0x0001);
+  put16 (w->out, style ? 0xFFF5 : (f->locked ? 0x0001 : 0) | (f->hidden ? 0x0002 : 0));
   put8 (w->out, style ? 0x20 : align);
   put8 (w->out, style ? 0 : (f->rotation >= 0 ? f->rotation : 90 - f->rotation));
   put8 (w->out, style ? 0 : (f->indent & 0x0F));
@@ -4499,10 +4559,15 @@ write_xf (Writer *w, const O42Fmt *f, gboolean style)
     guint32 b2 = 0;
     if (f->border_top) b2 |= xls_border_colour (w, f->border_colour[O42_SIDE_TOP]);
     if (f->border_bottom) b2 |= (guint32) xls_border_colour (w, f->border_colour[O42_SIDE_BOTTOM]) << 7;
-    if (f->fill != O42_FILL_NONE) b2 |= 1u << 26;   /* solid */
+    if (f->pattern != O42_PATTERN_NONE) b2 |= xls_fls_code ((O42Pattern) f->pattern) << 26;
+    else if (f->fill != O42_FILL_NONE) b2 |= 1u << 26;   /* solid */
     put32 (w->out, b2);
   }
-  put16 (w->out, f->fill != O42_FILL_NONE ? (palette_index (w, f->fill) | (0x41 << 7)) : (0x40 | (0x41 << 7)));
+  if (f->pattern != O42_PATTERN_NONE)
+    put16 (w->out, palette_index (w, f->pattern_colour) |
+                   ((f->fill != O42_FILL_NONE ? palette_index (w, f->fill) : 0x41) << 7));
+  else
+    put16 (w->out, f->fill != O42_FILL_NONE ? (palette_index (w, f->fill) | (0x41 << 7)) : (0x40 | (0x41 << 7)));
   end_record (w);
 }
 
