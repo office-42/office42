@@ -927,6 +927,16 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
   if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
     return FALSE;
 
+  if (strcmp (what, "subtotal") == 0)
+    {
+      /* Whether the cell holds a SUBTOTAL formula, which a SUBTOTAL over
+       * it leaves out. */
+      O42Cell *cell = sheet_find (sheet, row, col);
+      *out = o42_value_bool (cell != NULL && cell->input != NULL &&
+                             g_ascii_strncasecmp (cell->input, "=SUBTOTAL(", 10) == 0);
+      return TRUE;
+    }
+
   if (strcmp (what, "table") == 0)
     {
       /* What TABLE() in this cell shows: the value the What-If table
@@ -8569,7 +8579,7 @@ o42_sheet_remove_duplicates (O42Sheet *sheet, const O42Range *range,
 {
   O42Range r;
   GHashTable *seen;
-  GArray *doomed;
+  GArray *kept;
   int removed = 0;
 
   g_return_val_if_fail (sheet != NULL && range != NULL && cols != NULL && n_cols > 0, 0);
@@ -8588,30 +8598,63 @@ o42_sheet_remove_duplicates (O42Sheet *sheet, const O42Range *range,
   else
     record_op_quiet (sheet);
   seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
-  doomed = g_array_new (FALSE, FALSE, sizeof (int));
+  kept = g_array_new (FALSE, FALSE, sizeof (int));
   for (int row = r.row0 + (has_header ? 1 : 0); row <= r.row1; row++)
     {
       char *key = row_key (sheet, row, cols, n_cols);
       if (g_hash_table_contains (seen, key))
         {
-          g_array_append_val (doomed, row);
+          removed++;
           g_free (key);
         }
       else
-        g_hash_table_add (seen, key);
+        {
+          g_hash_table_add (seen, key);
+          g_array_append_val (kept, row);
+        }
     }
 
-  op_begin (sheet);
-  /* From the bottom, so the rows still to go keep their numbers. */
-  for (int i = (int) doomed->len - 1; i >= 0; i--)
+  /* The rows that stay move up over the ones that go: every row is
+   * read before any is written, each formula relocated by how far it
+   * moves, and the tail of the range emptied -- one pass, not a shift
+   * of the sheet per row removed. */
+  if (removed > 0)
     {
-      int row = g_array_index (doomed, int, i);
-      O42Range slice = { row, r.col0, row, r.col1 };
-      o42_sheet_shift_cells (sheet, &slice, TRUE, FALSE);
-      removed++;
+      int first = r.row0 + (has_header ? 1 : 0);
+      int n_cols_range = r.col1 - r.col0 + 1;
+      Carried *carried = g_new0 (Carried, (gsize) kept->len * n_cols_range);
+
+      for (guint i = 0; i < kept->len; i++)
+        {
+          int source = g_array_index (kept, int, i);
+          int drow = (first + (int) i) - source;
+          for (int c = 0; c < n_cols_range; c++)
+            {
+              Carried *k = &carried[i * n_cols_range + c];
+              k->input = o42_sheet_get_input_relocated (sheet, source, r.col0 + c, drow, 0);
+              k->fmt = o42_sheet_get_fmt_idx (sheet, source, r.col0 + c);
+            }
+        }
+      op_begin (sheet);
+      for (guint i = 0; i < kept->len; i++)
+        for (int c = 0; c < n_cols_range; c++)
+          sheet_put_carried (sheet, first + (int) i, r.col0 + c, &carried[i * n_cols_range + c]);
+      {
+        O42Range tail = { first + (int) kept->len, r.col0, r.row1, r.col1 };
+        for (int row = tail.row0; row <= tail.row1; row++)
+          for (int c = tail.col0; c <= tail.col1; c++)
+            {
+              op_capture (sheet, row, c);
+              set_input_internal (sheet, row, c, "");
+            }
+        o42_sheet_clear_formats (sheet, &tail);
+      }
+      op_end (sheet);
+      for (guint i = 0; i < kept->len * n_cols_range; i++)
+        g_free (carried[i].input);
+      g_free (carried);
     }
-  op_end (sheet);
-  g_array_unref (doomed);
+  g_array_unref (kept);
   g_hash_table_unref (seen);
   record_op_end (sheet);
   return removed;
@@ -8651,24 +8694,59 @@ int
 o42_sheet_remove_subtotals (O42Sheet *sheet, const O42Range *range)
 {
   O42Range r;
-  int removed = 0;
+  GArray *kept;
+  int removed = 0, n_cols, first_gone = -1;
+  Carried *carried;
 
   g_return_val_if_fail (sheet != NULL && range != NULL, 0);
   r = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
+  n_cols = r.col1 - r.col0 + 1;
+  kept = g_array_new (FALSE, FALSE, sizeof (int));
+  for (int row = r.row0; row <= r.row1; row++)
+    {
+      if (row_is_subtotal (sheet, row, &r))
+        {
+          removed++;
+          if (first_gone < 0) first_gone = row;
+        }
+      else
+        g_array_append_val (kept, row);
+    }
+  if (removed == 0)
+    {
+      g_array_unref (kept);
+      return 0;
+    }
+
+  /* The rows that stay close up over the subtotal rows, then the rows
+   * the range no longer needs are deleted from the sheet in one go, so
+   * what lies below moves up once.  The outline goes with them. */
   op_begin (sheet);
-  for (int row = r.row1; row >= r.row0; row--)
-    if (row_is_subtotal (sheet, row, &r))
-      {
-        /* The outline goes with the row; then the row. */
-        while (o42_sheet_row_level (sheet, row) > 0)
-          o42_sheet_set_row_level (sheet, row, o42_sheet_row_level (sheet, row) - 1);
-        o42_sheet_delete_rows (sheet, row, 1);
-        removed++;
-      }
-  for (int row = r.row0; row <= r.row1 - removed; row++)
+  carried = g_new0 (Carried, (gsize) kept->len * n_cols);
+  for (guint i = 0; i < kept->len; i++)
+    {
+      int source = g_array_index (kept, int, i);
+      int drow = (r.row0 + (int) i) - source;
+      for (int c = 0; c < n_cols; c++)
+        {
+          Carried *k = &carried[i * n_cols + c];
+          k->input = o42_sheet_get_input_relocated (sheet, source, r.col0 + c, drow, 0);
+          k->fmt = o42_sheet_get_fmt_idx (sheet, source, r.col0 + c);
+        }
+    }
+  for (guint i = 0; i < kept->len; i++)
+    if (g_array_index (kept, int, i) != r.row0 + (int) i)
+      for (int c = 0; c < n_cols; c++)
+        sheet_put_carried (sheet, r.row0 + (int) i, r.col0 + c, &carried[i * n_cols + c]);
+  for (guint i = 0; i < kept->len * n_cols; i++)
+    g_free (carried[i].input);
+  g_free (carried);
+  for (int row = r.row0; row <= r.row1; row++)
     while (o42_sheet_row_level (sheet, row) > 0)
       o42_sheet_set_row_level (sheet, row, o42_sheet_row_level (sheet, row) - 1);
+  o42_sheet_delete_rows (sheet, r.row1 - removed + 1, removed);
   op_end (sheet);
+  g_array_unref (kept);
   return removed;
 }
 
@@ -8714,27 +8792,61 @@ o42_sheet_subtotal (O42Sheet *sheet, const O42Range *range, int group_col,
     g_array_append_val (starts, end);
   }
 
-  /* From the last group up, so the rows above keep their numbers: a
-   * subtotal row after each group, then the grand total at the end. */
+  /* All the new rows go in at once below the range -- one shift of what
+   * lies beneath -- then every data row is read, relocated by the
+   * number of subtotal rows that end up above it, and written to its
+   * new place from the bottom up; then the subtotal rows and the grand
+   * total are filled in.  One pass, not a shift per group. */
   {
-    int grand = last + 1;
-    o42_sheet_insert_rows (sheet, grand, 1);
-    {
-      char *label = g_strdup_printf ("Grand %s", subtotal_function_name (function_num));
-      o42_sheet_set_input (sheet, grand, group_col, label);
-      g_free (label);
-    }
-    added++;
-    for (int g = (int) starts->len - 2; g >= 0; g--)
+    int n_groups = (int) starts->len - 1;
+    int n_cols = r.col1 - r.col0 + 1;
+    int n_data = last - first + 1;
+    int grand;
+    Carried *carried;
+
+    added = n_groups + 1;
+    o42_sheet_insert_rows (sheet, last + 1, added);
+    grand = last + added;
+
+    carried = g_new0 (Carried, (gsize) n_data * n_cols);
+    for (int g = 0; g < n_groups; g++)
       {
         int lo = g_array_index (starts, int, g);
         int hi = g_array_index (starts, int, g + 1) - 1;
+        for (int row = lo; row <= hi; row++)
+          for (int c = 0; c < n_cols; c++)
+            {
+              Carried *k = &carried[(row - first) * n_cols + c];
+              k->input = o42_sheet_get_input_relocated (sheet, row, r.col0 + c, g, 0);
+              k->fmt = o42_sheet_get_fmt_idx (sheet, row, r.col0 + c);
+            }
+      }
+    for (int g = n_groups - 1; g >= 0; g--)
+      {
+        int lo = g_array_index (starts, int, g);
+        int hi = g_array_index (starts, int, g + 1) - 1;
+        if (g > 0)
+          for (int row = hi; row >= lo; row--)
+            for (int c = 0; c < n_cols; c++)
+              sheet_put_carried (sheet, row + g, r.col0 + c, &carried[(row - first) * n_cols + c]);
+      }
+    for (int i = 0; i < n_data * n_cols; i++)
+      g_free (carried[i].input);
+    g_free (carried);
+
+    for (int g = 0; g < n_groups; g++)
+      {
+        int lo = g_array_index (starts, int, g) + g;
+        int hi = g_array_index (starts, int, g + 1) - 1 + g;
         int at = hi + 1;
         char *value = o42_sheet_get_display (sheet, lo, group_col);
         char *label = g_strdup_printf ("%s %s", value, subtotal_function_name (function_num));
 
-        o42_sheet_insert_rows (sheet, at, 1);
-        added++;
+        for (int c = r.col0; c <= r.col1; c++)
+          {
+            op_capture (sheet, at, c);
+            set_input_internal (sheet, at, c, "");
+          }
         o42_sheet_set_input (sheet, at, group_col, label);
         for (int i = 0; i < n_sum; i++)
           {
@@ -8755,8 +8867,11 @@ o42_sheet_subtotal (O42Sheet *sheet, const O42Range *range, int group_col,
         g_free (label);
         g_free (value);
       }
-    /* The grand total moved down by the subtotal rows put in above it. */
-    grand = last + added;
+    {
+      char *label = g_strdup_printf ("Grand %s", subtotal_function_name (function_num));
+      o42_sheet_set_input (sheet, grand, group_col, label);
+      g_free (label);
+    }
     for (int i = 0; i < n_sum; i++)
       {
         char *a = o42_ref_name (first, sum_cols[i]);
