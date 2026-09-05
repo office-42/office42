@@ -506,6 +506,92 @@ on_scenario_delete (GtkWidget *w, gpointer data)
   window_sync (prompt->window);
 }
 
+/* Summary asks which cells are the results, then writes the report on
+ * a sheet of its own and shows it. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *cells;
+} SummaryPrompt;
+
+static void
+on_summary_ok (GtkWidget *w, gpointer data)
+{
+  SummaryPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  GArray *results = g_array_new (FALSE, FALSE, sizeof (guint64));
+  char **parts = g_strsplit_set (gtk_editable_get_text (GTK_EDITABLE (prompt->cells)), ",; ", -1);
+  O42Sheet *made;
+
+  (void) w;
+  for (int i = 0; parts[i] != NULL; i++)
+    {
+      O42Range r;
+      gsize len = 0;
+      const char *part = g_strstrip (parts[i]);
+
+      if (*part == '\0' || !o42_ref_parse (part, &r.row0, &r.col0, &len))
+        continue;
+      r.row1 = r.row0; r.col1 = r.col0;
+      if (part[len] == ':')
+        o42_ref_parse (part + len + 1, &r.row1, &r.col1, NULL);
+      r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+      for (int row = r.row0; row <= r.row1 && row < r.row0 + 100; row++)
+        for (int col = r.col0; col <= r.col1 && col < r.col0 + 100; col++)
+          {
+            guint64 key = o42_key (row, col);
+            g_array_append_val (results, key);
+          }
+    }
+  g_strfreev (parts);
+  made = o42_sheet_scenario_summary (self->sheet, results);
+  g_array_unref (results);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+  if (made != NULL)
+    {
+      window_show_sheet (self, o42_book_sheet_index (self->book, made));
+      window_sync (self);
+    }
+}
+
+static void
+on_scenario_summary (GtkWidget *w, gpointer data)
+{
+  ScenarioPrompt *scenarios = data;
+  O42Window *self = scenarios->window;
+  SummaryPrompt *prompt;
+  GtkWidget *content, *buttons, *grid, *ok;
+  O42Range sel;
+
+  (void) w;
+  if (o42_sheet_n_scenarios (self->sheet) == 0)
+    return;
+  prompt = g_new0 (SummaryPrompt, 1);
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Scenario Summary"), TRUE, &content, &buttons);
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->cells = labelled (grid, 0, _("Result cells:"), gtk_entry_new ());
+  gtk_widget_set_size_request (prompt->cells, 220, -1);
+  gtk_box_append (GTK_BOX (content), grid);
+  o42_grid_get_selection (self->grid, &sel);
+  {
+    char *a1 = o42_ref_name (sel.row0, sel.col0);
+    char *b1 = o42_ref_name (sel.row1, sel.col1);
+    char *text = (sel.row0 == sel.row1 && sel.col0 == sel.col1) ? g_strdup (a1)
+                                                                : g_strdup_printf ("%s:%s", a1, b1);
+    gtk_editable_set_text (GTK_EDITABLE (prompt->cells), text);
+    g_free (text); g_free (a1); g_free (b1);
+  }
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt->cells), TRUE);
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_summary_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
 void
 action_scenarios (GSimpleAction *a, GVariant *p, gpointer data)
 {
@@ -553,6 +639,7 @@ action_scenarios (GSimpleAction *a, GVariant *p, gpointer data)
   show = dialog_button (buttons, _("_Show"), G_CALLBACK (on_scenario_show), prompt);
   dialog_button (buttons, _("_Add"), G_CALLBACK (on_scenario_add), prompt);
   dialog_button (buttons, _("_Delete"), G_CALLBACK (on_scenario_delete), prompt);
+  dialog_button (buttons, _("S_ummary..."), G_CALLBACK (on_scenario_summary), prompt);
   dialog_button (buttons, _("_Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
   gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), show);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);

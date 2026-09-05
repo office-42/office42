@@ -547,6 +547,12 @@ gboolean    o42_sheet_scenario_cells  (O42Sheet *sheet, const char *name,
 /* Puts a scenario together cell by cell, for the file readers. */
 void        o42_sheet_define_scenario (O42Sheet *sheet, const char *name, const char *comment,
                                        int row, int col, const char *value);
+/* Excel's Scenario Summary: a new sheet in the book with a column for
+ * the values as they stand and one per scenario, the changing cells
+ * above and the result cells (guint64 keys on this sheet) below, each
+ * result worked out under that scenario.  The sheet is left as it was.
+ * Returns the new sheet, or NULL when there are no scenarios. */
+O42Sheet   *o42_sheet_scenario_summary (O42Sheet *sheet, const GArray *results);
 
 /* ---- Tables -------------------------------------------------------------- */
 

@@ -172,7 +172,7 @@ main (int argc, char *argv[])
               "Sheets    sheet rename delsheet freeze split hiderows levels group protect\n"
               "          lock hide editable chartsheet\n"
               "Data      sort find replace filter advfilter subtotal dedupe consolidate\n"
-              "          table pivot refresh validate validations goalseek solve scenario\n"
+              "          table pivot refresh validate validations goalseek solve scenario summary\n"
               "          analyse whatif\n"
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
               "          picture pictures objgroup objungroup note link links\n"
@@ -727,6 +727,34 @@ main (int argc, char *argv[])
 
       /* scenario NAME A1:B2 [COMMENT] saves the cells' values; showscenario
        * NAME puts them back; scenarios lists them; delscenario NAME. */
+      /* "summary B5,C7" writes the Scenario Summary sheet, with those
+       * as its result cells, and switches to it. */
+      if (g_str_has_prefix (text, "summary"))
+        {
+          GArray *results = g_array_new (FALSE, FALSE, sizeof (guint64));
+          char **words = g_strsplit (text + 7, ",", -1);
+          O42Sheet *made;
+
+          for (int i = 0; words[i] != NULL; i++)
+            {
+              int r, c;
+
+              if (o42_ref_parse (g_strstrip (words[i]), &r, &c, NULL))
+                {
+                  guint64 key = o42_key (r, c);
+                  g_array_append_val (results, key);
+                }
+            }
+          g_strfreev (words);
+          made = o42_sheet_scenario_summary (sheet, results);
+          if (made != NULL)
+            sheet = made;
+          else
+            fprintf (stderr, "no scenarios to summarise\n");
+          g_array_unref (results);
+          continue;
+        }
+
       if (g_str_has_prefix (text, "scenario ") || g_str_has_prefix (text, "showscenario ") ||
           g_str_has_prefix (text, "delscenario ") || strcmp (text, "scenarios") == 0)
         {

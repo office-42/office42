@@ -7669,6 +7669,214 @@ o42_sheet_show_scenario (O42Sheet *sheet, const char *name)
   return TRUE;
 }
 
+/* A cell's name for the summary: a defined name for exactly it, or
+ * its address. */
+static char *
+summary_cell_name (O42Sheet *sheet, int row, int col)
+{
+  if (sheet->book != NULL)
+    {
+      GList *names = o42_book_names (sheet->book);
+
+      for (GList *l = names; l != NULL; l = l->next)
+        {
+          O42Sheet *on = NULL;
+          O42Range r;
+
+          if (o42_book_lookup_name (sheet->book, l->data, &on, &r) && on == sheet &&
+              r.row0 == row && r.row1 == row && r.col0 == col && r.col1 == col)
+            {
+              char *found = g_strdup (l->data);
+              g_list_free (names);
+              return found;
+            }
+        }
+      g_list_free (names);
+    }
+  return o42_ref_name (row, col);
+}
+
+/* Writes a cell's present value into the summary, as a number where it
+ * is one, wearing the cell's number format. */
+static void
+summary_put_value (O42Sheet *from, int row, int col, O42Sheet *to, int trow, int tcol)
+{
+  O42Value v;
+  const O42Fmt *fmt = o42_sheet_get_fmt (from, row, col);
+  O42Range at = { trow, tcol, trow, tcol };
+
+  o42_sheet_get_value (from, row, col, &v);
+  if (v.type == O42_VALUE_NUMBER)
+    {
+      char *text = o42_number_to_text (v.as.number, TRUE);
+      o42_sheet_set_input (to, trow, tcol, text);
+      g_free (text);
+      o42_sheet_apply_fmt (to, &at, O42_FMT_NUMBER | O42_FMT_DECIMALS, fmt);
+    }
+  else if (v.type != O42_VALUE_EMPTY)
+    {
+      char *text = o42_sheet_get_display (from, row, col);
+      o42_sheet_set_input (to, trow, tcol, text);
+      g_free (text);
+    }
+  o42_value_clear (&v);
+}
+
+O42Sheet *
+o42_sheet_scenario_summary (O42Sheet *sheet, const GArray *results)
+{
+  O42Sheet *out;
+  GArray *changing;          /* guint64 keys, in order of first appearance */
+  GPtrArray *saved;          /* the inputs as they stand, to put back */
+  char *name;
+  int n_scen, row, col;
+  O42Fmt bold, shade;
+
+  g_return_val_if_fail (sheet != NULL, NULL);
+  n_scen = o42_sheet_n_scenarios (sheet);
+  if (n_scen == 0 || sheet->book == NULL)
+    return NULL;
+
+  changing = g_array_new (FALSE, FALSE, sizeof (guint64));
+  for (int i = 0; i < n_scen; i++)
+    {
+      Scenario *s = g_ptr_array_index (sheet->scenarios, i);
+
+      for (guint k = 0; k < s->keys->len; k++)
+        {
+          guint64 key = g_array_index (s->keys, guint64, k);
+          gboolean seen = FALSE;
+
+          for (guint j = 0; j < changing->len && !seen; j++)
+            seen = g_array_index (changing, guint64, j) == key;
+          if (!seen)
+            g_array_append_val (changing, key);
+        }
+    }
+
+  /* A sheet of its own, named as Excel names it, numbered when there
+   * is one already. */
+  name = g_strdup ("Scenario Summary");
+  for (int n = 2; o42_book_find_sheet (sheet->book, name) != NULL; n++)
+    {
+      g_free (name);
+      name = g_strdup_printf ("Scenario Summary %d", n);
+    }
+  out = o42_book_add_sheet (sheet->book, name, o42_book_sheet_index (sheet->book, sheet) + 1);
+  g_free (name);
+  if (out == NULL)
+    {
+      g_array_unref (changing);
+      return NULL;
+    }
+
+  o42_fmt_init_default (&bold);
+  bold.bold = TRUE;
+  o42_fmt_init_default (&shade);
+  shade.fill = 0xC0C0C0;
+
+  /* The frame: the title, the column headings, the two group labels. */
+  o42_sheet_set_input (out, 1, 1, "Scenario Summary");
+  {
+    O42Range r = { 1, 1, 1, 1 };
+    o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+  }
+  o42_sheet_set_input (out, 2, 2, "Current Values:");
+  for (int i = 0; i < n_scen; i++)
+    o42_sheet_set_input (out, 2, 3 + i, o42_sheet_scenario_name (sheet, i));
+  {
+    O42Range r = { 2, 2, 2, 2 + n_scen };
+    o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+  }
+  o42_sheet_set_input (out, 3, 1, "Changing Cells:");
+  row = 4;
+  for (guint k = 0; k < changing->len; k++, row++)
+    {
+      guint64 key = g_array_index (changing, guint64, k);
+      char *label = summary_cell_name (sheet, o42_key_row (key), o42_key_col (key));
+
+      o42_sheet_set_input (out, row, 1, label);
+      g_free (label);
+      summary_put_value (sheet, o42_key_row (key), o42_key_col (key), out, row, 2);
+    }
+  o42_sheet_set_input (out, row, 1, "Result Cells:");
+  {
+    O42Range r = { 3, 1, row, 1 };
+    o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+  }
+  row++;
+  for (guint k = 0; results != NULL && k < results->len; k++, row++)
+    {
+      guint64 key = g_array_index (results, guint64, k);
+      char *label = summary_cell_name (sheet, o42_key_row (key), o42_key_col (key));
+
+      o42_sheet_set_input (out, row, 1, label);
+      g_free (label);
+      summary_put_value (sheet, o42_key_row (key), o42_key_col (key), out, row, 2);
+    }
+  o42_sheet_set_input (out, row + 1, 1,
+                       "Notes: Current Values column represents values of changing cells at "
+                       "time Scenario Summary Report was created. Changing cells for each "
+                       "scenario are highlighted in gray.");
+
+  /* Each scenario in turn: its values put in, the results read, and
+   * the sheet put back afterwards.  Nothing of this goes into the undo
+   * history, since the sheet ends as it began. */
+  saved = g_ptr_array_new_with_free_func (g_free);
+  for (guint k = 0; k < changing->len; k++)
+    {
+      guint64 key = g_array_index (changing, guint64, k);
+      g_ptr_array_add (saved, o42_sheet_get_input (sheet, o42_key_row (key), o42_key_col (key)));
+    }
+  for (int i = 0; i < n_scen; i++)
+    {
+      Scenario *s = g_ptr_array_index (sheet->scenarios, i);
+
+      col = 3 + i;
+      for (guint k = 0; k < s->keys->len && k < s->values->len; k++)
+        {
+          guint64 key = g_array_index (s->keys, guint64, k);
+          set_input_internal (sheet, o42_key_row (key), o42_key_col (key),
+                              g_ptr_array_index (s->values, k));
+        }
+      row = 4;
+      for (guint k = 0; k < changing->len; k++, row++)
+        {
+          guint64 key = g_array_index (changing, guint64, k);
+          gboolean in_scenario = FALSE;
+
+          for (guint j = 0; j < s->keys->len && !in_scenario; j++)
+            in_scenario = g_array_index (s->keys, guint64, j) == key;
+          summary_put_value (sheet, o42_key_row (key), o42_key_col (key), out, row, col);
+          if (in_scenario)
+            {
+              O42Range r = { row, col, row, col };
+              o42_sheet_apply_fmt (out, &r, O42_FMT_FILL, &shade);
+            }
+        }
+      row++;
+      for (guint k = 0; results != NULL && k < results->len; k++, row++)
+        {
+          guint64 key = g_array_index (results, guint64, k);
+          summary_put_value (sheet, o42_key_row (key), o42_key_col (key), out, row, col);
+        }
+    }
+  for (guint k = 0; k < changing->len; k++)
+    {
+      guint64 key = g_array_index (changing, guint64, k);
+      set_input_internal (sheet, o42_key_row (key), o42_key_col (key),
+                          g_ptr_array_index (saved, k));
+    }
+  g_ptr_array_unref (saved);
+  g_array_unref (changing);
+
+  o42_sheet_set_col_width (out, 0, 20);
+  o42_sheet_set_col_width (out, 1, 120);
+  for (int c = 2; c <= 2 + n_scen; c++)
+    o42_sheet_set_col_width (out, c, 100);
+  return out;
+}
+
 gboolean
 o42_sheet_remove_scenario (O42Sheet *sheet, const char *name)
 {
