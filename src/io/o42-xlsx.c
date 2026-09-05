@@ -1835,6 +1835,8 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     double tolerance = 0.001;
     gboolean iterate = o42_book_iteration (book, &max, &tolerance);
 
+    if (o42_book_date_1904 (book))
+      g_string_append (s, "<workbookPr date1904=\"1\"/>");
     g_string_append_printf (s, "<calcPr fullCalcOnLoad=\"1\" calcMode=\"%s\" "
                                "iterate=\"%d\" iterateCount=\"%d\" iterateDelta=\"%g\"/></workbook>",
                             o42_book_manual (book) ? "manual" : "auto",
@@ -2118,6 +2120,11 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *rid = attr (names, values, "id");
       g_ptr_array_add (r->sheet_names, g_strdup (sname ? sname : "Sheet"));
       g_ptr_array_add (r->sheet_rids, g_strdup (rid ? rid : ""));
+    }
+  else if (strcmp (n, "workbookPr") == 0)
+    {
+      const char *d = attr (names, values, "date1904");
+      o42_book_set_date_1904 (r->book, d != NULL && (strcmp (d, "1") == 0 || strcmp (d, "true") == 0));
     }
   else if (strcmp (n, "definedName") == 0)
     {

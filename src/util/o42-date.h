@@ -24,6 +24,15 @@ G_BEGIN_DECLS
  * last day of February, which is how Excel's DATE has always worked and is
  * the idiom for "end of month". */
 double   o42_date_serial      (int year, int month, int day);
+
+/* The 1904 date system, which Excel for the Macintosh used and any
+ * book may ask for: serial 0 is 1 January 1904 and there is no leap
+ * day to be wrong about.  It is a setting of the book being worked
+ * on, kept here because every date passes through here: the book
+ * sets it when it is told, and the window sets it again from its book
+ * whenever it comes to the front. */
+void     o42_date_set_1904 (gboolean on);
+gboolean o42_date_1904     (void);
 gboolean o42_date_from_serial (double serial, int *year, int *month, int *day);
 
 /* The time of day as a fraction of a day, and back. */

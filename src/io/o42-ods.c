@@ -1581,6 +1581,8 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   g_string_append (content, "<office:automatic-styles>");
   g_string_append (content, s.styles->str);
   g_string_append (content, "</office:automatic-styles><office:body><office:spreadsheet>");
+  if (o42_book_date_1904 (book))
+    g_string_append (content, "<table:calculation-settings><table:null-date table:date-value=\"1904-01-01\"/></table:calculation-settings>");
   g_string_append (content, body->str);
   g_string_append (content, "</office:spreadsheet></office:body></office:document-content>");
 
@@ -2829,6 +2831,15 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
             r->loose_controls = g_array_new (FALSE, FALSE, sizeof (LooseControl));
           g_array_append_val (r->loose_controls, l);
         }
+      return;
+    }
+
+  if (strcmp (name, "null-date") == 0)
+    {
+      /* The day serial 0 falls on: 1904-01-01 is the Macintosh epoch,
+       * and 1899-12-30 the usual one. */
+      const char *when = attr (names, values, "date-value");
+      o42_book_set_date_1904 (r->book, when != NULL && g_str_has_prefix (when, "1904"));
       return;
     }
 

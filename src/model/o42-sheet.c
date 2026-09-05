@@ -9053,6 +9053,8 @@ o42_sheet_recalculate (O42Sheet *sheet)
   g_return_if_fail (sheet != NULL);
   if (sheet->recalculating)
     return;
+  if (sheet->book != NULL)
+    o42_date_set_1904 (o42_book_date_1904 (sheet->book));   /* this book's calendar */
   sheet->recalculating = TRUE;
   sheet->cycle_seen = FALSE;
 

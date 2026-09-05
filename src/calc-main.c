@@ -180,6 +180,7 @@ main (int argc, char *argv[])
               "Python    py pyfile script scripts runscript delscript record\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
+              "          date1904\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
               "section 19 says what each does; --functions lists every function.\n");
@@ -1460,15 +1461,24 @@ main (int argc, char *argv[])
           continue;
         }
 
-      /* calcmode auto|manual; iterate off|on [MAX [TOLERANCE]]; recalc */
+      /* calcmode auto|manual; iterate off|on [MAX [TOLERANCE]]; recalc;
+       * date1904 on|off */
       if (g_str_has_prefix (text, "calcmode") || g_str_has_prefix (text, "iterate") ||
-          strcmp (text, "recalc") == 0)
+          strcmp (text, "recalc") == 0 || g_str_has_prefix (text, "date1904"))
         {
           char **words = g_strsplit (text, " ", -1);
           int n = (int) g_strv_length (words);
 
           if (strcmp (text, "recalc") == 0)
             {
+              for (int i = 0; i < o42_book_n_sheets (book); i++)
+                o42_sheet_recalculate (o42_book_sheet (book, i));
+            }
+          else if (g_str_has_prefix (text, "date1904"))
+            {
+              if (n >= 2)
+                o42_book_set_date_1904 (book, strcmp (words[1], "on") == 0);
+              printf ("date system %s\n", o42_book_date_1904 (book) ? "1904" : "1900");
               for (int i = 0; i < o42_book_n_sheets (book); i++)
                 o42_sheet_recalculate (o42_book_sheet (book, i));
             }

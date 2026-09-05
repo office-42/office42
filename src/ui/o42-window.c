@@ -39,6 +39,7 @@
 
 #include "o42-grid.h"
 #include "o42-application.h"
+#include "o42-date.h"
 #include "o42-image.h"
 #include "o42-pdf.h"
 #include "o42-sql.h"
@@ -1300,7 +1301,7 @@ typedef struct {
   GtkWidget *dialog;
   GtkWidget *gridlines, *zeros;
   GtkWidget *manual, *iterate, *iterations, *tolerance;
-  GtkWidget *currency;
+  GtkWidget *currency, *date_1904;
 } OptionsPrompt;
 
 static void
@@ -1315,6 +1316,8 @@ on_options_ok (GtkWidget *w, gpointer data)
 
   o42_book_set_manual (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->manual)));
+  o42_book_set_date_1904 (prompt->window->book,
+    gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->date_1904)));
   o42_book_set_iteration (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->iterate)),
     (int) gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->iterations)),
@@ -1386,6 +1389,10 @@ action_options (GSimpleAction *a, GVariant *p, gpointer data)
     prompt->iterate = gtk_check_button_new_with_mnemonic ( _("Allow a formula to depend on _itself"));
     gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->iterate), iterating);
     gtk_box_append (GTK_BOX (content), prompt->iterate);
+
+    prompt->date_1904 = gtk_check_button_new_with_mnemonic ( _("_1904 date system"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->date_1904), o42_book_date_1904 (self->book));
+    gtk_box_append (GTK_BOX (content), prompt->date_1904);
 
     prompt->iterations = labelled (grid, 0, "At most:",
                                    gtk_spin_button_new_with_range (1, 10000, 1));
@@ -5319,6 +5326,18 @@ on_grid_mapped (GtkWidget *widget, gpointer data)
   gtk_widget_grab_focus (widget);
 }
 
+/* The date system is the book's, and the one in use is the front
+ * window's: a window coming to the front says so. */
+static void
+on_window_active (GObject *window, GParamSpec *pspec, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) window; (void) pspec;
+  if (gtk_window_is_active (GTK_WINDOW (self)) && self->book != NULL)
+    o42_date_set_1904 (o42_book_date_1904 (self->book));
+}
+
 static void
 o42_window_init (O42Window *self)
 {
@@ -5329,6 +5348,7 @@ o42_window_init (O42Window *self)
   self->book = o42_book_new ();
   self->sheet = o42_book_sheet (self->book, 0);
   o42_book_watch (self->book, on_book_changed, self);
+  g_signal_connect (self, "notify::is-active", G_CALLBACK (on_window_active), self);
 
   g_action_map_add_action_entries (G_ACTION_MAP (self), ACTIONS,
                                    G_N_ELEMENTS (ACTIONS), self);

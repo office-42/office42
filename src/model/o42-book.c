@@ -9,6 +9,7 @@
 #include <glib/gstdio.h>
 
 #include "o42-pyquote.h"
+#include "o42-date.h"
 #include <string.h>
 
 /* o42-types.h for the reference check in name_is_legal comes with
@@ -40,6 +41,7 @@ struct _O42Book {
   int           max_iterations;
   double        tolerance;
   gboolean      manual;       /* nothing is worked out until F9 */
+  gboolean      date_1904;    /* days counted from 1 January 1904 */
   GPtrArray    *custom_lists; /* GStrv: the runs the fill handle continues */
   char         *db_path;      /* the database beside the book, or NULL */
   gboolean      db_embedded;  /* ...and whether it lives inside it */
@@ -591,6 +593,32 @@ o42_book_set_manual (O42Book *book, gboolean manual)
 {
   g_return_if_fail (book != NULL);
   book->manual = manual;
+}
+
+void
+o42_book_set_date_1904 (O42Book *book, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (book->date_1904 != on)
+    {
+      book->date_1904 = on;
+      o42_date_set_1904 (on);
+      /* Every date-bearing formula has a new answer. */
+      for (int i = 0; i < o42_book_n_sheets (book); i++)
+        {
+          o42_sheet_set_modified (o42_book_sheet (book, i), TRUE);
+          o42_sheet_stale_formulas (o42_book_sheet (book, i));
+          o42_sheet_recalculate (o42_book_sheet (book, i));
+        }
+    }
+  o42_date_set_1904 (on);
+}
+
+gboolean
+o42_book_date_1904 (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->date_1904;
 }
 
 gboolean
