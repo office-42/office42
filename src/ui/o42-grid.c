@@ -6408,37 +6408,96 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
       cairo_restore (cr);
     }
 
-  /* Page breaks, where the printed pages would divide. */
+  /* Page Break Preview, as Excel draws it: what is not printed washed
+   * grey, each print area with a solid blue edge, the pages inside it
+   * divided by dashed lines, and "Page N" written large and faint
+   * across each. */
   if (self->show_breaks && self->sheet != NULL)
     {
       O42Pages *pages = o42_pages_new (self->sheet);
-      int *rows = NULL, *cols = NULL;
-      int n_rows = o42_pages_row_breaks (pages, &rows);
-      int n_cols = o42_pages_col_breaks (pages, &cols);
       static const double dashes[] = { 6, 4 };
+      O42Range region;
+      PangoLayout *mark = pango_cairo_create_layout (cr);
+      PangoFontDescription *desc = pango_font_description_from_string ("Sans Bold 28");
+
+      pango_layout_set_font_description (mark, desc);
+      pango_font_description_free (desc);
 
       cairo_save (cr);
-      cairo_set_source_rgb (cr, 0.1, 0.3, 0.8);
-      cairo_set_line_width (cr, 2);
-      cairo_set_dash (cr, dashes, 2, 0);
-      for (int i = 0; i < n_rows; i++)
-        {
-          double y = row_y (self, rows[i]);
+      cairo_rectangle (cr, HEADER_W, HEADER_H, view_w, view_h);
+      cairo_clip (cr);
 
-          cairo_move_to (cr, HEADER_W, floor (y) + 0.5);
-          cairo_line_to (cr, scroll_x + view_w, floor (y) + 0.5);
-        }
-      for (int i = 0; i < n_cols; i++)
+      /* The wash, with the regions cut out of it. */
+      cairo_save (cr);
+      cairo_set_fill_rule (cr, CAIRO_FILL_RULE_EVEN_ODD);
+      cairo_rectangle (cr, HEADER_W, HEADER_H, view_w, view_h);
+      for (int n = 0; o42_pages_region (pages, n, &region); n++)
         {
-          double x = col_x (self, cols[i]);
-
-          cairo_move_to (cr, floor (x) + 0.5, HEADER_H);
-          cairo_line_to (cr, floor (x) + 0.5, scroll_y + view_h);
+          double x0 = col_x (self, region.col0), y0 = row_y (self, region.row0);
+          double x1 = col_x (self, region.col1) + o42_sheet_col_width (self->sheet, region.col1);
+          double y1 = row_y (self, region.row1) + o42_sheet_row_height (self->sheet, region.row1);
+          cairo_rectangle (cr, x0, y0, x1 - x0, y1 - y0);
         }
-      cairo_stroke (cr);
+      cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 0.25);
+      cairo_fill (cr);
       cairo_restore (cr);
-      g_free (rows);
-      g_free (cols);
+
+      for (int n = 0; o42_pages_region (pages, n, &region); n++)
+        {
+          int *rows = NULL, *cols = NULL;
+          int n_rows = o42_pages_region_bands (pages, n, TRUE, &rows);
+          int n_cols = o42_pages_region_bands (pages, n, FALSE, &cols);
+          double x0 = col_x (self, region.col0), y0 = row_y (self, region.row0);
+          double x1 = col_x (self, region.col1) + o42_sheet_col_width (self->sheet, region.col1);
+          double y1 = row_y (self, region.row1) + o42_sheet_row_height (self->sheet, region.row1);
+
+          /* The page numbers, one per band pair. */
+          for (int cb = 0; cb < n_cols; cb++)
+            for (int rb = 0; rb < n_rows; rb++)
+              {
+                double px0 = col_x (self, cols[cb]);
+                double px1 = cb + 1 < n_cols ? col_x (self, cols[cb + 1]) : x1;
+                double py0 = row_y (self, rows[rb]);
+                double py1 = rb + 1 < n_rows ? row_y (self, rows[rb + 1]) : y1;
+                char *label = g_strdup_printf (_("Page %d"), o42_pages_region_page (pages, n, cb, rb));
+                int tw, th;
+
+                if (px1 < scroll_x + HEADER_W || px0 > scroll_x + HEADER_W + view_w ||
+                    py1 < scroll_y + HEADER_H || py0 > scroll_y + HEADER_H + view_h)
+                  { g_free (label); continue; }
+                pango_layout_set_text (mark, label, -1);
+                pango_layout_get_pixel_size (mark, &tw, &th);
+                cairo_set_source_rgba (cr, 0.4, 0.4, 0.4, 0.35);
+                cairo_move_to (cr, (px0 + px1 - tw) / 2, (py0 + py1 - th) / 2);
+                pango_cairo_show_layout (cr, mark);
+                g_free (label);
+              }
+
+          /* The dashed divisions inside, then the solid edge. */
+          cairo_set_source_rgb (cr, 0.1, 0.3, 0.8);
+          cairo_set_line_width (cr, 2);
+          cairo_set_dash (cr, dashes, 2, 0);
+          for (int i = 1; i < n_rows; i++)
+            {
+              double y = row_y (self, rows[i]);
+              cairo_move_to (cr, x0, floor (y) + 0.5);
+              cairo_line_to (cr, x1, floor (y) + 0.5);
+            }
+          for (int i = 1; i < n_cols; i++)
+            {
+              double x = col_x (self, cols[i]);
+              cairo_move_to (cr, floor (x) + 0.5, y0);
+              cairo_line_to (cr, floor (x) + 0.5, y1);
+            }
+          cairo_stroke (cr);
+          cairo_set_dash (cr, NULL, 0, 0);
+          cairo_rectangle (cr, floor (x0) + 0.5, floor (y0) + 0.5, floor (x1 - x0), floor (y1 - y0));
+          cairo_stroke (cr);
+          g_free (rows);
+          g_free (cols);
+        }
+      cairo_restore (cr);
+      g_object_unref (mark);
       o42_pages_free (pages);
     }
 

@@ -63,6 +63,13 @@ int       o42_pages_col_breaks (O42Pages *pages, int **cols);
  * FALSE past the last. */
 gboolean  o42_pages_region (O42Pages *pages, int n, O42Range *out);
 
+/* The bands of the nth region: the first row (or column) of each, and
+ * how many there are; the caller frees the array.  And the page number
+ * (from 1, across the whole sheet) of the band pair (cb, rb) of that
+ * region, in the setup's page order. */
+int       o42_pages_region_bands (O42Pages *pages, int n, gboolean rows, int **firsts);
+int       o42_pages_region_page  (O42Pages *pages, int n, int cb, int rb);
+
 gboolean o42_pdf_import_available (void);
 
 /* Appends the PDF's pages below whatever the sheet already holds, one blank

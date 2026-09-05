@@ -1438,6 +1438,41 @@ o42_pages_col_breaks (O42Pages *pages, int **cols)
   return pages_breaks (pages, FALSE, cols);
 }
 
+int
+o42_pages_region_bands (O42Pages *pages, int n, gboolean rows, int **firsts)
+{
+  const Region *region;
+  GArray *bands;
+
+  g_return_val_if_fail (pages != NULL && firsts != NULL, 0);
+  *firsts = NULL;
+  if (n < 0 || n >= (int) pages->regions->len)
+    return 0;
+  region = &g_array_index (pages->regions, Region, n);
+  bands = rows ? region->row_bands : region->col_bands;
+  *firsts = g_new (int, bands->len);
+  for (guint i = 0; i < bands->len; i++)
+    (*firsts)[i] = g_array_index (bands, Band, i).first;
+  return (int) bands->len;
+}
+
+int
+o42_pages_region_page (O42Pages *pages, int n, int cb, int rb)
+{
+  int before = 0;
+  const Region *region;
+
+  g_return_val_if_fail (pages != NULL, 0);
+  if (n < 0 || n >= (int) pages->regions->len)
+    return 0;
+  for (int i = 0; i < n; i++)
+    before += region_pages (&g_array_index (pages->regions, Region, i));
+  region = &g_array_index (pages->regions, Region, n);
+  if (pages->setup->down_then_over)
+    return before + cb * (int) region->row_bands->len + rb + 1;
+  return before + rb * (int) region->col_bands->len + cb + 1;
+}
+
 /* The print areas as paged, for the grid's page-break view: the nth
  * region's rectangle, FALSE past the last. */
 gboolean
