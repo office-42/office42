@@ -1333,8 +1333,32 @@ action_record_macro (GSimpleAction *a, GVariant *p, gpointer data)
       return;
     }
   o42_book_record_start (self->book);
+  {
+    /* The active cell is what a relative recording measures from. */
+    int row, col;
+    o42_grid_get_active (self->grid, &row, &col);
+    o42_book_record_set_relative (self->book, o42_book_record_relative (self->book), row, col);
+  }
   window_sync (self);
   gtk_label_set_text (GTK_LABEL (self->status_label), _("Recording. Tools > Macro > Stop Recording ends it."));
+}
+
+/* Excel's Relative References button: a check item that outlives the
+ * recording, and takes the active cell as its base when turned on. */
+void
+action_relative_refs (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  gboolean now = !g_variant_get_boolean (g_action_get_state (G_ACTION (a)));
+  int row, col;
+
+  (void) p;
+  g_simple_action_set_state (a, g_variant_new_boolean (now));
+  o42_grid_get_active (self->grid, &row, &col);
+  o42_book_record_set_relative (self->book, now, row, col);
+  gtk_label_set_text (GTK_LABEL (self->status_label),
+                      now ? _("Recording writes cells relative to the active cell.")
+                          : _("Recording writes cells by their addresses."));
 }
 
 /* ---- Tools > Macro > Macros (Alt+F8) --------------------------------- */

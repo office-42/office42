@@ -217,6 +217,13 @@ class Range:
         finally:
             _c.end(i)
 
+    def formula_from(self, text, origin):
+        """Puts a formula in as if copied from `origin` (a cell address
+        or Range): its relative references move by the distance.  What
+        a macro recorded with relative references writes."""
+        row, col = self._cell_of(origin)
+        self.formula = _c.relocate_formula(str(text), self.row0 - row, self.col0 - col)
+
     def clear(self):
         """Empties the cells, keeping their formats."""
         _c.clear_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1, False)
@@ -366,12 +373,19 @@ class Range:
     # -- formats -------------------------------------------------------
     def format(self, **properties):
         """Formats the range: bold, italic, underline, strikeout, wrap,
-        borders, size (points), family, colour, fill (None for none),
-        halign ('general', 'left', 'centre', 'right'), valign
-        ('bottom', 'middle', 'top'), number ('general', 'fixed',
-        'comma', 'currency', 'percent', 'scientific', 'text', 'date',
-        'time', 'datetime', or a format code like '#,##0.00'),
-        decimals."""
+        borders (True, False or a style: 'thin', 'medium', 'thick',
+        'double', 'dashed', 'dotted') with border_colour, or one side at
+        a time as border_top / border_bottom / border_left /
+        border_right and border_top_colour and so on; size (points),
+        family, colour, fill (None for none), pattern (Excel's names:
+        'solid', 'darkGray', 'mediumGray', 'lightGray', 'gray125',
+        'gray0625', 'darkHorizontal' ... 'lightTrellis'; None for none)
+        and pattern_colour, halign ('general',
+        'left', 'centre', 'right'), valign ('bottom', 'middle', 'top'),
+        number ('general', 'fixed', 'comma', 'currency', 'percent',
+        'scientific', 'text', 'date', 'time', 'datetime', or a format
+        code like '#,##0.00'), decimals, locked and hidden (for a
+        protected sheet)."""
         _c.set_format(self.sheet.index, self.row0, self.col0, self.row1, self.col1, **properties)
         return self
 

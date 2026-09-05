@@ -224,6 +224,7 @@
             <item><attribute name="label" translatable="yes">_Macros...</attribute><attribute name="action">win.macros</attribute></item>
             <item><attribute name="label" translatable="yes">_Record Macro</attribute><attribute name="action">win.record-macro</attribute></item>
             <item><attribute name="label" translatable="yes">_Stop Recording</attribute><attribute name="action">win.stop-recording</attribute></item>
+            <item><attribute name="label" translatable="yes">Use Re_lative References</attribute><attribute name="action">win.relative-refs</attribute></item>
           </section>
           <section>
             <item><attribute name="label" translatable="yes">_Scripts in this Book...</attribute><attribute name="action">win.scripts</attribute></item>

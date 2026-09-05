@@ -93,6 +93,11 @@ void o42_sheet_clear_formats (O42Sheet *sheet, const O42Range *range);
 char *o42_sheet_get_input_relocated (O42Sheet *sheet, int row, int col,
                                      int drow, int dcol);
 
+/* A formula's text as it would read copied `drow` rows down and `dcol`
+ * across: what a macro recorded relatively puts into a cell.  Text
+ * that is not a formula comes back as it is.  Caller frees. */
+char *o42_sheet_relocate_formula (const char *text, int drow, int dcol);
+
 /* Copies a rectangle -- content, formulas relocated, and formatting -- so
  * that its top-left corner lands on `row`,`col`.  One undo record. */
 void o42_sheet_copy_range (O42Sheet *sheet, const O42Range *source,

@@ -908,7 +908,11 @@ main (int argc, char *argv[])
           if (g_str_has_prefix (what, "on"))
             {
               o42_book_record_start (book);
-              printf ("recording\n");
+              /* "record on relative": cells relative to the selection's
+               * active cell, as Excel's Relative References button. */
+              o42_book_record_set_relative (book, strstr (what, "relative") != NULL,
+                                            calc_selection.row, calc_selection.col);
+              printf ("recording%s\n", strstr (what, "relative") != NULL ? " relative" : "");
             }
           else
             {

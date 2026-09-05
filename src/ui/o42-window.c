@@ -4646,6 +4646,7 @@ static const GActionEntry ACTIONS[] = {
   { "spelling",       action_spelling,       NULL, NULL, NULL, { 0 } },
   { "record-macro",   action_record_macro,   NULL, NULL, NULL, { 0 } },
   { "stop-recording", action_stop_recording, NULL, NULL, NULL, { 0 } },
+  { "relative-refs",  action_relative_refs,  NULL, "false", NULL, { 0 } },
   { "macros",         action_macros,         NULL, NULL, NULL, { 0 } },
   { "run-macro",      action_run_macro,      "s",  NULL, NULL, { 0 } },
   { "analysis",       action_analysis,       NULL, NULL, NULL, { 0 } },

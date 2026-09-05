@@ -149,6 +149,7 @@ void action_python_console (GSimpleAction *a, GVariant *p, gpointer data);
 void action_python_run (GSimpleAction *a, GVariant *p, gpointer data);
 void action_record_macro (GSimpleAction *a, GVariant *p, gpointer data);
 void action_stop_recording (GSimpleAction *a, GVariant *p, gpointer data);
+void action_relative_refs (GSimpleAction *a, GVariant *p, gpointer data);
 void action_macros (GSimpleAction *a, GVariant *p, gpointer data);
 void action_run_macro (GSimpleAction *a, GVariant *p, gpointer data);
 void action_scripts (GSimpleAction *a, GVariant *p, gpointer data);

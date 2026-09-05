@@ -7,6 +7,7 @@
 #include "o42-sheet.h"
 
 #include "o42-pyquote.h"
+#include "o42-pattern.h"
 
 #include "o42-book.h"
 #include "o42-eval.h"
@@ -1967,14 +1968,15 @@ cell_clear_content (O42Sheet *sheet, guint64 key, O42Cell *cell)
 
 /* ---- Recording a macro ----------------------------------------------- */
 
-/* Everything about a format that the Python API can put back: no
- * borders, protection or pattern, which Range.format does not take. */
+/* Everything about a format that the Python API can put back, which
+ * is everything Range.format takes. */
 #define RECORD_FMT_MASK (O42_FMT_FAMILY | O42_FMT_SIZE | O42_FMT_BOLD |     \
                          O42_FMT_ITALIC | O42_FMT_UNDERLINE |               \
                          O42_FMT_STRIKEOUT | O42_FMT_COLOUR | O42_FMT_FILL |\
                          O42_FMT_HALIGN | O42_FMT_VALIGN | O42_FMT_NUMBER | \
                          O42_FMT_DECIMALS | O42_FMT_WRAP | O42_FMT_INDENT | \
-                         O42_FMT_ROTATION)
+                         O42_FMT_ROTATION | O42_FMT_BORDERS |               \
+                         O42_FMT_PATTERN | O42_FMT_PROTECTION)
 
 
 static void record_format (O42Sheet *sheet, const O42Range *range, O42FmtMask mask,
@@ -2015,21 +2017,12 @@ record_op_quiet (O42Sheet *sheet)
   o42_book_record_op_begin (sheet->book, NULL, NULL);
 }
 
-/* sheet["A1:B2"] or sheet["A1"], for a recorded line.  Caller frees. */
+/* sheet["A1:B2"], or the active-cell form when recording relatively,
+ * for a recorded line.  Caller frees. */
 static char *
-record_range_text (const O42Range *range)
+record_range_text (O42Sheet *sheet, const O42Range *range)
 {
-  char *a = o42_ref_name (range->row0, range->col0);
-  char *b = o42_ref_name (range->row1, range->col1);
-  char *text;
-
-  if (range->row0 == range->row1 && range->col0 == range->col1)
-    text = g_strdup_printf ("sheet[\"%s\"]", a);
-  else
-    text = g_strdup_printf ("sheet[\"%s:%s\"]", a, b);
-  g_free (a);
-  g_free (b);
-  return text;
+  return o42_book_record_range_text (sheet->book, range);
 }
 
 /* A block emptied wholesale, which is what an insert or delete of rows
@@ -2041,9 +2034,9 @@ record_clear (O42Sheet *sheet, const O42Range *range)
 
   if (!o42_book_record_sheet (sheet->book, sheet->name))
     return;
-  first = o42_ref_name (range->row0, range->col0);
-  last = o42_ref_name (range->row1, range->col1);
-  line = g_strdup_printf ("sheet[\"%s:%s\"].clear()", first, last);
+  first = record_range_text (sheet, range);
+  last = NULL;
+  line = g_strdup_printf ("%s.clear()", first);
   o42_book_record_line (sheet->book, line);
   g_free (line);
   g_free (first);
@@ -2071,12 +2064,24 @@ record_input (O42Sheet *sheet, int row, int col, const char *text)
   if (!o42_book_record_sheet (sheet->book, sheet->name))
     return;
 
-  where = o42_ref_name (row, col);
+  {
+    O42Range one = { row, col, row, col };
+    where = record_range_text (sheet, &one);
+  }
   quoted = o42_python_quote (text != NULL ? text : "");
   /* A formula is set as one; anything else is a value, which is what
-   * the user typed. */
-  line = g_strdup_printf ("sheet[\"%s\"].%s = %s", where,
-                          (text != NULL && text[0] == '=') ? "formula" : "value", quoted);
+   * the user typed.  Recorded relatively, a formula says which cell it
+   * was typed in, so that its references move with the macro as
+   * Excel's R1C1 form makes them. */
+  if (text != NULL && text[0] == '=' && o42_book_record_relative (sheet->book))
+    {
+      char *origin = o42_ref_name (row, col);
+      line = g_strdup_printf ("%s.formula_from(%s, \"%s\")", where, quoted, origin);
+      g_free (origin);
+    }
+  else
+    line = g_strdup_printf ("%s.%s = %s", where,
+                            (text != NULL && text[0] == '=') ? "formula" : "value", quoted);
   o42_book_record_line (sheet->book, line);
   g_free (line);
   g_free (quoted);
@@ -2133,6 +2138,46 @@ record_format (O42Sheet *sheet, const O42Range *range, O42FmtMask mask, const O4
       else
         g_string_append_printf (args, "number=\"%s\"", NUMBERS[CLAMP (fmt->number, 0, 9)]);
     }
+  if (mask & O42_FMT_BORDERS)
+    {
+      /* The four sides alike are one borders= and border_colour=;
+       * otherwise each side is named. */
+      static const char *const SIDES[] = { "top", "bottom", "left", "right" };
+      gboolean drawn[4] = { fmt->border_top, fmt->border_bottom, fmt->border_left, fmt->border_right };
+      gboolean alike = TRUE;
+
+      for (int i = 1; i < 4; i++)
+        if (drawn[i] != drawn[0] || fmt->border_style[i] != fmt->border_style[0] ||
+            fmt->border_colour[i] != fmt->border_colour[0])
+          alike = FALSE;
+      if (alike)
+        {
+          if (drawn[0])
+            ARG (TRUE, "borders=\"%s\", border_colour=\"#%06X\"",
+                 o42_border_style_name (fmt->border_style[0]), fmt->border_colour[0]);
+          else
+            ARG (TRUE, "borders=False");
+        }
+      else
+        for (int i = 0; i < 4; i++)
+          {
+            if (drawn[i])
+              ARG (TRUE, "border_%s=\"%s\", border_%s_colour=\"#%06X\"", SIDES[i],
+                   o42_border_style_name (fmt->border_style[i]), SIDES[i], fmt->border_colour[i]);
+            else
+              ARG (TRUE, "border_%s=None", SIDES[i]);
+          }
+    }
+  if (mask & O42_FMT_PATTERN)
+    {
+      if (fmt->pattern == O42_PATTERN_NONE)
+        ARG (TRUE, "pattern=None");
+      else
+        ARG (TRUE, "pattern=\"%s\", pattern_colour=\"#%06X\"",
+             o42_pattern_name (fmt->pattern), fmt->pattern_colour);
+    }
+  ARG (mask & O42_FMT_PROTECTION, "locked=%s, hidden=%s", fmt->locked ? "True" : "False",
+       fmt->hidden ? "True" : "False");
   #undef ARG
 
   if (args->len == 0)
@@ -2141,12 +2186,9 @@ record_format (O42Sheet *sheet, const O42Range *range, O42FmtMask mask, const O4
       return;
     }
 
-  a = o42_ref_name (range->row0, range->col0);
-  b = o42_ref_name (range->row1, range->col1);
-  if (range->row0 == range->row1 && range->col0 == range->col1)
-    line = g_strdup_printf ("sheet[\"%s\"].format(%s)", a, args->str);
-  else
-    line = g_strdup_printf ("sheet[\"%s:%s\"].format(%s)", a, b, args->str);
+  a = record_range_text (sheet, range);
+  b = NULL;
+  line = g_strdup_printf ("%s.format(%s)", a, args->str);
   o42_book_record_line (sheet->book, line);
   g_free (line);
   g_free (a);
@@ -2416,7 +2458,7 @@ o42_sheet_clear_range (O42Sheet *sheet, const O42Range *range)
   g_return_if_fail (range != NULL);
 
   {
-    char *text = record_range_text (range);
+    char *text = record_range_text (sheet, range);
     record_op_begin (sheet, "%s.clear()", text);
     g_free (text);
   }
@@ -2462,7 +2504,7 @@ o42_sheet_clear_formats (O42Sheet *sheet, const O42Range *range)
   def = o42_fmt_table_default (sheet->formats);
 
   {
-    char *text = record_range_text (range);
+    char *text = record_range_text (sheet, range);
     record_op_begin (sheet, "%s.clear_formats()", text);
     g_free (text);
   }
@@ -2561,6 +2603,27 @@ sheet_put_carried (O42Sheet *sheet, int row, int col, const Carried *c)
     }
 }
 
+char *
+o42_sheet_relocate_formula (const char *text, int drow, int dcol)
+{
+  O42Node *tree;
+  char *moved, *result;
+
+  if (text == NULL || text[0] != '=' || (drow == 0 && dcol == 0))
+    return g_strdup (text != NULL ? text : "");
+  tree = o42_formula_parse (text + 1);
+  if (tree == NULL || !o42_node_relocate (tree, drow, dcol))
+    {
+      o42_node_free (tree);
+      return g_strdup (text);
+    }
+  moved = o42_node_to_string (tree);
+  result = g_strconcat ("=", moved, NULL);
+  g_free (moved);
+  o42_node_free (tree);
+  return result;
+}
+
 void
 o42_sheet_copy_range (O42Sheet *sheet, const O42Range *source,
                       int row, int col)
@@ -2634,7 +2697,7 @@ o42_sheet_copy_range_special (O42Sheet *sheet, const O42Range *source,
 
   {
     static const char *const MODES[] = { "all", "values", "formats", "formulas" };
-    char *text = record_range_text (source);
+    char *text = record_range_text (sheet, source);
     char *to = o42_ref_name (row, col);
     record_op_begin (sheet, "%s.copy(\"%s\", \"%s\"%s)", text, to, MODES[CLAMP (mode, 0, 3)],
                      transpose ? ", transpose=True" : "");
@@ -2695,7 +2758,7 @@ o42_sheet_fill (O42Sheet *sheet, const O42Range *range, gboolean down)
   g_return_if_fail (range != NULL);
 
   {
-    char *text = record_range_text (range);
+    char *text = record_range_text (sheet, range);
     record_op_begin (sheet, "%s.%s()", text, down ? "fill_down" : "fill_right");
     g_free (text);
   }
@@ -2955,7 +3018,7 @@ o42_sheet_autofill (O42Sheet *sheet, const O42Range *source,
     return;
 
   {
-    char *text = record_range_text (source);
+    char *text = record_range_text (sheet, source);
     char *a = o42_ref_name (target->row0, target->col0);
     char *b = o42_ref_name (target->row1, target->col1);
     record_op_begin (sheet, "%s.autofill(\"%s:%s\")", text, a, b);
@@ -3657,7 +3720,7 @@ o42_sheet_shift_cells (O42Sheet *sheet, const O42Range *range,
   g_return_if_fail (range != NULL);
 
   {
-    char *text = record_range_text (range);
+    char *text = record_range_text (sheet, range);
     record_op_begin (sheet, "%s.%s(\"%s\")", text, insert ? "insert_cells" : "delete_cells",
                      insert ? (down ? "down" : "right") : (down ? "up" : "left"));
     g_free (text);
@@ -3818,7 +3881,7 @@ o42_sheet_sort_keys (O42Sheet *sheet, const O42Range *range,
     {
       /* Keys are written relative to the range, as Range.sort takes them. */
       GString *ks = g_string_new ("["), *as = g_string_new ("[");
-      char *text = record_range_text (range);
+      char *text = record_range_text (sheet, range);
       for (int k = 0; k < n_keys; k++)
         {
           g_string_append_printf (ks, "%s%d", k > 0 ? ", " : "", keys[k] - range->col0);
@@ -4026,7 +4089,7 @@ o42_sheet_replace (O42Sheet *sheet, const O42Range *range,
 
   if (o42_book_recording (sheet->book))
     {
-      char *text = range != NULL ? record_range_text (range) : g_strdup ("sheet");
+      char *text = range != NULL ? record_range_text (sheet, range) : g_strdup ("sheet");
       char *a = o42_python_quote (needle), *b = o42_python_quote (replacement != NULL ? replacement : "");
       record_op_begin (sheet, "%s.replace(%s, %s%s)", text, a, b, match_case ? ", match_case=True" : "");
       g_free (a);
@@ -4971,7 +5034,7 @@ o42_sheet_merge (O42Sheet *sheet, const O42Range *range)
    * top-left is emptied -- one undo step for the emptying and the
    * merge together. */
   {
-    char *text = record_range_text (&r);
+    char *text = record_range_text (sheet, &r);
     record_op_begin (sheet, "%s.merge()", text);
     g_free (text);
   }
@@ -5018,7 +5081,7 @@ o42_sheet_unmerge (O42Sheet *sheet, const O42Range *range)
         i++;
     }
   {
-    char *text = record_range_text (range);
+    char *text = record_range_text (sheet, range);
     record_op_begin (sheet, "%s.unmerge()", text);
     record_op_end (sheet);
     g_free (text);
@@ -5103,7 +5166,7 @@ o42_sheet_set_autofilter (O42Sheet *sheet, const O42Range *range)
   g_return_if_fail (range != NULL);
 
   {
-    char *text = record_range_text (range);
+    char *text = record_range_text (sheet, range);
     record_op_begin (sheet, "%s.autofilter()", text);
     g_free (text);
   }
@@ -7086,7 +7149,7 @@ o42_sheet_remove_duplicates (O42Sheet *sheet, const O42Range *range,
   if (o42_book_recording (sheet->book))
     {
       GString *cs = g_string_new ("[");
-      char *text = record_range_text (&r);
+      char *text = record_range_text (sheet, &r);
       for (int k = 0; k < n_cols; k++)
         g_string_append_printf (cs, "%s%d", k > 0 ? ", " : "", cols[k] - r.col0);
       record_op_begin (sheet, "%s.remove_duplicates(cols=%s], header=%s)", text, cs->str,
@@ -9001,7 +9064,7 @@ o42_sheet_move_range (O42Sheet *sheet, const O42Range *from, int to_row, int to_
     return;
 
   {
-    char *text = record_range_text (&src);
+    char *text = record_range_text (sheet, &src);
     char *to = o42_ref_name (to_row, to_col);
     record_op_begin (sheet, "%s.cut(\"%s\")", text, to);
     g_free (to);

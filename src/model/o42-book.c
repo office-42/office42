@@ -32,6 +32,8 @@ struct _O42Book {
   char    *pending_sheet;  /* a selection made and not yet written down */
   O42Range pending_range;
   int      pending_row, pending_col;
+  gboolean record_relative; /* cells relative to the active cell */
+  int      rel_row, rel_col; /* the active cell the next line is relative to */
   GPtrArray    *sheets;   /* O42Sheet*, owned, in tab order */
   O42UndoStack *stack;    /* shared by every sheet */
   GHashTable   *names;    /* upper-case name -> NamedRange*, owned */
@@ -1140,25 +1142,76 @@ o42_book_record_sheet (O42Book *book, const char *sheet_name)
       if (g_strcmp0 (book->pending_sheet, sheet_name) == 0)
         {
           const O42Range *r = &book->pending_range;
-          char *a = o42_ref_name (r->row0, r->col0);
-          char *b = o42_ref_name (r->row1, r->col1);
-          char *active = o42_ref_name (book->pending_row, book->pending_col);
-          gboolean one = r->row0 == r->row1 && r->col0 == r->col1;
+          char *text = o42_book_record_range_text (book, r);
           gboolean corner = book->pending_row == r->row0 && book->pending_col == r->col0;
 
-          if (one)
-            g_string_append_printf (book->recording, "sheet[\"%s\"].select()\n", a);
-          else if (corner)
-            g_string_append_printf (book->recording, "sheet[\"%s:%s\"].select()\n", a, b);
+          if (corner)
+            g_string_append_printf (book->recording, "%s.select()\n", text);
+          else if (book->record_relative)
+            g_string_append_printf (book->recording, "%s.select(office42.active_cell.offset(%d, %d))\n",
+                                    text, book->pending_row - book->rel_row, book->pending_col - book->rel_col);
           else
-            g_string_append_printf (book->recording, "sheet[\"%s:%s\"].select(\"%s\")\n", a, b, active);
-          g_free (a);
-          g_free (b);
-          g_free (active);
+            {
+              char *active = o42_ref_name (book->pending_row, book->pending_col);
+              g_string_append_printf (book->recording, "%s.select(\"%s\")\n", text, active);
+              g_free (active);
+            }
+          g_free (text);
+          /* From here on the active cell is the one just selected. */
+          book->rel_row = book->pending_row;
+          book->rel_col = book->pending_col;
         }
       g_clear_pointer (&book->pending_sheet, g_free);
     }
   return TRUE;
+}
+
+void
+o42_book_record_set_relative (O42Book *book, gboolean relative, int row, int col)
+{
+  g_return_if_fail (book != NULL);
+  book->record_relative = relative;
+  book->rel_row = MAX (row, 0);
+  book->rel_col = MAX (col, 0);
+}
+
+gboolean
+o42_book_record_relative (O42Book *book)
+{
+  return book != NULL && book->record_relative;
+}
+
+char *
+o42_book_record_range_text (O42Book *book, const O42Range *range)
+{
+  O42Range r;
+  char *text;
+
+  g_return_val_if_fail (range != NULL, NULL);
+  r = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
+  if (book != NULL && book->record_relative)
+    {
+      int rows = r.row1 - r.row0 + 1, cols = r.col1 - r.col0 + 1;
+      int dr = r.row0 - book->rel_row, dc = r.col0 - book->rel_col;
+      char *base = (dr == 0 && dc == 0) ? g_strdup ("office42.active_cell")
+                                        : g_strdup_printf ("office42.active_cell.offset(%d, %d)", dr, dc);
+      text = (rows == 1 && cols == 1) ? g_strdup (base)
+                                      : g_strdup_printf ("%s.resize(%d, %d)", base, rows, cols);
+      g_free (base);
+    }
+  else
+    {
+      char *a = o42_ref_name (r.row0, r.col0);
+      char *b = o42_ref_name (r.row1, r.col1);
+
+      if (r.row0 == r.row1 && r.col0 == r.col1)
+        text = g_strdup_printf ("sheet[\"%s\"]", a);
+      else
+        text = g_strdup_printf ("sheet[\"%s:%s\"]", a, b);
+      g_free (a);
+      g_free (b);
+    }
+  return text;
 }
 
 void

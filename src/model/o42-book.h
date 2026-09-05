@@ -138,6 +138,18 @@ void      o42_book_record_op_end   (O42Book *book);
 void      o42_book_record_selection (O42Book *book, const char *sheet_name,
                                      const O42Range *range, int active_row, int active_col);
 
+/* Excel's "Relative References": cells are written down relative to
+ * the active cell -- office42.active_cell.offset(1, 0) -- so that the
+ * macro replays wherever it is run, rather than at the cells it was
+ * recorded on.  The base is the active cell now; each recorded
+ * selection moves it.  The setting outlives a recording. */
+void      o42_book_record_set_relative (O42Book *book, gboolean relative, int row, int col);
+gboolean  o42_book_record_relative     (O42Book *book);
+
+/* sheet["A1:B2"] or, recording relatively, office42.active_cell.offset
+ * (r, c).resize(n, m); caller frees. */
+char     *o42_book_record_range_text   (O42Book *book, const O42Range *range);
+
 /* Moves the sheet at `from` so that it sits at `to`; one undo step. */
 gboolean  o42_book_move_sheet (O42Book *book, int from, int to);
 

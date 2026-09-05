@@ -16,6 +16,7 @@
 #include "o42-sheet.h"
 #include "o42-eval.h"
 #include "o42-formula.h"
+#include "o42-pattern.h"
 
 #include <string.h>
 
@@ -915,6 +916,23 @@ m_set_input (PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* relocate_formula(text, drow, dcol) */
+static PyObject *
+m_relocate_formula (PyObject *self, PyObject *args)
+{
+  const char *text;
+  int drow, dcol;
+  char *moved;
+  PyObject *result;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "sii", &text, &drow, &dcol))
+    return NULL;
+  moved = o42_sheet_relocate_formula (text, drow, dcol);
+  result = PyUnicode_FromString (moved);
+  g_free (moved);
+  return result;
+}
+
 static PyObject *
 m_get_value (PyObject *self, PyObject *args)
 {
@@ -1086,11 +1104,96 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
       else if (strcmp (k, "wrap") == 0)      { fmt.wrap = PyObject_IsTrue (value); mask |= O42_FMT_WRAP; }
       else if (strcmp (k, "borders") == 0)
         {
-          int on = PyObject_IsTrue (value);
+          /* True, False, or a style name for all four sides. */
+          O42BorderStyle style = O42_BORDER_NONE;
+          if (PyUnicode_Check (value))
+            {
+              const char *s = PyUnicode_AsUTF8 (value);
+              if (s == NULL || !o42_border_style_parse (s, &style))
+                return PyErr_Format (PyExc_ValueError, "borders is True, False or a style: none, thin, medium, thick, double, dashed or dotted");
+            }
+          else if (PyObject_IsTrue (value))
+            style = O42_BORDER_THIN;
           for (int i = 0; i < 4; i++)
-            fmt.border_style[i] = on ? O42_BORDER_THIN : O42_BORDER_NONE;
+            fmt.border_style[i] = style;
           o42_fmt_sync_borders (&fmt);
           mask |= O42_FMT_BORDERS;
+        }
+      else if (g_str_has_prefix (k, "border_") &&
+               (g_str_has_prefix (k + 7, "top") || g_str_has_prefix (k + 7, "bottom") ||
+                g_str_has_prefix (k + 7, "left") || g_str_has_prefix (k + 7, "right")))
+        {
+          /* One side: border_top="thin" (or None), border_top_colour="#rrggbb".
+           * The other sides are kept as they are. */
+          static const char *const SIDES[] = { "top", "bottom", "left", "right" };
+          int side = -1;
+          gboolean colour = g_str_has_suffix (k, "_colour") || g_str_has_suffix (k, "_color");
+          for (int i = 0; i < 4; i++)
+            if (g_str_has_prefix (k + 7, SIDES[i]) &&
+                (k[7 + strlen (SIDES[i])] == '\0' || k[7 + strlen (SIDES[i])] == '_'))
+              side = i;
+          if (side < 0)
+            return PyErr_Format (PyExc_TypeError, "no format property named %s", k);
+          if (!(mask & O42_FMT_BORDERS))
+            {
+              const O42Fmt *have = o42_sheet_get_fmt (sheet, r.row0, r.col0);
+              for (int i = 0; i < 4; i++)
+                {
+                  fmt.border_style[i] = have->border_style[i];
+                  fmt.border_colour[i] = have->border_colour[i];
+                }
+            }
+          if (colour)
+            {
+              if (!colour_arg (value, &fmt.border_colour[side])) return NULL;
+            }
+          else if (value == Py_None || value == Py_False)
+            fmt.border_style[side] = O42_BORDER_NONE;
+          else if (value == Py_True)
+            fmt.border_style[side] = O42_BORDER_THIN;
+          else
+            {
+              const char *s = PyUnicode_Check (value) ? PyUnicode_AsUTF8 (value) : NULL;
+              O42BorderStyle style;
+              if (s == NULL || !o42_border_style_parse (s, &style))
+                return PyErr_Format (PyExc_ValueError, "%s is a style: none, thin, medium, thick, double, dashed or dotted", k);
+              fmt.border_style[side] = style;
+            }
+          o42_fmt_sync_borders (&fmt);
+          mask |= O42_FMT_BORDERS;
+        }
+      else if (strcmp (k, "pattern") == 0)
+        {
+          O42Pattern pattern = O42_PATTERN_NONE;
+          if (value != Py_None)
+            {
+              const char *s = PyUnicode_Check (value) ? PyUnicode_AsUTF8 (value) : NULL;
+              if (s == NULL || !o42_pattern_parse (s, &pattern))
+                return PyErr_Format (PyExc_ValueError, "unknown pattern %S", value);
+            }
+          if (!(mask & O42_FMT_PATTERN))
+            fmt.pattern_colour = o42_sheet_get_fmt (sheet, r.row0, r.col0)->pattern_colour;
+          fmt.pattern = (guint8) pattern;
+          mask |= O42_FMT_PATTERN;
+        }
+      else if (strcmp (k, "pattern_colour") == 0 || strcmp (k, "pattern_color") == 0)
+        {
+          if (!(mask & O42_FMT_PATTERN))
+            fmt.pattern = o42_sheet_get_fmt (sheet, r.row0, r.col0)->pattern;
+          if (!colour_arg (value, &fmt.pattern_colour)) return NULL;
+          mask |= O42_FMT_PATTERN;
+        }
+      else if (strcmp (k, "locked") == 0 || strcmp (k, "hidden") == 0)
+        {
+          if (!(mask & O42_FMT_PROTECTION))
+            {
+              const O42Fmt *have = o42_sheet_get_fmt (sheet, r.row0, r.col0);
+              fmt.locked = have->locked;
+              fmt.hidden = have->hidden;
+            }
+          if (k[0] == 'l') fmt.locked = PyObject_IsTrue (value);
+          else             fmt.hidden = PyObject_IsTrue (value);
+          mask |= O42_FMT_PROTECTION;
         }
       else if (strcmp (k, "border_style") == 0)
         {
@@ -1217,7 +1320,8 @@ m_get_format (PyObject *self, PyObject *args)
   fill = f->fill == O42_FILL_NONE ? Py_None : PyLong_FromUnsignedLong (f->fill);
   if (fill == Py_None)
     Py_INCREF (fill);
-  return Py_BuildValue ("{s:s,s:d,s:O,s:O,s:O,s:O,s:O,s:O,s:I,s:N,s:s,s:s,s:s,s:i}",
+  return Py_BuildValue ("{s:s,s:d,s:O,s:O,s:O,s:O,s:O,s:O,s:I,s:N,s:s,s:s,s:s,s:i,"
+                        "s:s,s:s,s:s,s:s,s:I,s:I,s:I,s:I,s:s,s:I,s:O,s:O}",
                         "family", f->family, "size", f->size / 2.0,
                         "bold", f->bold ? Py_True : Py_False,
                         "italic", f->italic ? Py_True : Py_False,
@@ -1229,7 +1333,19 @@ m_get_format (PyObject *self, PyObject *args)
                         "fill", fill,
                         "halign", HALIGNS[f->halign], "valign", VALIGNS[f->valign],
                         "number", f->custom != NULL ? f->custom : NUMBERS[f->number],
-                        "decimals", f->decimals);
+                        "decimals", f->decimals,
+                        "border_top", f->border_top ? o42_border_style_name (f->border_style[O42_SIDE_TOP]) : "none",
+                        "border_bottom", f->border_bottom ? o42_border_style_name (f->border_style[O42_SIDE_BOTTOM]) : "none",
+                        "border_left", f->border_left ? o42_border_style_name (f->border_style[O42_SIDE_LEFT]) : "none",
+                        "border_right", f->border_right ? o42_border_style_name (f->border_style[O42_SIDE_RIGHT]) : "none",
+                        "border_top_colour", (unsigned int) f->border_colour[O42_SIDE_TOP],
+                        "border_bottom_colour", (unsigned int) f->border_colour[O42_SIDE_BOTTOM],
+                        "border_left_colour", (unsigned int) f->border_colour[O42_SIDE_LEFT],
+                        "border_right_colour", (unsigned int) f->border_colour[O42_SIDE_RIGHT],
+                        "pattern", o42_pattern_name ((O42Pattern) f->pattern),
+                        "pattern_colour", (unsigned int) f->pattern_colour,
+                        "locked", f->locked ? Py_True : Py_False,
+                        "hidden", f->hidden ? Py_True : Py_False);
 }
 
 /* A cell formula calling a function a script defined. */
@@ -1496,6 +1612,7 @@ static PyMethodDef METHODS[] = {
   { "get_input",      m_get_input,      METH_VARARGS, "What was typed into a cell." },
   { "set_input",      m_set_input,      METH_VARARGS, "Types into a cell." },
   { "get_value",      m_get_value,      METH_VARARGS, "A cell's value." },
+  { "relocate_formula", m_relocate_formula, METH_VARARGS, "A formula's text moved by rows and columns." },
   { "get_display",    m_get_display,    METH_VARARGS, "A cell's value as shown." },
   { "used_range",     m_used_range,     METH_VARARGS, "The rectangle with something in it, or None." },
   { "begin",          m_begin,          METH_VARARGS, "Opens an undo group." },
