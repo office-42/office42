@@ -279,6 +279,7 @@ typedef struct {
   GString    *master_pages; /* and the master page that uses it, with the header and footer */
   GHashTable *hf_styles;    /* "B1I0U0S12F" -> "MT3", text styles the header parts wear */
   GString    *hf_style_xml;
+  GString    *fill_defs;    /* styles.xml: the gradients and hatches the shapes use */
 } Styles;
 
 /* A break in a row or column style: the same size, with
@@ -1319,14 +1320,64 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
         static const double HEAD_WIDTH[3] = { 0.2, 0.3, 0.45 };
         gboolean line_kind = shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW;
 
-        g_string_append_printf (s->styles,
-          "<style:style style:name=\"gr%d_%u\" style:family=\"graphic\"><style:graphic-properties "
-          "draw:stroke=\"%s\" svg:stroke-width=\"%.3fcm\" svg:stroke-color=\"#%06x\" "
-          "draw:fill=\"%s\" draw:fill-color=\"#%06x\"",
-          sheet_index, i, shape->dash != O42_DASH_SOLID ? "dash" : "solid",
-          shape->line_width * PX_TO_CM, shape->line & 0xFFFFFF,
-          (!line_kind && shape->fill != O42_FILL_NONE) ? "solid" : "none",
-          (shape->fill != O42_FILL_NONE ? shape->fill : 0xFFFFFF) & 0xFFFFFF);
+        {
+          gboolean filled = !line_kind && shape->fill != O42_FILL_NONE &&
+                            (shape->kind != O42_SHAPE_FREEFORM || shape->closed);
+          const char *fill = !filled ? "none" : shape->fill_kind == O42_SHAPE_FILL_GRADIENT ? "gradient"
+                           : shape->fill_kind == O42_SHAPE_FILL_PATTERN ? "hatch" : "solid";
+
+          g_string_append_printf (s->styles,
+            "<style:style style:name=\"gr%d_%u\" style:family=\"graphic\"><style:graphic-properties "
+            "draw:stroke=\"%s\" svg:stroke-width=\"%.3fcm\" svg:stroke-color=\"#%06x\" "
+            "draw:fill=\"%s\" draw:fill-color=\"#%06x\"",
+            sheet_index, i, shape->dash != O42_DASH_SOLID ? "dash" : "solid",
+            shape->line_width * PX_TO_CM, shape->line & 0xFFFFFF, fill,
+            (shape->fill != O42_FILL_NONE ? shape->fill : 0xFFFFFF) & 0xFFFFFF);
+          if (filled && shape->fill_kind == O42_SHAPE_FILL_GRADIENT)
+            {
+              /* ODF's angle counts counter-clockwise in tenths of a degree
+               * from a run bottom to top; ours clockwise from left to right. */
+              int angle = (int) fmod (fmod (90 - shape->gradient_angle, 360) + 360, 360) * 10;
+
+              g_string_append_printf (s->fill_defs,
+                "<draw:gradient draw:name=\"Gr%d_%u\" draw:style=\"linear\" draw:start-color=\"#%06x\" draw:end-color=\"#%06x\" "
+                "draw:start-intensity=\"100%%\" draw:end-intensity=\"100%%\" draw:angle=\"%d\" draw:border=\"0%%\"/>",
+                sheet_index, i, shape->fill & 0xFFFFFF, shape->fill2 & 0xFFFFFF, angle);
+              g_string_append_printf (s->styles, " draw:fill-gradient-name=\"Gr%d_%u\"", sheet_index, i);
+            }
+          else if (filled && shape->fill_kind == O42_SHAPE_FILL_PATTERN)
+            {
+              /* A hatch: lines at an angle, or two sets crossed, in the
+               * pattern's colour over the fill. */
+              const char *hstyle = "single";
+              int rotation = 0;
+              double distance = 0.1;
+
+              switch (shape->pattern)
+                {
+                case O42_PATTERN_VERTICAL: case O42_PATTERN_THIN_VERTICAL: rotation = 900; break;
+                case O42_PATTERN_UP: case O42_PATTERN_THIN_UP: rotation = 450; break;
+                case O42_PATTERN_DOWN: case O42_PATTERN_THIN_DOWN: rotation = 1350; break;
+                case O42_PATTERN_GRID: case O42_PATTERN_THIN_GRID: hstyle = "double"; break;
+                case O42_PATTERN_TRELLIS: case O42_PATTERN_THIN_TRELLIS: hstyle = "double"; rotation = 450; break;
+                case O42_PATTERN_GRAY75: case O42_PATTERN_GRAY50: hstyle = "triple"; distance = 0.05; break;
+                case O42_PATTERN_GRAY25: case O42_PATTERN_GRAY125: case O42_PATTERN_GRAY0625: hstyle = "double"; distance = 0.15; break;
+                default: break;
+                }
+              if (shape->pattern == O42_PATTERN_THIN_HORIZONTAL || shape->pattern == O42_PATTERN_THIN_VERTICAL ||
+                  shape->pattern == O42_PATTERN_THIN_UP || shape->pattern == O42_PATTERN_THIN_DOWN ||
+                  shape->pattern == O42_PATTERN_THIN_GRID || shape->pattern == O42_PATTERN_THIN_TRELLIS)
+                distance = 0.2;
+              g_string_append_printf (s->fill_defs,
+                "<draw:hatch draw:name=\"Ha%d_%u\" draw:style=\"%s\" draw:color=\"#%06x\" draw:distance=\"%.2fcm\" draw:rotation=\"%d\"/>",
+                sheet_index, i, hstyle, shape->fill2 & 0xFFFFFF, distance, rotation);
+              g_string_append_printf (s->styles, " draw:fill-hatch-name=\"Ha%d_%u\" draw:fill-hatch-solid=\"true\"", sheet_index, i);
+            }
+          if (shape->shadow)
+            g_string_append_printf (s->styles,
+              " draw:shadow=\"visible\" draw:shadow-offset-x=\"%.3fcm\" draw:shadow-offset-y=\"%.3fcm\" draw:shadow-color=\"#%06x\"",
+              shape->shadow_dx * PX_TO_CM, shape->shadow_dy * PX_TO_CM, shape->shadow_colour & 0xFFFFFF);
+        }
         if (shape->dash != O42_DASH_SOLID)
           g_string_append_printf (s->styles, " draw:stroke-dash=\"%s\"", DASH_NAMES[shape->dash]);
         if (line_kind && shape->head_start != O42_HEAD_NONE)
@@ -1963,6 +2014,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   s.master_pages = g_string_new (NULL);
   s.hf_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   s.hf_style_xml = g_string_new (NULL);
+  s.fill_defs = g_string_new (NULL);
 
   for (int i = 0; i < o42_book_n_sheets (book); i++)
     write_table (body, &s, o42_book_sheet (book, i), i);
@@ -2011,9 +2063,9 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
       "<draw:marker draw:name=\"Stealth\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30 10-9 10 9z\"/>"
       "<draw:marker draw:name=\"Diamond\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 15 10 15 10-15z\"/>"
       "<draw:marker draw:name=\"Circle\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0c-5.5 0-10 4.5-10 10s4.5 10 10 10 10-4.5 10-10-4.5-10-10-10z\"/>"
-      "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>"
-      "</office:styles>"
-      "<office:automatic-styles>");
+      "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>");
+    g_string_append (styles, s.fill_defs->str);
+    g_string_append (styles, "</office:styles><office:automatic-styles>");
 
     g_string_append (styles, s.hf_style_xml->str);
     g_string_append (styles, s.page_layouts->str);
@@ -2042,6 +2094,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   g_string_free (s.page_layouts, TRUE);
   g_string_free (s.master_pages, TRUE);
   g_string_free (s.hf_style_xml, TRUE);
+  g_string_free (s.fill_defs, TRUE);
   g_hash_table_unref (s.hf_styles);
   g_hash_table_unref (s.col_styles);
   g_hash_table_unref (s.row_styles);
@@ -2056,6 +2109,10 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
 /* Reading                                                                */
 /* ====================================================================== */
 
+/* A gradient or a hatch as styles.xml defines it, by name. */
+typedef struct { guint32 start, end; double angle; } OdsGradient;
+typedef struct { guint32 colour; O42Pattern pattern; } OdsHatch;
+
 typedef struct {
   O42Fmt   fmt;
   gboolean has_fmt;        /* anything set beyond the default */
@@ -2068,6 +2125,11 @@ typedef struct {
 
   /* Graphic styles: a shape's fill and line, and how its text sits. */
   gboolean graphic;
+  char    *gradient_name;  /* draw:fill="gradient": which */
+  char    *hatch_name;     /* draw:fill="hatch": which */
+  gboolean shadow;
+  guint32  shadow_colour;
+  double   shadow_dx, shadow_dy;
   int      text_valign;    /* an O42VAlign, or -1 for unsaid */
   double   text_padding;   /* px, or -1 */
   int      text_nowrap;    /* 1, 0, or -1 */
@@ -2104,6 +2166,8 @@ typedef struct {
   int         n_tables;
   GHashTable *styles;        /* name -> Style */
   GHashTable *dashes;        /* a draw:stroke-dash name -> its O42Dash, by its look */
+  GHashTable *gradients;     /* a draw:gradient name -> OdsGradient */
+  GHashTable *hatches;       /* a draw:hatch name -> OdsHatch */
   GHashTable *num_styles;    /* name -> NumStyle */
   Style      *style;         /* the style being read */
   NumStyle   *num;           /* the number style being read */
@@ -2511,6 +2575,8 @@ style_free (gpointer data)
 {
   Style *s = data;
   g_free (s->master_page);
+  g_free (s->gradient_name);
+  g_free (s->hatch_name);
   g_free (s->data_style);
   g_free (s);
 }
@@ -3286,6 +3352,34 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
               else if (st->stroke_none)
                 shape->line_width = 0.5;
               shape->dash = st->dash;
+              if (st->gradient_name != NULL)
+                {
+                  const OdsGradient *g = g_hash_table_lookup (r->gradients, st->gradient_name);
+                  if (g != NULL && shape->fill != O42_FILL_NONE)
+                    {
+                      shape->fill_kind = O42_SHAPE_FILL_GRADIENT;
+                      shape->fill = g->start;
+                      shape->fill2 = g->end;
+                      shape->gradient_angle = fmod (fmod (90 - g->angle, 360) + 360, 360);
+                    }
+                }
+              else if (st->hatch_name != NULL)
+                {
+                  const OdsHatch *h = g_hash_table_lookup (r->hatches, st->hatch_name);
+                  if (h != NULL && shape->fill != O42_FILL_NONE)
+                    {
+                      shape->fill_kind = O42_SHAPE_FILL_PATTERN;
+                      shape->pattern = h->pattern;
+                      shape->fill2 = h->colour;
+                    }
+                }
+              if (st->shadow)
+                {
+                  shape->shadow = TRUE;
+                  shape->shadow_colour = st->shadow_colour;
+                  shape->shadow_dx = st->shadow_dx;
+                  shape->shadow_dy = st->shadow_dy;
+                }
               if (st->text_valign >= 0) shape->text_valign = (O42VAlign) st->text_valign;
               if (st->text_padding >= 0) shape->text_inset = floor (st->text_padding + 0.5);
               if (st->text_nowrap >= 0) shape->text_nowrap = st->text_nowrap == 1;
@@ -3542,6 +3636,37 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
     }
 
   /* Styles. */
+  if (strcmp (name, "gradient") == 0 && attr (names, values, "name") != NULL)
+    {
+      OdsGradient *g = g_new0 (OdsGradient, 1);
+      const char *angle = attr (names, values, "angle");
+
+      g->start = colour_of (attr (names, values, "start-color"), 0xFFFFFF);
+      g->end = colour_of (attr (names, values, "end-color"), 0x000000);
+      g->angle = angle != NULL ? g_ascii_strtod (angle, NULL) / (strstr (angle, "deg") != NULL ? 1 : 10) : 0;
+      g_hash_table_replace (r->gradients, g_strdup (attr (names, values, "name")), g);
+      return;
+    }
+  if (strcmp (name, "hatch") == 0 && attr (names, values, "name") != NULL)
+    {
+      OdsHatch *h = g_new0 (OdsHatch, 1);
+      const char *hstyle = attr (names, values, "style");
+      const char *rotation = attr (names, values, "rotation");
+      double rot = rotation != NULL ? fmod (g_ascii_strtod (rotation, NULL) / (strstr (rotation, "deg") != NULL ? 1 : 10), 180) : 0;
+      gboolean thin = ods_length (attr (names, values, "distance")) > 5;
+      gboolean crossed = hstyle != NULL && strcmp (hstyle, "single") != 0;
+
+      h->colour = colour_of (attr (names, values, "color"), 0);
+      if (crossed)
+        h->pattern = rot > 22 && rot < 68 ? (thin ? O42_PATTERN_THIN_TRELLIS : O42_PATTERN_TRELLIS)
+                                          : (thin ? O42_PATTERN_THIN_GRID : O42_PATTERN_GRID);
+      else if (rot > 22 && rot < 68) h->pattern = thin ? O42_PATTERN_THIN_UP : O42_PATTERN_UP;
+      else if (rot >= 68 && rot < 112) h->pattern = thin ? O42_PATTERN_THIN_VERTICAL : O42_PATTERN_VERTICAL;
+      else if (rot >= 112 && rot < 158) h->pattern = thin ? O42_PATTERN_THIN_DOWN : O42_PATTERN_DOWN;
+      else h->pattern = thin ? O42_PATTERN_THIN_HORIZONTAL : O42_PATTERN_HORIZONTAL;
+      g_hash_table_replace (r->hatches, g_strdup (attr (names, values, "name")), h);
+      return;
+    }
   if (strcmp (name, "stroke-dash") == 0 && attr (names, values, "name") != NULL)
     {
       g_hash_table_replace (r->dashes, g_strdup (attr (names, values, "name")),
@@ -3611,6 +3736,20 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           }
           st->graphic = TRUE;
           st->fill_none = fill != NULL && strcmp (fill, "none") == 0;
+          if (fill != NULL && strcmp (fill, "gradient") == 0)
+            st->gradient_name = g_strdup (attr (names, values, "fill-gradient-name"));
+          else if (fill != NULL && strcmp (fill, "hatch") == 0)
+            st->hatch_name = g_strdup (attr (names, values, "fill-hatch-name"));
+          {
+            const char *shadow = attr (names, values, "shadow");
+            if (shadow != NULL && strcmp (shadow, "visible") == 0)
+              {
+                st->shadow = TRUE;
+                st->shadow_colour = colour_of (attr (names, values, "shadow-color"), 0x808080);
+                st->shadow_dx = ods_length (attr (names, values, "shadow-offset-x"));
+                st->shadow_dy = ods_length (attr (names, values, "shadow-offset-y"));
+              }
+          }
           st->fill = fill_colour != NULL ? colour_of (fill_colour, 0xFFFFFF) : 0xFFFFFF;
           st->stroke_none = stroke != NULL && strcmp (stroke, "none") == 0;
           st->line = stroke_colour != NULL ? colour_of (stroke_colour, 0) : 0;
@@ -4272,6 +4411,8 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   r.font_faces = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.master_pages = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   r.dashes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  r.gradients = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  r.hatches = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.form_controls = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, form_control_free);
   r.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.col_styles = g_ptr_array_new_with_free_func (g_free);
@@ -4292,6 +4433,8 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
       if (r.hf_parts[i][j] != NULL)
         g_string_free (r.hf_parts[i][j], TRUE);
   g_hash_table_unref (r.dashes);
+  g_hash_table_unref (r.gradients);
+  g_hash_table_unref (r.hatches);
   g_hash_table_unref (r.form_controls);
   g_hash_table_unref (r.num_styles);
   g_ptr_array_unref (r.col_styles);

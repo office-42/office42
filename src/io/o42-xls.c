@@ -2402,6 +2402,19 @@ read_drawing (Reader *r)
               shape->width = line_kind ? sx1 - sx0 : MAX (sx1 - sx0, 4);
               shape->height = line_kind ? sy1 - sy0 : MAX (sy1 - sy0, 4);
               shape->fill = (!line_kind && f->filled && (f->path == NULL || f->closed)) ? f->fill : O42_FILL_NONE;
+              if (shape->fill != O42_FILL_NONE && f->fill_type >= 4 && f->fill_type <= 7)
+                {
+                  shape->fill_kind = O42_SHAPE_FILL_GRADIENT;
+                  shape->fill2 = f->fill_back;
+                  shape->gradient_angle = f->fill_angle;
+                }
+              if (f->shadow)
+                {
+                  shape->shadow = TRUE;
+                  shape->shadow_colour = f->shadow_colour;
+                  shape->shadow_dx = f->shadow_dx;
+                  shape->shadow_dy = f->shadow_dy;
+                }
               shape->line = f->line;
               shape->line_width = f->lined ? MAX (f->line_width, 0.5) : 0.5;
               shape->dash = f->dash;

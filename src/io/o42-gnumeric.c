@@ -1070,6 +1070,12 @@ write_sheet (GString *out, O42Sheet *sheet)
               g_string_append_printf (ta, " Path=\"%s\" Closed=\"%d\"", path, sh->closed ? 1 : 0);
               g_free (path);
             }
+          if (sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+            g_string_append_printf (ta, " FillKind=\"gradient\" Fill2=\"%u\" Angle=\"%g\"", (guint) sh->fill2, sh->gradient_angle);
+          else if (sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+            g_string_append_printf (ta, " FillKind=\"pattern\" Fill2=\"%u\" Pattern=\"%s\"", (guint) sh->fill2, o42_pattern_name (sh->pattern));
+          if (sh->shadow)
+            g_string_append_printf (ta, " Shadow=\"%u\" ShadowDx=\"%g\" ShadowDy=\"%g\"", (guint) sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
           text_attrs = g_string_free (ta, FALSE);
         }
         g_string_append_printf (w.out,
@@ -2300,6 +2306,28 @@ start_element (GMarkupParseContext *context, const char *element,
               o42_shape_path_from_string (r->shape, attr (names, values, "Path"));
               r->shape->closed = attr_int (names, values, "Closed", 0) != 0;
             }
+          {
+            const char *fk = attr (names, values, "FillKind");
+            if (fk != NULL && strcmp (fk, "gradient") == 0)
+              {
+                r->shape->fill_kind = O42_SHAPE_FILL_GRADIENT;
+                r->shape->fill2 = (guint32) attr_int (names, values, "Fill2", 0xFFFFFF);
+                r->shape->gradient_angle = attr_double (names, values, "Angle", 0);
+              }
+            else if (fk != NULL && strcmp (fk, "pattern") == 0)
+              {
+                r->shape->fill_kind = O42_SHAPE_FILL_PATTERN;
+                r->shape->fill2 = (guint32) attr_int (names, values, "Fill2", 0);
+                o42_pattern_parse (attr (names, values, "Pattern"), &r->shape->pattern);
+              }
+            if (attr (names, values, "Shadow") != NULL)
+              {
+                r->shape->shadow = TRUE;
+                r->shape->shadow_colour = (guint32) attr_int (names, values, "Shadow", 0x808080);
+                r->shape->shadow_dx = attr_double (names, values, "ShadowDx", 3);
+                r->shape->shadow_dy = attr_double (names, values, "ShadowDy", 3);
+              }
+          }
           if (o42_shape_is_control (kind))
             {
               const char *link = attr (names, values, "Link");

@@ -73,6 +73,12 @@ typedef struct {
   gboolean has_text;               /* an lTxid: a TXO follows the OBJ */
   double   text_inset;             /* px, from dxTextLeft; -1 when unsaid */
   int      text_wrap;              /* WrapText: 0 square, 2 none; -1 when unsaid */
+  int      fill_type;              /* fillType: 0 solid, 4-7 a shade (gradient) */
+  guint32  fill_back;              /* fillBackColor: the gradient's second colour */
+  double   fill_angle;             /* fillAngle, degrees as office42 counts them */
+  gboolean shadow;
+  guint32  shadow_colour;
+  double   shadow_dx, shadow_dy;   /* px */
   GArray  *path;                   /* O42PathPoint: a freeform's outline, or NULL; the caller frees */
   gboolean closed;
   gboolean path_raw;               /* the path's numbers are EMU of the shape's box, not fractions */

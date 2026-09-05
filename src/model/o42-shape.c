@@ -5,6 +5,7 @@
  */
 
 #include "o42-shape.h"
+#include "o42-pattern.h"
 
 #include <pango/pangocairo.h>
 #include <string.h>
@@ -33,6 +34,9 @@ o42_shape_new (O42ShapeKind kind)
               : (kind == O42_SHAPE_TEXT) ? 0xFFFFCC : 0xDCE6F1;
   shape->line = 0x1F497D;
   shape->line_width = 1.5;
+  shape->fill2 = 0xFFFFFF;
+  shape->shadow_colour = 0x808080;
+  shape->shadow_dx = shape->shadow_dy = 3;
   if (kind == O42_SHAPE_ARROW)
     shape->head_end = O42_HEAD_TRIANGLE;
   shape->head_start_size = shape->head_end_size = O42_HEAD_MEDIUM;
@@ -752,6 +756,119 @@ set_rgb (cairo_t *cr, guint32 colour)
 }
 
 void
+o42_shape_fill_path (const O42Shape *shape, cairo_t *cr, double width, double height)
+{
+  g_return_if_fail (shape != NULL && cr != NULL);
+  if (shape->fill == O42_FILL_NONE)
+    return;
+  switch (shape->fill_kind)
+    {
+    case O42_SHAPE_FILL_GRADIENT:
+      {
+        /* A run across the box along the angle, through its centre. */
+        double a = shape->gradient_angle * G_PI / 180;
+        double cx = width / 2, cy = height / 2;
+        double half = (fabs (cos (a)) * width + fabs (sin (a)) * height) / 2;
+        cairo_pattern_t *g = cairo_pattern_create_linear (cx - cos (a) * half, cy - sin (a) * half,
+                                                          cx + cos (a) * half, cy + sin (a) * half);
+
+        cairo_pattern_add_color_stop_rgb (g, 0, ((shape->fill >> 16) & 0xFF) / 255.0,
+                                          ((shape->fill >> 8) & 0xFF) / 255.0, (shape->fill & 0xFF) / 255.0);
+        cairo_pattern_add_color_stop_rgb (g, 1, ((shape->fill2 >> 16) & 0xFF) / 255.0,
+                                          ((shape->fill2 >> 8) & 0xFF) / 255.0, (shape->fill2 & 0xFF) / 255.0);
+        cairo_set_source (cr, g);
+        cairo_fill_preserve (cr);
+        cairo_pattern_destroy (g);
+        break;
+      }
+    case O42_SHAPE_FILL_PATTERN:
+      {
+        /* The cell painter's pattern, clipped to the outline: the first
+         * colour behind, the second as the pattern. */
+        O42Fmt fmt;
+
+        o42_fmt_init_default (&fmt);
+        fmt.fill = shape->fill;
+        fmt.pattern = shape->pattern;
+        fmt.pattern_colour = shape->fill2;
+        cairo_save (cr);
+        cairo_clip_preserve (cr);
+        o42_pattern_fill (&fmt, cr, 0, 0, width, height);
+        cairo_restore (cr);
+        break;
+      }
+    default:
+      set_rgb (cr, shape->fill);
+      cairo_fill_preserve (cr);
+      break;
+    }
+}
+
+static const struct { O42Pattern pattern; const char *prst; } PATTERN_PRSTS[] = {
+  { O42_PATTERN_SOLID, "solid" },        /* not a prst, but a name to give back */
+  { O42_PATTERN_GRAY75, "pct75" },   { O42_PATTERN_GRAY50, "pct50" },  { O42_PATTERN_GRAY25, "pct25" },
+  { O42_PATTERN_GRAY125, "pct10" },  { O42_PATTERN_GRAY0625, "pct5" },
+  { O42_PATTERN_HORIZONTAL, "horz" }, { O42_PATTERN_VERTICAL, "vert" },
+  { O42_PATTERN_DOWN, "dnDiag" },    { O42_PATTERN_UP, "upDiag" },
+  { O42_PATTERN_GRID, "cross" },     { O42_PATTERN_TRELLIS, "diagCross" },
+  { O42_PATTERN_THIN_HORIZONTAL, "ltHorz" }, { O42_PATTERN_THIN_VERTICAL, "ltVert" },
+  { O42_PATTERN_THIN_DOWN, "ltDnDiag" }, { O42_PATTERN_THIN_UP, "ltUpDiag" },
+  { O42_PATTERN_THIN_GRID, "smGrid" }, { O42_PATTERN_THIN_TRELLIS, "dotDmnd" },
+  /* The rest of DrawingML's, read as the nearest of ours. */
+  { O42_PATTERN_GRAY75, "pct70" },   { O42_PATTERN_GRAY75, "pct80" },   { O42_PATTERN_GRAY75, "pct90" },
+  { O42_PATTERN_GRAY50, "pct40" },   { O42_PATTERN_GRAY50, "pct60" },
+  { O42_PATTERN_GRAY25, "pct20" },   { O42_PATTERN_GRAY25, "pct30" },
+  { O42_PATTERN_HORIZONTAL, "dkHorz" }, { O42_PATTERN_VERTICAL, "dkVert" },
+  { O42_PATTERN_THIN_HORIZONTAL, "narHorz" }, { O42_PATTERN_THIN_VERTICAL, "narVert" },
+  { O42_PATTERN_HORIZONTAL, "dashHorz" }, { O42_PATTERN_VERTICAL, "dashVert" },
+  { O42_PATTERN_DOWN, "dkDnDiag" },  { O42_PATTERN_UP, "dkUpDiag" },
+  { O42_PATTERN_DOWN, "wdDnDiag" },  { O42_PATTERN_UP, "wdUpDiag" },
+  { O42_PATTERN_THIN_DOWN, "dashDnDiag" }, { O42_PATTERN_THIN_UP, "dashUpDiag" },
+  { O42_PATTERN_GRID, "lgGrid" },    { O42_PATTERN_THIN_GRID, "dotGrid" },
+  { O42_PATTERN_TRELLIS, "openDmnd" }, { O42_PATTERN_TRELLIS, "solidDmnd" },
+  { O42_PATTERN_GRID, "smCheck" },   { O42_PATTERN_GRID, "lgCheck" },
+  { O42_PATTERN_THIN_TRELLIS, "trellis" }, { O42_PATTERN_THIN_TRELLIS, "plaid" },
+};
+
+const char *
+o42_shape_pattern_prst (O42Pattern pattern)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (PATTERN_PRSTS); i++)
+    if (PATTERN_PRSTS[i].pattern == pattern)
+      return PATTERN_PRSTS[i].prst;
+  return "pct50";
+}
+
+O42Pattern
+o42_shape_pattern_from_prst (const char *prst)
+{
+  for (guint i = 0; prst != NULL && i < G_N_ELEMENTS (PATTERN_PRSTS); i++)
+    if (strcmp (PATTERN_PRSTS[i].prst, prst) == 0)
+      return PATTERN_PRSTS[i].pattern;
+  return O42_PATTERN_GRAY50;
+}
+
+/* The outline of a filled kind on the path: an oval, a freeform, or a
+ * rectangle wearing its geometry. */
+static void
+outline_path (const O42Shape *shape, cairo_t *cr, double width, double height, double inset)
+{
+  if (shape->kind == O42_SHAPE_OVAL)
+    {
+      cairo_save (cr);
+      cairo_translate (cr, width / 2, height / 2);
+      cairo_scale (cr, MAX (width / 2 - inset, 1), MAX (height / 2 - inset, 1));
+      cairo_new_sub_path (cr);   /* or the arc is joined to wherever the pen was */
+      cairo_arc (cr, 0, 0, 1, 0, 2 * G_PI);
+      cairo_restore (cr);
+    }
+  else if (shape->kind == O42_SHAPE_FREEFORM)
+    o42_shape_freeform_path (shape, cr, width, height);
+  else
+    o42_shape_geom_path (shape->geom, cr, width, height, inset);
+}
+
+void
 o42_shape_draw (const O42Shape *shape, cairo_t *cr, double width, double height)
 {
   double inset;
@@ -796,40 +913,24 @@ o42_shape_draw (const O42Shape *shape, cairo_t *cr, double width, double height)
       }
       break;
 
-    case O42_SHAPE_FREEFORM:
-      o42_shape_freeform_path (shape, cr, width, height);
-      if (shape->closed && shape->fill != O42_FILL_NONE)
-        {
-          set_rgb (cr, shape->fill);
-          cairo_fill_preserve (cr);
-        }
-      set_rgb (cr, shape->line);
-      cairo_stroke (cr);
-      break;
-
-    case O42_SHAPE_OVAL:
-      cairo_save (cr);
-      cairo_translate (cr, width / 2, height / 2);
-      cairo_scale (cr, MAX (width / 2 - inset, 1), MAX (height / 2 - inset, 1));
-      cairo_new_sub_path (cr);   /* or the arc is joined to wherever the pen was */
-      cairo_arc (cr, 0, 0, 1, 0, 2 * G_PI);
-      cairo_restore (cr);
-      if (shape->fill != O42_FILL_NONE)
-        {
-          set_rgb (cr, shape->fill);
-          cairo_fill_preserve (cr);
-        }
-      set_rgb (cr, shape->line);
-      cairo_stroke (cr);
-      break;
-
     default:
-      o42_shape_geom_path (shape->geom, cr, width, height, inset);
-      if (shape->fill != O42_FILL_NONE)
+      /* The shadow first, the same outline moved and in one grey; then
+       * the fill, and the stroke over it. */
+      if (shape->shadow)
         {
-          set_rgb (cr, shape->fill);
-          cairo_fill_preserve (cr);
+          cairo_save (cr);
+          cairo_translate (cr, shape->shadow_dx, shape->shadow_dy);
+          outline_path (shape, cr, width, height, inset);
+          set_rgb (cr, shape->shadow_colour);
+          if (shape->kind == O42_SHAPE_FREEFORM && !shape->closed)
+            { cairo_set_line_width (cr, shape->line_width); cairo_stroke (cr); }
+          else
+            cairo_fill (cr);
+          cairo_restore (cr);
         }
+      outline_path (shape, cr, width, height, inset);
+      if (shape->kind != O42_SHAPE_FREEFORM || shape->closed)
+        o42_shape_fill_path (shape, cr, width, height);
       set_rgb (cr, shape->line);
       cairo_stroke (cr);
       break;

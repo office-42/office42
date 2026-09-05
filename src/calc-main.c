@@ -1577,6 +1577,12 @@ main (int argc, char *argv[])
                     printf ("none");
                   else
                     printf ("%06X", sh->fill);
+                  if (sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+                    printf (" gradient %06X %g", sh->fill2, sh->gradient_angle);
+                  else if (sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+                    printf (" pattern %s %06X", o42_pattern_name (sh->pattern), sh->fill2);
+                  if (sh->shadow)
+                    printf (" shadow %06X %g,%g", sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
                   printf (" line %06X/%g", sh->line, sh->line_width);
                   if (sh->dash != O42_DASH_SOLID)
                     printf (" %s", o42_dash_name (sh->dash));
@@ -2075,6 +2081,27 @@ main (int argc, char *argv[])
                 sh->text_nowrap = number != 0;
               else if (strcmp (words[2], "inset") == 0)
                 sh->text_inset = number;
+              else if (strcmp (words[2], "fill") == 0)
+                sh->fill = strcmp (words[3], "none") == 0 ? O42_FILL_NONE : (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "line") == 0)
+                sh->line = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "fillkind") == 0)
+                sh->fill_kind = strcmp (words[3], "gradient") == 0 ? O42_SHAPE_FILL_GRADIENT
+                              : strcmp (words[3], "pattern") == 0 ? O42_SHAPE_FILL_PATTERN : O42_SHAPE_FILL_SOLID;
+              else if (strcmp (words[2], "fill2") == 0)
+                sh->fill2 = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "angle") == 0)
+                sh->gradient_angle = number;
+              else if (strcmp (words[2], "pattern") == 0)
+                { if (!o42_pattern_parse (words[3], &sh->pattern)) fprintf (stderr, "no such pattern\n"); }
+              else if (strcmp (words[2], "shadow") == 0)
+                sh->shadow = number != 0;
+              else if (strcmp (words[2], "shadowcolour") == 0)
+                sh->shadow_colour = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "shadowdx") == 0)
+                sh->shadow_dx = number;
+              else if (strcmp (words[2], "shadowdy") == 0)
+                sh->shadow_dy = number;
               else
                 fprintf (stderr, "no such field\n");
             }
@@ -2082,7 +2109,8 @@ main (int argc, char *argv[])
             fprintf (stderr, "usage: controlset ID link|source|script|text|value|"
                              "min|max|step|page|width|height|linewidth|dash|headstart|headend|"
                              "headstartsize|headendsize|rotation|fliph|flipv|font|fontsize|bold|italic|"
-                             "textcolour|halign|valign|nowrap|inset VALUE\n");
+                             "textcolour|halign|valign|nowrap|inset|fill|line|fillkind|fill2|angle|"
+                             "pattern|shadow|shadowcolour|shadowdx|shadowdy VALUE\n");
           g_strfreev (words);
           continue;
         }

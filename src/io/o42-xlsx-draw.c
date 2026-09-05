@@ -670,6 +670,15 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
               g_string_append_printf (dr, "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>", o42_shape_prst (sh));
             if (sh->fill == O42_FILL_NONE || stroke || (sh->kind == O42_SHAPE_FREEFORM && !sh->closed))
               g_string_append (dr, "<a:noFill/>");
+            else if (sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+              g_string_append_printf (dr,
+                "<a:gradFill rotWithShape=\"1\"><a:gsLst><a:gs pos=\"0\"><a:srgbClr val=\"%06X\"/></a:gs>"
+                "<a:gs pos=\"100000\"><a:srgbClr val=\"%06X\"/></a:gs></a:gsLst><a:lin ang=\"%.0f\" scaled=\"0\"/></a:gradFill>",
+                sh->fill & 0xFFFFFFu, sh->fill2 & 0xFFFFFFu, fmod (fmod (sh->gradient_angle, 360) + 360, 360) * 60000);
+            else if (sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+              g_string_append_printf (dr,
+                "<a:pattFill prst=\"%s\"><a:fgClr><a:srgbClr val=\"%06X\"/></a:fgClr><a:bgClr><a:srgbClr val=\"%06X\"/></a:bgClr></a:pattFill>",
+                o42_shape_pattern_prst (sh->pattern), sh->fill2 & 0xFFFFFFu, sh->fill & 0xFFFFFFu);
             else
               g_string_append_printf (dr, "<a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
                                       sh->fill & 0xFFFFFFu);
@@ -695,7 +704,13 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                                           SIZES[CLAMP (sh->head_end_size, 0, 2)],
                                           SIZES[CLAMP (sh->head_end_size, 0, 2)]);
               }
-            g_string_append (dr, "</a:ln></xdr:spPr>");
+            g_string_append (dr, "</a:ln>");
+            if (sh->shadow)
+              g_string_append_printf (dr,
+                "<a:effectLst><a:outerShdw dist=\"%.0f\" dir=\"%.0f\" algn=\"tl\" rotWithShape=\"0\"><a:srgbClr val=\"%06X\"/></a:outerShdw></a:effectLst>",
+                hypot (sh->shadow_dx, sh->shadow_dy) * EMU_PER_PX,
+                fmod (atan2 (sh->shadow_dy, sh->shadow_dx) * 180 / G_PI + 360, 360) * 60000, sh->shadow_colour & 0xFFFFFFu);
+            g_string_append (dr, "</xdr:spPr>");
             append_text_body (dr, sh);
             g_string_append (dr, "</xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
             shape++;
@@ -1169,6 +1184,19 @@ typedef struct
   gboolean    lock_aspect;
   GString    *body;
 
+  /* The fill's kind: a gradient's stops and angle, a pattern's colours,
+   * and a shadow. */
+  O42ShapeFillKind fill_kind;
+  int         in_grad;      /* 1 inside a:gradFill; the stops count as they come */
+  int         grad_stops;
+  guint32     fill2;
+  double      grad_angle;
+  int         in_patt;      /* 1 in a:fgClr, 2 in a:bgClr, 3 elsewhere in a:pattFill */
+  O42Pattern  pattern;
+  gboolean    in_shadow, shadow;
+  guint32     shadow_colour;
+  double      shadow_dx, shadow_dy;
+
   /* A custom geometry: the path's own size and its steps, gathered as
    * a:pt come. */
   gboolean    custom;
@@ -1241,6 +1269,14 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
       d->in_rpr = d->have_rpr = d->have_ppr = d->have_anchor = FALSE;
       d->custom = d->path_closed = FALSE;
+      d->fill_kind = O42_SHAPE_FILL_SOLID;
+      d->in_grad = d->grad_stops = d->in_patt = 0;
+      d->fill2 = 0xFFFFFF;
+      d->grad_angle = 0;
+      d->pattern = O42_PATTERN_GRAY50;
+      d->in_shadow = d->shadow = FALSE;
+      d->shadow_colour = 0x808080;
+      d->shadow_dx = d->shadow_dy = 3;
       d->path_w = d->path_h = 0;
       d->path_op = 0;
       d->cubic_n = 0;
@@ -1365,8 +1401,46 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
         {
           if (d->in_line) d->line = colour;
           else if (d->in_rpr) d->t_colour = colour;
+          else if (d->in_shadow) d->shadow_colour = colour;
+          else if (d->in_grad)
+            {
+              /* The first stop is the fill, the last the second colour. */
+              if (d->grad_stops == 0) d->fill = colour;
+              else d->fill2 = colour;
+              d->grad_stops++;
+            }
+          else if (d->in_patt == 1) d->fill2 = colour;
+          else if (d->in_patt == 2) d->fill = colour;
           else if (!d->in_body) d->fill = colour;
         }
+    }
+  else if (strcmp (n, "gradFill") == 0 && d->is_shape && !d->in_line && !d->in_body)
+    {
+      d->in_grad = 1;
+      d->fill_kind = O42_SHAPE_FILL_GRADIENT;
+    }
+  else if (strcmp (n, "lin") == 0 && d->in_grad)
+    {
+      const char *ang = attr (names, values, "ang");
+      if (ang != NULL) d->grad_angle = g_ascii_strtod (ang, NULL) / 60000;
+    }
+  else if (strcmp (n, "pattFill") == 0 && d->is_shape && !d->in_line && !d->in_body)
+    {
+      d->in_patt = 3;
+      d->fill_kind = O42_SHAPE_FILL_PATTERN;
+      d->pattern = o42_shape_pattern_from_prst (attr (names, values, "prst"));
+    }
+  else if (strcmp (n, "fgClr") == 0 && d->in_patt) d->in_patt = 1;
+  else if (strcmp (n, "bgClr") == 0 && d->in_patt) d->in_patt = 2;
+  else if (strcmp (n, "outerShdw") == 0 && d->is_shape)
+    {
+      const char *dist = attr (names, values, "dist"), *dir = attr (names, values, "dir");
+      double px = dist != NULL ? g_ascii_strtod (dist, NULL) / EMU_PER_PX : 3;
+      double a = dir != NULL ? g_ascii_strtod (dir, NULL) / 60000 * G_PI / 180 : G_PI / 4;
+
+      d->in_shadow = d->shadow = TRUE;
+      d->shadow_dx = floor (px * cos (a) * 10 + 0.5) / 10;
+      d->shadow_dy = floor (px * sin (a) * 10 + 0.5) / 10;
     }
   else if (strcmp (n, "custGeom") == 0 && d->is_shape)
     {
@@ -1598,6 +1672,14 @@ finish_anchor (DrawReader *d)
           sh->width = width;
           sh->height = height;
           sh->fill = d->fill;
+          sh->fill_kind = d->fill_kind;
+          sh->fill2 = d->fill2;
+          sh->gradient_angle = d->grad_angle;
+          sh->pattern = d->pattern;
+          sh->shadow = d->shadow;
+          sh->shadow_colour = d->shadow_colour;
+          sh->shadow_dx = d->shadow_dx;
+          sh->shadow_dy = d->shadow_dy;
           sh->line = d->line;
           sh->line_width = d->line_width;
           sh->dash = d->dash;
@@ -1659,6 +1741,10 @@ draw_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **er
   else if (strcmp (n, "ln") == 0) d->in_line = FALSE;
   else if (strcmp (n, "txBody") == 0) d->in_body = FALSE;
   else if (strcmp (n, "rPr") == 0 || strcmp (n, "endParaRPr") == 0) d->in_rpr = FALSE;
+  else if (strcmp (n, "gradFill") == 0) d->in_grad = 0;
+  else if (strcmp (n, "pattFill") == 0) d->in_patt = 0;
+  else if ((strcmp (n, "fgClr") == 0 || strcmp (n, "bgClr") == 0) && d->in_patt) d->in_patt = 3;
+  else if (strcmp (n, "outerShdw") == 0) d->in_shadow = FALSE;
   else if (strcmp (n, "t") == 0 && d->field != NULL)
     {
       g_string_append (d->body, d->text->str);

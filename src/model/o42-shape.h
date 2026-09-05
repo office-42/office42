@@ -114,6 +114,15 @@ typedef enum {
   O42_HEAD_LARGE
 } O42HeadSize;
 
+/* What the inside of a shape is painted with: one colour, a run from
+ * one colour to a second along an angle, or one of the cell patterns
+ * in a colour over a background. */
+typedef enum {
+  O42_SHAPE_FILL_SOLID = 0,
+  O42_SHAPE_FILL_GRADIENT,
+  O42_SHAPE_FILL_PATTERN
+} O42ShapeFillKind;
+
 typedef struct {
   guint         id;         /* stable for the shape's lifetime */
   guint         group;      /* objects grouped together share one; 0 for none */
@@ -156,6 +165,14 @@ typedef struct {
   guint32       fill;       /* 0x00RRGGBB, or O42_FILL_NONE */
   guint32       line;       /* 0x00RRGGBB */
   double        line_width; /* pixels */
+
+  O42ShapeFillKind fill_kind;
+  guint32       fill2;      /* the gradient's second colour, or the pattern's own */
+  double        gradient_angle; /* degrees: 0 runs left to right, 90 top to bottom */
+  O42Pattern    pattern;    /* for O42_SHAPE_FILL_PATTERN */
+  gboolean      shadow;     /* a shadow behind, offset by (shadow_dx, shadow_dy) pixels */
+  guint32       shadow_colour;
+  double        shadow_dx, shadow_dy;
 
   /* Form controls only. */
   char         *link;       /* the cell it drives, "B2"; owned, may be NULL */
@@ -229,6 +246,16 @@ const char *o42_shape_ods_type    (const O42Shape *shape);   /* NULL for a plain
 gboolean    o42_shape_apply_ods_type (O42Shape *shape, const char *type);
 int         o42_shape_spt         (const O42Shape *shape);
 gboolean    o42_shape_apply_spt   (O42Shape *shape, int spt);
+
+/* Paints the inside of the current path as the shape's fill says, and
+ * leaves the path in place for the stroke.  Nothing for a shape with
+ * no fill. */
+void        o42_shape_fill_path   (const O42Shape *shape, cairo_t *cr, double width, double height);
+
+/* A cell pattern by Office Open XML's pattern-fill names ("pct50",
+ * "ltUpDiag"), and back. */
+const char *o42_shape_pattern_prst   (O42Pattern pattern);
+O42Pattern  o42_shape_pattern_from_prst (const char *prst);
 
 /* The dashes and heads by Office Open XML's names ("dashDot",
  * "stealth"), which .gnumeric uses as well. */

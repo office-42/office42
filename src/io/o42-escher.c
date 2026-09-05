@@ -304,8 +304,20 @@ put_drawing_opt (GByteArray *a, const O42Shape *sh, guint txid)
       put16 (a, 0x8146); put32 (a, 6 + 2 * n_seg); n++;                  /* pSegmentInfo, complex */
       complex_from = sh;
     }
+  if (!line_kind && sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+    { put16 (a, 0x0180); put32 (a, 4); n++; }                            /* fillType: shade */
   if (!line_kind && sh->fill != O42_FILL_NONE)
     { put16 (a, 0x0181); put32 (a, escher_colour (sh->fill)); n++; }     /* fillColor */
+  if (!line_kind && sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+    {
+      /* Escher's angle runs the other way from ours and starts at the
+       * top; 16.16 fixed point. */
+      double angle = fmod (fmod (270 - sh->gradient_angle, 360) + 360, 360);
+
+      put16 (a, 0x0183); put32 (a, escher_colour (sh->fill2)); n++;      /* fillBackColor */
+      put16 (a, 0x0186); put32 (a, 0); n++;                              /* fillFocus */
+      put16 (a, 0x018B); put32 (a, (guint32) (gint32) (angle * 65536)); n++;   /* fillAngle */
+    }
   put16 (a, 0x01BF); put32 (a, (!line_kind && sh->fill != O42_FILL_NONE) ? 0x00100010 : 0x00100000); n++;  /* fFilled */
   put16 (a, 0x01C0); put32 (a, escher_colour (sh->line)); n++;           /* lineColor */
   put16 (a, 0x01CB); put32 (a, (guint32) (sh->line_width * 9525)); n++;  /* lineWidth, EMU */
@@ -326,6 +338,14 @@ put_drawing_opt (GByteArray *a, const O42Shape *sh, guint txid)
       put16 (a, 0x01D5); put32 (a, sh->head_end_size); n++;
     }
   put16 (a, 0x01FF); put32 (a, 0x00080008); n++;                         /* fLine on */
+  if (sh->shadow)
+    {
+      put16 (a, 0x0200); put32 (a, 0); n++;                              /* shadowType: offset */
+      put16 (a, 0x0201); put32 (a, escher_colour (sh->shadow_colour)); n++;
+      put16 (a, 0x0205); put32 (a, (guint32) (gint32) (sh->shadow_dx * 9525)); n++;   /* shadowOffsetX, EMU */
+      put16 (a, 0x0206); put32 (a, (guint32) (gint32) (sh->shadow_dy * 9525)); n++;
+      put16 (a, 0x023F); put32 (a, 0x00020002); n++;                     /* fShadow */
+    }
   put16 (a, 0x03BF); put32 (a, 0x00080000); n++;                         /* not hidden, printable */
   if (complex_from != NULL)
     {
@@ -729,6 +749,9 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
               cur.head_start_size = cur.head_end_size = O42_HEAD_MEDIUM;
               cur.text_inset = -1;
               cur.text_wrap = -1;
+              cur.fill_back = 0xFFFFFF;
+              cur.shadow_colour = 0x808080;
+              cur.shadow_dx = cur.shadow_dy = 3;
               in_shape = TRUE;
             }
           p = body;
@@ -797,7 +820,14 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
                 case 0x0104: cur.blip = v; break;
                 /* A high byte marks a palette or system colour, which is left
                  * at the default rather than misread as an RGB. */
+                case 0x0180: cur.fill_type = (int) v; break;
                 case 0x0181: if ((v >> 24) == 0) cur.fill = escher_colour (v); break;
+                case 0x0183: if ((v >> 24) == 0) cur.fill_back = escher_colour (v); break;
+                case 0x018B: cur.fill_angle = fmod (fmod (270 - (gint32) v / 65536.0, 360) + 360, 360); break;
+                case 0x0201: if ((v >> 24) == 0) cur.shadow_colour = escher_colour (v); break;
+                case 0x0205: cur.shadow_dx = (gint32) v / 9525.0; break;
+                case 0x0206: cur.shadow_dy = (gint32) v / 9525.0; break;
+                case 0x023F: if (v & 0x00020000) cur.shadow = (v & 0x02) != 0; break;
                 case 0x01BF: if (v & 0x00100000) cur.filled = (v & 0x10) != 0; break;
                 case 0x01C0: if ((v >> 24) == 0) cur.line = escher_colour (v); break;
                 case 0x01CB: cur.line_width = floor (v / 95.25 + 0.5) / 100; break;   /* EMU, to the hundredth */

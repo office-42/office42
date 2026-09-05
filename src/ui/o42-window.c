@@ -3948,6 +3948,8 @@ typedef struct {
   GtkWidget *rotation, *flip_h, *flip_v;
   GtkWidget *font, *font_size, *bold, *italic, *text_colour;
   GtkWidget *halign, *valign, *wrap, *inset;
+  GtkWidget *fill_kind, *fill2, *angle, *pattern;
+  GtkWidget *shadow, *shadow_colour, *shadow_dx, *shadow_dy;
 } ShapePrompt;
 
 static void
@@ -3970,6 +3972,14 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
       shape->fill = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->no_fill))
                     ? O42_FILL_NONE
                     : colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->fill)));
+      shape->fill_kind = (O42ShapeFillKind) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->fill_kind));
+      shape->fill2 = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->fill2)));
+      shape->gradient_angle = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->angle));
+      shape->pattern = (O42Pattern) (gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->pattern)) + O42_PATTERN_GRAY75);
+      shape->shadow = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->shadow));
+      shape->shadow_colour = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->shadow_colour)));
+      shape->shadow_dx = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->shadow_dx));
+      shape->shadow_dy = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->shadow_dy));
       shape->line = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->line)));
       shape->line_width = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->width));
       shape->dash = (O42Dash) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->dash));
@@ -4045,8 +4055,25 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->no_fill = gtk_check_button_new_with_mnemonic ( _("_No fill"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), shape->fill == O42_FILL_NONE);
   gtk_grid_attach (GTK_GRID (grid), prompt->no_fill, 0, 1, 2, 1);
-  prompt->line = labelled (grid, 2, _("Line:"), colour_button (shape->line, _("Shape Line")));
-  prompt->width = labelled (grid, 3, _("Line width:"), gtk_spin_button_new_with_range (0.5, 12, 0.5));
+  {
+    /* In the order of O42ShapeFillKind, and of O42Pattern from GRAY75. */
+    static const char *const kinds[] = { N_("Solid"), N_("Gradient"), N_("Pattern"), NULL };
+    static const char *const patterns[] = { N_("75% grey"), N_("50% grey"), N_("25% grey"), N_("12.5% grey"), N_("6.25% grey"),
+                                            N_("Horizontal"), N_("Vertical"), N_("Down diagonal"), N_("Up diagonal"),
+                                            N_("Grid"), N_("Trellis"), N_("Thin horizontal"), N_("Thin vertical"),
+                                            N_("Thin down diagonal"), N_("Thin up diagonal"), N_("Thin grid"), N_("Thin trellis"), NULL };
+
+    prompt->fill_kind = labelled (grid, 2, _("Fill style:"), drop_down_of (kinds));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->fill_kind), (guint) shape->fill_kind);
+    prompt->fill2 = labelled (grid, 3, _("Second colour:"), colour_button (shape->fill2, _("Gradient End or Pattern Colour")));
+    prompt->angle = labelled (grid, 4, _("Gradient angle:"), gtk_spin_button_new_with_range (0, 359, 15));
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->angle), shape->gradient_angle);
+    prompt->pattern = labelled (grid, 5, _("Pattern:"), drop_down_of (patterns));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->pattern),
+                                (guint) CLAMP ((int) shape->pattern - (int) O42_PATTERN_GRAY75, 0, 16));
+  }
+  prompt->line = labelled (grid, 6, _("Line:"), colour_button (shape->line, _("Shape Line")));
+  prompt->width = labelled (grid, 7, _("Line width:"), gtk_spin_button_new_with_range (0.5, 12, 0.5));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->width), shape->line_width);
   {
     /* In the order of O42Dash, O42Head and O42HeadSize, so the row is
@@ -4057,20 +4084,28 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
                                          N_("Oval"), N_("Open arrow"), NULL };
     static const char *const sizes[] = { N_("Small"), N_("Medium"), N_("Large"), NULL };
 
-    prompt->dash = labelled (grid, 4, _("Dash:"), drop_down_of (dashes));
+    prompt->dash = labelled (grid, 8, _("Dash:"), drop_down_of (dashes));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->dash), (guint) shape->dash);
     if (line_kind)
       {
-        prompt->head_start = labelled (grid, 5, _("Begin arrow:"), drop_down_of (heads));
+        prompt->head_start = labelled (grid, 9, _("Begin arrow:"), drop_down_of (heads));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start), (guint) shape->head_start);
-        prompt->head_start_size = labelled (grid, 6, _("Begin size:"), drop_down_of (sizes));
+        prompt->head_start_size = labelled (grid, 10, _("Begin size:"), drop_down_of (sizes));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start_size), (guint) shape->head_start_size);
-        prompt->head_end = labelled (grid, 7, _("End arrow:"), drop_down_of (heads));
+        prompt->head_end = labelled (grid, 11, _("End arrow:"), drop_down_of (heads));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end), (guint) shape->head_end);
-        prompt->head_end_size = labelled (grid, 8, _("End size:"), drop_down_of (sizes));
+        prompt->head_end_size = labelled (grid, 12, _("End size:"), drop_down_of (sizes));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end_size), (guint) shape->head_end_size);
       }
   }
+  prompt->shadow = gtk_check_button_new_with_mnemonic (_("_Shadow"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->shadow), shape->shadow);
+  gtk_grid_attach (GTK_GRID (grid), prompt->shadow, 0, 13, 2, 1);
+  prompt->shadow_colour = labelled (grid, 14, _("Shadow colour:"), colour_button (shape->shadow_colour, _("Shadow Colour")));
+  prompt->shadow_dx = labelled (grid, 15, _("Shadow offset across:"), gtk_spin_button_new_with_range (-40, 40, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->shadow_dx), shape->shadow_dx);
+  prompt->shadow_dy = labelled (grid, 16, _("Shadow offset down:"), gtk_spin_button_new_with_range (-40, 40, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->shadow_dy), shape->shadow_dy);
 
   /* Size */
   grid = page_grid (notebook, _("Size"));
