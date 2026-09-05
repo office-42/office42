@@ -68,8 +68,13 @@ o42_date_serial (int year, int month, int day)
 
   days = (gint32) g_date_get_julian (&d) - (gint32) epoch_julian () + (day - 1);
 
-  if (days < 61 && !date_1904)
-    days -= 1;        /* the 1900 leap-day bug, as Lotus and Excel have it */
+  /* The 1900 leap-day bug, as Lotus and Excel have it: every day before
+   * 1 March 1900 is one serial earlier than the calendar says, so that
+   * 29 February 1900 -- a day that never was -- is serial 60.  A day
+   * counted from February 1900 keeps the shift even when it runs past
+   * the 28th: DATE(1900,2,29) is 60, DATE(1900,2,30) 61. */
+  if (!date_1904 && (y < 1900 || (y == 1900 && m <= 2)))
+    days -= 1;
 
   return days;
 }
@@ -80,8 +85,26 @@ o42_date_from_serial (double serial, int *year, int *month, int *day)
   GDate d;
   gint32 days = (gint32) floor (serial);
 
-  if (days < 61 && !date_1904)
-    days += 1;
+  if (!date_1904)
+    {
+      /* Serial 60 is Excel's 29 February 1900, and 0 its "0 January". */
+      if (days == 60)
+        {
+          if (year)  *year  = 1900;
+          if (month) *month = 2;
+          if (day)   *day   = 29;
+          return TRUE;
+        }
+      if (days == 0)
+        {
+          if (year)  *year  = 1900;
+          if (month) *month = 1;
+          if (day)   *day   = 0;
+          return TRUE;
+        }
+      if (days < 61)
+        days += 1;
+    }
 
   if ((gint64) epoch_julian () + days < 1)
     return FALSE;
@@ -477,12 +500,12 @@ o42_date_format (double serial, O42NumberFormat format)
 int
 o42_date_weekday (double serial)
 {
-  /* Serial 1, 1 January 1900, was a Monday; the leap-day shift below 61
-   * has to be undone to count from there. */
+  /* Excel's arithmetic, not the calendar's: serial 1 is a Sunday to it
+   * (1 January 1900 was a Monday, but the leap day that never was puts
+   * every date from March 1900 on right), and 1 January 1904 a Friday. */
   gint32 days = (gint32) floor (serial);
 
-  if (days >= 61)
-    days -= 1;
-
-  return (int) (((days - 1) % 7 + 7) % 7) + 1;
+  if (date_1904)
+    return (int) (((days + 4) % 7 + 7) % 7) + 1;
+  return (int) (((days - 2) % 7 + 7) % 7) + 1;
 }
