@@ -118,30 +118,158 @@ append_grouped (GString *out, const char *digits)
     }
 }
 
+/* Excel keeps fifteen significant figures of a number and no more:
+ * 0.1+0.2 is 0.3, and a denormal is nothing at all.  Every display
+ * starts here. */
+double
+o42_number_seen (double n)
+{
+  char buffer[G_ASCII_DTOSTR_BUF_SIZE];
+
+  if (!isfinite (n) || n == 0 || fabs (n) < 2.2250738585072014e-308)
+    return 0.0;
+  g_ascii_formatd (buffer, sizeof buffer, "%.15g", n);
+  return g_ascii_strtod (buffer, NULL);
+}
+
+/* A non-negative number in fixed notation with so many decimals, its
+ * fifteen significant figures and zeroes beyond them: what printf's %f
+ * would give for 1E300 is the double's binary expansion, and Excel
+ * writes a one and three hundred noughts. */
+static void
+fixed_digits (char *buffer, gsize size, double n, int decimals)
+{
+  char sci[G_ASCII_DTOSTR_BUF_SIZE];
+  char mantissa[24];
+  char *e;
+  int exp10, m = 0;
+  GString *out;
+
+  decimals = CLAMP (decimals, 0, 30);
+  n = show_round (fabs (n), decimals);
+  if (n == 0)
+    {
+      g_snprintf (buffer, size, "%.*f", decimals, 0.0);
+      return;
+    }
+  g_ascii_formatd (sci, sizeof sci, "%.14e", n);
+  e = strchr (sci, 'e');
+  exp10 = e != NULL ? atoi (e + 1) : 0;
+  for (const char *q = sci; q != e && *q != '\0'; q++)
+    if (g_ascii_isdigit (*q) && m < 15)
+      mantissa[m++] = *q;
+  mantissa[m] = '\0';
+
+  /* The digit at place 10^exp10 first; a place past the mantissa's
+   * end, or before its start, is a nought. */
+  out = g_string_new (NULL);
+  if (exp10 < 0)
+    g_string_append_c (out, '0');
+  for (int place = exp10; place >= 0; place--)
+    {
+      int i = exp10 - place;
+      g_string_append_c (out, i < m ? mantissa[i] : '0');
+    }
+  if (decimals > 0)
+    {
+      g_string_append_c (out, '.');
+      for (int d = 1; d <= decimals; d++)
+        {
+          int i = exp10 + d;
+          g_string_append_c (out, i >= 0 && i < m ? mantissa[i] : '0');
+        }
+    }
+  g_strlcpy (buffer, out->str, size);
+  g_string_free (out, TRUE);
+}
+
+/* Trims the zeroes %g and %e leave behind: 1.500000 to 1.5, 1.000 to
+ * 1, in the mantissa of 1.230000E+05 too. */
+static void
+trim_zeroes (char *buffer)
+{
+  char *e = strpbrk (buffer, "eE");
+  char *end = e != NULL ? e : buffer + strlen (buffer);
+  char *point = memchr (buffer, '.', end - buffer);
+  char *last;
+
+  if (point == NULL)
+    return;
+  last = end;
+  while (last > point + 1 && last[-1] == '0')
+    last--;
+  if (last == point + 1)
+    last = point;
+  memmove (last, end, strlen (end) + 1);
+}
+
+/* Excel's scientific notation as General and "&" write it: E+ or E-
+ * and at least two figures of exponent, 1.23457E+12, 1E-05. */
+static char *
+excel_scientific (double n, int decimals)
+{
+  char spec[16], buffer[G_ASCII_DTOSTR_BUF_SIZE];
+  char *e;
+
+  g_snprintf (spec, sizeof spec, "%%.%de", decimals);
+  g_ascii_formatd (buffer, sizeof buffer, spec, n);
+  trim_zeroes (buffer);
+  e = strchr (buffer, 'e');
+  if (e != NULL)
+    *e = 'E';
+  return g_strdup (buffer);
+}
+
+/* General, as a cell of Excel's standard width shows it: at most
+ * eleven characters of digits and point, so ten figures after a
+ * leading zero, the decimals cut to fit a large number; scientific
+ * with five decimals at most when the whole part alone would not fit,
+ * and for anything smaller than a ten-thousandth; whole numbers
+ * without a point; no -0. */
 static char *
 format_general (double n)
 {
   char buffer[G_ASCII_DTOSTR_BUF_SIZE];
+  double a;
 
-  /* Whole numbers print without a decimal point, which is what General does
-   * and what stops a column of counts reading as 1.0, 2.0, 3.0. */
-  if (n == floor (n) && fabs (n) < 1e15)
+  n = o42_number_seen (n);
+  a = fabs (n);
+  if (a == 0)
+    return g_strdup ("0");
+  if (a >= 1e11 || a < 1e-4)
+    return excel_scientific (n, 5);
+
+  /* Whole numbers print without a decimal point, which is what General
+   * does and what stops a column of counts reading as 1.0, 2.0, 3.0. */
+  if (n == floor (n))
     return g_strdup_printf ("%.0f", n);
 
-  /* Otherwise up to ten significant figures, with the trailing zeroes that
-   * %g leaves behind trimmed off.  It has to be the g_ascii_ variant: the C
-   * library's own printf would write a decimal comma in half the world's
-   * locales, and a spreadsheet's 1.5 must be 1.5 everywhere. */
-  g_ascii_formatd (buffer, sizeof buffer, "%.10g", n);
+  {
+    /* The digits before the point, then as many after it as eleven
+     * characters allow, rounded half away from zero; a number that
+     * rounds to a whole one loses its point. */
+    int whole = (int) floor (log10 (a)) + 1;
+    int decimals = a < 1 ? 9 : MAX (10 - whole, 0);
+    char spec[16];
+    double shown = show_round (a, decimals);
 
-  return g_strdup (buffer);
+    if (shown >= pow (10, whole) && whole >= 1)
+      decimals = MAX (decimals - 1, 0);
+    (void) spec;
+    fixed_digits (buffer, sizeof buffer, a, decimals);
+    trim_zeroes (buffer);
+    if (strcmp (buffer, "0") == 0)
+      return g_strdup ("0");
+    return n < 0 ? g_strconcat ("-", buffer, NULL) : g_strdup (buffer);
+  }
 }
 
 /* The number as text with every digit that matters: fifteen significant
- * figures, which is what Excel's General and "&" give, or the seventeen
- * it takes to read the same double back.  The exact form is what a
- * formula is rewritten with when it is copied, shifted or saved, where
- * ten figures would quietly turn 3.14159265358979 into 3.141592654. */
+ * figures, which is what Excel's "&" gives (1E-10 and 1.23456789012346E+17
+ * where it turns scientific), or the seventeen it takes to read the
+ * same double back.  The exact form is what a formula is rewritten
+ * with when it is copied, shifted or saved, where ten figures would
+ * quietly turn 3.14159265358979 into 3.141592654. */
 char *
 o42_number_to_text (double n, gboolean exact)
 {
@@ -149,6 +277,17 @@ o42_number_to_text (double n, gboolean exact)
 
   if (isnan (n) || isinf (n))
     return g_strdup ("#NUM!");
+  if (!exact)
+    {
+      double a;
+
+      n = o42_number_seen (n);
+      a = fabs (n);
+      if (a == 0)
+        return g_strdup ("0");
+      if (a >= 1e15 || a < 1e-4)
+        return excel_scientific (n, 14);
+    }
   if (n == floor (n) && fabs (n) < 1e15)
     return g_strdup_printf ("%.0f", n);
 
@@ -164,7 +303,7 @@ o42_number_format (double n, O42NumberFormat format, int decimals)
 {
   GString *out;
   gboolean negative;
-  char buffer[64];
+  char buffer[400];   /* 1E308 written out in full, and thirty decimals */
   char *point;
 
   if (isnan (n) || isinf (n))
@@ -172,6 +311,7 @@ o42_number_format (double n, O42NumberFormat format, int decimals)
 
   if (format == O42_NUM_GENERAL || format == O42_NUM_TEXT)
     return format_general (n);
+  n = o42_number_seen (n);
 
   if (format == O42_NUM_DATE || format == O42_NUM_TIME ||
       format == O42_NUM_DATETIME)
@@ -197,12 +337,7 @@ o42_number_format (double n, O42NumberFormat format, int decimals)
   if (negative)
     n = -n;
 
-  {
-    char spec[16];
-
-    g_snprintf (spec, sizeof spec, "%%.%df", decimals);
-    g_ascii_formatd (buffer, sizeof buffer, spec, show_round (n, decimals));
-  }
+  fixed_digits (buffer, sizeof buffer, n, decimals);
 
   /* A value that rounds to nothing is not negative: -0.001 at two
    * decimals is 0.00, not -0.00. */
@@ -713,7 +848,7 @@ format_number_section (GString *out, const Section *s, double n)
   int scale_commas = 0;
   gboolean seen_point = FALSE, seen_digit = FALSE, int_zero_place = FALSE;
   const char *p;
-  char digits[64];
+  char digits[400];
   char *point;
   const char *int_digits, *dec_digits;
   int int_len, exp10 = 0;
@@ -785,13 +920,7 @@ format_number_section (GString *out, const Section *s, double n)
 
   /* Half away from zero, as a spreadsheet rounds; printf's own rounding
    * would make 2.5 into 2. */
-  {
-    char spec[16];
-
-    n = show_round (n, dec_places);
-    g_snprintf (spec, sizeof spec, "%%.%df", CLAMP (dec_places, 0, 30));
-    g_ascii_formatd (digits, sizeof digits, spec, n);
-  }
+  fixed_digits (digits, sizeof digits, n, dec_places);
   point = strchr (digits, '.');
   if (point != NULL)
     *point++ = '\0';
@@ -936,6 +1065,7 @@ o42_format_string (const char *format, double n, const char *text)
 
   g_return_val_if_fail (format != NULL, g_strdup (""));
 
+  n = o42_number_seen (n);
   count = split_sections (format, sections, 4);
   if (count == 0)
     return g_strdup ("");
