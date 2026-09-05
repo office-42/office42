@@ -117,6 +117,9 @@ typedef struct {
   double        dy;
   double        width;      /* pixels */
   double        height;
+  double        rotation;   /* degrees clockwise about the box's centre */
+  gboolean      flip_h;     /* mirrored left to right, before turning */
+  gboolean      flip_v;
   char         *text;       /* owned; may be empty */
   guint32       fill;       /* 0x00RRGGBB, or O42_FILL_NONE */
   guint32       line;       /* 0x00RRGGBB */

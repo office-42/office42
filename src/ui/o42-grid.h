@@ -109,6 +109,9 @@ gboolean  o42_grid_has_selected_object (O42Grid *self);
 /* The chart selected by clicking it, or NULL. */
 O42Chart *o42_grid_selected_chart (O42Grid *self);
 
+/* The picture selected by clicking it, or NULL. */
+O42Picture *o42_grid_selected_picture (O42Grid *self);
+
 /* The guess the chart would make about the selection's labels. */
 void o42_grid_guess_chart_labels (O42Grid *self, gboolean *first_row,
                                   gboolean *first_col);

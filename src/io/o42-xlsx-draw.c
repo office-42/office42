@@ -445,6 +445,24 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   return g_string_free (out, FALSE);
 }
 
+/* The a:xfrm attributes for a turned or mirrored object: the angle in
+ * 60,000ths of a degree, and the flips.  A static buffer: one call per
+ * printf. */
+static const char *
+xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
+{
+  static char buffer[64];
+
+  buffer[0] = '\0';
+  if (rotation != 0)
+    g_snprintf (buffer, sizeof buffer, " rot=\"%.0f\"", fmod (rotation + 360, 360) * 60000);
+  if (flip_h)
+    g_strlcat (buffer, " flipH=\"1\"", sizeof buffer);
+  if (flip_v)
+    g_strlcat (buffer, " flipV=\"1\"", sizeof buffer);
+  return buffer;
+}
+
 int
 o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                      GString *content_types, GHashTable *extensions_seen,
@@ -498,9 +516,10 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             g_string_append_printf (dr,
               "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr></xdr:nvPicPr>"
               "<xdr:blipFill><a:blip r:embed=\"rId%d\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
-              "<xdr:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
+              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
               "<xdr:clientData/></xdr:twoCellAnchor>",
-              shape, i + 1, rid, pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
+              shape, i + 1, rid, xfrm_attrs (pic->rotation, pic->flip_h, pic->flip_v),
+              pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
             rid++;
             shape++;
             g_free (part);
@@ -560,10 +579,11 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             g_string_append_printf (dr,
               "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
               "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
-              "<xdr:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>"
+              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>"
               "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>",
               shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : "Shape", i + 1,
               sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
+              xfrm_attrs (sh->rotation, sh->flip_h, sh->flip_v),
               sh->width * EMU_PER_PX, sh->height * EMU_PER_PX,
               o42_shape_prst (sh));
             if (sh->fill == O42_FILL_NONE || stroke)
@@ -1068,6 +1088,8 @@ typedef struct
   O42Dash     dash;
   O42Head     head_start, head_end;
   O42HeadSize head_start_size, head_end_size;
+  double      rotation;    /* degrees, from a:xfrm */
+  gboolean    flip_h, flip_v;
   GString    *body;
 } DrawReader;
 
@@ -1109,6 +1131,8 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->line = 0x000000u;
       d->line_width = 1;
       d->dash = O42_DASH_SOLID;
+      d->rotation = 0;
+      d->flip_h = d->flip_v = FALSE;
       d->head_start = d->head_end = O42_HEAD_NONE;
       d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
       g_string_truncate (d->body, 0);
@@ -1124,6 +1148,17 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *x = attr (names, values, "x"), *y = attr (names, values, "y");
       if (x) d->abs_x = g_ascii_strtod (x, NULL) / EMU_PER_PX;
       if (y) d->abs_y = g_ascii_strtod (y, NULL) / EMU_PER_PX;
+    }
+  else if (strcmp (n, "xfrm") == 0)
+    {
+      const char *rot = attr (names, values, "rot");
+      const char *fh = attr (names, values, "flipH");
+      const char *fv = attr (names, values, "flipV");
+
+      if (rot != NULL)
+        d->rotation = g_ascii_strtod (rot, NULL) / 60000;
+      d->flip_h = fh != NULL && strcmp (fh, "0") != 0 && strcmp (fh, "false") != 0;
+      d->flip_v = fv != NULL && strcmp (fv, "0") != 0 && strcmp (fv, "false") != 0;
     }
   else if (strcmp (n, "ext") == 0 && !d->have_ext)
     {
@@ -1276,6 +1311,9 @@ finish_anchor (DrawReader *d)
               pic->dy = dy;
               pic->width = width;
               pic->height = height;
+              pic->rotation = d->rotation;
+              pic->flip_h = d->flip_h;
+              pic->flip_v = d->flip_v;
             }
         }
       g_free (part);
@@ -1304,6 +1342,9 @@ finish_anchor (DrawReader *d)
           sh->line = d->line;
           sh->line_width = d->line_width;
           sh->dash = d->dash;
+          sh->rotation = d->rotation;
+          sh->flip_h = d->flip_h;
+          sh->flip_v = d->flip_v;
           if (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW)
             {
               sh->head_start = d->head_start;

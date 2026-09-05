@@ -5902,6 +5902,9 @@ picture_copy (const O42Picture *pic)
   copy->width = pic->width; copy->height = pic->height;
   copy->group = pic->group;
   copy->z = pic->z;
+  copy->rotation = pic->rotation;
+  copy->flip_h = pic->flip_h;
+  copy->flip_v = pic->flip_v;
   return copy;
 }
 
@@ -6137,6 +6140,8 @@ obj_snap_apply (const ObjSnap *snap)
             pic->dx = snap->picture->dx; pic->dy = snap->picture->dy;
             pic->width = snap->picture->width; pic->height = snap->picture->height;
             pic->group = snap->picture->group; pic->z = snap->picture->z;
+            pic->rotation = snap->picture->rotation;
+            pic->flip_h = snap->picture->flip_h; pic->flip_v = snap->picture->flip_v;
           }
         else
           g_ptr_array_add (sheet->pictures, picture_copy (snap->picture));

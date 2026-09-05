@@ -544,6 +544,59 @@ chart_rect (O42Grid *self, const O42Chart *chart,
 static void picture_rect (O42Grid *self, const O42Picture *pic,
                           double *x, double *y, double *w, double *h);
 
+/* How an object is turned and mirrored: a chart never is. */
+static void
+object_transform (const O42ObjectRef *ref, double *rotation, gboolean *flip_h, gboolean *flip_v)
+{
+  *rotation = 0;
+  *flip_h = *flip_v = FALSE;
+  if (ref->type == O42_OBJECT_SHAPE)
+    {
+      const O42Shape *shape = ref->object;
+      *rotation = shape->rotation; *flip_h = shape->flip_h; *flip_v = shape->flip_v;
+    }
+  else if (ref->type == O42_OBJECT_PICTURE)
+    {
+      const O42Picture *pic = ref->object;
+      *rotation = pic->rotation; *flip_h = pic->flip_h; *flip_v = pic->flip_v;
+    }
+}
+
+/* A point of the sheet taken into an object's own frame: the box as it
+ * would be unturned and unmirrored about its centre (cx, cy). */
+static void
+to_object_frame (double rotation, gboolean flip_h, gboolean flip_v,
+                 double cx, double cy, double *x, double *y)
+{
+  double dx = *x - cx, dy = *y - cy;
+
+  if (rotation != 0)
+    {
+      double a = -rotation * G_PI / 180;
+      double rx = dx * cos (a) - dy * sin (a), ry = dx * sin (a) + dy * cos (a);
+      dx = rx; dy = ry;
+    }
+  if (flip_h) dx = -dx;
+  if (flip_v) dy = -dy;
+  *x = cx + dx;
+  *y = cy + dy;
+}
+
+/* Sets cairo up to draw an object turned and mirrored about the centre
+ * of its box. */
+static void
+apply_object_transform (cairo_t *cr, double rotation, gboolean flip_h, gboolean flip_v,
+                        double x, double y, double w, double h)
+{
+  if (rotation == 0 && !flip_h && !flip_v)
+    return;
+  cairo_translate (cr, x + w / 2, y + h / 2);
+  if (rotation != 0)
+    cairo_rotate (cr, rotation * G_PI / 180);
+  cairo_scale (cr, flip_h ? -1 : 1, flip_v ? -1 : 1);
+  cairo_translate (cr, -(x + w / 2), -(y + h / 2));
+}
+
 /* The frontmost object under a point, whatever its kind: the objects
  * are walked from the front, in the order they are painted. */
 static gboolean
@@ -558,22 +611,21 @@ object_at (O42Grid *self, double x, double y, O42ObjectRef *hit)
   for (guint i = objects->len; i > 0 && !found; i--)
     {
       const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i - 1);
-      double ox, oy, ow, oh;
+      double ox, oy, ow, oh, px = x, py = y, rotation;
+      gboolean flip_h, flip_v;
 
       switch (ref->type)
         {
-        case O42_OBJECT_SHAPE:
-          found = shape_hit (self, ref->object, x, y);
-          break;
-        case O42_OBJECT_CHART:
-          chart_rect (self, ref->object, &ox, &oy, &ow, &oh);
-          found = x >= ox && x < ox + ow && y >= oy && y < oy + oh;
-          break;
-        case O42_OBJECT_PICTURE:
-          picture_rect (self, ref->object, &ox, &oy, &ow, &oh);
-          found = x >= ox && x < ox + ow && y >= oy && y < oy + oh;
-          break;
+        case O42_OBJECT_SHAPE:   shape_rect (self, ref->object, &ox, &oy, &ow, &oh);   break;
+        case O42_OBJECT_CHART:   chart_rect (self, ref->object, &ox, &oy, &ow, &oh);   break;
+        default:                 picture_rect (self, ref->object, &ox, &oy, &ow, &oh); break;
         }
+      object_transform (ref, &rotation, &flip_h, &flip_v);
+      to_object_frame (rotation, flip_h, flip_v, ox + ow / 2, oy + oh / 2, &px, &py);
+      if (ref->type == O42_OBJECT_SHAPE)
+        found = shape_hit (self, ref->object, px, py);
+      else
+        found = px >= ox && px < ox + ow && py >= oy && py < oy + oh;
       if (found)
         *hit = *ref;
     }
@@ -643,14 +695,42 @@ selected_object_rect (O42Grid *self, double *x, double *y, double *w, double *h)
   return TRUE;
 }
 
-/* Which handle of the selected object is under the point, or -1. */
+/* How the selected object is turned and mirrored. */
+static void
+selected_object_transform (O42Grid *self, double *rotation, gboolean *flip_h, gboolean *flip_v)
+{
+  O42ObjectRef ref = { O42_OBJECT_CHART, NULL, 0, 0 };
+
+  *rotation = 0;
+  *flip_h = *flip_v = FALSE;
+  if (self->sheet == NULL || self->selected_picture == 0)
+    return;
+  if (self->selected_is_shape)
+    {
+      ref.type = O42_OBJECT_SHAPE;
+      ref.object = o42_sheet_find_shape (self->sheet, self->selected_picture);
+    }
+  else if (!self->selected_is_chart)
+    {
+      ref.type = O42_OBJECT_PICTURE;
+      ref.object = o42_sheet_find_picture (self->sheet, self->selected_picture);
+    }
+  if (ref.object != NULL)
+    object_transform (&ref, rotation, flip_h, flip_v);
+}
+
+/* Which handle of the selected object is under the point, or -1.  The
+ * handles turn with the object, so the point is taken into its frame. */
 static int
 handle_at (O42Grid *self, double x, double y)
 {
-  double ox, oy, ow, oh;
+  double ox, oy, ow, oh, rotation;
+  gboolean flip_h, flip_v;
 
   if (!selected_object_rect (self, &ox, &oy, &ow, &oh))
     return -1;
+  selected_object_transform (self, &rotation, &flip_h, &flip_v);
+  to_object_frame (rotation, flip_h, flip_v, ox + ow / 2, oy + oh / 2, &x, &y);
 
   for (int k = 0; k < 8; k++)
     {
@@ -4727,6 +4807,20 @@ on_motion (GtkEventControllerMotion *controller,
       double nx = self->resize_x0, ny = self->resize_y0;
       double nw = self->resize_w0, nh = self->resize_h0;
       double hx = HANDLE_X[self->resize_handle], hy = HANDLE_Y[self->resize_handle];
+      double rotation;
+      gboolean flip_h, flip_v;
+
+      /* A turned object is resized along its own axes: the drag is
+       * taken into its frame. */
+      selected_object_transform (self, &rotation, &flip_h, &flip_v);
+      if (rotation != 0 || flip_h || flip_v)
+        {
+          double zero_x = 0, zero_y = 0;
+
+          to_object_frame (rotation, flip_h, flip_v, 0, 0, &dx, &dy);
+          to_object_frame (rotation, flip_h, flip_v, 0, 0, &zero_x, &zero_y);
+          dx -= zero_x; dy -= zero_y;
+        }
 
       /* A left-side handle moves the left edge; a right-side one the
        * right edge; the middles leave the other axis alone. */
@@ -5756,6 +5850,13 @@ paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, doub
         continue;
 
       cairo_save (cr);
+      {
+        double rotation;
+        gboolean flip_h, flip_v;
+
+        object_transform (ref, &rotation, &flip_h, &flip_v);
+        apply_object_transform (cr, rotation, flip_h, flip_v, ox, oy, ow, oh);
+      }
       cairo_translate (cr, ox, oy);
       switch (ref->type)
         {
@@ -5765,11 +5866,13 @@ paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, doub
 
             if (surface != NULL)
               {
+                cairo_save (cr);
                 cairo_scale (cr, ow / cairo_image_surface_get_width (surface),
                                  oh / cairo_image_surface_get_height (surface));
                 cairo_set_source_surface (cr, surface, 0, 0);
                 cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
                 cairo_paint (cr);
+                cairo_restore (cr);
               }
           }
           break;
@@ -5780,10 +5883,10 @@ paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, doub
           o42_sheet_draw_chart (self->sheet, ref->object, cr, ow, oh);
           break;
         }
-      cairo_restore (cr);
-
+      /* The handles turn with the object. */
       if (selected)
-        paint_handles (cr, ox, oy, ow, oh);
+        paint_handles (cr, 0, 0, ow, oh);
+      cairo_restore (cr);
     }
   g_array_free (objects, TRUE);
 }
@@ -6585,6 +6688,8 @@ object_menu (O42Grid *self)
       menu_add (menu, "Format Sha_pe...", "win.format-shape");
       menu_add (menu, "Format Contro_l...", "win.format-control");
     }
+  else
+    menu_add (menu, "Format P_icture...", "win.format-picture");
   menu_add (menu, "_Group Objects", "win.group-objects");
   menu_add (menu, "_Ungroup Objects", "win.ungroup-objects");
   {
@@ -6948,6 +7053,15 @@ o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, cons
   self->selected_is_chart = FALSE;
   self->selected_is_shape = TRUE;
   gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+O42Picture *
+o42_grid_selected_picture (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), NULL);
+  if (self->sheet == NULL || self->selected_picture == 0 || self->selected_is_chart || self->selected_is_shape)
+    return NULL;
+  return o42_sheet_find_picture (self->sheet, self->selected_picture);
 }
 
 gboolean

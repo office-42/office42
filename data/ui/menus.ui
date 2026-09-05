@@ -180,6 +180,7 @@
         <item><attribute name="label" translatable="yes">Conditional _Formatting...</attribute><attribute name="action">win.conditional</attribute></item>
         <item><attribute name="label" translatable="yes">C_hart...</attribute><attribute name="action">win.format-chart</attribute></item>
         <item><attribute name="label" translatable="yes">Sha_pe...</attribute><attribute name="action">win.format-shape</attribute></item>
+        <item><attribute name="label" translatable="yes">P_icture...</attribute><attribute name="action">win.format-picture</attribute></item>
         <item><attribute name="label" translatable="yes">Contro_l...</attribute><attribute name="action">win.format-control</attribute></item>
         <item><attribute name="label" translatable="yes">_Group Objects</attribute><attribute name="action">win.group-objects</attribute></item>
         <item><attribute name="label" translatable="yes">U_ngroup Objects</attribute><attribute name="action">win.ungroup-objects</attribute></item>

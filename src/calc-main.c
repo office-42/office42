@@ -1084,6 +1084,32 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* pictureset ID rotation|fliph|flipv|width|height VALUE */
+      if (g_str_has_prefix (text, "pictureset "))
+        {
+          char **words = g_strsplit (text, " ", 4);
+          int n = (int) g_strv_length (words);
+          O42Picture *pic = n >= 2 ? o42_sheet_find_picture (sheet, (guint) atoi (words[1])) : NULL;
+
+          if (pic == NULL)
+            fprintf (stderr, "no such picture\n");
+          else if (n >= 4)
+            {
+              double number = g_ascii_strtod (words[3], NULL);
+
+              if (strcmp (words[2], "rotation") == 0)    pic->rotation = number;
+              else if (strcmp (words[2], "fliph") == 0)  pic->flip_h = number != 0;
+              else if (strcmp (words[2], "flipv") == 0)  pic->flip_v = number != 0;
+              else if (strcmp (words[2], "width") == 0)  pic->width = number;
+              else if (strcmp (words[2], "height") == 0) pic->height = number;
+              else fprintf (stderr, "no such field\n");
+            }
+          else
+            fprintf (stderr, "usage: pictureset ID rotation|fliph|flipv|width|height VALUE\n");
+          g_strfreev (words);
+          continue;
+        }
+
       /* objects: every picture, shape and chart from the back to the
        * front; order shape|picture|chart ID front|back|forward|backward */
       if (strcmp (text, "objects") == 0)
@@ -1163,8 +1189,11 @@ main (int argc, char *argv[])
                   const O42Picture *pic = g_ptr_array_index (list, i);
                   char *at = o42_ref_name (pic->row, pic->col);
 
-                  printf ("picture %u: %s at %s %gx%g\n", pic->id,
+                  printf ("picture %u: %s at %s %gx%g", pic->id,
                           pic->format != NULL ? pic->format : "?", at, pic->width, pic->height);
+                  if (pic->rotation != 0 || pic->flip_h || pic->flip_v)
+                    printf (" turned %g%s%s", pic->rotation, pic->flip_h ? " flip-h" : "", pic->flip_v ? " flip-v" : "");
+                  printf ("\n");
                   g_free (at);
                 }
             }
@@ -1219,6 +1248,8 @@ main (int argc, char *argv[])
                   printf (" line %06X/%g", sh->line, sh->line_width);
                   if (sh->dash != O42_DASH_SOLID)
                     printf (" %s", o42_dash_name (sh->dash));
+                  if (sh->rotation != 0 || sh->flip_h || sh->flip_v)
+                    printf (" turned %g%s%s", sh->rotation, sh->flip_h ? " flip-h" : "", sh->flip_v ? " flip-v" : "");
                   if (sh->head_start != O42_HEAD_NONE || sh->head_end != O42_HEAD_NONE)
                     printf (" heads %s/%d %s/%d", o42_head_name (sh->head_start), sh->head_start_size,
                             o42_head_name (sh->head_end), sh->head_end_size);
@@ -1613,13 +1644,19 @@ main (int argc, char *argv[])
                 sh->head_end_size = (O42HeadSize) CLAMP ((int) number, 0, 2);
               else if (strcmp (words[2], "linewidth") == 0)
                 sh->line_width = number;
+              else if (strcmp (words[2], "rotation") == 0)
+                sh->rotation = number;
+              else if (strcmp (words[2], "fliph") == 0)
+                sh->flip_h = number != 0;
+              else if (strcmp (words[2], "flipv") == 0)
+                sh->flip_v = number != 0;
               else
                 fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: controlset ID link|source|script|text|value|"
                              "min|max|step|page|width|height|linewidth|dash|headstart|headend|"
-                             "headstartsize|headendsize VALUE\n");
+                             "headstartsize|headendsize|rotation|fliph|flipv VALUE\n");
           g_strfreev (words);
           continue;
         }

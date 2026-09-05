@@ -412,6 +412,29 @@ draw_page (cairo_t      *cr,
         cairo_save (cr);
         cairo_rectangle (cr, 0, 0, band_w, band_h);
         cairo_clip (cr);
+        /* Turned and mirrored about its centre, as on screen. */
+        {
+          double rotation = 0;
+          gboolean flip_h = FALSE, flip_v = FALSE;
+
+          if (ref->type == O42_OBJECT_SHAPE)
+            {
+              const O42Shape *shape = ref->object;
+              rotation = shape->rotation; flip_h = shape->flip_h; flip_v = shape->flip_v;
+            }
+          else if (ref->type == O42_OBJECT_PICTURE)
+            {
+              const O42Picture *pic = ref->object;
+              rotation = pic->rotation; flip_h = pic->flip_h; flip_v = pic->flip_v;
+            }
+          if (rotation != 0 || flip_h || flip_v)
+            {
+              cairo_translate (cr, px + width / 2, py + height / 2);
+              cairo_rotate (cr, rotation * G_PI / 180);
+              cairo_scale (cr, flip_h ? -1 : 1, flip_v ? -1 : 1);
+              cairo_translate (cr, -(px + width / 2), -(py + height / 2));
+            }
+        }
         cairo_translate (cr, px, py);
         switch (ref->type)
           {

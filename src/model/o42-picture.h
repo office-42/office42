@@ -30,6 +30,9 @@ typedef struct {
   double           dy;
   double           width;      /* shown size, pixels */
   double           height;
+  double           rotation;   /* degrees clockwise about the centre */
+  gboolean         flip_h;     /* mirrored, before turning */
+  gboolean         flip_v;
   cairo_surface_t *surface;    /* decoded on first draw */
 } O42Picture;
 
