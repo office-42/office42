@@ -88,6 +88,7 @@
         <item><attribute name="label" translatable="yes">_Freeze Panes</attribute><attribute name="action">win.freeze-panes</attribute></item>
         <item><attribute name="label" translatable="yes">C_ustom Views...</attribute><attribute name="action">win.custom-views</attribute></item>
         <item><attribute name="label" translatable="yes">_Page Breaks</attribute><attribute name="action">win.page-breaks</attribute></item>
+        <item><attribute name="label" translatable="yes">_Header and Footer...</attribute><attribute name="action">win.header-footer</attribute></item>
         <item><attribute name="label" translatable="yes">Spli_t</attribute><attribute name="action">win.split-panes</attribute></item>
       </section>
       <section>

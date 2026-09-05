@@ -37,6 +37,7 @@ struct _O42Window {
   gboolean    telling;         /* inside o42_book_changed, to skip our own echo */
 
   GtkPrintSettings *print_settings;  /* remembered between prints */
+  struct _SetupPrompt *last_setup;   /* the Page Setup dialog open, if one is */
 
   GtkWidget  *title_label;
   GtkWidget  *name_box;

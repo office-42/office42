@@ -2065,7 +2065,8 @@ action_print_preview_book (GSimpleAction *a, GVariant *p, gpointer data)
 /* Excel's four tabs -- Page, Margins, Header/Footer, Sheet -- over the
  * sheet's O42PrintSetup, applied whole on OK.  Opened from the menu, or
  * from the preview, which is remade afterwards. */
-typedef struct {
+typedef struct _SetupPrompt SetupPrompt;
+struct _SetupPrompt {
   O42Window *window;
   GtkWidget *dialog;
   PreviewPrompt *preview;    /* remade on OK, when there is one */
@@ -2078,7 +2079,192 @@ typedef struct {
   /* Sheet */
   GtkWidget *area, *titles, *title_cols, *gridlines, *headings, *black_white, *draft;
   GtkWidget *notes, *errors, *down_then_over, *over_then_down;
-} SetupPrompt;
+};
+
+/* ---- Custom Header / Custom Footer ------------------------------------ */
+
+/* Excel's dialog: the three sections as text boxes, and a row of
+ * buttons that put a code at the caret -- the font, the page number,
+ * the count, the date, the time, the file, the sheet.  OK joins the
+ * sections into the &L&C&R text the entry behind it holds. */
+typedef struct {
+  GtkWidget *dialog;
+  GtkWidget *entry;         /* the Page Setup entry it edits */
+  GtkWidget *views[3];
+  GtkWidget *last;          /* the section the caret was in last */
+} CustomHF;
+
+static void
+hf_insert (CustomHF *hf, const char *code)
+{
+  GtkWidget *view = hf->last != NULL ? hf->last : hf->views[0];
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
+
+  gtk_text_buffer_delete_selection (buffer, TRUE, TRUE);
+  gtk_text_buffer_insert_at_cursor (buffer, code, -1);
+  gtk_widget_grab_focus (view);
+}
+
+static void
+on_hf_code (GtkWidget *button, gpointer data)
+{
+  hf_insert (data, g_object_get_data (G_OBJECT (button), "o42-code"));
+}
+
+static void
+on_hf_font_chosen (GObject *source, GAsyncResult *result, gpointer data)
+{
+  CustomHF *hf = data;
+  PangoFontDescription *desc = gtk_font_dialog_choose_font_finish (GTK_FONT_DIALOG (source), result, NULL);
+
+  if (desc != NULL)
+    {
+      const char *family = pango_font_description_get_family (desc);
+      gboolean bold = pango_font_description_get_weight (desc) >= PANGO_WEIGHT_BOLD;
+      gboolean italic = pango_font_description_get_style (desc) != PANGO_STYLE_NORMAL;
+      int size = pango_font_description_get_size (desc) / PANGO_SCALE;
+      char *code = g_strdup_printf ("&\"%s,%s\"%s%d", family != NULL ? family : "Arial",
+                                    bold && italic ? "Bold Italic" : bold ? "Bold" : italic ? "Italic" : "Regular",
+                                    size > 0 ? "&" : "", size > 0 ? size : 0);
+
+      if (size <= 0)
+        code[strlen (code)] = '\0';
+      hf_insert (hf, code);
+      g_free (code);
+      pango_font_description_free (desc);
+    }
+}
+
+static void
+on_hf_font (GtkWidget *button, gpointer data)
+{
+  CustomHF *hf = data;
+  GtkFontDialog *dialog = gtk_font_dialog_new ();
+
+  (void) button;
+  gtk_font_dialog_set_title (dialog, _("Header Font"));
+  gtk_font_dialog_choose_font (dialog, GTK_WINDOW (hf->dialog), NULL, NULL, on_hf_font_chosen, hf);
+  g_object_unref (dialog);
+}
+
+static void
+on_hf_focus (GtkEventControllerFocus *controller, gpointer data)
+{
+  CustomHF *hf = data;
+  hf->last = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
+}
+
+static void
+on_hf_ok (GtkWidget *w, gpointer data)
+{
+  CustomHF *hf = data;
+  GString *joined = g_string_new (NULL);
+  static const char *const codes[3] = { "&L", "&C", "&R" };
+
+  (void) w;
+  for (int i = 0; i < 3; i++)
+    {
+      GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (hf->views[i]));
+      GtkTextIter a, b;
+      char *text;
+
+      gtk_text_buffer_get_bounds (buffer, &a, &b);
+      text = gtk_text_buffer_get_text (buffer, &a, &b, FALSE);
+      if (*text != '\0')
+        {
+          g_string_append (joined, codes[i]);
+          g_string_append (joined, text);
+        }
+      g_free (text);
+    }
+  gtk_editable_set_text (GTK_EDITABLE (hf->entry), joined->str);
+  g_string_free (joined, TRUE);
+  gtk_window_destroy (GTK_WINDOW (hf->dialog));
+}
+
+/* Splits the entry's text into the three sections, as the printer does. */
+static void
+hf_split (const char *text, GString *parts[3])
+{
+  int which = 1;
+
+  for (const char *p = text != NULL ? text : ""; *p != '\0'; p++)
+    {
+      if (*p == '&' && (g_ascii_toupper (p[1]) == 'L' || g_ascii_toupper (p[1]) == 'C' || g_ascii_toupper (p[1]) == 'R'))
+        { which = g_ascii_toupper (p[1]) == 'L' ? 0 : g_ascii_toupper (p[1]) == 'C' ? 1 : 2; p++; continue; }
+      if (*p == '&' && p[1] == '&')
+        { g_string_append (parts[which], "&&"); p++; continue; }
+      g_string_append_c (parts[which], *p);
+    }
+}
+
+static void
+on_custom_hf (GtkWidget *button, gpointer entry)
+{
+  CustomHF *hf = g_new0 (CustomHF, 1);
+  GtkWidget *content, *buttons, *ok, *row, *sections;
+  GtkRoot *root = gtk_widget_get_root (button);
+  O42Window *self = O42_IS_WINDOW (root) ? O42_WINDOW (root) : NULL;
+  GString *parts[3] = { g_string_new (NULL), g_string_new (NULL), g_string_new (NULL) };
+  static const struct { const char *label; const char *code; } CODES[] = {
+    { N_("_Page Number"), "&P" }, { N_("_Total Pages"), "&N" }, { N_("_Date"), "&D" },
+    { N_("Ti_me"), "&T" }, { N_("_File Name"), "&F" }, { N_("_Sheet Name"), "&A" },
+  };
+  static const char *const titles[3] = { N_("Left section:"), N_("Center section:"), N_("Right section:") };
+  gboolean is_footer = g_strcmp0 (gtk_widget_get_name (GTK_WIDGET (entry)), "footer") == 0;
+
+  hf->entry = entry;
+  hf->dialog = dialog_frame (self, is_footer ? _("Footer") : _("Header"), TRUE, &content, &buttons);
+  if (GTK_IS_WINDOW (gtk_widget_get_root (GTK_WIDGET (entry))))
+    gtk_window_set_transient_for (GTK_WINDOW (hf->dialog), GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (entry))));
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  {
+    GtkWidget *font = gtk_button_new_with_mnemonic (_("F_ont..."));
+    g_signal_connect (font, "clicked", G_CALLBACK (on_hf_font), hf);
+    gtk_box_append (GTK_BOX (row), font);
+  }
+  for (guint i = 0; i < G_N_ELEMENTS (CODES); i++)
+    {
+      GtkWidget *b = gtk_button_new_with_mnemonic (_(CODES[i].label));
+      g_object_set_data (G_OBJECT (b), "o42-code", (gpointer) CODES[i].code);
+      g_signal_connect (b, "clicked", G_CALLBACK (on_hf_code), hf);
+      gtk_box_append (GTK_BOX (row), b);
+    }
+  gtk_box_append (GTK_BOX (content), row);
+
+  hf_split (gtk_editable_get_text (GTK_EDITABLE (entry)), parts);
+  sections = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_margin_top (sections, 8);
+  for (int i = 0; i < 3; i++)
+    {
+      GtkWidget *column = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+      GtkWidget *label = gtk_label_new (_(titles[i]));
+      GtkWidget *scroller = gtk_scrolled_window_new ();
+      GtkEventController *focus = gtk_event_controller_focus_new ();
+
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      hf->views[i] = gtk_text_view_new ();
+      gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (hf->views[i]), GTK_WRAP_WORD_CHAR);
+      gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (hf->views[i])), parts[i]->str, -1);
+      g_signal_connect (focus, "enter", G_CALLBACK (on_hf_focus), hf);
+      gtk_widget_add_controller (hf->views[i], focus);
+      gtk_widget_set_size_request (scroller, 180, 90);
+      gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), hf->views[i]);
+      gtk_box_append (GTK_BOX (column), label);
+      gtk_box_append (GTK_BOX (column), scroller);
+      gtk_box_append (GTK_BOX (sections), column);
+      g_string_free (parts[i], TRUE);
+    }
+  gtk_box_append (GTK_BOX (content), sections);
+  hf->last = hf->views[0];
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_hf_ok), hf);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), hf->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (hf->dialog), ok);
+  g_signal_connect_swapped (hf->dialog, "destroy", G_CALLBACK (g_free), hf);
+  gtk_window_present (GTK_WINDOW (hf->dialog));
+}
 
 static const char *const NOTES_NAMES[] = { "(None)", "At end of sheet", "As displayed on sheet", NULL };
 static const char *const ERRORS_NAMES[] = { "displayed", "<blank>", "--", "#N/A", NULL };
@@ -2145,6 +2331,17 @@ on_setup_ok (GtkWidget *w, gpointer data)
   if (prompt->preview != NULL)
     preview_remake (prompt->preview);
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_setup_destroy (GtkWidget *w, gpointer data)
+{
+  SetupPrompt *prompt = data;
+
+  (void) w;
+  if (prompt->window->last_setup == prompt)
+    prompt->window->last_setup = NULL;
+  g_free (prompt);
 }
 
 static GtkWidget *
@@ -2246,10 +2443,23 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
   /* Header/Footer */
   grid = page_grid (notebook, _("Header/Footer"));
   prompt->header = labelled (grid, 0, _("Header:"), gtk_entry_new ());
-  prompt->footer = labelled (grid, 1, _("Footer:"), gtk_entry_new ());
+  prompt->footer = labelled (grid, 2, _("Footer:"), gtk_entry_new ());
+  gtk_widget_set_name (prompt->header, "header");
+  gtk_widget_set_name (prompt->footer, "footer");
   gtk_widget_set_size_request (prompt->header, 360, -1);
   gtk_editable_set_text (GTK_EDITABLE (prompt->header), setup->header != NULL ? setup->header : "");
   gtk_editable_set_text (GTK_EDITABLE (prompt->footer), setup->footer != NULL ? setup->footer : "");
+  {
+    GtkWidget *custom_h = gtk_button_new_with_mnemonic (_("_Custom Header..."));
+    GtkWidget *custom_f = gtk_button_new_with_mnemonic (_("C_ustom Footer..."));
+
+    gtk_widget_set_halign (custom_h, GTK_ALIGN_END);
+    gtk_widget_set_halign (custom_f, GTK_ALIGN_END);
+    gtk_grid_attach (GTK_GRID (grid), custom_h, 1, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), custom_f, 1, 3, 1, 1);
+    g_signal_connect (custom_h, "clicked", G_CALLBACK (on_custom_hf), prompt->header);
+    g_signal_connect (custom_f, "clicked", G_CALLBACK (on_custom_hf), prompt->footer);
+  }
   hint = gtk_label_new (_("&L, &C, &R start the left, centre and right parts; &P page, &N pages, &D date, "
                           "&T time, &F file, &A sheet; &B bold, &I italic, &U underline, &12 a size, "
                           "&\"Arial,Bold\" a font; && an ampersand."));
@@ -2257,7 +2467,7 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
   gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
   gtk_label_set_max_width_chars (GTK_LABEL (hint), 50);
   gtk_widget_add_css_class (hint, "dim-label");
-  gtk_grid_attach (GTK_GRID (grid), hint, 0, 2, 2, 1);
+  gtk_grid_attach (GTK_GRID (grid), hint, 0, 4, 2, 1);
 
   /* Sheet */
   grid = page_grid (notebook, _("Sheet"));
@@ -2293,6 +2503,7 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
   labelled (grid, 9, _("Page order:"), box);
 
   gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), tab);
+  self->last_setup = prompt;
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_setup_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
@@ -2301,7 +2512,7 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
     gtk_window_set_transient_for (GTK_WINDOW (prompt->dialog), GTK_WINDOW (preview->dialog));
   else
     g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
-  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_setup_destroy), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
@@ -2317,6 +2528,28 @@ action_sheet_setup (GSimpleAction *a, GVariant *p, gpointer data)
 {
   (void) a; (void) p;
   action_page_setup_tab (data, 3, NULL);
+}
+
+/* View > Header and Footer, as Excel has it: Page Setup on that tab. */
+static void
+action_header_footer (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  (void) a; (void) p;
+  action_page_setup_tab (data, 2, NULL);
+}
+
+/* Straight to the Custom Header or Custom Footer dialog. */
+static void
+action_custom_hf (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  gboolean footer = g_strcmp0 (g_action_get_name (G_ACTION (a)), "custom-footer") == 0;
+
+  (void) p;
+  action_page_setup_tab (self, 2, NULL);
+  if (self->last_setup != NULL)
+    on_custom_hf (footer ? self->last_setup->footer : self->last_setup->header,
+                  footer ? self->last_setup->footer : self->last_setup->header);
 }
 
 /* Insert > Page Break puts one above the active row and one to the
@@ -5282,6 +5515,9 @@ static const GActionEntry ACTIONS[] = {
   { "print-preview",  action_print_preview,  NULL, NULL, NULL, { 0 } },
   { "print-preview-book", action_print_preview_book, NULL, NULL, NULL, { 0 } },
   { "insert-scan",    action_insert_scan,    NULL, NULL, NULL, { 0 } },
+  { "header-footer",  action_header_footer,  NULL, NULL, NULL, { 0 } },
+  { "custom-header",  action_custom_hf,      NULL, NULL, NULL, { 0 } },
+  { "custom-footer",  action_custom_hf,      NULL, NULL, NULL, { 0 } },
   { "options",        action_options,        NULL, NULL, NULL, { 0 } },
   { "zoom",           action_zoom,           "i",  NULL, NULL, { 0 } },
   { "freeze-panes",   action_freeze_panes,   NULL, NULL, NULL, { 0 } },
