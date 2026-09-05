@@ -1606,6 +1606,11 @@ op_precedence (const O42Node *node)
 
 static void node_write (const O42Node *node, GString *out);
 
+/* The node whose text o42_node_to_string_marked wants the position of,
+ * and where it was found to start and end. */
+static const O42Node *marked_node;
+static int marked_start = -1, marked_end = -1;
+
 static void
 node_write_child (const O42Node *child, const O42Node *parent,
                   gboolean right_side, GString *out)
@@ -1629,12 +1634,26 @@ node_write_child (const O42Node *child, const O42Node *parent,
   if (parens) g_string_append_c (out, ')');
 }
 
+static void node_write_body (const O42Node *node, GString *out);
+
 static void
 node_write (const O42Node *node, GString *out)
 {
   if (node == NULL)
     return;
+  if (node == marked_node)
+    {
+      marked_start = (int) out->len;
+      node_write_body (node, out);
+      marked_end = (int) out->len;
+      return;
+    }
+  node_write_body (node, out);
+}
 
+static void
+node_write_body (const O42Node *node, GString *out)
+{
   switch (node->type)
     {
     case O42_NODE_NUMBER:
@@ -1792,6 +1811,24 @@ o42_node_to_string (const O42Node *node)
   GString *out = g_string_new (NULL);
 
   node_write (node, out);
+
+  return g_string_free (out, FALSE);
+}
+
+char *
+o42_node_to_string_marked (const O42Node *node, const O42Node *mark,
+                           int *start, int *length)
+{
+  GString *out = g_string_new (NULL);
+
+  marked_node = mark;
+  marked_start = marked_end = -1;
+  node_write (node, out);
+  marked_node = NULL;
+  if (start != NULL)
+    *start = marked_start;
+  if (length != NULL)
+    *length = marked_start >= 0 ? marked_end - marked_start : 0;
 
   return g_string_free (out, FALSE);
 }

@@ -9,6 +9,7 @@
 #include "o42-analysis.h"
 #include "o42-book.h"
 #include "o42-eval.h"
+#include "o42-eval-steps.h"
 #include "o42-formula.h"
 #include "o42-python.h"
 #include "o42-spell.h"
@@ -1189,6 +1190,480 @@ action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data)
 }
 
 void
+action_trace_error (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  if (!o42_grid_trace_error (self->grid))
+    gtk_label_set_text (GTK_LABEL (self->status_label),
+                        _("Trace Error wants a cell that shows an error."));
+}
+
+/* ---- Tools > Auditing > Watch Window ----------------------------------- */
+
+/* Excel's Watch Window: a list of cells, wherever they are in the book,
+ * with what they hold, kept up to date as the sheet is worked out.  One
+ * per window, not modal, rebuilt from the book's watches each time the
+ * window syncs. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+} WatchPrompt;
+
+static const char *const WATCH_HEADINGS[] = {
+  N_("Book"), N_("Sheet"), N_("Name"), N_("Cell"), N_("Value"), N_("Formula")
+};
+static const int WATCH_WIDTHS[] = { 90, 90, 90, 60, 110, 220 };
+
+static GtkWidget *
+watch_row (const char *const *cells, gboolean heading)
+{
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+
+  for (int i = 0; i < 6; i++)
+    {
+      GtkWidget *label = gtk_label_new (cells[i]);
+
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+      gtk_widget_set_size_request (label, WATCH_WIDTHS[i], -1);
+      if (i == 5)
+        gtk_widget_set_hexpand (label, TRUE);
+      if (heading)
+        gtk_widget_add_css_class (label, "heading");
+      gtk_box_append (GTK_BOX (box), label);
+    }
+  gtk_widget_set_margin_start (box, 4);
+  gtk_widget_set_margin_end (box, 4);
+  return box;
+}
+
+/* The name defined for exactly this cell, if any. */
+static char *
+watch_name_of (O42Book *book, O42Sheet *sheet, int row, int col)
+{
+  GList *names = o42_book_names (book);
+  char *found = NULL;
+
+  for (GList *l = names; l != NULL && found == NULL; l = l->next)
+    {
+      O42Sheet *on = NULL;
+      O42Range range;
+
+      if (o42_book_lookup_name (book, l->data, &on, &range) && on == sheet &&
+          range.row0 == row && range.row1 == row && range.col0 == col && range.col1 == col)
+        found = g_strdup (l->data);
+    }
+  g_list_free (names);
+  return found;
+}
+
+static void
+watch_refresh (WatchPrompt *prompt)
+{
+  O42Window *self = prompt->window;
+  GtkWidget *child;
+  int selected = -1;
+  char *book_name = self->file != NULL ? g_file_get_basename (self->file) : g_strdup ("Book1");
+
+  {
+    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+    if (row != NULL)
+      selected = gtk_list_box_row_get_index (row);
+  }
+  while ((child = gtk_widget_get_first_child (prompt->list)) != NULL)
+    gtk_list_box_remove (GTK_LIST_BOX (prompt->list), child);
+
+  for (int i = 0; i < o42_book_n_watches (self->book); i++)
+    {
+      const O42Watch *watch = o42_book_watch_at (self->book, i);
+      O42Sheet *sheet = o42_book_find_sheet (self->book, watch->sheet);
+      char *cell = o42_ref_name (watch->row, watch->col);
+      char *value = sheet != NULL ? o42_sheet_get_display (sheet, watch->row, watch->col) : g_strdup ("");
+      char *input = sheet != NULL ? o42_sheet_get_input (sheet, watch->row, watch->col) : NULL;
+      char *name = sheet != NULL ? watch_name_of (self->book, sheet, watch->row, watch->col) : NULL;
+      const char *cells[6];
+
+      cells[0] = book_name;
+      cells[1] = watch->sheet;
+      cells[2] = name != NULL ? name : "";
+      cells[3] = cell;
+      cells[4] = value;
+      cells[5] = input != NULL && input[0] == '=' ? input : "";
+      gtk_list_box_append (GTK_LIST_BOX (prompt->list), watch_row (cells, FALSE));
+      g_free (cell);
+      g_free (value);
+      g_free (input);
+      g_free (name);
+    }
+  if (selected >= 0)
+    {
+      GtkListBoxRow *row = gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list),
+                                                          MIN (selected, o42_book_n_watches (self->book) - 1));
+      if (row != NULL)
+        gtk_list_box_select_row (GTK_LIST_BOX (prompt->list), row);
+    }
+  g_free (book_name);
+}
+
+static void
+on_watch_add (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  O42Range sel;
+  const char *sheet = o42_sheet_get_name (self->sheet);
+
+  (void) w;
+  o42_grid_get_selection (self->grid, &sel);
+  /* The selection's cells, within reason: a whole column watched would
+   * be a million rows of nothing. */
+  for (int r = sel.row0; r <= sel.row1 && r < sel.row0 + 100; r++)
+    for (int c = sel.col0; c <= sel.col1 && c < sel.col0 + 100; c++)
+      o42_book_add_watch (self->book, sheet, r, c);
+  watch_refresh (prompt);
+}
+
+static void
+on_watch_delete (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+
+  (void) w;
+  if (row == NULL)
+    return;
+  o42_book_remove_watch (prompt->window->book, gtk_list_box_row_get_index (row));
+  watch_refresh (prompt);
+}
+
+/* Double-clicking a watch goes to its cell, as Excel does. */
+static void
+on_watch_activated (GtkListBox *list, GtkListBoxRow *row, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const O42Watch *watch = o42_book_watch_at (self->book, gtk_list_box_row_get_index (row));
+  O42Sheet *sheet;
+
+  (void) list;
+  if (watch == NULL)
+    return;
+  sheet = o42_book_find_sheet (self->book, watch->sheet);
+  if (sheet == NULL)
+    return;
+  window_show_sheet (self, o42_book_sheet_index (self->book, sheet));
+  o42_grid_set_active (self->grid, watch->row, watch->col);
+  window_sync (self);
+}
+
+static void
+on_watch_destroy (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+
+  (void) w;
+  g_object_set_data (G_OBJECT (prompt->window), "o42-watch-window", NULL);
+  g_free (prompt);
+}
+
+void
+o42_watch_window_refresh (O42Window *self)
+{
+  WatchPrompt *prompt = g_object_get_data (G_OBJECT (self), "o42-watch-window");
+
+  if (prompt != NULL)
+    watch_refresh (prompt);
+}
+
+void
+action_watch_window (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  WatchPrompt *prompt = g_object_get_data (G_OBJECT (self), "o42-watch-window");
+  GtkWidget *content, *buttons, *scroller;
+
+  (void) a; (void) p;
+  if (prompt != NULL)
+    {
+      gtk_window_present (GTK_WINDOW (prompt->dialog));
+      return;
+    }
+
+  prompt = g_new0 (WatchPrompt, 1);
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Watch Window"), FALSE, &content, &buttons);
+  gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 720, 240);
+
+  gtk_box_append (GTK_BOX (content), watch_row (WATCH_HEADINGS, TRUE));
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  gtk_list_box_set_activate_on_single_click (GTK_LIST_BOX (prompt->list), FALSE);
+  g_signal_connect (prompt->list, "row-activated", G_CALLBACK (on_watch_activated), prompt);
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_scrolled_window_set_has_frame (GTK_SCROLLED_WINDOW (scroller), TRUE);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_widget_set_hexpand (scroller, TRUE);
+  gtk_box_append (GTK_BOX (content), scroller);
+
+  dialog_button (buttons, _("_Add Watch"), G_CALLBACK (on_watch_add), prompt);
+  dialog_button (buttons, _("_Delete Watch"), G_CALLBACK (on_watch_delete), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_watch_destroy), prompt);
+  g_object_set_data (G_OBJECT (self), "o42-watch-window", prompt);
+
+  watch_refresh (prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Tools > Auditing > Evaluate Formula ------------------------------- */
+
+/* Excel's Evaluate Formula: the formula with the part that goes next
+ * underlined, and a button that works that part out.  Step In opens the
+ * formula of the cell about to be read, in the same box, and Step Out
+ * comes back with what it came to.  The levels are a stack of steppers,
+ * the top one on show. */
+typedef struct {
+  O42Stepper *stepper;
+  O42Sheet   *sheet;
+  int         row, col;
+  O42Node    *tree;
+} EvalLevel;
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *where;          /* "Sheet1!B4" */
+  GtkWidget *view;
+  GtkWidget *evaluate, *step_in, *step_out, *restart;
+  GPtrArray *levels;         /* EvalLevel*, the innermost last */
+} EvalPrompt;
+
+static void
+eval_level_free (gpointer data)
+{
+  EvalLevel *level = data;
+
+  o42_stepper_free (level->stepper);
+  o42_node_free (level->tree);
+  g_free (level);
+}
+
+static EvalLevel *
+eval_level_new (O42Sheet *sheet, int row, int col)
+{
+  EvalLevel *level = g_new0 (EvalLevel, 1);
+  char *input = o42_sheet_get_input (sheet, row, col);
+
+  level->sheet = sheet;
+  level->row = row;
+  level->col = col;
+  level->tree = o42_formula_parse (input != NULL && input[0] == '=' ? input + 1 : input != NULL ? input : "");
+  level->stepper = o42_stepper_new (o42_sheet_eval_context (sheet), level->tree, row, col);
+  g_free (input);
+  return level;
+}
+
+static void
+eval_show (EvalPrompt *prompt)
+{
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  int start = -1, length = 0;
+  char *text = o42_stepper_text (level->stepper, &start, &length);
+  char *shown = g_strconcat ("= ", text, NULL);
+  gboolean done = o42_stepper_done (level->stepper);
+  const char *sheet = NULL;
+  int row, col;
+  gboolean can_step_in = FALSE;
+
+  gtk_text_buffer_set_text (buffer, shown, -1);
+  if (start >= 0)
+    {
+      GtkTextIter a, b;
+
+      gtk_text_buffer_get_iter_at_offset (buffer, &a, g_utf8_strlen (shown, start + 2));
+      gtk_text_buffer_get_iter_at_offset (buffer, &b, g_utf8_strlen (shown, start + 2 + length));
+      gtk_text_buffer_apply_tag_by_name (buffer, "next", &a, &b);
+    }
+
+  {
+    char *name = o42_ref_name (level->row, level->col);
+    char *quoted = o42_sheet_name_quote (o42_sheet_get_name (level->sheet));
+    char *where = g_strdup_printf ("%s!%s", quoted, name);
+
+    gtk_label_set_text (GTK_LABEL (prompt->where), where);
+    g_free (where);
+    g_free (quoted);
+    g_free (name);
+  }
+
+  if (!done && o42_stepper_next_is_cell (level->stepper, &sheet, &row, &col))
+    {
+      O42Sheet *target = sheet != NULL ? o42_book_find_sheet (prompt->window->book, sheet) : level->sheet;
+
+      can_step_in = target != NULL && o42_sheet_has_formula (target, row, col);
+    }
+
+  gtk_widget_set_sensitive (prompt->evaluate, !done);
+  gtk_widget_set_sensitive (prompt->step_in, can_step_in);
+  gtk_widget_set_sensitive (prompt->step_out, prompt->levels->len > 1);
+  {
+    char *original = o42_node_to_string (level->tree);
+
+    gtk_widget_set_sensitive (prompt->restart, done || prompt->levels->len > 1 ||
+                              strcmp (text, original) != 0);
+    g_free (original);
+  }
+  g_free (shown);
+  g_free (text);
+}
+
+static void
+on_eval_evaluate (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+
+  (void) w;
+  o42_stepper_step (level->stepper);
+  eval_show (prompt);
+}
+
+static void
+on_eval_step_in (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  const char *sheet = NULL;
+  int row, col;
+  O42Sheet *target;
+
+  (void) w;
+  if (!o42_stepper_next_is_cell (level->stepper, &sheet, &row, &col))
+    return;
+  target = sheet != NULL ? o42_book_find_sheet (prompt->window->book, sheet) : level->sheet;
+  if (target == NULL || !o42_sheet_has_formula (target, row, col))
+    return;
+  g_ptr_array_add (prompt->levels, eval_level_new (target, row, col));
+  eval_show (prompt);
+}
+
+/* Back out with the inner formula's answer: the cell's value, which is
+ * what the steps would have come to. */
+static void
+on_eval_step_out (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *inner, *outer;
+  O42Value value;
+
+  (void) w;
+  if (prompt->levels->len < 2)
+    return;
+  inner = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  o42_sheet_get_value (inner->sheet, inner->row, inner->col, &value);
+  g_ptr_array_remove_index (prompt->levels, prompt->levels->len - 1);
+  outer = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  o42_stepper_substitute (outer->stepper, &value);
+  o42_value_clear (&value);
+  eval_show (prompt);
+}
+
+static void
+on_eval_restart (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level;
+
+  (void) w;
+  while (prompt->levels->len > 1)
+    g_ptr_array_remove_index (prompt->levels, prompt->levels->len - 1);
+  level = g_ptr_array_index (prompt->levels, 0);
+  o42_stepper_restart (level->stepper);
+  eval_show (prompt);
+}
+
+static void
+on_eval_destroy (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+
+  (void) w;
+  g_ptr_array_unref (prompt->levels);
+  g_free (prompt);
+}
+
+void
+action_evaluate_formula (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  EvalPrompt *prompt;
+  GtkWidget *content, *buttons, *scroller;
+  GtkTextBuffer *buffer;
+  int row, col;
+
+  (void) a; (void) p;
+
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  o42_grid_get_active (self->grid, &row, &col);
+  if (!o42_sheet_has_formula (self->sheet, row, col))
+    {
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("Evaluate Formula wants a cell that holds a formula."));
+      return;
+    }
+
+  prompt = g_new0 (EvalPrompt, 1);
+  prompt->window = self;
+  prompt->levels = g_ptr_array_new_with_free_func (eval_level_free);
+  g_ptr_array_add (prompt->levels, eval_level_new (self->sheet, row, col));
+  prompt->dialog = dialog_frame (self, _("Evaluate Formula"), FALSE, &content, &buttons);
+  gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 560, 260);
+
+  prompt->where = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->where), 0.0);
+  gtk_widget_add_css_class (prompt->where, "dim-label");
+  gtk_box_append (GTK_BOX (content), prompt->where);
+
+  prompt->view = gtk_text_view_new ();
+  gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->view), FALSE);
+  gtk_text_view_set_cursor_visible (GTK_TEXT_VIEW (prompt->view), FALSE);
+  gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->view), TRUE);
+  gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (prompt->view), GTK_WRAP_WORD_CHAR);
+  gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->view), 6);
+  gtk_text_view_set_top_margin (GTK_TEXT_VIEW (prompt->view), 6);
+  buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  gtk_text_buffer_create_tag (buffer, "next", "underline", PANGO_UNDERLINE_SINGLE,
+                              "weight", PANGO_WEIGHT_BOLD, NULL);
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->view);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_widget_set_hexpand (scroller, TRUE);
+  gtk_scrolled_window_set_has_frame (GTK_SCROLLED_WINDOW (scroller), TRUE);
+  gtk_box_append (GTK_BOX (content), scroller);
+
+  prompt->evaluate = dialog_button (buttons, _("_Evaluate"), G_CALLBACK (on_eval_evaluate), prompt);
+  prompt->step_in = dialog_button (buttons, _("Step _In"), G_CALLBACK (on_eval_step_in), prompt);
+  prompt->step_out = dialog_button (buttons, _("Step _Out"), G_CALLBACK (on_eval_step_out), prompt);
+  prompt->restart = dialog_button (buttons, _("_Restart"), G_CALLBACK (on_eval_restart), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), prompt->evaluate);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_eval_destroy), prompt);
+
+  eval_show (prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+void
 action_analysis (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
@@ -1432,6 +1907,7 @@ typedef struct {
   O42Window *window;
   GtkWidget *dialog;
   GtkWidget *target, *goal, *value, *changing, *bounds, *status;
+  GtkWidget *nonneg, *report;
 } SolverPrompt;
 
 static const char *SOLVER_GOALS[] = { N_("Max"), N_("Min"), N_("Value of"), NULL };
@@ -1440,9 +1916,8 @@ static void
 on_solver_solve (GtkWidget *w, gpointer data)
 {
   SolverPrompt *prompt = data;
-  O42Ref changing[16];
-  O42SolverBound bounds[16];
-  int n_changing = 0, n_bounds = 0;
+  GArray *changing = g_array_new (FALSE, FALSE, sizeof (O42Ref));
+  GArray *bounds = g_array_new (FALSE, FALSE, sizeof (O42SolverBound));
   int trow, tcol;
   guint goal = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->goal));
   double reached = 0;
@@ -1454,15 +1929,18 @@ on_solver_solve (GtkWidget *w, gpointer data)
   if (!o42_ref_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->target)), &trow, &tcol, NULL))
     {
       gtk_label_set_text (GTK_LABEL (prompt->status), _("That is not a cell to aim at."));
+      g_array_unref (changing);
+      g_array_unref (bounds);
       return;
     }
 
   cells = g_strsplit_set (gtk_editable_get_text (GTK_EDITABLE (prompt->changing)), ",; ", -1);
-  for (int i = 0; cells[i] != NULL && n_changing < 16; i++)
+  for (int i = 0; cells[i] != NULL; i++)
     {
       char *cell = g_strstrip (cells[i]);
       gsize len = 0;
       int row, col, row1, col1;
+      O42Ref ref;
 
       if (*cell == '\0')
         continue;
@@ -1471,17 +1949,19 @@ on_solver_solve (GtkWidget *w, gpointer data)
         {
           /* A range of changing cells, cell by cell. */
           O42Range r = o42_range_normalise (row, col, row1, col1);
-          for (int rr = r.row0; rr <= r.row1 && n_changing < 16; rr++)
-            for (int cc = r.col0; cc <= r.col1 && n_changing < 16; cc++)
-              { changing[n_changing].row = rr; changing[n_changing].col = cc; n_changing++; }
+          for (int rr = r.row0; rr <= r.row1; rr++)
+            for (int cc = r.col0; cc <= r.col1; cc++)
+              { ref.row = rr; ref.col = cc; g_array_append_val (changing, ref); }
         }
       else if (o42_ref_parse (cell, &row, &col, NULL))
-        { changing[n_changing].row = row; changing[n_changing].col = col; n_changing++; }
+        { ref.row = row; ref.col = col; g_array_append_val (changing, ref); }
     }
   g_strfreev (cells);
-  if (n_changing == 0)
+  if (changing->len == 0)
     {
       gtk_label_set_text (GTK_LABEL (prompt->status), _("Name at least one cell to change."));
+      g_array_unref (changing);
+      g_array_unref (bounds);
       return;
     }
 
@@ -1489,11 +1969,12 @@ on_solver_solve (GtkWidget *w, gpointer data)
   lines = gtk_text_buffer_get_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->bounds)), &a, &b, FALSE);
   {
     char **each = g_strsplit (lines, "\n", -1);
-    for (int i = 0; each[i] != NULL && n_bounds < 16; i++)
+    for (int i = 0; each[i] != NULL; i++)
       {
         char *line = g_strstrip (each[i]);
         const char *op = strstr (line, "<=");
         O42SolverOp which = O42_SOLVER_LE;
+        O42SolverBound bound;
         char *cell;
 
         if (*line == '\0')
@@ -1503,11 +1984,20 @@ on_solver_solve (GtkWidget *w, gpointer data)
         if (op == NULL)
           continue;
         cell = g_strstrip (g_strndup (line, (gsize) (op - line)));
-        if (o42_ref_parse (cell, &bounds[n_bounds].row, &bounds[n_bounds].col, NULL))
+        if (o42_ref_parse (cell, &bound.row, &bound.col, NULL))
           {
-            bounds[n_bounds].op = which;
-            bounds[n_bounds].value = g_strtod (op + (which == O42_SOLVER_EQ ? 1 : 2), NULL);
-            n_bounds++;
+            char *rhs = g_strstrip (g_strdup (op + (which == O42_SOLVER_EQ ? 1 : 2)));
+
+            bound.op = which;
+            bound.value = 0;
+            if (which == O42_SOLVER_EQ && (g_ascii_strcasecmp (rhs, "int") == 0 || g_ascii_strcasecmp (rhs, "integer") == 0))
+              bound.op = O42_SOLVER_INT;
+            else if (which == O42_SOLVER_EQ && (g_ascii_strcasecmp (rhs, "bin") == 0 || g_ascii_strcasecmp (rhs, "binary") == 0))
+              bound.op = O42_SOLVER_BIN;
+            else
+              bound.value = g_strtod (rhs, NULL);
+            g_array_append_val (bounds, bound);
+            g_free (rhs);
           }
         g_free (cell);
       }
@@ -1515,15 +2005,62 @@ on_solver_solve (GtkWidget *w, gpointer data)
   }
   g_free (lines);
 
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->nonneg)))
+    for (guint i = 0; i < changing->len; i++)
+      {
+        const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+        O42SolverBound bound = { ref->row, ref->col, O42_SOLVER_GE, 0 };
+        g_array_append_val (bounds, bound);
+      }
+
   {
-    gboolean ok = o42_sheet_solve (prompt->window->sheet, trow, tcol,
-                                   goal == 1 ? O42_SOLVER_MIN : goal == 2 ? O42_SOLVER_VALUE : O42_SOLVER_MAX,
-                                   g_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->value)), NULL),
-                                   changing, n_changing, bounds, n_bounds, &reached);
-    char *message = g_strdup_printf (ok ? "The target reached %g." : "The search gave up at %g.", reached);
+    O42Sheet *sheet = prompt->window->sheet;
+    O42SolverGoal which = goal == 1 ? O42_SOLVER_MIN : goal == 2 ? O42_SOLVER_VALUE : O42_SOLVER_MAX;
+    double goal_value = g_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->value)), NULL);
+    double *original = g_new0 (double, changing->len);
+    double original_target = 0;
+    gboolean ok;
+    char *message;
+
+    for (guint i = 0; i < changing->len; i++)
+      {
+        const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+        O42Value v;
+        O42ErrorCode e;
+
+        o42_sheet_get_value (sheet, ref->row, ref->col, &v);
+        if (v.type == O42_VALUE_NUMBER)
+          o42_value_to_number (&v, &original[i], &e);
+        o42_value_clear (&v);
+      }
+    {
+      O42Value v;
+      O42ErrorCode e;
+
+      o42_sheet_get_value (sheet, trow, tcol, &v);
+      if (v.type == O42_VALUE_NUMBER)
+        o42_value_to_number (&v, &original_target, &e);
+      o42_value_clear (&v);
+    }
+    ok = o42_sheet_solve (sheet, trow, tcol, which, goal_value,
+                          (const O42Ref *) changing->data, (int) changing->len,
+                          (const O42SolverBound *) bounds->data, (int) bounds->len, &reached);
+    message = g_strdup_printf (ok ? "The target reached %g." : "The search gave up at %g.", reached);
     gtk_label_set_text (GTK_LABEL (prompt->status), message);
     g_free (message);
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->report)))
+      {
+        O42Sheet *made = o42_sheet_solver_report (sheet, trow, tcol, which, goal_value,
+                                                  (const O42Ref *) changing->data, (int) changing->len,
+                                                  (const O42SolverBound *) bounds->data, (int) bounds->len,
+                                                  original, original_target);
+        if (made != NULL)
+          window_show_sheet (prompt->window, o42_book_sheet_index (prompt->window->book, made));
+      }
+    g_free (original);
   }
+  g_array_unref (changing);
+  g_array_unref (bounds);
   o42_grid_refresh (prompt->window->grid);
   window_sync (prompt->window);
 }
@@ -1557,7 +2094,7 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_editable_set_text (GTK_EDITABLE (prompt->target), name);
   g_free (name);
 
-  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Keeping these in bounds, one to a line:")));
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Subject to the constraints, one to a line:")));
   prompt->bounds = gtk_text_view_new ();
   gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->bounds), TRUE);
   gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->bounds), 4);
@@ -1567,15 +2104,20 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_add_css_class (scrolled, "frame");
   gtk_box_append (GTK_BOX (content), scrolled);
   {
-    GtkWidget *hint = gtk_label_new ("D1<=10, A1>=0, B2=5. The search is a downhill simplex with the "
-                                     "broken bounds counted against it: it finds a good answer, not "
-                                     "always the best one.");
+    GtkWidget *hint = gtk_label_new ("D1<=10, A1>=0, B2=5, C1=int, C2=bin. The search is a downhill "
+                                     "simplex with the broken constraints counted against it, branching "
+                                     "on the whole-number cells: it finds a good answer, not always the "
+                                     "best one.");
     gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (hint), 46);
     gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
     gtk_widget_add_css_class (hint, "dim-label");
     gtk_box_append (GTK_BOX (content), hint);
   }
+  prompt->nonneg = gtk_check_button_new_with_mnemonic ( _("Assume _non-negative"));
+  gtk_box_append (GTK_BOX (content), prompt->nonneg);
+  prompt->report = gtk_check_button_new_with_mnemonic ( _("Write an Answer _Report"));
+  gtk_box_append (GTK_BOX (content), prompt->report);
   prompt->status = gtk_label_new ("");
   gtk_label_set_xalign (GTK_LABEL (prompt->status), 0.0);
   gtk_box_append (GTK_BOX (content), prompt->status);

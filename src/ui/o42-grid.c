@@ -53,6 +53,7 @@ static gboolean outline_click (O42Grid *self, double x, double y);
 typedef struct {
   O42Range from;
   int      to_row, to_col;
+  gboolean red;         /* Trace Error's arrow from where the error comes */
 } AuditArrow;
 
 struct _O42Grid {
@@ -78,6 +79,7 @@ struct _O42Grid {
   O42Range       clip_range;
 
   gboolean       hide_gridlines;
+  gboolean       hide_checks;     /* no green corners on doubtful cells */
   gboolean       hide_zeros;
   double         zoom;                     /* 1.0 is 100% */
   int            frozen_rows, frozen_cols; /* View > Freeze Panes */
@@ -1109,8 +1111,10 @@ outline_sync (O42Grid *self)
 {
   int rl = self->sheet ? o42_sheet_max_row_level (self->sheet) : 0;
   int cl = self->sheet ? o42_sheet_max_col_level (self->sheet) : 0;
-  int w = rl > 0 ? rl * OUTLINE_STEP + 6 : 0;
-  int h = cl > 0 ? cl * OUTLINE_STEP + 6 : 0;
+  /* One step more than the deepest level, for the level buttons in
+   * the corner: 1 2 3 for a two-level outline. */
+  int w = rl > 0 ? (rl + 1) * OUTLINE_STEP + 6 : 0;
+  int h = cl > 0 ? (cl + 1) * OUTLINE_STEP + 6 : 0;
   int digits = 3;
   int header_w;
 
@@ -3487,6 +3491,7 @@ void
 o42_grid_refresh (O42Grid *self)
 {
   g_return_if_fail (O42_IS_GRID (self));
+  outline_sync (self);
   gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
@@ -3838,6 +3843,7 @@ o42_grid_trace (O42Grid *self, gboolean precedents)
       const O42Range *r = &g_array_index (found, O42Range, i);
       AuditArrow arrow;
 
+      arrow.red = FALSE;
       if (precedents)
         {
           arrow.from = *r;
@@ -3855,6 +3861,93 @@ o42_grid_trace (O42Grid *self, gboolean precedents)
     }
   g_array_unref (found);
   gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* Whether any cell of the rectangle holds an error. */
+static gboolean
+range_has_error (O42Sheet *sheet, const O42Range *r)
+{
+  for (int row = r->row0; row <= r->row1 && row < r->row0 + 1000; row++)
+    for (int col = r->col0; col <= r->col1 && col < r->col0 + 1000; col++)
+      {
+        O42Value v;
+        gboolean error;
+
+        if (o42_sheet_is_empty (sheet, row, col))
+          continue;
+        o42_sheet_get_value (sheet, row, col, &v);
+        error = v.type == O42_VALUE_ERROR;
+        o42_value_clear (&v);
+        if (error)
+          return TRUE;
+      }
+  return FALSE;
+}
+
+/* Tools > Auditing > Trace Error: from the active cell, which shows an
+ * error, back along its precedents to where the error comes from --
+ * red arrows from the cells that hold one, blue from the rest, and on
+ * again from each red one until a cell with no formula is reached. */
+gboolean
+o42_grid_trace_error (O42Grid *self)
+{
+  O42Range sel = { 0, 0, 0, 0 };
+  GArray *queue;
+  O42Value v;
+  gboolean is_error;
+
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  if (self->sheet == NULL)
+    return FALSE;
+  o42_grid_get_selection (self, &sel);
+  o42_sheet_get_value (self->sheet, sel.row0, sel.col0, &v);
+  is_error = v.type == O42_VALUE_ERROR;
+  o42_value_clear (&v);
+  if (!is_error)
+    return FALSE;
+  if (self->arrows == NULL)
+    self->arrows = g_array_new (FALSE, FALSE, sizeof (AuditArrow));
+
+  queue = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  {
+    O42Range start = { sel.row0, sel.col0, sel.row0, sel.col0 };
+    g_array_append_val (queue, start);
+  }
+  for (guint q = 0; q < queue->len && q < 200; q++)
+    {
+      O42Range at = g_array_index (queue, O42Range, q);
+      GArray *found = o42_sheet_precedents (self->sheet, at.row0, at.col0);
+
+      for (guint i = 0; i < found->len; i++)
+        {
+          const O42Range *r = &g_array_index (found, O42Range, i);
+          AuditArrow arrow;
+
+          arrow.from = *r;
+          arrow.to_row = at.row0;
+          arrow.to_col = at.col0;
+          arrow.red = range_has_error (self->sheet, r);
+          g_array_append_val (self->arrows, arrow);
+          /* Follow a single erring cell further back. */
+          if (arrow.red && r->row0 == r->row1 && r->col0 == r->col1 &&
+              o42_sheet_has_formula (self->sheet, r->row0, r->col0))
+            {
+              gboolean seen = FALSE;
+
+              for (guint k = 0; k < queue->len && !seen; k++)
+                {
+                  const O42Range *earlier = &g_array_index (queue, O42Range, k);
+                  seen = earlier->row0 == r->row0 && earlier->col0 == r->col0;
+                }
+              if (!seen)
+                g_array_append_val (queue, *r);
+            }
+        }
+      g_array_unref (found);
+    }
+  g_array_unref (queue);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+  return TRUE;
 }
 
 void
@@ -4069,6 +4162,21 @@ o42_grid_get_show_zeros (O42Grid *self)
 {
   g_return_val_if_fail (O42_IS_GRID (self), TRUE);
   return !self->hide_zeros;
+}
+
+void
+o42_grid_set_show_checks (O42Grid *self, gboolean show)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  self->hide_checks = !show;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_get_show_checks (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), TRUE);
+  return !self->hide_checks;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -5338,6 +5446,18 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
               !o42_sheet_merged_at (self->sheet, row, col, NULL))
             draw_cell_text (self, cr, row, col, x, y, w, h);
 
+          /* Excel's green corner on a cell the error checking doubts. */
+          if (!self->hide_checks && !o42_sheet_is_empty (self->sheet, row, col) &&
+              o42_sheet_error_check (self->sheet, row, col) != O42_CHECK_NONE)
+            {
+              cairo_set_source_rgb (cr, 0.0, 0.55, 0.0);
+              cairo_move_to (cr, x + 1, y + 1);
+              cairo_line_to (cr, x + 7, y + 1);
+              cairo_line_to (cr, x + 1, y + 7);
+              cairo_close_path (cr);
+              cairo_fill (cr);
+            }
+
           x += w;
         }
       y += h;
@@ -5559,10 +5679,71 @@ paint_outline (O42Grid *self, cairo_t *cr, gboolean rows, double hx, double hy,
   cairo_restore (cr);
 }
 
+/* Excel's level buttons, 1 2 3, in the corner against the outline
+ * margin: across the top of the row margin, down the side of the
+ * column one.  Pressing N shows the rows (columns) shallower than N. */
+static void
+paint_level_buttons (O42Grid *self, cairo_t *cr, gboolean rows, double hx, double hy)
+{
+  int levels = rows ? o42_sheet_max_row_level (self->sheet) : o42_sheet_max_col_level (self->sheet);
+  PangoFontDescription *desc = pango_font_description_from_string ("Sans 7");
+
+  pango_layout_set_font_description (self->layout, desc);
+  pango_font_description_free (desc);
+  for (int level = 1; level <= levels + 1; level++)
+    {
+      double centre = 3 + (level - 1) * OUTLINE_STEP + OUTLINE_STEP / 2.0;
+      double bx = rows ? hx + centre - 5 : hx + self->outline_w + 4;
+      double by = rows ? hy + self->outline_h + 4 : hy + centre - 5;
+      char digit[4];
+      int tw, th;
+
+      cairo_set_source_rgb (cr, 1, 1, 1);
+      cairo_rectangle (cr, bx, by, 11, 11);
+      cairo_fill (cr);
+      cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
+      cairo_rectangle (cr, floor (bx) + 0.5, floor (by) + 0.5, 11, 11);
+      cairo_stroke (cr);
+      g_snprintf (digit, sizeof digit, "%d", level);
+      pango_layout_set_text (self->layout, digit, -1);
+      pango_layout_get_pixel_size (self->layout, &tw, &th);
+      cairo_move_to (cr, bx + (11 - tw) / 2.0, by + (11 - th) / 2.0);
+      pango_cairo_show_layout (cr, self->layout);
+    }
+}
+
+/* A click on a level button: TRUE if the point was on one, and the
+ * outline folded to that level. */
+static gboolean
+level_button_click (O42Grid *self, double x, double y)
+{
+  gboolean rows;
+  int levels, level;
+
+  if (self->sheet == NULL || x >= HEADER_W || y >= HEADER_H)
+    return FALSE;
+  if (self->outline_w > 0 && x < self->outline_w && y >= self->outline_h)
+    { rows = TRUE; level = (int) ((x - 3) / OUTLINE_STEP) + 1; }
+  else if (self->outline_h > 0 && y < self->outline_h && x >= self->outline_w)
+    { rows = FALSE; level = (int) ((y - 3) / OUTLINE_STEP) + 1; }
+  else
+    return FALSE;
+  levels = rows ? o42_sheet_max_row_level (self->sheet) : o42_sheet_max_col_level (self->sheet);
+  if (level < 1 || level > levels + 1)
+    return TRUE;
+  o42_sheet_outline_to_level (self->sheet, rows, level);
+  gtk_widget_queue_resize (GTK_WIDGET (self));
+  sheet_changed (self);
+  return TRUE;
+}
+
 /* A click in the outline margin: which run's box, if any, and toggle it. */
 static gboolean
 outline_click (O42Grid *self, double x, double y)
 {
+  if (level_button_click (self, x, y))
+    return TRUE;
+
   gboolean rows;
   int levels, level;
   double along, across;
@@ -6045,7 +6226,10 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
       double angle;
 
       cairo_save (cr);
-      cairo_set_source_rgb (cr, 0.1, 0.25, 0.7);
+      if (a->red)
+        cairo_set_source_rgb (cr, 0.8, 0.1, 0.1);
+      else
+        cairo_set_source_rgb (cr, 0.1, 0.25, 0.7);
       cairo_set_line_width (cr, 1.5);
 
       /* A ring round the range the arrow comes from, then the arrow. */
@@ -6249,6 +6433,10 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
     cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
     cairo_rectangle (cr, hx, hy, HEADER_W, HEADER_H);
     cairo_fill (cr);
+    if (self->outline_w > 0)
+      paint_level_buttons (self, cr, TRUE, hx, hy);
+    if (self->outline_h > 0)
+      paint_level_buttons (self, cr, FALSE, hx, hy);
 
     cairo_set_source_rgb (cr, 0.50, 0.50, 0.50);
     cairo_move_to (cr, hx, hy + HEADER_H - 0.5);

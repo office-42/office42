@@ -19,6 +19,7 @@
 
 #include "o42-fmt.h"
 #include "o42-formula.h"
+#include "o42-eval.h"
 #include "o42-picture.h"
 #include "o42-chart.h"
 #include "o42-shape.h"
@@ -399,6 +400,23 @@ int  o42_sheet_max_col_level (O42Sheet *sheet);
  * ungroup lowers it. */
 void o42_sheet_group (O42Sheet *sheet, gboolean rows, int lo, int hi, gboolean group);
 
+/* Data > Group and Outline > Auto Outline: the rows a formula sums up
+ * from directly above it (SUM(B2:B9) in B10) become a group, and the
+ * columns one sums up from directly to its left likewise; nested sums
+ * nest.  Any outline there was goes first.  Returns how many groups
+ * were made.  Clear Outline takes every level away. */
+int  o42_sheet_auto_outline  (O42Sheet *sheet);
+void o42_sheet_clear_outline (O42Sheet *sheet);
+
+/* Show Detail and Hide Detail for the row (column) `at`: the group it
+ * is in, or the one ending just above (left of) it when it is a
+ * summary row, is unfolded or folded. */
+gboolean o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gboolean show);
+
+/* The outline's level buttons: everything deeper than `level` folded,
+ * everything at or above it shown. */
+void o42_sheet_outline_to_level (O42Sheet *sheet, gboolean rows, int level);
+
 /* ---- Pivot tables -------------------------------------------------------- */
 
 /* A pivot table: a source table with a header row, a field whose values
@@ -537,7 +555,10 @@ gboolean o42_sheet_formula_hidden (O42Sheet *sheet, int row, int col);
  * the small problems a spreadsheet poses.  The whole search is one
  * undo step. */
 typedef enum { O42_SOLVER_MAX = 0, O42_SOLVER_MIN, O42_SOLVER_VALUE } O42SolverGoal;
-typedef enum { O42_SOLVER_LE = 0, O42_SOLVER_GE, O42_SOLVER_EQ } O42SolverOp;
+/* INT and BIN name a changing cell that must come out a whole number,
+ * or 0 or 1; the search branches on such a cell -- no more than its
+ * floor, no less than its ceiling -- until every one is whole. */
+typedef enum { O42_SOLVER_LE = 0, O42_SOLVER_GE, O42_SOLVER_EQ, O42_SOLVER_INT, O42_SOLVER_BIN } O42SolverOp;
 
 typedef struct {
   int          row, col;   /* the cell that must stay in bounds */
@@ -550,6 +571,16 @@ gboolean o42_sheet_solve (O42Sheet *sheet, int target_row, int target_col,
                           const O42Ref *changing, int n_changing,
                           const O42SolverBound *bounds, int n_bounds,
                           double *reached);
+
+/* Excel's Answer Report on a sheet of its own: the target, the
+ * adjustable cells and the constraints, each with what it was and what
+ * it came to.  `original` holds the changing cells' values before the
+ * search, and `original_target` the target's. */
+O42Sheet *o42_sheet_solver_report (O42Sheet *sheet, int target_row, int target_col,
+                                   O42SolverGoal goal, double goal_value,
+                                   const O42Ref *changing, int n_changing,
+                                   const O42SolverBound *bounds, int n_bounds,
+                                   const double *original, double original_target);
 
 /* ---- Advanced filter ----------------------------------------------------- */
 
@@ -595,6 +626,12 @@ gboolean    o42_sheet_scenario_cells  (O42Sheet *sheet, const char *name,
 /* Puts a scenario together cell by cell, for the file readers. */
 void        o42_sheet_define_scenario (O42Sheet *sheet, const char *name, const char *comment,
                                        int row, int col, const char *value);
+/* Excel's Scenario Summary: a new sheet in the book with a column for
+ * the values as they stand and one per scenario, the changing cells
+ * above and the result cells (guint64 keys on this sheet) below, each
+ * result worked out under that scenario.  The sheet is left as it was.
+ * Returns the new sheet, or NULL when there are no scenarios. */
+O42Sheet   *o42_sheet_scenario_summary (O42Sheet *sheet, const GArray *results);
 
 /* ---- Tables -------------------------------------------------------------- */
 
@@ -636,6 +673,22 @@ guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
  * Dependents draw arrows for.  Each array is the caller's to free. */
 GArray *o42_sheet_precedents (O42Sheet *sheet, int row, int col);
 GArray *o42_sheet_dependents (O42Sheet *sheet, int row, int col);
+
+/* Excel's background error checking: what is doubtful about a cell,
+ * for the green triangle in its corner.  A formula that comes to an
+ * error; a formula unlike the ones either side of it, when those two
+ * agree; a number kept as text; a formula whose range stops short of a
+ * number right beside it. */
+typedef enum {
+  O42_CHECK_NONE = 0,
+  O42_CHECK_ERROR,
+  O42_CHECK_INCONSISTENT,
+  O42_CHECK_NUMBER_AS_TEXT,
+  O42_CHECK_OMITS_CELLS
+} O42ErrorCheck;
+
+O42ErrorCheck o42_sheet_error_check (O42Sheet *sheet, int row, int col);
+const char   *o42_error_check_text  (O42ErrorCheck check);   /* a sentence, or "" */
 
 /* ---- AutoFormat -------------------------------------------------------- */
 
@@ -735,6 +788,28 @@ gboolean   o42_sheet_validate (O42Sheet *sheet, int row, int col,
 int o42_sheet_text_to_columns (O42Sheet *sheet, const O42Range *range,
                                const char *delimiter);
 
+/* The same, cut at fixed character positions: `breaks` are the
+ * offsets (in characters, ascending) where each new column starts, so
+ * n_breaks + 1 columns come out.  `types`, when given, says per column
+ * how its piece is taken: as typed, as text whatever it looks like, or
+ * not at all. */
+typedef enum {
+  O42_SPLIT_GENERAL = 0,
+  O42_SPLIT_TEXT,
+  O42_SPLIT_DATE,
+  O42_SPLIT_SKIP
+} O42SplitType;
+
+int o42_sheet_text_to_columns_fixed (O42Sheet *sheet, const O42Range *range,
+                                     const int *breaks, int n_breaks,
+                                     const O42SplitType *types);
+
+/* Where the columns seem to divide: the character positions at which
+ * every row of the range's first column that is long enough has a
+ * space and the character before is not, as Excel guesses them.
+ * Appended to `breaks` (int). */
+void o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *breaks);
+
 /* ---- View state -------------------------------------------------------- */
 
 /* How many rows and columns are frozen at the top and left: a view
@@ -803,6 +878,11 @@ void o42_sheet_used_range (O42Sheet *sheet, O42Range *out);
  * sheet, as if it stood in A1, without putting it anywhere.  Clear the
  * result.  #NAME? for a formula that does not parse. */
 O42Value o42_sheet_evaluate_formula (O42Sheet *sheet, const char *text);
+
+/* The context the sheet's formulas are worked out in, for working one
+ * out a step at a time (o42-eval-steps.h).  Borrowed; whoever uses it
+ * puts its row and column back as they were. */
+O42EvalContext *o42_sheet_eval_context (O42Sheet *sheet);
 
 /* Every stored cell -- one with content or a format -- in no particular
  * order.  The sheet is sparse, and this is how a writer visits what is

@@ -44,6 +44,7 @@
 #include "o42-spell.h"
 #include "o42-book.h"
 #include "o42-eval.h"
+#include "o42-eval-steps.h"
 #include "o42-csv.h"
 #include "o42-text-formats.h"
 #include "o42-lotus.h"
@@ -169,10 +170,11 @@ main (int argc, char *argv[])
               "Formats   format font fontinfo border pattern rich runs indent rotate fmtinfo\n"
               "          style defstyle styleat autoformat cond conds uncond\n"
               "Sheets    sheet rename delsheet freeze split hiderows levels group protect\n"
-              "          lock hide editable chartsheet\n"
+              "          lock hide editable chartsheet autooutline clearoutline detail\n"
+              "          outlinelevel\n"
               "Data      sort find replace filter advfilter subtotal dedupe consolidate\n"
-              "          table pivot refresh validate validations goalseek solve scenario\n"
-              "          analyse whatif\n"
+              "          table pivot refresh validate validations goalseek solve scenario summary\n"
+              "          analyse whatif split splitfixed\n"
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
               "          picture pictures objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
@@ -180,6 +182,7 @@ main (int argc, char *argv[])
               "Python    py pyfile script scripts runscript delscript record\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
+              "          evaluate watch watches unwatch check\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
               "section 19 says what each does; --functions lists every function.\n");
@@ -262,6 +265,114 @@ main (int argc, char *argv[])
             o42_sheet_set_tab_colour (sheet, O42_TAB_NO_COLOUR);
           else
             o42_sheet_set_tab_colour (sheet, (guint32) g_ascii_strtoull (arg, NULL, 16) & 0xFFFFFF);
+          continue;
+        }
+
+      /* "evaluate A1" works the cell's formula out a step at a time,
+       * printing each stage with the part that goes next in [brackets]:
+       * what Tools > Formula Auditing > Evaluate Formula shows. */
+      if (g_str_has_prefix (text, "evaluate "))
+        {
+          int r, c;
+
+          if (o42_ref_parse (text + 9, &r, &c, NULL) && o42_sheet_has_formula (sheet, r, c))
+            {
+              char *input = o42_sheet_get_input (sheet, r, c);
+              O42Node *tree = o42_formula_parse (input[0] == '=' ? input + 1 : input);
+              O42Stepper *stepper = o42_stepper_new (o42_sheet_eval_context (sheet), tree, r, c);
+
+              for (int guard = 0; guard < 1000; guard++)
+                {
+                  int start = -1, length = 0;
+                  char *s = o42_stepper_text (stepper, &start, &length);
+
+                  if (start >= 0)
+                    printf ("=%.*s[%.*s]%s\n", start, s, length, s + start, s + start + length);
+                  else
+                    printf ("=%s\n", s);
+                  g_free (s);
+                  if (o42_stepper_done (stepper))
+                    break;
+                  o42_stepper_step (stepper);
+                }
+              o42_stepper_free (stepper);
+              o42_node_free (tree);
+              g_free (input);
+            }
+          else
+            fprintf (stderr, "usage: evaluate A1 (a cell holding a formula)\n");
+          continue;
+        }
+
+      /* "watch A1:B2" adds the cells to the Watch Window's list,
+       * "watches" prints it with the values, "unwatch N" drops one. */
+      if (g_str_has_prefix (text, "watch "))
+        {
+          O42Range r;
+          gsize len = 0;
+
+          if (o42_ref_parse (text + 6, &r.row0, &r.col0, &len))
+            {
+              r.row1 = r.row0; r.col1 = r.col0;
+              if (text[6 + len] == ':')
+                o42_ref_parse (text + 7 + len, &r.row1, &r.col1, NULL);
+              for (int rr = r.row0; rr <= r.row1; rr++)
+                for (int cc = r.col0; cc <= r.col1; cc++)
+                  o42_book_add_watch (book, o42_sheet_get_name (sheet), rr, cc);
+            }
+          else
+            fprintf (stderr, "usage: watch A1:B2\n");
+          continue;
+        }
+      /* "check A1:C9" says what the error checking doubts about each
+       * cell of the range that it doubts anything about. */
+      if (g_str_has_prefix (text, "check "))
+        {
+          O42Range r;
+          gsize len = 0;
+
+          if (o42_ref_parse (text + 6, &r.row0, &r.col0, &len))
+            {
+              r.row1 = r.row0; r.col1 = r.col0;
+              if (text[6 + len] == ':')
+                o42_ref_parse (text + 7 + len, &r.row1, &r.col1, NULL);
+              for (int rr = r.row0; rr <= r.row1; rr++)
+                for (int cc = r.col0; cc <= r.col1; cc++)
+                  {
+                    O42ErrorCheck check = o42_sheet_error_check (sheet, rr, cc);
+
+                    if (check != O42_CHECK_NONE)
+                      {
+                        char *name = o42_ref_name (rr, cc);
+                        printf ("%s: %s\n", name, o42_error_check_text (check));
+                        g_free (name);
+                      }
+                  }
+            }
+          else
+            fprintf (stderr, "usage: check A1:C9\n");
+          continue;
+        }
+      if (strcmp (text, "watches") == 0)
+        {
+          for (int i = 0; i < o42_book_n_watches (book); i++)
+            {
+              const O42Watch *w = o42_book_watch_at (book, i);
+              O42Sheet *on = o42_book_find_sheet (book, w->sheet);
+              char *name = o42_ref_name (w->row, w->col);
+              char *shown = on != NULL ? o42_sheet_get_display (on, w->row, w->col) : g_strdup ("?");
+              char *input = on != NULL ? o42_sheet_get_input (on, w->row, w->col) : g_strdup ("");
+
+              printf ("%d: %s!%s = %s%s%s\n", i, w->sheet, name, shown,
+                      input[0] == '=' ? "  " : "", input[0] == '=' ? input : "");
+              g_free (name); g_free (shown); g_free (input);
+            }
+          continue;
+        }
+      if (g_str_has_prefix (text, "unwatch "))
+        {
+          if (!o42_book_remove_watch (book, atoi (text + 8)))
+            fprintf (stderr, "no such watch\n");
           continue;
         }
 
@@ -474,6 +585,9 @@ main (int argc, char *argv[])
         }
 
       /* solve TARGET max|min|VALUE A1,B1 [A2<=10] [B2>=0] ... */
+      /* solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [B2=bin]
+       * [nonneg] [report]: nonneg keeps every changing cell at or
+       * above zero, report writes the Answer Report sheet. */
       if (g_str_has_prefix (text, "solve "))
         {
           char **words = g_strsplit (text + 6, " ", -1);
@@ -481,10 +595,9 @@ main (int argc, char *argv[])
           int trow, tcol;
           O42SolverGoal goal = O42_SOLVER_MAX;
           double goal_value = 0;
-          O42Ref changing[16];
-          int n_changing = 0;
-          O42SolverBound bounds[16];
-          int n_bounds = 0;
+          GArray *changing = g_array_new (FALSE, FALSE, sizeof (O42Ref));
+          GArray *bounds = g_array_new (FALSE, FALSE, sizeof (O42SolverBound));
+          gboolean nonneg = FALSE, report = FALSE;
 
           if (n >= 3 && o42_ref_parse (words[0], &trow, &tcol, NULL))
             {
@@ -495,42 +608,107 @@ main (int argc, char *argv[])
               else { goal = O42_SOLVER_VALUE; goal_value = g_ascii_strtod (words[1], NULL); }
 
               cells = g_strsplit (words[2], ",", -1);
-              for (int i = 0; cells[i] != NULL && n_changing < 16; i++)
-                if (o42_ref_parse (cells[i], &changing[n_changing].row, &changing[n_changing].col, NULL))
-                  n_changing++;
+              for (int i = 0; cells[i] != NULL; i++)
+                {
+                  O42Ref ref;
+                  O42Range r;
+                  gsize len = 0;
+
+                  if (o42_ref_parse (cells[i], &r.row0, &r.col0, &len) && cells[i][len] == ':' &&
+                      o42_ref_parse (cells[i] + len + 1, &r.row1, &r.col1, NULL))
+                    {
+                      r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+                      for (int rr = r.row0; rr <= r.row1; rr++)
+                        for (int cc = r.col0; cc <= r.col1; cc++)
+                          { ref.row = rr; ref.col = cc; g_array_append_val (changing, ref); }
+                    }
+                  else if (o42_ref_parse (cells[i], &ref.row, &ref.col, NULL))
+                    g_array_append_val (changing, ref);
+                }
               g_strfreev (cells);
 
-              for (int i = 3; i < n && n_bounds < 16; i++)
+              for (int i = 3; i < n; i++)
                 {
                   const char *op = strstr (words[i], "<=");
                   O42SolverOp which = O42_SOLVER_LE;
+                  O42SolverBound bound;
                   char *cell;
 
+                  if (strcmp (words[i], "nonneg") == 0) { nonneg = TRUE; continue; }
+                  if (strcmp (words[i], "report") == 0) { report = TRUE; continue; }
                   if (op == NULL) { op = strstr (words[i], ">="); which = O42_SOLVER_GE; }
                   if (op == NULL) { op = strchr (words[i], '='); which = O42_SOLVER_EQ; }
                   if (op == NULL) continue;
                   cell = g_strndup (words[i], (gsize) (op - words[i]));
-                  if (o42_ref_parse (cell, &bounds[n_bounds].row, &bounds[n_bounds].col, NULL))
+                  if (o42_ref_parse (cell, &bound.row, &bound.col, NULL))
                     {
-                      bounds[n_bounds].op = which;
-                      bounds[n_bounds].value = g_ascii_strtod (op + (which == O42_SOLVER_EQ ? 1 : 2), NULL);
-                      n_bounds++;
+                      const char *rhs = op + (which == O42_SOLVER_EQ ? 1 : 2);
+
+                      bound.op = which;
+                      bound.value = 0;
+                      if (which == O42_SOLVER_EQ && strcmp (rhs, "int") == 0)
+                        bound.op = O42_SOLVER_INT;
+                      else if (which == O42_SOLVER_EQ && strcmp (rhs, "bin") == 0)
+                        bound.op = O42_SOLVER_BIN;
+                      else
+                        bound.value = g_ascii_strtod (rhs, NULL);
+                      g_array_append_val (bounds, bound);
                     }
                   g_free (cell);
                 }
+              if (nonneg)
+                for (guint i = 0; i < changing->len; i++)
+                  {
+                    const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+                    O42SolverBound bound = { ref->row, ref->col, O42_SOLVER_GE, 0 };
+                    g_array_append_val (bounds, bound);
+                  }
 
-              if (n_changing > 0)
+              if (changing->len > 0)
                 {
                   double reached = 0;
-                  gboolean ok = o42_sheet_solve (sheet, trow, tcol, goal, goal_value,
-                                                 changing, n_changing, bounds, n_bounds, &reached);
+                  double *original = g_new0 (double, changing->len);
+                  double original_target = 0;
+                  gboolean ok;
+
+                  for (guint i = 0; i < changing->len; i++)
+                    {
+                      const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+                      O42Value v;
+                      O42ErrorCode e;
+                      o42_sheet_get_value (sheet, ref->row, ref->col, &v);
+                      if (v.type == O42_VALUE_NUMBER) o42_value_to_number (&v, &original[i], &e);
+                      o42_value_clear (&v);
+                    }
+                  {
+                    O42Value v;
+                    O42ErrorCode e;
+                    o42_sheet_get_value (sheet, trow, tcol, &v);
+                    if (v.type == O42_VALUE_NUMBER) o42_value_to_number (&v, &original_target, &e);
+                    o42_value_clear (&v);
+                  }
+                  ok = o42_sheet_solve (sheet, trow, tcol, goal, goal_value,
+                                        (const O42Ref *) changing->data, (int) changing->len,
+                                        (const O42SolverBound *) bounds->data, (int) bounds->len, &reached);
                   printf ("%s %g\n", ok ? "reached" : "gave up at", reached);
+                  if (report)
+                    {
+                      O42Sheet *made = o42_sheet_solver_report (sheet, trow, tcol, goal, goal_value,
+                                                                (const O42Ref *) changing->data, (int) changing->len,
+                                                                (const O42SolverBound *) bounds->data, (int) bounds->len,
+                                                                original, original_target);
+                      if (made != NULL)
+                        sheet = made;
+                    }
+                  g_free (original);
                 }
               else
-                fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10]...\n");
+                fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [nonneg] [report]\n");
             }
           else
-            fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10]...\n");
+            fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [nonneg] [report]\n");
+          g_array_unref (changing);
+          g_array_unref (bounds);
           g_strfreev (words);
           continue;
         }
@@ -617,6 +795,34 @@ main (int argc, char *argv[])
 
       /* scenario NAME A1:B2 [COMMENT] saves the cells' values; showscenario
        * NAME puts them back; scenarios lists them; delscenario NAME. */
+      /* "summary B5,C7" writes the Scenario Summary sheet, with those
+       * as its result cells, and switches to it. */
+      if (g_str_has_prefix (text, "summary"))
+        {
+          GArray *results = g_array_new (FALSE, FALSE, sizeof (guint64));
+          char **words = g_strsplit (text + 7, ",", -1);
+          O42Sheet *made;
+
+          for (int i = 0; words[i] != NULL; i++)
+            {
+              int r, c;
+
+              if (o42_ref_parse (g_strstrip (words[i]), &r, &c, NULL))
+                {
+                  guint64 key = o42_key (r, c);
+                  g_array_append_val (results, key);
+                }
+            }
+          g_strfreev (words);
+          made = o42_sheet_scenario_summary (sheet, results);
+          if (made != NULL)
+            sheet = made;
+          else
+            fprintf (stderr, "no scenarios to summarise\n");
+          g_array_unref (results);
+          continue;
+        }
+
       if (g_str_has_prefix (text, "scenario ") || g_str_has_prefix (text, "showscenario ") ||
           g_str_has_prefix (text, "delscenario ") || strcmp (text, "scenarios") == 0)
         {
@@ -2158,6 +2364,67 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* splitfixed A1:A9 guess | 5,12,20[:gtsd] cuts at those character
+       * positions (guess works them out from the text), the letters
+       * after the colon saying per column general, text, skip or
+       * date. */
+      if (g_str_has_prefix (text, "splitfixed "))
+        {
+          char **words = g_strsplit (text + 11, " ", 2);
+          O42Range r;
+          gsize len = 0;
+
+          if (words[0] != NULL && words[1] != NULL &&
+              o42_ref_parse (words[0], &r.row0, &r.col0, &len) &&
+              (words[0][len] == '\0' ||
+               (words[0][len] == ':' && o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))))
+            {
+              GArray *breaks = g_array_new (FALSE, FALSE, sizeof (int));
+              O42SplitType types[64] = { 0 };
+              gboolean typed = FALSE;
+
+              if (words[0][len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
+              if (strcmp (words[1], "guess") == 0)
+                {
+                  o42_sheet_guess_fixed_breaks (sheet, &r, breaks);
+                  printf ("breaks at");
+                  for (guint i = 0; i < breaks->len; i++)
+                    printf (" %d", g_array_index (breaks, int, i));
+                  printf ("\n");
+                }
+              else
+                {
+                  char *colon = strchr (words[1], ':');
+                  char **nums;
+
+                  if (colon != NULL)
+                    {
+                      *colon++ = '\0';
+                      typed = TRUE;
+                      for (int i = 0; colon[i] != '\0' && i < 64; i++)
+                        types[i] = colon[i] == 't' ? O42_SPLIT_TEXT : colon[i] == 's' ? O42_SPLIT_SKIP
+                                 : colon[i] == 'd' ? O42_SPLIT_DATE : O42_SPLIT_GENERAL;
+                    }
+                  nums = g_strsplit (words[1], ",", -1);
+                  for (int i = 0; nums[i] != NULL; i++)
+                    {
+                      int b = atoi (nums[i]);
+                      if (b > 0)
+                        g_array_append_val (breaks, b);
+                    }
+                  g_strfreev (nums);
+                }
+              printf ("%d rows split\n",
+                      o42_sheet_text_to_columns_fixed (sheet, &r, (const int *) breaks->data,
+                                                       (int) breaks->len, typed ? types : NULL));
+              g_array_unref (breaks);
+            }
+          else
+            fprintf (stderr, "usage: splitfixed A1:A9 guess|5,12[:gts]\n");
+          g_strfreev (words);
+          continue;
+        }
+
       /* pivot A1:C9 ROWFIELD COLFIELD|- DATAFIELD sum|count|average|min|max
        * lays a pivot table out on a new sheet; "refresh" lays the current
        * sheet's pivots out again. */
@@ -2229,6 +2496,40 @@ main (int argc, char *argv[])
             }
           else
             fprintf (stderr, "usage: group rows 2 5 | group cols B D\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* autooutline groups what the sums add up; clearoutline takes
+       * every level away; detail show|hide rows|cols N folds or unfolds
+       * the group at row (column) N; outlinelevel rows|cols N is the
+       * level button. */
+      if (strcmp (text, "autooutline") == 0)
+        {
+          printf ("%d groups\n", o42_sheet_auto_outline (sheet));
+          continue;
+        }
+      if (strcmp (text, "clearoutline") == 0)
+        {
+          o42_sheet_clear_outline (sheet);
+          continue;
+        }
+      if (g_str_has_prefix (text, "detail ") || g_str_has_prefix (text, "outlinelevel "))
+        {
+          char **words = g_strsplit (text, " ", -1);
+          int n = g_strv_length (words);
+          gboolean ok = FALSE;
+
+          if (words[0][0] == 'd' && n == 4)
+            ok = o42_sheet_outline_detail (sheet, strcmp (words[2], "rows") == 0,
+                                           atoi (words[3]) - 1, strcmp (words[1], "show") == 0);
+          else if (words[0][0] == 'o' && n == 3)
+            {
+              o42_sheet_outline_to_level (sheet, strcmp (words[1], "rows") == 0, atoi (words[2]));
+              ok = TRUE;
+            }
+          if (!ok)
+            fprintf (stderr, "usage: detail show|hide rows|cols N; outlinelevel rows|cols N\n");
           g_strfreev (words);
           continue;
         }

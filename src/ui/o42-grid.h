@@ -158,6 +158,9 @@ gboolean o42_grid_has_frozen_panes (O42Grid *self);
  * they are a way of looking, not part of the book. */
 void     o42_grid_trace            (O42Grid *self, gboolean precedents);
 void     o42_grid_clear_arrows     (O42Grid *self);
+/* Red arrows from where an error comes; FALSE when the active cell
+ * shows none. */
+gboolean o42_grid_trace_error      (O42Grid *self);
 gboolean o42_grid_has_arrows       (O42Grid *self);
 
 void     o42_grid_show_page_breaks  (O42Grid *self, gboolean show);
@@ -180,5 +183,8 @@ void     o42_grid_set_show_gridlines (O42Grid *self, gboolean show);
 gboolean o42_grid_get_show_gridlines (O42Grid *self);
 void     o42_grid_set_show_zeros     (O42Grid *self, gboolean show);
 gboolean o42_grid_get_show_zeros     (O42Grid *self);
+/* The green corner on cells the error checking doubts. */
+void     o42_grid_set_show_checks    (O42Grid *self, gboolean show);
+gboolean o42_grid_get_show_checks    (O42Grid *self);
 
 G_END_DECLS

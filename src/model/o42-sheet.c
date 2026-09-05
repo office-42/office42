@@ -1051,6 +1051,160 @@ o42_sheet_precedents (O42Sheet *sheet, int row, int col)
   return out;
 }
 
+/* A neighbour's formula as it would read moved to (row, col), for
+ * telling whether two formulas are the same one filled along; NULL
+ * when the neighbour holds no formula. */
+static char *
+formula_moved_to (O42Sheet *sheet, int from_row, int from_col, int row, int col)
+{
+  O42Cell *cell = sheet_find (sheet, from_row, from_col);
+  O42Node *copy;
+  char *text;
+
+  if (cell == NULL || cell->ast == NULL)
+    return NULL;
+  copy = o42_node_copy (cell->ast);
+  o42_node_relocate (copy, row - from_row, col - from_col);
+  text = o42_node_to_string (copy);
+  o42_node_free (copy);
+  return text;
+}
+
+/* TRUE when the two cells either side both hold the same formula,
+ * relatively speaking, and this cell holds a different one. */
+static gboolean
+formula_inconsistent (O42Sheet *sheet, int row, int col, const char *mine, gboolean rows)
+{
+  int r0 = rows ? row - 1 : row, c0 = rows ? col : col - 1;
+  int r1 = rows ? row + 1 : row, c1 = rows ? col : col + 1;
+  char *before, *after;
+  gboolean odd = FALSE;
+
+  if (r0 < 0 || c0 < 0 || r1 >= O42_MAX_ROWS || c1 >= O42_MAX_COLS)
+    return FALSE;
+  before = formula_moved_to (sheet, r0, c0, row, col);
+  after = formula_moved_to (sheet, r1, c1, row, col);
+  if (before != NULL && after != NULL && strcmp (before, after) == 0 && strcmp (before, mine) != 0)
+    odd = TRUE;
+  g_free (before);
+  g_free (after);
+  return odd;
+}
+
+static gboolean
+cell_is_number (O42Sheet *sheet, int row, int col)
+{
+  O42Cell *cell;
+
+  if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+    return FALSE;
+  cell = sheet_find (sheet, row, col);
+  return cell != NULL && cell->ast == NULL && cell->value.type == O42_VALUE_NUMBER;
+}
+
+/* Whether a run of cells the formula reads stops just short of a
+ * number: SUM(A1:A5) with a number in A6, which is usually a row that
+ * was added after the formula was written. */
+static gboolean
+formula_omits_cells (O42Sheet *sheet, O42Cell *cell, int row, int col)
+{
+  if (cell->precedents == NULL)
+    return FALSE;
+  for (guint i = 0; i < cell->precedents->len; i++)
+    {
+      const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
+      O42Range r;
+
+      if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+        continue;
+      r = o42_range_normalise (p->range.row0, p->range.col0, p->range.row1, p->range.col1);
+      if (r.row0 == r.row1 && r.col0 == r.col1)
+        continue;
+      if (r.col0 == r.col1 && r.row1 - r.row0 >= 1)
+        {
+          if ((r.row1 + 1 != row || r.col0 != col) && cell_is_number (sheet, r.row1 + 1, r.col0))
+            return TRUE;
+          if ((r.row0 - 1 != row || r.col0 != col) && cell_is_number (sheet, r.row0 - 1, r.col0))
+            return TRUE;
+        }
+      if (r.row0 == r.row1 && r.col1 - r.col0 >= 1)
+        {
+          if ((r.col1 + 1 != col || r.row0 != row) && cell_is_number (sheet, r.row0, r.col1 + 1))
+            return TRUE;
+          if ((r.col0 - 1 != col || r.row0 != row) && cell_is_number (sheet, r.row0, r.col0 - 1))
+            return TRUE;
+        }
+    }
+  return FALSE;
+}
+
+O42ErrorCheck
+o42_sheet_error_check (O42Sheet *sheet, int row, int col)
+{
+  O42Cell *cell;
+  O42Value value;
+  O42ErrorCheck check = O42_CHECK_NONE;
+
+  g_return_val_if_fail (sheet != NULL, O42_CHECK_NONE);
+  cell = sheet_find (sheet, row, col);
+  if (cell == NULL)
+    return O42_CHECK_NONE;
+
+  if (cell->ast == NULL)
+    {
+      /* Text that reads whole as a number, typed with an apostrophe or
+       * into a Text-formatted cell. */
+      double n;
+      O42ErrorCode err;
+
+      if (cell->value.type == O42_VALUE_TEXT && cell->value.as.text[0] != '\0' &&
+          o42_value_to_number (&cell->value, &n, &err))
+        {
+          const char *t = cell->value.as.text;
+          gboolean digits = FALSE;
+
+          for (const char *q = t; *q != '\0'; q++)
+            if (g_ascii_isdigit (*q))
+              digits = TRUE;
+          if (digits)
+            return O42_CHECK_NUMBER_AS_TEXT;
+        }
+      return O42_CHECK_NONE;
+    }
+
+  o42_sheet_get_value (sheet, row, col, &value);
+  if (value.type == O42_VALUE_ERROR && value.as.error != O42_ERR_NA)
+    check = O42_CHECK_ERROR;
+  o42_value_clear (&value);
+  if (check != O42_CHECK_NONE)
+    return check;
+
+  {
+    char *mine = o42_node_to_string (cell->ast);
+
+    if (formula_inconsistent (sheet, row, col, mine, FALSE) ||
+        formula_inconsistent (sheet, row, col, mine, TRUE))
+      check = O42_CHECK_INCONSISTENT;
+    g_free (mine);
+  }
+  if (check == O42_CHECK_NONE && formula_omits_cells (sheet, cell, row, col))
+    check = O42_CHECK_OMITS_CELLS;
+  return check;
+}
+
+const char *
+o42_error_check_text (O42ErrorCheck check)
+{
+  switch (check)
+    {
+    case O42_CHECK_ERROR:          return "The formula comes to an error.";
+    case O42_CHECK_INCONSISTENT:   return "The formula is unlike the ones beside it.";
+    case O42_CHECK_NUMBER_AS_TEXT: return "The cell holds a number kept as text.";
+    case O42_CHECK_OMITS_CELLS:    return "The formula's range stops short of a number beside it.";
+    default:                       return "";
+    }
+}
+
 /* The cells whose formulas read this one, each as a range of one cell.
  * The dependents index holds them by band, so this looks in the band
  * the cell falls in and keeps whichever of those really reach it. */
@@ -4593,6 +4747,117 @@ o42_sheet_conditional_fmt (O42Sheet *sheet, int row, int col, O42Fmt *out)
 /* ---- Text to Columns --------------------------------------------------- */
 
 int
+o42_sheet_text_to_columns_fixed (O42Sheet *sheet, const O42Range *range,
+                                 const int *breaks, int n_breaks,
+                                 const O42SplitType *types)
+{
+  int changed = 0;
+
+  g_return_val_if_fail (sheet != NULL && range != NULL, 0);
+  g_return_val_if_fail (n_breaks == 0 || breaks != NULL, 0);
+
+  op_begin (sheet);
+  for (int row = range->row0; row <= range->row1; row++)
+    {
+      O42Value v;
+      glong length;
+
+      o42_sheet_get_value (sheet, row, range->col0, &v);
+      if (v.type != O42_VALUE_TEXT)
+        {
+          o42_value_clear (&v);
+          continue;
+        }
+      length = g_utf8_strlen (v.as.text, -1);
+      for (int i = 0; i <= n_breaks && range->col0 + i < O42_MAX_COLS; i++)
+        {
+          glong from = i == 0 ? 0 : breaks[i - 1];
+          glong to = i == n_breaks ? length : breaks[i];
+          O42SplitType type = types != NULL ? types[i] : O42_SPLIT_GENERAL;
+          char *piece;
+
+          if (type == O42_SPLIT_SKIP)
+            continue;
+          from = CLAMP (from, 0, length);
+          to = CLAMP (to, from, length);
+          piece = g_strndup (g_utf8_offset_to_pointer (v.as.text, from),
+                             g_utf8_offset_to_pointer (v.as.text, to) - g_utf8_offset_to_pointer (v.as.text, from));
+          g_strstrip (piece);
+          op_capture (sheet, row, range->col0 + i);
+          if (*piece == '\0')
+            set_input_internal (sheet, row, range->col0 + i, NULL);
+          else if (type == O42_SPLIT_TEXT && (g_ascii_isdigit (*piece) || *piece == '-' ||
+                                              *piece == '=' || *piece == '+' || *piece == '.'))
+            {
+              /* Kept as text whatever it looks like, the way an
+               * apostrophe keeps a typed one. */
+              char *quoted = g_strconcat ("'", piece, NULL);
+              set_input_internal (sheet, row, range->col0 + i, quoted);
+              g_free (quoted);
+            }
+          else
+            set_input_internal (sheet, row, range->col0 + i, piece);
+          g_free (piece);
+        }
+      o42_value_clear (&v);
+      changed++;
+    }
+  op_end (sheet);
+  return changed;
+}
+
+void
+o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *breaks)
+{
+  GPtrArray *texts = g_ptr_array_new_with_free_func (g_free);
+  glong longest = 0;
+
+  g_return_if_fail (sheet != NULL && range != NULL && breaks != NULL);
+  for (int row = range->row0; row <= range->row1 && row < range->row0 + 200; row++)
+    {
+      O42Value v;
+
+      o42_sheet_get_value (sheet, row, range->col0, &v);
+      if (v.type == O42_VALUE_TEXT)
+        {
+          longest = MAX (longest, g_utf8_strlen (v.as.text, -1));
+          g_ptr_array_add (texts, g_strdup (v.as.text));
+        }
+      o42_value_clear (&v);
+    }
+
+  /* A column starts where every row long enough to reach it goes from
+   * a space to something else -- the first character after a gap that
+   * runs down the whole block. */
+  for (glong at = 1; at < longest; at++)
+    {
+      gboolean gap_before = TRUE, content_here = FALSE;
+
+      for (guint i = 0; i < texts->len && gap_before; i++)
+        {
+          const char *t = g_ptr_array_index (texts, i);
+          glong len = g_utf8_strlen (t, -1);
+          gunichar before, here;
+
+          if (len <= at)
+            continue;
+          before = g_utf8_get_char (g_utf8_offset_to_pointer (t, at - 1));
+          here = g_utf8_get_char (g_utf8_offset_to_pointer (t, at));
+          if (before != ' ')
+            gap_before = FALSE;
+          else if (here != ' ')
+            content_here = TRUE;
+        }
+      if (gap_before && content_here)
+        {
+          int b = (int) at;
+          g_array_append_val (breaks, b);
+        }
+    }
+  g_ptr_array_unref (texts);
+}
+
+int
 o42_sheet_text_to_columns (O42Sheet *sheet, const O42Range *range,
                            const char *delimiter)
 {
@@ -6338,6 +6603,179 @@ o42_sheet_group (O42Sheet *sheet, gboolean rows, int lo, int hi, gboolean group)
   op_end (sheet);
 }
 
+void
+o42_sheet_clear_outline (O42Sheet *sheet)
+{
+  O42Range used;
+
+  g_return_if_fail (sheet != NULL);
+  o42_sheet_used_range (sheet, &used);
+  op_begin (sheet);
+  for (int r = 0; r <= used.row1 + 1 && r < O42_MAX_ROWS; r++)
+    while (o42_sheet_row_level (sheet, r) > 0)
+      o42_sheet_group (sheet, TRUE, r, r, FALSE);
+  for (int c = 0; c <= used.col1 + 1 && c < O42_MAX_COLS; c++)
+    while (o42_sheet_col_level (sheet, c) > 0)
+      o42_sheet_group (sheet, FALSE, c, c, FALSE);
+  op_end (sheet);
+}
+
+typedef struct {
+  GArray *row_runs;   /* O42Range: the rows a formula below sums up */
+  GArray *col_runs;   /* O42Range: the columns one to the right does */
+} OutlineScan;
+
+static gboolean
+runs_have (GArray *runs, const O42Range *r)
+{
+  for (guint i = 0; i < runs->len; i++)
+    {
+      const O42Range *o = &g_array_index (runs, O42Range, i);
+      if (o->row0 == r->row0 && o->row1 == r->row1 && o->col0 == r->col0 && o->col1 == r->col1)
+        return TRUE;
+    }
+  return FALSE;
+}
+
+/* A formula's precedents on its own sheet: a run of rows ending just
+ * above it in its own column, or of columns ending just left of it in
+ * its own row, is what a summary row sums up. */
+static void
+outline_scan_cell (O42Sheet *sheet, int row, int col, gpointer user)
+{
+  OutlineScan *scan = user;
+  O42Cell *cell = sheet_find (sheet, row, col);
+
+  if (cell == NULL || cell->ast == NULL || cell->precedents == NULL)
+    return;
+  for (guint i = 0; i < cell->precedents->len; i++)
+    {
+      const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
+      O42Range r;
+
+      if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+        continue;
+      r = o42_range_normalise (p->range.row0, p->range.col0, p->range.row1, p->range.col1);
+      if (r.row1 > r.row0 && r.col0 <= col && col <= r.col1 && r.row1 == row - 1 &&
+          r.row1 - r.row0 < 100000)
+        {
+          O42Range run = { r.row0, 0, r.row1, 0 };
+          if (!runs_have (scan->row_runs, &run))
+            g_array_append_val (scan->row_runs, run);
+        }
+      if (r.col1 > r.col0 && r.row0 <= row && row <= r.row1 && r.col1 == col - 1 &&
+          r.col1 - r.col0 < 10000)
+        {
+          O42Range run = { 0, r.col0, 0, r.col1 };
+          if (!runs_have (scan->col_runs, &run))
+            g_array_append_val (scan->col_runs, run);
+        }
+    }
+}
+
+int
+o42_sheet_auto_outline (O42Sheet *sheet)
+{
+  OutlineScan scan;
+  int made = 0;
+
+  g_return_val_if_fail (sheet != NULL, 0);
+  scan.row_runs = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  scan.col_runs = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  o42_sheet_foreach_cell (sheet, outline_scan_cell, &scan);
+
+  op_begin (sheet);
+  o42_sheet_clear_outline (sheet);
+  for (guint i = 0; i < scan.row_runs->len; i++)
+    {
+      const O42Range *r = &g_array_index (scan.row_runs, O42Range, i);
+      if (o42_sheet_row_level (sheet, r->row0) < 7)
+        {
+          o42_sheet_group (sheet, TRUE, r->row0, r->row1, TRUE);
+          made++;
+        }
+    }
+  for (guint i = 0; i < scan.col_runs->len; i++)
+    {
+      const O42Range *r = &g_array_index (scan.col_runs, O42Range, i);
+      if (o42_sheet_col_level (sheet, r->col0) < 7)
+        {
+          o42_sheet_group (sheet, FALSE, r->col0, r->col1, TRUE);
+          made++;
+        }
+    }
+  op_end (sheet);
+  g_array_unref (scan.row_runs);
+  g_array_unref (scan.col_runs);
+  return made;
+}
+
+static int
+line_level (O42Sheet *sheet, gboolean rows, int i)
+{
+  return rows ? o42_sheet_row_level (sheet, i) : o42_sheet_col_level (sheet, i);
+}
+
+static void
+line_hide (O42Sheet *sheet, gboolean rows, int i, gboolean hide)
+{
+  if (rows)
+    o42_sheet_set_row_hidden (sheet, i, hide);
+  else
+    o42_sheet_set_col_hidden (sheet, i, hide);
+}
+
+gboolean
+o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gboolean show)
+{
+  int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
+  int level, start, end;
+
+  g_return_val_if_fail (sheet != NULL, FALSE);
+  if (at < 0 || at >= limit)
+    return FALSE;
+  level = line_level (sheet, rows, at);
+  /* A summary row sits just below a deeper run: that run is its
+   * detail.  A row in no group and below none has nothing to fold. */
+  if (at > 0 && line_level (sheet, rows, at - 1) > level)
+    {
+      at--;
+      level = line_level (sheet, rows, at);
+    }
+  if (level == 0)
+    return FALSE;
+  start = end = at;
+  while (start > 0 && line_level (sheet, rows, start - 1) >= level)
+    start--;
+  while (end + 1 < limit && line_level (sheet, rows, end + 1) >= level)
+    end++;
+  op_begin (sheet);
+  for (int i = start; i <= end; i++)
+    line_hide (sheet, rows, i, !show);
+  op_end (sheet);
+  return TRUE;
+}
+
+void
+o42_sheet_outline_to_level (O42Sheet *sheet, gboolean rows, int level)
+{
+  O42Range used;
+  int last;
+
+  g_return_if_fail (sheet != NULL);
+  o42_sheet_used_range (sheet, &used);
+  last = rows ? used.row1 : used.col1;
+  op_begin (sheet);
+  for (int i = 0; i <= last + 1 && i < (rows ? O42_MAX_ROWS : O42_MAX_COLS); i++)
+    {
+      int l = line_level (sheet, rows, i);
+
+      if (l > 0)
+        line_hide (sheet, rows, i, l >= level);
+    }
+  op_end (sheet);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Pivot tables                                                            */
 /* ---------------------------------------------------------------------- */
@@ -6909,6 +7347,13 @@ o42_sheet_evaluate_formula (O42Sheet *sheet, const char *text)
   sheet->eval.col = saved_col;
   o42_node_free (tree);
   return result;
+}
+
+O42EvalContext *
+o42_sheet_eval_context (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  return &sheet->eval;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -7682,6 +8127,214 @@ o42_sheet_show_scenario (O42Sheet *sheet, const char *name)
   return TRUE;
 }
 
+/* A cell's name for the summary: a defined name for exactly it, or
+ * its address. */
+static char *
+summary_cell_name (O42Sheet *sheet, int row, int col)
+{
+  if (sheet->book != NULL)
+    {
+      GList *names = o42_book_names (sheet->book);
+
+      for (GList *l = names; l != NULL; l = l->next)
+        {
+          O42Sheet *on = NULL;
+          O42Range r;
+
+          if (o42_book_lookup_name (sheet->book, l->data, &on, &r) && on == sheet &&
+              r.row0 == row && r.row1 == row && r.col0 == col && r.col1 == col)
+            {
+              char *found = g_strdup (l->data);
+              g_list_free (names);
+              return found;
+            }
+        }
+      g_list_free (names);
+    }
+  return o42_ref_name (row, col);
+}
+
+/* Writes a cell's present value into the summary, as a number where it
+ * is one, wearing the cell's number format. */
+static void
+summary_put_value (O42Sheet *from, int row, int col, O42Sheet *to, int trow, int tcol)
+{
+  O42Value v;
+  const O42Fmt *fmt = o42_sheet_get_fmt (from, row, col);
+  O42Range at = { trow, tcol, trow, tcol };
+
+  o42_sheet_get_value (from, row, col, &v);
+  if (v.type == O42_VALUE_NUMBER)
+    {
+      char *text = o42_number_to_text (v.as.number, TRUE);
+      o42_sheet_set_input (to, trow, tcol, text);
+      g_free (text);
+      o42_sheet_apply_fmt (to, &at, O42_FMT_NUMBER | O42_FMT_DECIMALS, fmt);
+    }
+  else if (v.type != O42_VALUE_EMPTY)
+    {
+      char *text = o42_sheet_get_display (from, row, col);
+      o42_sheet_set_input (to, trow, tcol, text);
+      g_free (text);
+    }
+  o42_value_clear (&v);
+}
+
+O42Sheet *
+o42_sheet_scenario_summary (O42Sheet *sheet, const GArray *results)
+{
+  O42Sheet *out;
+  GArray *changing;          /* guint64 keys, in order of first appearance */
+  GPtrArray *saved;          /* the inputs as they stand, to put back */
+  char *name;
+  int n_scen, row, col;
+  O42Fmt bold, shade;
+
+  g_return_val_if_fail (sheet != NULL, NULL);
+  n_scen = o42_sheet_n_scenarios (sheet);
+  if (n_scen == 0 || sheet->book == NULL)
+    return NULL;
+
+  changing = g_array_new (FALSE, FALSE, sizeof (guint64));
+  for (int i = 0; i < n_scen; i++)
+    {
+      Scenario *s = g_ptr_array_index (sheet->scenarios, i);
+
+      for (guint k = 0; k < s->keys->len; k++)
+        {
+          guint64 key = g_array_index (s->keys, guint64, k);
+          gboolean seen = FALSE;
+
+          for (guint j = 0; j < changing->len && !seen; j++)
+            seen = g_array_index (changing, guint64, j) == key;
+          if (!seen)
+            g_array_append_val (changing, key);
+        }
+    }
+
+  /* A sheet of its own, named as Excel names it, numbered when there
+   * is one already. */
+  name = g_strdup ("Scenario Summary");
+  for (int n = 2; o42_book_find_sheet (sheet->book, name) != NULL; n++)
+    {
+      g_free (name);
+      name = g_strdup_printf ("Scenario Summary %d", n);
+    }
+  out = o42_book_add_sheet (sheet->book, name, o42_book_sheet_index (sheet->book, sheet) + 1);
+  g_free (name);
+  if (out == NULL)
+    {
+      g_array_unref (changing);
+      return NULL;
+    }
+
+  o42_fmt_init_default (&bold);
+  bold.bold = TRUE;
+  o42_fmt_init_default (&shade);
+  shade.fill = 0xC0C0C0;
+
+  /* The frame: the title, the column headings, the two group labels. */
+  o42_sheet_set_input (out, 1, 1, "Scenario Summary");
+  {
+    O42Range r = { 1, 1, 1, 1 };
+    o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+  }
+  o42_sheet_set_input (out, 2, 2, "Current Values:");
+  for (int i = 0; i < n_scen; i++)
+    o42_sheet_set_input (out, 2, 3 + i, o42_sheet_scenario_name (sheet, i));
+  {
+    O42Range r = { 2, 2, 2, 2 + n_scen };
+    o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+  }
+  o42_sheet_set_input (out, 3, 1, "Changing Cells:");
+  row = 4;
+  for (guint k = 0; k < changing->len; k++, row++)
+    {
+      guint64 key = g_array_index (changing, guint64, k);
+      char *label = summary_cell_name (sheet, o42_key_row (key), o42_key_col (key));
+
+      o42_sheet_set_input (out, row, 1, label);
+      g_free (label);
+      summary_put_value (sheet, o42_key_row (key), o42_key_col (key), out, row, 2);
+    }
+  o42_sheet_set_input (out, row, 1, "Result Cells:");
+  {
+    O42Range r = { 3, 1, row, 1 };
+    o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+  }
+  row++;
+  for (guint k = 0; results != NULL && k < results->len; k++, row++)
+    {
+      guint64 key = g_array_index (results, guint64, k);
+      char *label = summary_cell_name (sheet, o42_key_row (key), o42_key_col (key));
+
+      o42_sheet_set_input (out, row, 1, label);
+      g_free (label);
+      summary_put_value (sheet, o42_key_row (key), o42_key_col (key), out, row, 2);
+    }
+  o42_sheet_set_input (out, row + 1, 1,
+                       "Notes: Current Values column represents values of changing cells at "
+                       "time Scenario Summary Report was created. Changing cells for each "
+                       "scenario are highlighted in gray.");
+
+  /* Each scenario in turn: its values put in, the results read, and
+   * the sheet put back afterwards.  Nothing of this goes into the undo
+   * history, since the sheet ends as it began. */
+  saved = g_ptr_array_new_with_free_func (g_free);
+  for (guint k = 0; k < changing->len; k++)
+    {
+      guint64 key = g_array_index (changing, guint64, k);
+      g_ptr_array_add (saved, o42_sheet_get_input (sheet, o42_key_row (key), o42_key_col (key)));
+    }
+  for (int i = 0; i < n_scen; i++)
+    {
+      Scenario *s = g_ptr_array_index (sheet->scenarios, i);
+
+      col = 3 + i;
+      for (guint k = 0; k < s->keys->len && k < s->values->len; k++)
+        {
+          guint64 key = g_array_index (s->keys, guint64, k);
+          set_input_internal (sheet, o42_key_row (key), o42_key_col (key),
+                              g_ptr_array_index (s->values, k));
+        }
+      row = 4;
+      for (guint k = 0; k < changing->len; k++, row++)
+        {
+          guint64 key = g_array_index (changing, guint64, k);
+          gboolean in_scenario = FALSE;
+
+          for (guint j = 0; j < s->keys->len && !in_scenario; j++)
+            in_scenario = g_array_index (s->keys, guint64, j) == key;
+          summary_put_value (sheet, o42_key_row (key), o42_key_col (key), out, row, col);
+          if (in_scenario)
+            {
+              O42Range r = { row, col, row, col };
+              o42_sheet_apply_fmt (out, &r, O42_FMT_FILL, &shade);
+            }
+        }
+      row++;
+      for (guint k = 0; results != NULL && k < results->len; k++, row++)
+        {
+          guint64 key = g_array_index (results, guint64, k);
+          summary_put_value (sheet, o42_key_row (key), o42_key_col (key), out, row, col);
+        }
+    }
+  for (guint k = 0; k < changing->len; k++)
+    {
+      guint64 key = g_array_index (changing, guint64, k);
+      set_input_internal (sheet, o42_key_row (key), o42_key_col (key),
+                          g_ptr_array_index (saved, k));
+    }
+  g_ptr_array_unref (saved);
+  g_array_unref (changing);
+
+  o42_sheet_set_col_width (out, 0, 20);
+  o42_sheet_set_col_width (out, 1, 120);
+  for (int c = 2; c <= 2 + n_scen; c++)
+    o42_sheet_set_col_width (out, c, 100);
+  return out;
+}
+
 gboolean
 o42_sheet_remove_scenario (O42Sheet *sheet, const char *name)
 {
@@ -8055,14 +8708,17 @@ typedef struct {
 } Solve;
 
 /* Puts the values in the changing cells and reads what the target
- * comes to, with the broken bounds added on as a penalty. */
+ * comes to, with the broken bounds added on as a penalty; the penalty
+ * alone through `penalty_out` for whoever asks. */
 static double
-solve_objective (Solve *s, const double *x)
+solve_evaluate (Solve *s, const double *x, double *penalty_out)
 {
   double target = 0, penalty = 0;
   O42Value v;
   O42ErrorCode e = O42_ERR_VALUE;
 
+  if (penalty_out != NULL)
+    *penalty_out = 1e300;
   s->evaluations++;
   for (int i = 0; i < s->n; i++)
     {
@@ -8094,6 +8750,8 @@ solve_objective (Solve *s, const double *x)
       penalty += 1000 * broken * broken + 1000 * broken;
     }
 
+  if (penalty_out != NULL)
+    *penalty_out = penalty;
   switch (s->goal)
     {
     case O42_SOLVER_MAX:   return -target + penalty;
@@ -8102,72 +8760,47 @@ solve_objective (Solve *s, const double *x)
     }
 }
 
-gboolean
-o42_sheet_solve (O42Sheet *sheet, int target_row, int target_col,
-                 O42SolverGoal goal, double goal_value,
-                 const O42Ref *changing, int n_changing,
-                 const O42SolverBound *bounds, int n_bounds,
-                 double *reached)
+static double
+solve_objective (Solve *s, const double *x)
 {
-  Solve s;
-  int n = n_changing;
+  return solve_evaluate (s, x, NULL);
+}
+
+/* The downhill simplex from the values in `x`, which it leaves at the
+ * best corner found; the objective there comes back.  `budget` is how
+ * many evaluations it may spend. */
+static double
+solve_continuous (Solve *s, double *x, int budget)
+{
+  int n = MAX (s->n, 1);
+  size_t bytes = sizeof (double) * (size_t) n;
   double **simplex;
-  double *f, *best, *centroid, *trial, *trial2;
-  gboolean ok = FALSE;
-
-  g_return_val_if_fail (sheet != NULL && changing != NULL, FALSE);
-  if (n < 1 || n > 16)
-    return FALSE;
-
-  memset (&s, 0, sizeof s);
-  s.sheet = sheet;
-  s.target_row = target_row;
-  s.target_col = target_col;
-  s.goal = goal;
-  s.goal_value = goal_value;
-  s.changing = changing;
-  s.n = n;
-  s.bounds = bounds;
-  s.n_bounds = n_bounds;
+  double *f, *centroid, *trial, *trial2;
+  double result;
 
   simplex = g_new0 (double *, n + 1);
   for (int i = 0; i <= n; i++)
     simplex[i] = g_new0 (double, n);
   f = g_new0 (double, n + 1);
-  best = g_new0 (double, n);
   centroid = g_new0 (double, n);
   trial = g_new0 (double, n);
   trial2 = g_new0 (double, n);
 
-  op_begin (sheet);
-  for (int i = 0; i < n; i++)
-    op_capture (sheet, changing[i].row, changing[i].col);
-
   /* The starting point is what the cells hold; the other corners are
    * a step away along each axis. */
-  for (int i = 0; i < n; i++)
-    {
-      O42Value v;
-      double x = 0;
-      O42ErrorCode e = O42_ERR_VALUE;
-
-      o42_sheet_get_value (sheet, changing[i].row, changing[i].col, &v);
-      if (v.type == O42_VALUE_NUMBER)
-        o42_value_to_number (&v, &x, &e);
-      o42_value_clear (&v);
-      simplex[0][i] = x;
-    }
+  memcpy (simplex[0], x, bytes);
   for (int i = 1; i <= n; i++)
     {
-      memcpy (simplex[i], simplex[0], sizeof (double) * n);
+      memcpy (simplex[i], simplex[0], bytes);
       simplex[i][i - 1] += (fabs (simplex[0][i - 1]) > 1e-9) ? 0.1 * simplex[0][i - 1] : 1.0;
     }
   for (int i = 0; i <= n; i++)
-    f[i] = solve_objective (&s, simplex[i]);
+    f[i] = solve_objective (s, simplex[i]);
 
   /* Nelder and Mead: reflect the worst corner through the others,
    * stretching or shrinking as that goes well or badly. */
-  while (s.evaluations < 4000)
+  s->evaluations = 0;
+  while (s->evaluations < budget)
     {
       int hi = 0, lo = 0, next = 0;
       double fr, fe, fc, spread;
@@ -8196,27 +8829,27 @@ o42_sheet_solve (O42Sheet *sheet, int target_row, int target_col,
 
       for (int j = 0; j < n; j++)
         trial[j] = centroid[j] + (centroid[j] - simplex[hi][j]);
-      fr = solve_objective (&s, trial);
+      fr = solve_objective (s, trial);
 
       if (fr < f[lo])
         {
           for (int j = 0; j < n; j++)
             trial2[j] = centroid[j] + 2 * (centroid[j] - simplex[hi][j]);
-          fe = solve_objective (&s, trial2);
+          fe = solve_objective (s, trial2);
           if (fe < fr)
-            { memcpy (simplex[hi], trial2, sizeof (double) * n); f[hi] = fe; }
+            { memcpy (simplex[hi], trial2, bytes); f[hi] = fe; }
           else
-            { memcpy (simplex[hi], trial, sizeof (double) * n); f[hi] = fr; }
+            { memcpy (simplex[hi], trial, bytes); f[hi] = fr; }
         }
       else if (fr < f[next])
-        { memcpy (simplex[hi], trial, sizeof (double) * n); f[hi] = fr; }
+        { memcpy (simplex[hi], trial, bytes); f[hi] = fr; }
       else
         {
           for (int j = 0; j < n; j++)
             trial2[j] = centroid[j] + 0.5 * (simplex[hi][j] - centroid[j]);
-          fc = solve_objective (&s, trial2);
+          fc = solve_objective (s, trial2);
           if (fc < f[hi])
-            { memcpy (simplex[hi], trial2, sizeof (double) * n); f[hi] = fc; }
+            { memcpy (simplex[hi], trial2, bytes); f[hi] = fc; }
           else
             {
               /* Nothing helped: draw every corner towards the best. */
@@ -8225,7 +8858,7 @@ o42_sheet_solve (O42Sheet *sheet, int target_row, int target_col,
                   {
                     for (int j = 0; j < n; j++)
                       simplex[i][j] = simplex[lo][j] + 0.5 * (simplex[i][j] - simplex[lo][j]);
-                    f[i] = solve_objective (&s, simplex[i]);
+                    f[i] = solve_objective (s, simplex[i]);
                   }
             }
         }
@@ -8235,38 +8868,403 @@ o42_sheet_solve (O42Sheet *sheet, int target_row, int target_col,
     int lo = 0;
     for (int i = 1; i <= n; i++)
       if (f[i] < f[lo]) lo = i;
-    memcpy (best, simplex[lo], sizeof (double) * n);
-    ok = f[lo] < 1e299;
-    for (int i = 0; i < n; i++)
-      {
-        char buf[G_ASCII_DTOSTR_BUF_SIZE];
-        set_input_internal (sheet, changing[i].row, changing[i].col,
-                            g_ascii_dtostr (buf, sizeof buf, best[i]));
-      }
-    if (reached != NULL)
-      {
-        O42Value v;
-        double got = 0;
-        O42ErrorCode e = O42_ERR_VALUE;
-        o42_sheet_get_value (sheet, target_row, target_col, &v);
-        if (v.type == O42_VALUE_NUMBER)
-          o42_value_to_number (&v, &got, &e);
-        o42_value_clear (&v);
-        *reached = got;
-      }
+    memcpy (x, simplex[lo], bytes);
+    result = f[lo];
   }
-  op_end (sheet);
 
   for (int i = 0; i <= n; i++)
     g_free (simplex[i]);
   g_free (simplex);
   g_free (f);
-  g_free (best);
   g_free (centroid);
   g_free (trial);
   g_free (trial2);
+  return result;
+}
+
+/* Branch and bound for the cells that must be whole numbers: the
+ * problem is solved with the wholeness relaxed, the most fractional
+ * whole cell is picked, and the problem is solved again on each side
+ * of it -- no more than its floor, no less than its ceiling -- until
+ * every whole cell is whole or the node budget is spent.  The best
+ * whole answer found is kept. */
+typedef struct {
+  Solve    *s;
+  GArray   *bounds;        /* O42SolverBound: the ones given, plus the branches */
+  const int *is_int;       /* per changing cell */
+  double   *best;          /* the best whole answer so far */
+  double    best_f;
+  int       nodes;
+} Branch;
+
+static gboolean
+branch_whole (Branch *b, const double *x, double *rounded)
+{
+  gboolean whole = TRUE;
+
+  for (int i = 0; i < b->s->n; i++)
+    {
+      rounded[i] = b->is_int[i] ? floor (x[i] + 0.5) : x[i];
+      if (b->is_int[i] && fabs (x[i] - rounded[i]) > 1e-6)
+        whole = FALSE;
+    }
+  return whole;
+}
+
+static void
+branch_node (Branch *b, const double *start)
+{
+  Solve *s = b->s;
+  double *x = g_new (double, s->n);
+  double *rounded = g_new (double, s->n);
+  double f, fr;
+  int pick = -1;
+  double worst = 0;
+
+  if (b->nodes++ >= 60)
+    { g_free (x); g_free (rounded); return; }
+
+  memcpy (x, start, sizeof (double) * s->n);
+  s->bounds = (const O42SolverBound *) b->bounds->data;
+  s->n_bounds = (int) b->bounds->len;
+  f = solve_continuous (s, x, 1500);
+  if (f >= 1e299 || f >= b->best_f)
+    { g_free (x); g_free (rounded); return; }
+
+  /* The rounded point is a whole answer if it keeps the bounds. */
+  branch_whole (b, x, rounded);
+  {
+    double penalty = 1e300;
+
+    fr = solve_evaluate (s, rounded, &penalty);
+    if (penalty < 1e-6 && fr < b->best_f)
+      {
+        b->best_f = fr;
+        memcpy (b->best, rounded, sizeof (double) * s->n);
+      }
+  }
+
+  for (int i = 0; i < s->n; i++)
+    if (b->is_int[i])
+      {
+        double frac = fabs (x[i] - floor (x[i] + 0.5));
+        if (frac > 1e-6 && frac > worst)
+          { worst = frac; pick = i; }
+      }
+  if (pick < 0)
+    { g_free (x); g_free (rounded); return; }
+
+  {
+    O42SolverBound side;
+
+    side.row = s->changing[pick].row;
+    side.col = s->changing[pick].col;
+    side.op = O42_SOLVER_LE;
+    side.value = floor (x[pick]);
+    g_array_append_val (b->bounds, side);
+    branch_node (b, x);
+    g_array_remove_index (b->bounds, b->bounds->len - 1);
+
+    side.op = O42_SOLVER_GE;
+    side.value = ceil (x[pick]);
+    g_array_append_val (b->bounds, side);
+    branch_node (b, x);
+    g_array_remove_index (b->bounds, b->bounds->len - 1);
+  }
+  g_free (x);
+  g_free (rounded);
+}
+
+gboolean
+o42_sheet_solve (O42Sheet *sheet, int target_row, int target_col,
+                 O42SolverGoal goal, double goal_value,
+                 const O42Ref *changing, int n_changing,
+                 const O42SolverBound *bounds, int n_bounds,
+                 double *reached)
+{
+  Solve s;
+  int n = n_changing;
+  double *x, *best;
+  double f;
+  gboolean ok = FALSE;
+  GArray *plain;           /* the bounds that are bounds */
+  int *is_int;
+  gboolean any_int = FALSE;
+
+  g_return_val_if_fail (sheet != NULL && changing != NULL, FALSE);
+  if (n < 1)
+    return FALSE;
+
+  memset (&s, 0, sizeof s);
+  s.sheet = sheet;
+  s.target_row = target_row;
+  s.target_col = target_col;
+  s.goal = goal;
+  s.goal_value = goal_value;
+  s.changing = changing;
+  s.n = n;
+
+  /* "int" and "bin" name changing cells rather than bound them;
+   * "bin" is "int" between 0 and 1. */
+  plain = g_array_new (FALSE, FALSE, sizeof (O42SolverBound));
+  is_int = g_new0 (int, n);
+  for (int i = 0; i < n_bounds; i++)
+    {
+      if (bounds[i].op == O42_SOLVER_INT || bounds[i].op == O42_SOLVER_BIN)
+        {
+          for (int k = 0; k < n; k++)
+            if (changing[k].row == bounds[i].row && changing[k].col == bounds[i].col)
+              { is_int[k] = 1; any_int = TRUE; }
+          if (bounds[i].op == O42_SOLVER_BIN)
+            {
+              O42SolverBound lo = { bounds[i].row, bounds[i].col, O42_SOLVER_GE, 0 };
+              O42SolverBound hi = { bounds[i].row, bounds[i].col, O42_SOLVER_LE, 1 };
+              g_array_append_val (plain, lo);
+              g_array_append_val (plain, hi);
+            }
+        }
+      else
+        g_array_append_val (plain, bounds[i]);
+    }
+  s.bounds = (const O42SolverBound *) plain->data;
+  s.n_bounds = (int) plain->len;
+
+  x = g_new0 (double, n);
+  best = g_new0 (double, n);
+
+  op_begin (sheet);
+  for (int i = 0; i < n; i++)
+    op_capture (sheet, changing[i].row, changing[i].col);
+
+  for (int i = 0; i < n; i++)
+    {
+      O42Value v;
+      double value = 0;
+      O42ErrorCode e = O42_ERR_VALUE;
+
+      o42_sheet_get_value (sheet, changing[i].row, changing[i].col, &v);
+      if (v.type == O42_VALUE_NUMBER)
+        o42_value_to_number (&v, &value, &e);
+      o42_value_clear (&v);
+      x[i] = value;
+    }
+
+  if (!any_int)
+    {
+      f = solve_continuous (&s, x, 4000);
+      memcpy (best, x, sizeof (double) * n);
+    }
+  else
+    {
+      Branch b;
+
+      b.s = &s;
+      b.bounds = plain;
+      b.is_int = is_int;
+      b.best = best;
+      b.best_f = 1e300;
+      b.nodes = 0;
+      memcpy (best, x, sizeof (double) * n);
+      branch_node (&b, x);
+      f = b.best_f;
+      if (f >= 1e299)
+        {
+          /* No whole answer was found: the rounded relaxed one is
+           * the best that can be offered. */
+          double *rounded = g_new (double, n);
+          s.bounds = (const O42SolverBound *) plain->data;
+          s.n_bounds = (int) plain->len;
+          solve_continuous (&s, x, 2000);
+          branch_whole (&b, x, rounded);
+          memcpy (best, rounded, sizeof (double) * n);
+          f = solve_objective (&s, best);
+          g_free (rounded);
+        }
+    }
+
+  ok = f < 1e299;
+  for (int i = 0; i < n; i++)
+    {
+      char buf[G_ASCII_DTOSTR_BUF_SIZE];
+      set_input_internal (sheet, changing[i].row, changing[i].col,
+                          g_ascii_dtostr (buf, sizeof buf, best[i]));
+    }
+  if (reached != NULL)
+    {
+      O42Value v;
+      double got = 0;
+      O42ErrorCode e = O42_ERR_VALUE;
+      o42_sheet_get_value (sheet, target_row, target_col, &v);
+      if (v.type == O42_VALUE_NUMBER)
+        o42_value_to_number (&v, &got, &e);
+      o42_value_clear (&v);
+      *reached = got;
+    }
+  op_end (sheet);
+
+  g_array_unref (plain);
+  g_free (is_int);
+  g_free (x);
+  g_free (best);
   sheet->modified = TRUE;
   return ok;
+}
+
+/* A cell's number, or 0 when it holds none. */
+static double
+cell_number_or_zero (O42Sheet *sheet, int row, int col)
+{
+  O42Value v;
+  double got = 0;
+  O42ErrorCode e = O42_ERR_VALUE;
+
+  o42_sheet_get_value (sheet, row, col, &v);
+  if (v.type == O42_VALUE_NUMBER)
+    o42_value_to_number (&v, &got, &e);
+  o42_value_clear (&v);
+  return got;
+}
+
+O42Sheet *
+o42_sheet_solver_report (O42Sheet *sheet, int target_row, int target_col,
+                         O42SolverGoal goal, double goal_value,
+                         const O42Ref *changing, int n_changing,
+                         const O42SolverBound *bounds, int n_bounds,
+                         const double *original, double original_target)
+{
+  O42Sheet *out;
+  char *name;
+  int row;
+  O42Fmt bold;
+  O42Range r;
+
+  g_return_val_if_fail (sheet != NULL && changing != NULL, NULL);
+  if (sheet->book == NULL)
+    return NULL;
+
+  name = g_strdup ("Answer Report 1");
+  for (int n = 2; o42_book_find_sheet (sheet->book, name) != NULL; n++)
+    {
+      g_free (name);
+      name = g_strdup_printf ("Answer Report %d", n);
+    }
+  out = o42_book_add_sheet (sheet->book, name, o42_book_sheet_index (sheet->book, sheet) + 1);
+  g_free (name);
+  if (out == NULL)
+    return NULL;
+  o42_fmt_init_default (&bold);
+  bold.bold = TRUE;
+
+  o42_sheet_set_input (out, 0, 0, "Solver Answer Report");
+  {
+    char *what = g_strdup_printf ("Worksheet: [%s]", sheet->name);
+    o42_sheet_set_input (out, 1, 0, what);
+    g_free (what);
+  }
+  r = o42_range_normalise (0, 0, 0, 0);
+  o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+
+  /* The target. */
+  row = 3;
+  {
+    const char *kind = goal == O42_SOLVER_MAX ? "(Max)" : goal == O42_SOLVER_MIN ? "(Min)" : "(Value Of)";
+    char *heading = g_strdup_printf ("Target Cell %s", kind);
+    char *ref = o42_ref_name (target_row, target_col);
+    char *label = o42_sheet_get_display (sheet, target_row, target_col > 0 ? target_col - 1 : target_col);
+    char *o = o42_number_to_text (original_target, TRUE);
+    char *f = o42_number_to_text (cell_number_or_zero (sheet, target_row, target_col), TRUE);
+
+    o42_sheet_set_input (out, row, 0, heading);
+    o42_sheet_set_input (out, row + 1, 1, "Cell");
+    o42_sheet_set_input (out, row + 1, 2, "Name");
+    o42_sheet_set_input (out, row + 1, 3, "Original Value");
+    o42_sheet_set_input (out, row + 1, 4, "Final Value");
+    o42_sheet_set_input (out, row + 2, 1, ref);
+    o42_sheet_set_input (out, row + 2, 2, target_col > 0 ? label : "");
+    o42_sheet_set_input (out, row + 2, 3, o);
+    o42_sheet_set_input (out, row + 2, 4, f);
+    r = o42_range_normalise (row, 0, row + 1, 4);
+    o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+    g_free (heading); g_free (ref); g_free (label); g_free (o); g_free (f);
+    (void) goal_value;
+  }
+
+  /* The adjustable cells. */
+  row += 4;
+  o42_sheet_set_input (out, row, 0, "Adjustable Cells");
+  o42_sheet_set_input (out, row + 1, 1, "Cell");
+  o42_sheet_set_input (out, row + 1, 2, "Name");
+  o42_sheet_set_input (out, row + 1, 3, "Original Value");
+  o42_sheet_set_input (out, row + 1, 4, "Final Value");
+  r = o42_range_normalise (row, 0, row + 1, 4);
+  o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+  row += 2;
+  for (int i = 0; i < n_changing; i++, row++)
+    {
+      char *ref = o42_ref_name (changing[i].row, changing[i].col);
+      char *label = changing[i].col > 0 ? o42_sheet_get_display (sheet, changing[i].row, changing[i].col - 1) : g_strdup ("");
+      char *o = o42_number_to_text (original != NULL ? original[i] : 0, TRUE);
+      char *f = o42_number_to_text (cell_number_or_zero (sheet, changing[i].row, changing[i].col), TRUE);
+
+      o42_sheet_set_input (out, row, 1, ref);
+      o42_sheet_set_input (out, row, 2, label);
+      o42_sheet_set_input (out, row, 3, o);
+      o42_sheet_set_input (out, row, 4, f);
+      g_free (ref); g_free (label); g_free (o); g_free (f);
+    }
+
+  /* The constraints: what each cell came to, whether it is at its
+   * bound, and how much room it has. */
+  row++;
+  o42_sheet_set_input (out, row, 0, "Constraints");
+  o42_sheet_set_input (out, row + 1, 1, "Cell");
+  o42_sheet_set_input (out, row + 1, 2, "Name");
+  o42_sheet_set_input (out, row + 1, 3, "Cell Value");
+  o42_sheet_set_input (out, row + 1, 4, "Formula");
+  o42_sheet_set_input (out, row + 1, 5, "Status");
+  o42_sheet_set_input (out, row + 1, 6, "Slack");
+  r = o42_range_normalise (row, 0, row + 1, 6);
+  o42_sheet_apply_fmt (out, &r, O42_FMT_BOLD, &bold);
+  row += 2;
+  for (int i = 0; i < n_bounds; i++, row++)
+    {
+      char *ref = o42_ref_name (bounds[i].row, bounds[i].col);
+      char *label = bounds[i].col > 0 ? o42_sheet_get_display (sheet, bounds[i].row, bounds[i].col - 1) : g_strdup ("");
+      double got = cell_number_or_zero (sheet, bounds[i].row, bounds[i].col);
+      char *value = o42_number_to_text (got, TRUE);
+      char *bound = o42_number_to_text (bounds[i].value, TRUE);
+      char *formula;
+      double slack;
+      const char *status;
+
+      switch (bounds[i].op)
+        {
+        case O42_SOLVER_LE:  formula = g_strdup_printf ("%s<=%s", ref, bound); slack = bounds[i].value - got; break;
+        case O42_SOLVER_GE:  formula = g_strdup_printf ("%s>=%s", ref, bound); slack = got - bounds[i].value; break;
+        case O42_SOLVER_EQ:  formula = g_strdup_printf ("%s=%s", ref, bound); slack = 0; break;
+        case O42_SOLVER_INT: formula = g_strdup_printf ("%s=integer", ref); slack = 0; break;
+        default:             formula = g_strdup_printf ("%s=binary", ref); slack = 0; break;
+        }
+      status = fabs (slack) < 1e-9 ? "Binding" : "Not Binding";
+      o42_sheet_set_input (out, row, 1, ref);
+      o42_sheet_set_input (out, row, 2, label);
+      o42_sheet_set_input (out, row, 3, value);
+      o42_sheet_set_input (out, row, 4, formula);
+      o42_sheet_set_input (out, row, 5, status);
+      {
+        char *sl = o42_number_to_text (MAX (slack, 0), TRUE);
+        o42_sheet_set_input (out, row, 6, sl);
+        g_free (sl);
+      }
+      g_free (ref); g_free (label); g_free (value); g_free (bound); g_free (formula);
+    }
+
+  o42_sheet_set_col_width (out, 0, 120);
+  o42_sheet_set_col_width (out, 1, 60);
+  o42_sheet_set_col_width (out, 2, 110);
+  for (int c = 3; c <= 6; c++)
+    o42_sheet_set_col_width (out, c, 100);
+  return out;
 }
 
 void
