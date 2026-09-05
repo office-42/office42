@@ -2001,8 +2001,10 @@ main (int argc, char *argv[])
               const O42Chart *c = g_ptr_array_index (charts, i);
               char *a = o42_ref_name (c->data.row0, c->data.col0);
               char *b = o42_ref_name (c->data.row1, c->data.col1);
-              printf ("chart %u: %s of %s:%s, series in %s, labels row %d col %d, \"%s\", at %d,%d %gx%g\n",
-                      c->id, o42_chart_kind_name (c->kind), a, b,
+              printf ("chart %u: %s of %s%s%s:%s, series in %s, labels row %d col %d, \"%s\", at %d,%d %gx%g\n",
+                      c->id, o42_chart_kind_name (c->kind),
+                      c->data_sheet != NULL && *c->data_sheet != '\0' ? c->data_sheet : "",
+                      c->data_sheet != NULL && *c->data_sheet != '\0' ? "!" : "", a, b,
                       c->series_in_rows ? "rows" : "columns",
                       c->first_row_labels, c->first_col_labels,
                       c->title ? c->title : "", c->row, c->col, c->width, c->height);

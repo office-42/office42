@@ -388,6 +388,7 @@ typedef struct
   GArray     *objs;             /* ObjInfo: what each OBJ said, in order */
   gboolean    in_series;
   int         chart_depth;
+  gboolean    chart_sheet;      /* the substream being read is a chart sheet's */
 } Reader;
 
 typedef struct {
@@ -396,6 +397,7 @@ typedef struct {
   O42Range     box;
   gboolean     have_box, have_title_ref, have_cats;
   char        *title;
+  const char  *data_sheet;   /* interned: the sheet the series are on, or NULL */
 } ChartDef;
 
 /* A string in the encoding the record uses: BIFF8 unicode with flags,
@@ -1632,7 +1634,7 @@ read_chart_record (Reader *r, guint id, const guchar *p, gsize len)
                 }
               if (usable)
                 {
-                  if (!def->have_box) { def->box = range; def->have_box = TRUE; }
+                  if (!def->have_box) { def->box = range; def->have_box = TRUE; def->data_sheet = tree->sheet; }
                   else
                     {
                       def->box.row0 = MIN (def->box.row0, range.row0);
@@ -1916,6 +1918,11 @@ read_drawing (Reader *r)
                       chart->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
                       chart->width = MAX (cx1 - cx0, 40);
                       chart->height = MAX (cy1 - cy0, 30);
+                      if (def->data_sheet != NULL)
+                        {
+                          g_free (chart->data_sheet);
+                          chart->data_sheet = g_strdup (def->data_sheet);
+                        }
                     }
                 }
             }
@@ -2247,9 +2254,12 @@ read_workbook (Reader *r, GError **error)
               }
             if (type == 0x0005)
               in_globals = TRUE;
-            else if (type == 0x0010)
+            else if (type == 0x0010 || type == 0x0020)
               {
-                /* A worksheet: the next bound sheet, in order. */
+                /* A worksheet, or a chart sheet: the next bound sheet,
+                 * in order.  A chart sheet's records are a chart's, so
+                 * it is read as an embedded chart would be and given
+                 * the whole sheet at the end. */
                 in_globals = FALSE;
                 flush_styles (r);
                 if (next_sheet < (int) r->sheet_names->len)
@@ -2279,12 +2289,27 @@ read_workbook (Reader *r, GError **error)
                 r->pending = FALSE;
                 r->obj_is_note = FALSE;
                 r->cf_have_range = FALSE;
+                r->chart_sheet = type == 0x0020;
+                if (r->chart_sheet)
+                  {
+                    ChartDef def;
+                    memset (&def, 0, sizeof def);
+                    g_array_append_val (r->chart_defs, def);
+                    r->in_series = FALSE;
+                    r->chart_depth = 0;
+                    r->embedded = 1;
+                    if (r->sheet != NULL)
+                      o42_sheet_set_chart_sheet (r->sheet, TRUE);
+                  }
               }
             else
               {
+                /* A macro sheet, or something newer: it is a bound
+                 * sheet all the same, so its name is used up. */
                 in_globals = FALSE;
                 flush_styles (r);
-                r->sheet = NULL;   /* a chart or macro sheet */
+                r->sheet = NULL;
+                next_sheet++;
               }
           }
           break;
@@ -2292,6 +2317,30 @@ read_workbook (Reader *r, GError **error)
           if (r->embedded > 0)
             {
               r->embedded--;
+              if (!r->chart_sheet || r->embedded > 0)
+                break;
+              /* The chart sheet's one chart, over the whole of it. */
+              if (r->sheet != NULL && r->chart_defs->len > 0)
+                {
+                  ChartDef *def = &g_array_index (r->chart_defs, ChartDef, 0);
+                  O42Range box = def->have_box ? def->box : o42_range_normalise (0, 0, 0, 0);
+                  O42Chart *chart = o42_sheet_add_chart (r->sheet, def->kind_known ? def->kind : O42_CHART_COLUMN,
+                                                         &box, 0, 0);
+                  if (chart != NULL)
+                    {
+                      chart->first_row_labels = def->have_title_ref;
+                      chart->first_col_labels = def->have_cats || def->kind == O42_CHART_SCATTER;
+                      g_free (chart->title);
+                      chart->title = g_strdup (def->title ? def->title : "");
+                      if (def->data_sheet != NULL)
+                        {
+                          g_free (chart->data_sheet);
+                          chart->data_sheet = g_strdup (def->data_sheet);
+                        }
+                    }
+                }
+              r->chart_sheet = FALSE;
+              r->sheet = NULL;
               break;
             }
           if (r->sheet != NULL)
@@ -3486,9 +3535,19 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
   static const guint32 COLOURS[] = { 0x000080, 0x800000, 0x008000, 0x008080, 0x800080, 0x808000, 0x808080, 0x0000FF };
   const O42Range *d = &chart->data;
   int first_row = d->row0 + (chart->first_row_labels ? 1 : 0);
+  O42Book *book = o42_sheet_get_book (sheet);
   int first_col = d->col0 + (chart->first_col_labels ? 1 : 0);
   gboolean scatter = chart->kind == O42_CHART_SCATTER, pie = chart->kind == O42_CHART_PIE;
   int n_series = 0;
+
+  /* The series' references name the sheet the cells are on, which for
+   * a chart sheet is always another; the XTIs run one per sheet. */
+  if (chart->data_sheet != NULL && *chart->data_sheet != '\0' && book != NULL)
+    {
+      O42Sheet *data_sheet = o42_book_find_sheet (book, chart->data_sheet);
+      if (data_sheet != NULL)
+        sheet_index = o42_book_sheet_index (book, data_sheet);
+    }
 
   begin_record (w, R_BOF);
   put16 (w->out, 0x0600); put16 (w->out, 0x0020); put16 (w->out, 0x0DBB); put16 (w->out, 0x07CC);
@@ -4313,7 +4372,8 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         g_array_append_val (boundsheet_at, at);
       }
       put32 (w.out, 0);
-      put8 (w.out, 0); put8 (w.out, 0);
+      put8 (w.out, 0);
+      put8 (w.out, o42_sheet_is_chart_sheet (o42_book_sheet (book, i)) ? 0x02 : 0);   /* the sheet's type */
       put_ustr8 (w.out, o42_sheet_get_name (o42_book_sheet (book, i)));
       end_record (&w);
     }
@@ -4487,7 +4547,11 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
       w.out->data[at + 1] = (pos >> 8) & 0xff;
       w.out->data[at + 2] = (pos >> 16) & 0xff;
       w.out->data[at + 3] = (pos >> 24) & 0xff;
-      write_sheet (&w, o42_book_sheet (book, i), i, g_ptr_array_index (sheet_cells, i));
+      if (o42_sheet_is_chart_sheet (o42_book_sheet (book, i)) &&
+          o42_sheet_the_chart (o42_book_sheet (book, i)) != NULL)
+        write_chart_substream (&w, o42_book_sheet (book, i), i, o42_sheet_the_chart (o42_book_sheet (book, i)));
+      else
+        write_sheet (&w, o42_book_sheet (book, i), i, g_ptr_array_index (sheet_cells, i));
     }
 
   stream = g_byte_array_free_to_bytes (w.out);
