@@ -53,6 +53,7 @@ static gboolean outline_click (O42Grid *self, double x, double y);
 typedef struct {
   O42Range from;
   int      to_row, to_col;
+  gboolean red;         /* Trace Error's arrow from where the error comes */
 } AuditArrow;
 
 struct _O42Grid {
@@ -78,6 +79,7 @@ struct _O42Grid {
   O42Range       clip_range;
 
   gboolean       hide_gridlines;
+  gboolean       hide_checks;     /* no green corners on doubtful cells */
   gboolean       hide_zeros;
   double         zoom;                     /* 1.0 is 100% */
   int            frozen_rows, frozen_cols; /* View > Freeze Panes */
@@ -3840,6 +3842,7 @@ o42_grid_trace (O42Grid *self, gboolean precedents)
       const O42Range *r = &g_array_index (found, O42Range, i);
       AuditArrow arrow;
 
+      arrow.red = FALSE;
       if (precedents)
         {
           arrow.from = *r;
@@ -3857,6 +3860,93 @@ o42_grid_trace (O42Grid *self, gboolean precedents)
     }
   g_array_unref (found);
   gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* Whether any cell of the rectangle holds an error. */
+static gboolean
+range_has_error (O42Sheet *sheet, const O42Range *r)
+{
+  for (int row = r->row0; row <= r->row1 && row < r->row0 + 1000; row++)
+    for (int col = r->col0; col <= r->col1 && col < r->col0 + 1000; col++)
+      {
+        O42Value v;
+        gboolean error;
+
+        if (o42_sheet_is_empty (sheet, row, col))
+          continue;
+        o42_sheet_get_value (sheet, row, col, &v);
+        error = v.type == O42_VALUE_ERROR;
+        o42_value_clear (&v);
+        if (error)
+          return TRUE;
+      }
+  return FALSE;
+}
+
+/* Tools > Auditing > Trace Error: from the active cell, which shows an
+ * error, back along its precedents to where the error comes from --
+ * red arrows from the cells that hold one, blue from the rest, and on
+ * again from each red one until a cell with no formula is reached. */
+gboolean
+o42_grid_trace_error (O42Grid *self)
+{
+  O42Range sel = { 0, 0, 0, 0 };
+  GArray *queue;
+  O42Value v;
+  gboolean is_error;
+
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  if (self->sheet == NULL)
+    return FALSE;
+  o42_grid_get_selection (self, &sel);
+  o42_sheet_get_value (self->sheet, sel.row0, sel.col0, &v);
+  is_error = v.type == O42_VALUE_ERROR;
+  o42_value_clear (&v);
+  if (!is_error)
+    return FALSE;
+  if (self->arrows == NULL)
+    self->arrows = g_array_new (FALSE, FALSE, sizeof (AuditArrow));
+
+  queue = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  {
+    O42Range start = { sel.row0, sel.col0, sel.row0, sel.col0 };
+    g_array_append_val (queue, start);
+  }
+  for (guint q = 0; q < queue->len && q < 200; q++)
+    {
+      O42Range at = g_array_index (queue, O42Range, q);
+      GArray *found = o42_sheet_precedents (self->sheet, at.row0, at.col0);
+
+      for (guint i = 0; i < found->len; i++)
+        {
+          const O42Range *r = &g_array_index (found, O42Range, i);
+          AuditArrow arrow;
+
+          arrow.from = *r;
+          arrow.to_row = at.row0;
+          arrow.to_col = at.col0;
+          arrow.red = range_has_error (self->sheet, r);
+          g_array_append_val (self->arrows, arrow);
+          /* Follow a single erring cell further back. */
+          if (arrow.red && r->row0 == r->row1 && r->col0 == r->col1 &&
+              o42_sheet_has_formula (self->sheet, r->row0, r->col0))
+            {
+              gboolean seen = FALSE;
+
+              for (guint k = 0; k < queue->len && !seen; k++)
+                {
+                  const O42Range *earlier = &g_array_index (queue, O42Range, k);
+                  seen = earlier->row0 == r->row0 && earlier->col0 == r->col0;
+                }
+              if (!seen)
+                g_array_append_val (queue, *r);
+            }
+        }
+      g_array_unref (found);
+    }
+  g_array_unref (queue);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+  return TRUE;
 }
 
 void
@@ -4071,6 +4161,21 @@ o42_grid_get_show_zeros (O42Grid *self)
 {
   g_return_val_if_fail (O42_IS_GRID (self), TRUE);
   return !self->hide_zeros;
+}
+
+void
+o42_grid_set_show_checks (O42Grid *self, gboolean show)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  self->hide_checks = !show;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_get_show_checks (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), TRUE);
+  return !self->hide_checks;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -5340,6 +5445,18 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
               !o42_sheet_merged_at (self->sheet, row, col, NULL))
             draw_cell_text (self, cr, row, col, x, y, w, h);
 
+          /* Excel's green corner on a cell the error checking doubts. */
+          if (!self->hide_checks && !o42_sheet_is_empty (self->sheet, row, col) &&
+              o42_sheet_error_check (self->sheet, row, col) != O42_CHECK_NONE)
+            {
+              cairo_set_source_rgb (cr, 0.0, 0.55, 0.0);
+              cairo_move_to (cr, x + 1, y + 1);
+              cairo_line_to (cr, x + 7, y + 1);
+              cairo_line_to (cr, x + 1, y + 7);
+              cairo_close_path (cr);
+              cairo_fill (cr);
+            }
+
           x += w;
         }
       y += h;
@@ -6047,7 +6164,10 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
       double angle;
 
       cairo_save (cr);
-      cairo_set_source_rgb (cr, 0.1, 0.25, 0.7);
+      if (a->red)
+        cairo_set_source_rgb (cr, 0.8, 0.1, 0.1);
+      else
+        cairo_set_source_rgb (cr, 0.1, 0.25, 0.7);
       cairo_set_line_width (cr, 1.5);
 
       /* A ring round the range the arrow comes from, then the arrow. */

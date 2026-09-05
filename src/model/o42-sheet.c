@@ -1051,6 +1051,160 @@ o42_sheet_precedents (O42Sheet *sheet, int row, int col)
   return out;
 }
 
+/* A neighbour's formula as it would read moved to (row, col), for
+ * telling whether two formulas are the same one filled along; NULL
+ * when the neighbour holds no formula. */
+static char *
+formula_moved_to (O42Sheet *sheet, int from_row, int from_col, int row, int col)
+{
+  O42Cell *cell = sheet_find (sheet, from_row, from_col);
+  O42Node *copy;
+  char *text;
+
+  if (cell == NULL || cell->ast == NULL)
+    return NULL;
+  copy = o42_node_copy (cell->ast);
+  o42_node_relocate (copy, row - from_row, col - from_col);
+  text = o42_node_to_string (copy);
+  o42_node_free (copy);
+  return text;
+}
+
+/* TRUE when the two cells either side both hold the same formula,
+ * relatively speaking, and this cell holds a different one. */
+static gboolean
+formula_inconsistent (O42Sheet *sheet, int row, int col, const char *mine, gboolean rows)
+{
+  int r0 = rows ? row - 1 : row, c0 = rows ? col : col - 1;
+  int r1 = rows ? row + 1 : row, c1 = rows ? col : col + 1;
+  char *before, *after;
+  gboolean odd = FALSE;
+
+  if (r0 < 0 || c0 < 0 || r1 >= O42_MAX_ROWS || c1 >= O42_MAX_COLS)
+    return FALSE;
+  before = formula_moved_to (sheet, r0, c0, row, col);
+  after = formula_moved_to (sheet, r1, c1, row, col);
+  if (before != NULL && after != NULL && strcmp (before, after) == 0 && strcmp (before, mine) != 0)
+    odd = TRUE;
+  g_free (before);
+  g_free (after);
+  return odd;
+}
+
+static gboolean
+cell_is_number (O42Sheet *sheet, int row, int col)
+{
+  O42Cell *cell;
+
+  if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+    return FALSE;
+  cell = sheet_find (sheet, row, col);
+  return cell != NULL && cell->ast == NULL && cell->value.type == O42_VALUE_NUMBER;
+}
+
+/* Whether a run of cells the formula reads stops just short of a
+ * number: SUM(A1:A5) with a number in A6, which is usually a row that
+ * was added after the formula was written. */
+static gboolean
+formula_omits_cells (O42Sheet *sheet, O42Cell *cell, int row, int col)
+{
+  if (cell->precedents == NULL)
+    return FALSE;
+  for (guint i = 0; i < cell->precedents->len; i++)
+    {
+      const O42SheetRange *p = &g_array_index (cell->precedents, O42SheetRange, i);
+      O42Range r;
+
+      if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
+        continue;
+      r = o42_range_normalise (p->range.row0, p->range.col0, p->range.row1, p->range.col1);
+      if (r.row0 == r.row1 && r.col0 == r.col1)
+        continue;
+      if (r.col0 == r.col1 && r.row1 - r.row0 >= 1)
+        {
+          if ((r.row1 + 1 != row || r.col0 != col) && cell_is_number (sheet, r.row1 + 1, r.col0))
+            return TRUE;
+          if ((r.row0 - 1 != row || r.col0 != col) && cell_is_number (sheet, r.row0 - 1, r.col0))
+            return TRUE;
+        }
+      if (r.row0 == r.row1 && r.col1 - r.col0 >= 1)
+        {
+          if ((r.col1 + 1 != col || r.row0 != row) && cell_is_number (sheet, r.row0, r.col1 + 1))
+            return TRUE;
+          if ((r.col0 - 1 != col || r.row0 != row) && cell_is_number (sheet, r.row0, r.col0 - 1))
+            return TRUE;
+        }
+    }
+  return FALSE;
+}
+
+O42ErrorCheck
+o42_sheet_error_check (O42Sheet *sheet, int row, int col)
+{
+  O42Cell *cell;
+  O42Value value;
+  O42ErrorCheck check = O42_CHECK_NONE;
+
+  g_return_val_if_fail (sheet != NULL, O42_CHECK_NONE);
+  cell = sheet_find (sheet, row, col);
+  if (cell == NULL)
+    return O42_CHECK_NONE;
+
+  if (cell->ast == NULL)
+    {
+      /* Text that reads whole as a number, typed with an apostrophe or
+       * into a Text-formatted cell. */
+      double n;
+      O42ErrorCode err;
+
+      if (cell->value.type == O42_VALUE_TEXT && cell->value.as.text[0] != '\0' &&
+          o42_value_to_number (&cell->value, &n, &err))
+        {
+          const char *t = cell->value.as.text;
+          gboolean digits = FALSE;
+
+          for (const char *q = t; *q != '\0'; q++)
+            if (g_ascii_isdigit (*q))
+              digits = TRUE;
+          if (digits)
+            return O42_CHECK_NUMBER_AS_TEXT;
+        }
+      return O42_CHECK_NONE;
+    }
+
+  o42_sheet_get_value (sheet, row, col, &value);
+  if (value.type == O42_VALUE_ERROR && value.as.error != O42_ERR_NA)
+    check = O42_CHECK_ERROR;
+  o42_value_clear (&value);
+  if (check != O42_CHECK_NONE)
+    return check;
+
+  {
+    char *mine = o42_node_to_string (cell->ast);
+
+    if (formula_inconsistent (sheet, row, col, mine, FALSE) ||
+        formula_inconsistent (sheet, row, col, mine, TRUE))
+      check = O42_CHECK_INCONSISTENT;
+    g_free (mine);
+  }
+  if (check == O42_CHECK_NONE && formula_omits_cells (sheet, cell, row, col))
+    check = O42_CHECK_OMITS_CELLS;
+  return check;
+}
+
+const char *
+o42_error_check_text (O42ErrorCheck check)
+{
+  switch (check)
+    {
+    case O42_CHECK_ERROR:          return "The formula comes to an error.";
+    case O42_CHECK_INCONSISTENT:   return "The formula is unlike the ones beside it.";
+    case O42_CHECK_NUMBER_AS_TEXT: return "The cell holds a number kept as text.";
+    case O42_CHECK_OMITS_CELLS:    return "The formula's range stops short of a number beside it.";
+    default:                       return "";
+    }
+}
+
 /* The cells whose formulas read this one, each as a range of one cell.
  * The dependents index holds them by band, so this looks in the band
  * the cell falls in and keeps whichever of those really reach it. */

@@ -1296,7 +1296,7 @@ action_zoom (GSimpleAction *a, GVariant *param, gpointer data)
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
-  GtkWidget *gridlines, *zeros;
+  GtkWidget *gridlines, *zeros, *checks;
   GtkWidget *manual, *iterate, *iterations, *tolerance;
 } OptionsPrompt;
 
@@ -1309,6 +1309,8 @@ on_options_ok (GtkWidget *w, gpointer data)
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->gridlines)));
   o42_grid_set_show_zeros (prompt->window->grid,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->zeros)));
+  o42_grid_set_show_checks (prompt->window->grid,
+    gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->checks)));
 
   o42_book_set_manual (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->manual)));
@@ -1348,6 +1350,10 @@ action_options (GSimpleAction *a, GVariant *p, gpointer data)
                                o42_grid_get_show_zeros (self->grid));
   gtk_box_append (GTK_BOX (content), prompt->gridlines);
   gtk_box_append (GTK_BOX (content), prompt->zeros);
+  prompt->checks = gtk_check_button_new_with_mnemonic ( _("Mark cells the _error checking doubts"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->checks),
+                               o42_grid_get_show_checks (self->grid));
+  gtk_box_append (GTK_BOX (content), prompt->checks);
 
   {
     /* How the book calculates: as you type or when you ask, and whether
@@ -4600,6 +4606,7 @@ static const GActionEntry ACTIONS[] = {
   { "trace-dependents", action_trace_dependents, NULL, NULL, NULL, { 0 } },
   { "clear-arrows",     action_clear_arrows,     NULL, NULL, NULL, { 0 } },
   { "evaluate-formula", action_evaluate_formula, NULL, NULL, NULL, { 0 } },
+  { "trace-error",      action_trace_error,      NULL, NULL, NULL, { 0 } },
   { "watch-window",     action_watch_window,     NULL, NULL, NULL, { 0 } },
   { "tab-colour-none",  action_tab_colour_none,  NULL, NULL, NULL, { 0 } },
   { "move-sheet-right", action_move_sheet_right, NULL, NULL, NULL, { 0 } },
@@ -5234,6 +5241,16 @@ o42_window_sync (O42Window *self)
     char *text = (zoom == 1.0) ? g_strdup (_("Ready"))
                                : g_strdup_printf ("%s    %d%%", _("Ready"),
                                                   (int) (zoom * 100 + 0.5));
+    /* A doubtful active cell says why, as the smart tag's tip did. */
+    O42ErrorCheck check = o42_grid_get_show_checks (self->grid)
+                          ? o42_sheet_error_check (self->sheet, row, col) : O42_CHECK_NONE;
+
+    if (check != O42_CHECK_NONE)
+      {
+        char *why = g_strdup_printf ("%s    %s", text, _(o42_error_check_text (check)));
+        g_free (text);
+        text = why;
+      }
     gtk_label_set_text (GTK_LABEL (self->status_label), text);
     g_free (text);
   }

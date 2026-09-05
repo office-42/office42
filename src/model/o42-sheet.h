@@ -589,6 +589,22 @@ guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
 GArray *o42_sheet_precedents (O42Sheet *sheet, int row, int col);
 GArray *o42_sheet_dependents (O42Sheet *sheet, int row, int col);
 
+/* Excel's background error checking: what is doubtful about a cell,
+ * for the green triangle in its corner.  A formula that comes to an
+ * error; a formula unlike the ones either side of it, when those two
+ * agree; a number kept as text; a formula whose range stops short of a
+ * number right beside it. */
+typedef enum {
+  O42_CHECK_NONE = 0,
+  O42_CHECK_ERROR,
+  O42_CHECK_INCONSISTENT,
+  O42_CHECK_NUMBER_AS_TEXT,
+  O42_CHECK_OMITS_CELLS
+} O42ErrorCheck;
+
+O42ErrorCheck o42_sheet_error_check (O42Sheet *sheet, int row, int col);
+const char   *o42_error_check_text  (O42ErrorCheck check);   /* a sentence, or "" */
+
 /* ---- AutoFormat -------------------------------------------------------- */
 
 /* Ready-made looks for a table whose first row is its heading. */

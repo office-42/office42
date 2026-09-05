@@ -1189,6 +1189,17 @@ action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data)
   o42_grid_clear_arrows (O42_WINDOW (data)->grid);
 }
 
+void
+action_trace_error (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  if (!o42_grid_trace_error (self->grid))
+    gtk_label_set_text (GTK_LABEL (self->status_label),
+                        _("Trace Error wants a cell that shows an error."));
+}
+
 /* ---- Tools > Auditing > Watch Window ----------------------------------- */
 
 /* Excel's Watch Window: a list of cells, wherever they are in the book,

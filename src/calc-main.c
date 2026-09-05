@@ -181,7 +181,7 @@ main (int argc, char *argv[])
               "Python    py pyfile script scripts runscript delscript record\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
-              "          evaluate watch watches unwatch\n"
+              "          evaluate watch watches unwatch check\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
               "section 19 says what each does; --functions lists every function.\n");
@@ -321,6 +321,35 @@ main (int argc, char *argv[])
             }
           else
             fprintf (stderr, "usage: watch A1:B2\n");
+          continue;
+        }
+      /* "check A1:C9" says what the error checking doubts about each
+       * cell of the range that it doubts anything about. */
+      if (g_str_has_prefix (text, "check "))
+        {
+          O42Range r;
+          gsize len = 0;
+
+          if (o42_ref_parse (text + 6, &r.row0, &r.col0, &len))
+            {
+              r.row1 = r.row0; r.col1 = r.col0;
+              if (text[6 + len] == ':')
+                o42_ref_parse (text + 7 + len, &r.row1, &r.col1, NULL);
+              for (int rr = r.row0; rr <= r.row1; rr++)
+                for (int cc = r.col0; cc <= r.col1; cc++)
+                  {
+                    O42ErrorCheck check = o42_sheet_error_check (sheet, rr, cc);
+
+                    if (check != O42_CHECK_NONE)
+                      {
+                        char *name = o42_ref_name (rr, cc);
+                        printf ("%s: %s\n", name, o42_error_check_text (check));
+                        g_free (name);
+                      }
+                  }
+            }
+          else
+            fprintf (stderr, "usage: check A1:C9\n");
           continue;
         }
       if (strcmp (text, "watches") == 0)
