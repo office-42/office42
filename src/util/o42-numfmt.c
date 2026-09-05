@@ -320,6 +320,12 @@ show_round (double n, int places)
   return copysign (floor (fabs (nudged) + 0.5), n) / scale;
 }
 
+double
+o42_number_round_shown (double n, int places)
+{
+  return show_round (n, places);
+}
+
 /* Groups the integer part in threes.  Done by hand rather than with the
  * locale's thousands separator because a spreadsheet's #,##0 means a comma,
  * and a file that shows commas on one machine and full stops on another is

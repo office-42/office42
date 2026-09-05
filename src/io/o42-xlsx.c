@@ -1838,9 +1838,10 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     if (o42_book_date_1904 (book))
       g_string_append (s, "<workbookPr date1904=\"1\"/>");
     g_string_append_printf (s, "<calcPr fullCalcOnLoad=\"1\" calcMode=\"%s\" "
-                               "iterate=\"%d\" iterateCount=\"%d\" iterateDelta=\"%g\"/></workbook>",
+                               "iterate=\"%d\" iterateCount=\"%d\" iterateDelta=\"%g\"%s/></workbook>",
                             o42_book_manual (book) ? "manual" : "auto",
-                            iterate ? 1 : 0, max, tolerance);
+                            iterate ? 1 : 0, max, tolerance,
+                            o42_book_precision_as_displayed (book) ? " fullPrecision=\"0\"" : "");
   }
   o42_zip_writer_add (zip, "xl/workbook.xml", s->str, s->len);
 
@@ -2125,6 +2126,21 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       const char *d = attr (names, values, "date1904");
       o42_book_set_date_1904 (r->book, d != NULL && (strcmp (d, "1") == 0 || strcmp (d, "true") == 0));
+    }
+  else if (strcmp (n, "calcPr") == 0)
+    {
+      const char *mode = attr (names, values, "calcMode");
+      const char *full = attr (names, values, "fullPrecision");
+      const char *iterate = attr (names, values, "iterate");
+
+      if (mode != NULL)
+        o42_book_set_manual (r->book, strcmp (mode, "manual") == 0);
+      if (iterate != NULL)
+        o42_book_set_iteration (r->book, strcmp (iterate, "1") == 0 || strcmp (iterate, "true") == 0,
+                                attr_int (names, values, "iterateCount", 100),
+                                g_ascii_strtod (attr (names, values, "iterateDelta") != NULL
+                                                ? attr (names, values, "iterateDelta") : "0.001", NULL));
+      o42_book_set_precision_as_displayed (r->book, full != NULL && (strcmp (full, "0") == 0 || strcmp (full, "false") == 0));
     }
   else if (strcmp (n, "definedName") == 0)
     {

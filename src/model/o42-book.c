@@ -42,6 +42,7 @@ struct _O42Book {
   double        tolerance;
   gboolean      manual;       /* nothing is worked out until F9 */
   gboolean      date_1904;    /* days counted from 1 January 1904 */
+  gboolean      as_displayed; /* numbers kept rounded to their format */
   GPtrArray    *custom_lists; /* GStrv: the runs the fill handle continues */
   char         *db_path;      /* the database beside the book, or NULL */
   gboolean      db_embedded;  /* ...and whether it lives inside it */
@@ -612,6 +613,35 @@ o42_book_set_date_1904 (O42Book *book, gboolean on)
         }
     }
   o42_date_set_1904 (on);
+}
+
+void
+o42_book_set_precision_as_displayed (O42Book *book, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (book->as_displayed == on)
+    return;
+  book->as_displayed = on;
+  for (int i = 0; i < o42_book_n_sheets (book); i++)
+    {
+      O42Sheet *sheet = o42_book_sheet (book, i);
+
+      o42_sheet_set_modified (sheet, TRUE);
+      if (on)
+        {
+          /* The constants first, then everything that reads them. */
+          o42_sheet_round_to_display (sheet);
+          o42_sheet_stale_formulas (sheet);
+          o42_sheet_recalculate (sheet);
+        }
+    }
+}
+
+gboolean
+o42_book_precision_as_displayed (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->as_displayed;
 }
 
 gboolean

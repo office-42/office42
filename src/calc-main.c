@@ -38,6 +38,7 @@
  */
 
 #include "o42-sheet.h"
+#include "o42-entry.h"
 #include "o42-analysis.h"
 #include "o42-image.h"
 #include "o42-pattern.h"
@@ -180,7 +181,7 @@ main (int argc, char *argv[])
               "Python    py pyfile script scripts runscript delscript record\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
-              "          date1904\n"
+              "          date1904 precision fixeddecimals\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
               "section 19 says what each does; --functions lists every function.\n");
@@ -1462,9 +1463,11 @@ main (int argc, char *argv[])
         }
 
       /* calcmode auto|manual; iterate off|on [MAX [TOLERANCE]]; recalc;
-       * date1904 on|off */
+       * date1904 on|off; precision on|off (as displayed); fixeddecimals
+       * off|PLACES */
       if (g_str_has_prefix (text, "calcmode") || g_str_has_prefix (text, "iterate") ||
-          strcmp (text, "recalc") == 0 || g_str_has_prefix (text, "date1904"))
+          strcmp (text, "recalc") == 0 || g_str_has_prefix (text, "date1904") ||
+          g_str_has_prefix (text, "precision") || g_str_has_prefix (text, "fixeddecimals"))
         {
           char **words = g_strsplit (text, " ", -1);
           int n = (int) g_strv_length (words);
@@ -1481,6 +1484,18 @@ main (int argc, char *argv[])
               printf ("date system %s\n", o42_book_date_1904 (book) ? "1904" : "1900");
               for (int i = 0; i < o42_book_n_sheets (book); i++)
                 o42_sheet_recalculate (o42_book_sheet (book, i));
+            }
+          else if (g_str_has_prefix (text, "precision"))
+            {
+              if (n >= 2)
+                o42_book_set_precision_as_displayed (book, strcmp (words[1], "on") == 0);
+              printf ("precision as displayed %s\n", o42_book_precision_as_displayed (book) ? "on" : "off");
+            }
+          else if (g_str_has_prefix (text, "fixeddecimals"))
+            {
+              if (n >= 2)
+                o42_entry_set_fixed_decimals (strcmp (words[1], "off") == 0 ? -1 : atoi (words[1]));
+              printf ("fixed decimals %d\n", o42_entry_fixed_decimals ());
             }
           else if (g_str_has_prefix (text, "calcmode"))
             {
@@ -2844,7 +2859,11 @@ main (int argc, char *argv[])
                 continue;
               }
           }
-          o42_sheet_set_input (sheet, row, col, eq);
+          {
+            char *fixed = o42_entry_fixed_decimals_apply (eq);
+            o42_sheet_set_input (sheet, row, col, fixed != NULL ? fixed : eq);
+            g_free (fixed);
+          }
         }
       else if (*eq == '\0')
         {

@@ -62,6 +62,11 @@ typedef struct {
  * Caller frees. */
 char *o42_number_format (double n, O42NumberFormat format, int decimals);
 
+/* A number rounded to so many decimals the way a cell shows it: a half
+ * away from zero, and decided at the fifteenth significant digit, so
+ * that 1.005 at two decimals is 1.01 and not the 1.00 its double is. */
+double o42_number_round_shown (double n, int places);
+
 /* The number with every digit that matters: fifteen significant figures,
  * as Excel's "&" and TEXT give, or with `exact` the seventeen it takes to
  * read the same double back.  Whole numbers print without a point.  This

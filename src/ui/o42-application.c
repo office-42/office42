@@ -9,6 +9,7 @@
 #include "o42-window.h"
 #include "o42-types.h"
 #include "o42-numfmt.h"
+#include "o42-entry.h"
 
 #include <glib/gi18n.h>
 #include <stdlib.h>
@@ -143,9 +144,14 @@ apply_prefs (void)
 {
   char *currency = o42_prefs_get ("currency");
 
+  char *fixed = o42_prefs_get ("fixed_decimals");
+
   if (currency != NULL && *currency != '\0')
     o42_numfmt_set_currency (currency);
+  if (fixed != NULL && *fixed != '\0')
+    o42_entry_set_fixed_decimals (atoi (fixed));
   g_free (currency);
+  g_free (fixed);
 }
 
 static void

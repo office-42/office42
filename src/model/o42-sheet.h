@@ -758,6 +758,11 @@ O42Value o42_sheet_evaluate_formula (O42Sheet *sheet, const char *text);
 /* Every stored cell -- one with content or a format -- in no particular
  * order.  The sheet is sparse, and this is how a writer visits what is
  * there without walking every cell of the used rectangle. */
+/* Rounds every number on the sheet to the decimals its format shows,
+ * for the book's precision-as-displayed option; the cells that are
+ * worked out or typed afterwards are rounded as they are made. */
+void o42_sheet_round_to_display (O42Sheet *sheet);
+
 typedef void (*O42CellFunc) (O42Sheet *sheet, int row, int col, gpointer user);
 void o42_sheet_foreach_cell (O42Sheet *sheet, O42CellFunc func, gpointer user);
 

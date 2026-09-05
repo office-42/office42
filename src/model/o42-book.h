@@ -183,6 +183,13 @@ gboolean o42_book_manual        (O42Book *book);
 void     o42_book_set_date_1904 (O42Book *book, gboolean on);
 gboolean o42_book_date_1904     (O42Book *book);
 
+/* Precision as displayed: a number in a cell with a fixed number of
+ * decimals is kept rounded to them, as Excel's option has it, so that
+ * a column of shown values adds up to the shown total.  Turning it on
+ * rounds what is there; there is no getting the digits back. */
+void     o42_book_set_precision_as_displayed (O42Book *book, gboolean on);
+gboolean o42_book_precision_as_displayed     (O42Book *book);
+
 /* TRUE if any sheet, or the scripts, changed since it was saved. */
 gboolean  o42_book_is_modified  (O42Book *book);
 void      o42_book_set_modified (O42Book *book, gboolean modified);

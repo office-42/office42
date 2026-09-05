@@ -159,6 +159,52 @@ text:
   return FALSE;
 }
 
+static int fixed_decimals = -1;
+
+void
+o42_entry_set_fixed_decimals (int places)
+{
+  fixed_decimals = places < 0 ? -1 : MIN (places, 15);
+}
+
+int
+o42_entry_fixed_decimals (void)
+{
+  return fixed_decimals;
+}
+
+char *
+o42_entry_fixed_decimals_apply (const char *text)
+{
+  const char *p = text;
+  gboolean digits = FALSE;
+  double value, scale = 1;
+
+  if (fixed_decimals < 0 || text == NULL)
+    return NULL;
+  while (*p == ' ') p++;
+  if (*p == '-' || *p == '+') p++;
+  if (*p == '\0')
+    return NULL;
+  for (; *p != '\0'; p++)
+    {
+      if (g_ascii_isdigit (*p)) digits = TRUE;
+      else if (*p != ',' && *p != ' ') return NULL;   /* a point, an exponent, a sign: as typed */
+    }
+  if (!digits)
+    return NULL;
+  {
+    O42Entry entry;
+    if (!o42_entry_parse (text, &entry) || entry.format != O42_NUM_GENERAL)
+      return NULL;
+    value = entry.number;
+  }
+  for (int i = 0; i < fixed_decimals; i++)
+    scale *= 10;
+  value /= scale;
+  return o42_number_to_text (value, TRUE);
+}
+
 gboolean
 o42_entry_parse (const char *text, O42Entry *out)
 {

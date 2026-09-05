@@ -40,6 +40,7 @@
 #include "o42-grid.h"
 #include "o42-application.h"
 #include "o42-date.h"
+#include "o42-entry.h"
 #include "o42-image.h"
 #include "o42-pdf.h"
 #include "o42-sql.h"
@@ -1301,7 +1302,7 @@ typedef struct {
   GtkWidget *dialog;
   GtkWidget *gridlines, *zeros;
   GtkWidget *manual, *iterate, *iterations, *tolerance;
-  GtkWidget *currency, *date_1904;
+  GtkWidget *currency, *date_1904, *as_displayed, *fixed, *fixed_places;
 } OptionsPrompt;
 
 static void
@@ -1318,6 +1319,18 @@ on_options_ok (GtkWidget *w, gpointer data)
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->manual)));
   o42_book_set_date_1904 (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->date_1904)));
+  o42_book_set_precision_as_displayed (prompt->window->book,
+    gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->as_displayed)));
+  {
+    /* Fixed decimals is a habit of the typist, kept with the currency. */
+    gboolean fixed = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->fixed));
+    int places = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->fixed_places));
+    char *text = fixed ? g_strdup_printf ("%d", places) : NULL;
+
+    o42_entry_set_fixed_decimals (fixed ? places : -1);
+    o42_prefs_set ("fixed_decimals", text);
+    g_free (text);
+  }
   o42_book_set_iteration (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->iterate)),
     (int) gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->iterations)),
@@ -1394,12 +1407,23 @@ action_options (GSimpleAction *a, GVariant *p, gpointer data)
     gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->date_1904), o42_book_date_1904 (self->book));
     gtk_box_append (GTK_BOX (content), prompt->date_1904);
 
+    prompt->as_displayed = gtk_check_button_new_with_mnemonic ( _("_Precision as displayed"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->as_displayed),
+                                 o42_book_precision_as_displayed (self->book));
+    gtk_box_append (GTK_BOX (content), prompt->as_displayed);
+
+    prompt->fixed = gtk_check_button_new_with_mnemonic ( _("Fi_xed decimal places when typing:"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->fixed), o42_entry_fixed_decimals () >= 0);
+    gtk_box_append (GTK_BOX (content), prompt->fixed);
+
     prompt->iterations = labelled (grid, 0, "At most:",
                                    gtk_spin_button_new_with_range (1, 10000, 1));
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->iterations), max);
     prompt->tolerance = labelled (grid, 1, _("Until it moves less than:"), gtk_entry_new ());
     gtk_editable_set_text (GTK_EDITABLE (prompt->tolerance), shown);
-    prompt->currency = labelled (grid, 2, _("Currency symbol:"), gtk_entry_new ());
+    prompt->fixed_places = labelled (grid, 2, _("Places:"), gtk_spin_button_new_with_range (0, 15, 1));
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->fixed_places), MAX (o42_entry_fixed_decimals (), 2));
+    prompt->currency = labelled (grid, 3, _("Currency symbol:"), gtk_entry_new ());
     gtk_editable_set_text (GTK_EDITABLE (prompt->currency), o42_numfmt_currency ());
     gtk_editable_set_width_chars (GTK_EDITABLE (prompt->currency), 6);
     gtk_box_append (GTK_BOX (content), grid);

@@ -16,6 +16,7 @@
  */
 
 #include "o42-grid.h"
+#include "o42-entry.h"
 #include "o42-shape.h"
 #include "o42-pattern.h"
 #include "o42-richtext.h"
@@ -2850,7 +2851,11 @@ o42_grid_commit_edit (O42Grid *self)
       end_edit (self);
       return;
     }
-  o42_sheet_set_input (self->sheet, self->active_row, self->active_col, text);
+  {
+    char *fixed = o42_entry_fixed_decimals_apply (text);
+    o42_sheet_set_input (self->sheet, self->active_row, self->active_col, fixed != NULL ? fixed : text);
+    g_free (fixed);
+  }
   commit_editor_runs (self, text);
 
   end_edit (self);
@@ -2888,7 +2893,11 @@ o42_grid_set_active_input (O42Grid *self, const char *text)
 
   if (!entry_allowed (self, text))
     return;
-  o42_sheet_set_input (self->sheet, self->active_row, self->active_col, text);
+  {
+    char *fixed = o42_entry_fixed_decimals_apply (text);
+    o42_sheet_set_input (self->sheet, self->active_row, self->active_col, fixed != NULL ? fixed : text);
+    g_free (fixed);
+  }
   sheet_changed (self);
 }
 

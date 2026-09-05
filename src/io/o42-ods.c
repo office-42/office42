@@ -1581,8 +1581,10 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   g_string_append (content, "<office:automatic-styles>");
   g_string_append (content, s.styles->str);
   g_string_append (content, "</office:automatic-styles><office:body><office:spreadsheet>");
-  if (o42_book_date_1904 (book))
-    g_string_append (content, "<table:calculation-settings><table:null-date table:date-value=\"1904-01-01\"/></table:calculation-settings>");
+  if (o42_book_date_1904 (book) || o42_book_precision_as_displayed (book))
+    g_string_append_printf (content, "<table:calculation-settings%s>%s</table:calculation-settings>",
+                            o42_book_precision_as_displayed (book) ? " table:precision-as-shown=\"true\"" : "",
+                            o42_book_date_1904 (book) ? "<table:null-date table:date-value=\"1904-01-01\"/>" : "");
   g_string_append (content, body->str);
   g_string_append (content, "</office:spreadsheet></office:body></office:document-content>");
 
@@ -2831,6 +2833,12 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
             r->loose_controls = g_array_new (FALSE, FALSE, sizeof (LooseControl));
           g_array_append_val (r->loose_controls, l);
         }
+      return;
+    }
+
+  if (strcmp (name, "calculation-settings") == 0)
+    {
+      o42_book_set_precision_as_displayed (r->book, g_strcmp0 (attr (names, values, "precision-as-shown"), "true") == 0);
       return;
     }
 
