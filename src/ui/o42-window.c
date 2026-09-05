@@ -1809,6 +1809,9 @@ typedef struct {
   gboolean   whole_book;
   int        page;         /* across all the sheets' pages */
   double     zoom;         /* 0 for fit to the window */
+  double     view_scale, view_x, view_y;   /* how the page was last drawn */
+  int        dragging;     /* the margin being dragged: 1 left, 2 right, 3 top,
+                            * 4 bottom, 5 header, 6 footer; 0 none */
 } PreviewPrompt;
 
 static int
@@ -1858,6 +1861,9 @@ preview_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer
                            : MIN ((width - 20) / paper_w, (height - 20) / paper_h);
   x = MAX (10, (width - paper_w * scale) / 2);
   y = MAX (10, (height - paper_h * scale) / 2);
+  prompt->view_scale = scale;
+  prompt->view_x = x;
+  prompt->view_y = y;
 
   cairo_save (cr);
   cairo_translate (cr, x, y);
@@ -1969,6 +1975,97 @@ on_preview_margins (GtkWidget *w, gpointer data)
   gtk_widget_queue_draw (prompt->area);
 }
 
+/* Dragging a margin line, with the margins shown: the setup's margin
+ * follows the pointer and the pages are made again, as Excel's
+ * preview lets you do. */
+static int
+preview_margin_at (PreviewPrompt *prompt, double px, double py)
+{
+  int within = 0;
+  O42Pages *pages = preview_page (prompt, &within);
+  const O42PrintSetup *ps;
+  double paper_w, paper_h, s = prompt->view_scale;
+  double x, y;
+
+  if (pages == NULL || s <= 0 || !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->margins)))
+    return 0;
+  ps = o42_sheet_print_setup (o42_pages_sheet (pages));
+  o42_pages_paper (pages, &paper_w, &paper_h);
+  x = (px - prompt->view_x) / s;
+  y = (py - prompt->view_y) / s;
+  if (x < 0 || y < 0 || x > paper_w || y > paper_h)
+    return 0;
+#define NEAR_MARGIN(a, b) (fabs ((a) - (b)) * s <= 5)
+  if (NEAR_MARGIN (x, ps->margin_left)) return 1;
+  if (NEAR_MARGIN (x, paper_w - ps->margin_right)) return 2;
+  if (NEAR_MARGIN (y, ps->margin_header)) return 5;
+  if (NEAR_MARGIN (y, paper_h - ps->margin_footer)) return 6;
+  if (NEAR_MARGIN (y, ps->margin_top)) return 3;
+  if (NEAR_MARGIN (y, paper_h - ps->margin_bottom)) return 4;
+#undef NEAR_MARGIN
+  return 0;
+}
+
+static void
+on_preview_drag_begin (GtkGestureDrag *gesture, double px, double py, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+
+  (void) gesture;
+  prompt->dragging = preview_margin_at (prompt, px, py);
+}
+
+static void
+on_preview_drag_update (GtkGestureDrag *gesture, double dx, double dy, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+  int within = 0;
+  O42Pages *pages = preview_page (prompt, &within);
+  O42PrintSetup ps;
+  double sx, sy, paper_w, paper_h, x, y;
+
+  if (prompt->dragging == 0 || pages == NULL)
+    return;
+  gtk_gesture_drag_get_start_point (gesture, &sx, &sy);
+  o42_pages_paper (pages, &paper_w, &paper_h);
+  x = CLAMP ((sx + dx - prompt->view_x) / prompt->view_scale, 0, paper_w);
+  y = CLAMP ((sy + dy - prompt->view_y) / prompt->view_scale, 0, paper_h);
+  ps = *o42_sheet_print_setup (o42_pages_sheet (pages));
+  switch (prompt->dragging)
+    {
+    case 1: ps.margin_left = MIN (x, paper_w - ps.margin_right - 72); break;
+    case 2: ps.margin_right = MIN (paper_w - x, paper_w - ps.margin_left - 72); break;
+    case 3: ps.margin_top = MIN (y, paper_h - ps.margin_bottom - 72); break;
+    case 4: ps.margin_bottom = MIN (paper_h - y, paper_h - ps.margin_top - 72); break;
+    case 5: ps.margin_header = MIN (y, ps.margin_top); break;
+    default: ps.margin_footer = MIN (paper_h - y, ps.margin_bottom); break;
+    }
+  o42_sheet_set_print_setup (o42_pages_sheet (pages), &ps);
+  preview_remake (prompt);
+}
+
+static void
+on_preview_drag_end (GtkGestureDrag *gesture, double dx, double dy, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+
+  (void) gesture; (void) dx; (void) dy;
+  if (prompt->dragging != 0)
+    window_sync (prompt->window);
+  prompt->dragging = 0;
+}
+
+static void
+on_preview_motion (GtkEventControllerMotion *controller, double px, double py, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+  int which = prompt->dragging != 0 ? prompt->dragging : preview_margin_at (prompt, px, py);
+
+  (void) controller;
+  gtk_widget_set_cursor_from_name (prompt->area, which == 0 ? NULL
+                                   : (which == 1 || which == 2) ? "col-resize" : "row-resize");
+}
+
 static void
 on_preview_print (GtkWidget *w, gpointer data)
 {
@@ -2024,6 +2121,17 @@ preview_run (O42Window *self, gboolean whole_book)
   gtk_widget_set_vexpand (prompt->area, TRUE);
   gtk_widget_set_hexpand (prompt->area, TRUE);
   gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (prompt->area), preview_draw, prompt, NULL);
+  {
+    GtkGesture *drag = gtk_gesture_drag_new ();
+    GtkEventController *motion = gtk_event_controller_motion_new ();
+
+    g_signal_connect (drag, "drag-begin", G_CALLBACK (on_preview_drag_begin), prompt);
+    g_signal_connect (drag, "drag-update", G_CALLBACK (on_preview_drag_update), prompt);
+    g_signal_connect (drag, "drag-end", G_CALLBACK (on_preview_drag_end), prompt);
+    g_signal_connect (motion, "motion", G_CALLBACK (on_preview_motion), prompt);
+    gtk_widget_add_controller (prompt->area, GTK_EVENT_CONTROLLER (drag));
+    gtk_widget_add_controller (prompt->area, motion);
+  }
   gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (prompt->scroller), prompt->area);
   gtk_box_append (GTK_BOX (content), prompt->scroller);
 
