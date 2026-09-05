@@ -9718,8 +9718,142 @@ eval_unary (O42EvalContext *ctx, const O42Node *node)
   return result;
 }
 
-static O42Value
-eval_call (O42EvalContext *ctx, const O42Node *node)
+/* Excel "lifts" a function written for one value over an array given
+ * where the value was wanted: LEN({"a","bb"}) is {1,2}, and
+ * VLOOKUP({1,3},table,2) looks twice.  Which of a function's arguments
+ * are single values is what this table says, a bit per argument (bit
+ * 0 for the first) and LIFT_ALL for every one; a function not here
+ * takes its arguments as they come, ranges and all, which is right
+ * for SUM and its kind. */
+#define LIFT_ALL 0xffffffffu
+
+typedef struct {
+  const char *name;
+  guint32     mask;
+} LiftEntry;
+
+static const LiftEntry LIFTS[] = {
+  /* text */
+  { "LEN", LIFT_ALL }, { "LENB", LIFT_ALL }, { "TRIM", LIFT_ALL }, { "CLEAN", LIFT_ALL },
+  { "UPPER", LIFT_ALL }, { "LOWER", LIFT_ALL }, { "PROPER", LIFT_ALL }, { "VALUE", LIFT_ALL },
+  { "NUMBERVALUE", LIFT_ALL }, { "TEXT", LIFT_ALL }, { "MID", LIFT_ALL }, { "LEFT", LIFT_ALL },
+  { "RIGHT", LIFT_ALL }, { "REPT", LIFT_ALL }, { "FIND", LIFT_ALL }, { "SEARCH", LIFT_ALL },
+  { "SUBSTITUTE", LIFT_ALL }, { "REPLACE", LIFT_ALL }, { "EXACT", LIFT_ALL }, { "CHAR", LIFT_ALL },
+  { "CODE", LIFT_ALL }, { "UNICHAR", LIFT_ALL }, { "UNICODE", LIFT_ALL }, { "T", LIFT_ALL },
+  { "FIXED", LIFT_ALL }, { "DOLLAR", LIFT_ALL }, { "ROMAN", LIFT_ALL }, { "ARABIC", LIFT_ALL },
+  /* numbers */
+  { "ABS", LIFT_ALL }, { "INT", LIFT_ALL }, { "TRUNC", LIFT_ALL }, { "SIGN", LIFT_ALL },
+  { "SQRT", LIFT_ALL }, { "EXP", LIFT_ALL }, { "LN", LIFT_ALL }, { "LOG", LIFT_ALL },
+  { "LOG10", LIFT_ALL }, { "SIN", LIFT_ALL }, { "COS", LIFT_ALL }, { "TAN", LIFT_ALL },
+  { "ASIN", LIFT_ALL }, { "ACOS", LIFT_ALL }, { "ATAN", LIFT_ALL }, { "ATAN2", LIFT_ALL },
+  { "DEGREES", LIFT_ALL }, { "RADIANS", LIFT_ALL }, { "FACT", LIFT_ALL }, { "EVEN", LIFT_ALL },
+  { "ODD", LIFT_ALL }, { "ROUND", LIFT_ALL }, { "ROUNDUP", LIFT_ALL }, { "ROUNDDOWN", LIFT_ALL },
+  { "MROUND", LIFT_ALL }, { "CEILING", LIFT_ALL }, { "FLOOR", LIFT_ALL }, { "CEILING.MATH", LIFT_ALL },
+  { "FLOOR.MATH", LIFT_ALL }, { "MOD", LIFT_ALL }, { "POWER", LIFT_ALL }, { "QUOTIENT", LIFT_ALL },
+  { "COMBIN", LIFT_ALL }, { "PERMUT", LIFT_ALL }, { "GCD", LIFT_ALL }, { "LCM", LIFT_ALL },
+  { "N", LIFT_ALL }, { "BASE", LIFT_ALL }, { "DECIMAL", LIFT_ALL },
+  /* dates */
+  { "DATE", LIFT_ALL }, { "TIME", LIFT_ALL }, { "YEAR", LIFT_ALL }, { "MONTH", LIFT_ALL },
+  { "DAY", LIFT_ALL }, { "HOUR", LIFT_ALL }, { "MINUTE", LIFT_ALL }, { "SECOND", LIFT_ALL },
+  { "WEEKDAY", LIFT_ALL }, { "WEEKNUM", LIFT_ALL }, { "ISOWEEKNUM", LIFT_ALL }, { "EDATE", LIFT_ALL },
+  { "EOMONTH", LIFT_ALL }, { "DATEVALUE", LIFT_ALL }, { "TIMEVALUE", LIFT_ALL }, { "DAYS", LIFT_ALL },
+  { "DATEDIF", LIFT_ALL }, { "YEARFRAC", LIFT_ALL },
+  /* logic and information */
+  { "NOT", LIFT_ALL }, { "IFERROR", LIFT_ALL }, { "IFNA", LIFT_ALL },
+  { "ISNUMBER", LIFT_ALL }, { "ISTEXT", LIFT_ALL }, { "ISNONTEXT", LIFT_ALL }, { "ISBLANK", LIFT_ALL },
+  { "ISERR", LIFT_ALL }, { "ISERROR", LIFT_ALL }, { "ISNA", LIFT_ALL }, { "ISLOGICAL", LIFT_ALL },
+  { "ISEVEN", LIFT_ALL }, { "ISODD", LIFT_ALL }, { "ERROR.TYPE", LIFT_ALL },
+  { "ROW", 0x1 }, { "COLUMN", 0x1 },
+  /* lookups: the value looked for, the positions asked for */
+  { "VLOOKUP", 0x1 }, { "HLOOKUP", 0x1 }, { "XLOOKUP", 0x1 }, { "MATCH", 0x1 }, { "XMATCH", 0x1 },
+  { "INDEX", 0x6 }, { "CHOOSE", 0x1 },
+  { "SUMIF", 0x2 }, { "COUNTIF", 0x2 }, { "AVERAGEIF", 0x2 },
+};
+
+static guint32
+lift_mask (const char *name)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (LIFTS); i++)
+    if (strcmp (LIFTS[i].name, name) == 0)
+      return LIFTS[i].mask;
+  return 0;
+}
+
+/* The call once per element of the arrays given where single values
+ * were wanted, the results gathered into an array; FALSE when nothing
+ * was given that way and the call is an ordinary one. */
+static gboolean
+lift_call (O42EvalContext *ctx, const O42Function *fn, const External *ext,
+           guint32 mask, O42Operand *operands, int n_args, O42Operand *out)
+{
+  int rows = 1, cols = 1;
+  gboolean any = FALSE;
+  ArrayConst *result;
+
+  for (int i = 0; i < n_args && i < 32; i++)
+    if ((mask & (1u << i)) && operand_is_multi (&operands[i]))
+      {
+        int r, c;
+        operand_dims (&operands[i], &r, &c);
+        rows = MAX (rows, r);
+        cols = MAX (cols, c);
+        any = TRUE;
+      }
+  if (!any)
+    return FALSE;
+  if ((gsize) rows * cols > ARRAY_CELLS_MAX)
+    {
+      memset (out, 0, sizeof *out);
+      out->value = o42_value_error (O42_ERR_NUM);
+      return TRUE;
+    }
+
+  result = array_const_new (rows, cols);
+  for (int i = 0; i < rows; i++)
+    for (int j = 0; j < cols; j++)
+      {
+        O42Operand *one = g_new0 (O42Operand, n_args);
+
+        for (int k = 0; k < n_args; k++)
+          {
+            one[k] = operands[k];
+            one[k].value = o42_value_empty ();
+            if (k < 32 && (mask & (1u << k)) && operand_is_multi (&operands[k]))
+              {
+                /* The cell that lines up, as a one-by-one range, so that
+                 * ROW and its kind still see where it came from; a
+                 * one-row or one-column argument is stretched along the
+                 * other axis, as Excel broadcasts. */
+                int r, c, ii = i, jj = j;
+                operand_dims (&operands[k], &r, &c);
+                if (r == 1) ii = 0;
+                if (c == 1) jj = 0;
+                if (ii >= r || jj >= c)
+                  {
+                    one[k].is_range = FALSE;
+                    one[k].value = o42_value_error (O42_ERR_NA);
+                  }
+                else
+                  {
+                    one[k].range.row0 = one[k].range.row1 = operands[k].range.row0 + ii;
+                    one[k].range.col0 = one[k].range.col1 = operands[k].range.col0 + jj;
+                  }
+              }
+            else if (!operands[k].is_range)
+              one[k].value = o42_value_copy (&operands[k].value);
+          }
+        result->cells[i * cols + j] = fn != NULL ? fn->fn (ctx, one, n_args)
+                                    : ext->impl (ctx, ext->name, one, n_args, ext->user);
+        for (int k = 0; k < n_args; k++)
+          operand_clear (&one[k]);
+        g_free (one);
+      }
+  *out = array_operand (result);
+  return TRUE;
+}
+
+static O42Operand
+eval_call_operand (O42EvalContext *ctx, const O42Node *node)
 {
   const O42Function *fn = find_function (node->as.call.name);
   const External *ext = fn == NULL ? find_external (node->as.call.name) : NULL;
@@ -9727,8 +9861,9 @@ eval_call (O42EvalContext *ctx, const O42Node *node)
   int min_args = fn != NULL ? fn->min_args : ext != NULL ? ext->min_args : 0;
   int max_args = fn != NULL ? fn->max_args : ext != NULL ? ext->max_args : -1;
   O42Operand *operands;
-  O42Value result;
+  O42Operand result;
 
+  memset (&result, 0, sizeof result);
   if (fn == NULL && ext == NULL)
     {
       /* A name bound to a lambda, called: LET(f, LAMBDA(x, x*2), f(3)). */
@@ -9740,23 +9875,24 @@ eval_call (O42EvalContext *ctx, const O42Node *node)
               {
                 O42Operand *given = n_args > 0 ? g_new0 (O42Operand, n_args) : NULL;
                 O42Operand r;
-                O42Value v;
                 for (int k = 0; k < n_args; k++)
                   given[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, k));
                 r = apply_lambda (ctx, b->operand.lambda, given, n_args);
-                v = operand_value (ctx, &r);
-                operand_clear (&r);
                 for (int k = 0; k < n_args; k++)
                   operand_clear (&given[k]);
                 g_free (given);
-                return v;
+                return r;
               }
           }
-      return o42_value_error (O42_ERR_NAME);
+      result.value = o42_value_error (O42_ERR_NAME);
+      return result;
     }
 
   if (n_args < min_args || (max_args >= 0 && n_args > max_args))
-    return o42_value_error (O42_ERR_VALUE);
+    {
+      result.value = o42_value_error (O42_ERR_VALUE);
+      return result;
+    }
 
   operands = (n_args > 0) ? g_new0 (O42Operand, n_args) : NULL;
 
@@ -9812,19 +9948,35 @@ eval_call (O42EvalContext *ctx, const O42Node *node)
             for (int i = 0; i < n_args; i++)
               operand_clear (&operands[i]);
             g_free (operands);
-            return o42_value_error (O42_ERR_VALUE);
+            result.value = o42_value_error (O42_ERR_VALUE);
+            return result;
           }
       }
   }
 
-  result = fn != NULL ? fn->fn (ctx, operands, n_args)
-                      : ext->impl (ctx, ext->name, operands, n_args, ext->user);
+  {
+    guint32 mask = fn != NULL ? lift_mask (fn->name) : 0;
+
+    if (mask == 0 || !lift_call (ctx, fn, ext, mask, operands, n_args, &result))
+      result.value = fn != NULL ? fn->fn (ctx, operands, n_args)
+                                : ext->impl (ctx, ext->name, operands, n_args, ext->user);
+  }
 
   for (int i = 0; i < n_args; i++)
     operand_clear (&operands[i]);
   g_free (operands);
 
   return result;
+}
+
+static O42Value
+eval_call (O42EvalContext *ctx, const O42Node *node)
+{
+  O42Operand op = eval_call_operand (ctx, node);
+  O42Value v = operand_value (ctx, &op);
+
+  operand_clear (&op);
+  return v;
 }
 
 static O42Operand
@@ -9914,8 +10066,7 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
     case O42_NODE_CALL:
       if (eval_range_call (ctx, node, &op))
         return op;
-      op.value = eval_node (ctx, node);
-      return op;
+      return eval_call_operand (ctx, node);
 
     case O42_NODE_ARRAY:
       {
