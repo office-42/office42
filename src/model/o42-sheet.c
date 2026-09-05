@@ -2008,6 +2008,13 @@ record_op_end (O42Sheet *sheet)
   o42_book_record_op_end (sheet->book);
 }
 
+/* The quiet half alone, when the line was written some other way. */
+static void
+record_op_quiet (O42Sheet *sheet)
+{
+  o42_book_record_op_begin (sheet->book, NULL, NULL);
+}
+
 /* sheet["A1:B2"] or sheet["A1"], for a recorded line.  Caller frees. */
 static char *
 record_range_text (const O42Range *range)
@@ -2408,6 +2415,11 @@ o42_sheet_clear_range (O42Sheet *sheet, const O42Range *range)
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (range != NULL);
 
+  {
+    char *text = record_range_text (range);
+    record_op_begin (sheet, "%s.clear()", text);
+    g_free (text);
+  }
   op_begin (sheet);
 
   if (range_is_vast (sheet, range))
@@ -2436,6 +2448,7 @@ o42_sheet_clear_range (O42Sheet *sheet, const O42Range *range)
         }
 
   op_end (sheet);
+  record_op_end (sheet);
 }
 
 void
@@ -2448,6 +2461,11 @@ o42_sheet_clear_formats (O42Sheet *sheet, const O42Range *range)
 
   def = o42_fmt_table_default (sheet->formats);
 
+  {
+    char *text = record_range_text (range);
+    record_op_begin (sheet, "%s.clear_formats()", text);
+    g_free (text);
+  }
   op_begin (sheet);
 
   if (range_is_vast (sheet, range))
@@ -2483,6 +2501,7 @@ o42_sheet_clear_formats (O42Sheet *sheet, const O42Range *range)
         }
 
   op_end (sheet);
+  record_op_end (sheet);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -2613,6 +2632,16 @@ o42_sheet_copy_range_special (O42Sheet *sheet, const O42Range *source,
   if (row < 0 || col < 0 || row + out_rows > O42_MAX_ROWS || col + out_cols > O42_MAX_COLS)
     return;
 
+  {
+    static const char *const MODES[] = { "all", "values", "formats", "formulas" };
+    char *text = record_range_text (source);
+    char *to = o42_ref_name (row, col);
+    record_op_begin (sheet, "%s.copy(\"%s\", \"%s\"%s)", text, to, MODES[CLAMP (mode, 0, 3)],
+                     transpose ? ", transpose=True" : "");
+    g_free (to);
+    g_free (text);
+  }
+
   /* Everything is read before anything is written, because the source and
    * the destination may overlap. */
   carried = g_new0 (Carried, (gsize) rows * cols);
@@ -2656,6 +2685,7 @@ o42_sheet_copy_range_special (O42Sheet *sheet, const O42Range *source,
   for (int i = 0; i < rows * cols; i++)
     g_free (carried[i].input);
   g_free (carried);
+  record_op_end (sheet);
 }
 
 void
@@ -2664,6 +2694,11 @@ o42_sheet_fill (O42Sheet *sheet, const O42Range *range, gboolean down)
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (range != NULL);
 
+  {
+    char *text = record_range_text (range);
+    record_op_begin (sheet, "%s.%s()", text, down ? "fill_down" : "fill_right");
+    g_free (text);
+  }
   op_begin (sheet);
 
   if (down)
@@ -2696,6 +2731,7 @@ o42_sheet_fill (O42Sheet *sheet, const O42Range *range, gboolean down)
     }
 
   op_end (sheet);
+  record_op_end (sheet);
 }
 
 /* ---- Autofill --------------------------------------------------------- */
@@ -2918,6 +2954,15 @@ o42_sheet_autofill (O42Sheet *sheet, const O42Range *source,
   if (total <= count || lines <= 0)
     return;
 
+  {
+    char *text = record_range_text (source);
+    char *a = o42_ref_name (target->row0, target->col0);
+    char *b = o42_ref_name (target->row1, target->col1);
+    record_op_begin (sheet, "%s.autofill(\"%s:%s\")", text, a, b);
+    g_free (a);
+    g_free (b);
+    g_free (text);
+  }
   carried = g_new0 (Carried, (gsize) lines * total);
 
   for (int line = 0; line < lines; line++)
@@ -2970,6 +3015,7 @@ o42_sheet_autofill (O42Sheet *sheet, const O42Range *source,
   for (int i = 0; i < lines * total; i++)
     g_free (carried[i].input);
   g_free (carried);
+  record_op_end (sheet);
 }
 
 void
@@ -3768,6 +3814,25 @@ o42_sheet_sort_keys (O42Sheet *sheet, const O42Range *range,
     if (keys[k] < range->col0 || keys[k] > range->col1)
       return;
 
+  if (o42_book_recording (sheet->book))
+    {
+      /* Keys are written relative to the range, as Range.sort takes them. */
+      GString *ks = g_string_new ("["), *as = g_string_new ("[");
+      char *text = record_range_text (range);
+      for (int k = 0; k < n_keys; k++)
+        {
+          g_string_append_printf (ks, "%s%d", k > 0 ? ", " : "", keys[k] - range->col0);
+          g_string_append_printf (as, "%s%s", k > 0 ? ", " : "", ascending[k] ? "True" : "False");
+        }
+      record_op_begin (sheet, "%s.sort(keys=%s], ascending=%s], header=%s)", text, ks->str, as->str,
+                       has_header ? "True" : "False");
+      g_string_free (ks, TRUE);
+      g_string_free (as, TRUE);
+      g_free (text);
+    }
+  else
+    record_op_quiet (sheet);
+
   so.n_keys = n_keys;
   for (int k = 0; k < n_keys; k++)
     so.ascending[k] = ascending[k];
@@ -3815,6 +3880,7 @@ o42_sheet_sort_keys (O42Sheet *sheet, const O42Range *range,
     for (int k = 0; k < SORT_MAX_KEYS; k++)
       o42_value_clear (&g_array_index (order, SortRow, i).key[k]);
   g_array_free (order, TRUE);
+  record_op_end (sheet);
 }
 
 static gboolean
@@ -3958,6 +4024,18 @@ o42_sheet_replace (O42Sheet *sheet, const O42Range *range,
   g_return_val_if_fail (sheet != NULL, 0);
   g_return_val_if_fail (needle != NULL && *needle != '\0', 0);
 
+  if (o42_book_recording (sheet->book))
+    {
+      char *text = range != NULL ? record_range_text (range) : g_strdup ("sheet");
+      char *a = o42_python_quote (needle), *b = o42_python_quote (replacement != NULL ? replacement : "");
+      record_op_begin (sheet, "%s.replace(%s, %s%s)", text, a, b, match_case ? ", match_case=True" : "");
+      g_free (a);
+      g_free (b);
+      g_free (text);
+    }
+  else
+    record_op_quiet (sheet);
+
   keys = g_array_new (FALSE, FALSE, sizeof (guint64));
   g_hash_table_iter_init (&iter, sheet->cells);
   while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
@@ -3991,6 +4069,7 @@ o42_sheet_replace (O42Sheet *sheet, const O42Range *range,
 
   op_end (sheet);
   g_array_free (keys, TRUE);
+  record_op_end (sheet);
   return count;
 }
 
@@ -5023,11 +5102,17 @@ o42_sheet_set_autofilter (O42Sheet *sheet, const O42Range *range)
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (range != NULL);
 
+  {
+    char *text = record_range_text (range);
+    record_op_begin (sheet, "%s.autofilter()", text);
+    g_free (text);
+  }
   sheet->has_filter = TRUE;
   sheet->filter = *range;
   g_hash_table_remove_all (sheet->filter_choice);
   autofilter_apply (sheet);
   sheet->modified = TRUE;
+  record_op_end (sheet);
 }
 
 gboolean
@@ -5043,10 +5128,12 @@ void
 o42_sheet_clear_autofilter (O42Sheet *sheet)
 {
   g_return_if_fail (sheet != NULL);
+  record_op_begin (sheet, "sheet.clear_autofilter()");
   sheet->has_filter = FALSE;
   g_hash_table_remove_all (sheet->filter_choice);
   autofilter_apply (sheet);
   sheet->modified = TRUE;
+  record_op_end (sheet);
 }
 
 void
@@ -5054,12 +5141,21 @@ o42_sheet_autofilter_choose (O42Sheet *sheet, int col, const char *value)
 {
   g_return_if_fail (sheet != NULL);
 
+  if (o42_book_recording (sheet->book))
+    {
+      char *quoted = value != NULL ? o42_python_quote (value) : g_strdup ("None");
+      record_op_begin (sheet, "sheet.autofilter_choose(%d, %s)", col, quoted);
+      g_free (quoted);
+    }
+  else
+    record_op_quiet (sheet);
   if (value == NULL)
     g_hash_table_remove (sheet->filter_choice, GINT_TO_POINTER (col));
   else
     g_hash_table_insert (sheet->filter_choice, GINT_TO_POINTER (col), g_strdup (value));
   autofilter_apply (sheet);
   sheet->modified = TRUE;
+  record_op_end (sheet);
 }
 
 void
@@ -6987,6 +7083,19 @@ o42_sheet_remove_duplicates (O42Sheet *sheet, const O42Range *range,
 
   g_return_val_if_fail (sheet != NULL && range != NULL && cols != NULL && n_cols > 0, 0);
   r = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
+  if (o42_book_recording (sheet->book))
+    {
+      GString *cs = g_string_new ("[");
+      char *text = record_range_text (&r);
+      for (int k = 0; k < n_cols; k++)
+        g_string_append_printf (cs, "%s%d", k > 0 ? ", " : "", cols[k] - r.col0);
+      record_op_begin (sheet, "%s.remove_duplicates(cols=%s], header=%s)", text, cs->str,
+                       has_header ? "True" : "False");
+      g_string_free (cs, TRUE);
+      g_free (text);
+    }
+  else
+    record_op_quiet (sheet);
   seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   doomed = g_array_new (FALSE, FALSE, sizeof (int));
   for (int row = r.row0 + (has_header ? 1 : 0); row <= r.row1; row++)
@@ -7013,6 +7122,7 @@ o42_sheet_remove_duplicates (O42Sheet *sheet, const O42Range *range,
   op_end (sheet);
   g_array_unref (doomed);
   g_hash_table_unref (seen);
+  record_op_end (sheet);
   return removed;
 }
 
@@ -8890,6 +9000,13 @@ o42_sheet_move_range (O42Sheet *sheet, const O42Range *from, int to_row, int to_
       to_row + rows > O42_MAX_ROWS || to_col + cols > O42_MAX_COLS)
     return;
 
+  {
+    char *text = record_range_text (&src);
+    char *to = o42_ref_name (to_row, to_col);
+    record_op_begin (sheet, "%s.cut(\"%s\")", text, to);
+    g_free (to);
+    g_free (text);
+  }
   inputs = g_new0 (char *, (gsize) rows * cols);
   formats = g_new0 (O42FmtIdx, (gsize) rows * cols);
   for (int r = 0; r < rows; r++)
@@ -9002,6 +9119,7 @@ o42_sheet_move_range (O42Sheet *sheet, const O42Range *from, int to_row, int to_
   g_free (inputs);
   g_free (formats);
   sheet->modified = TRUE;
+  record_op_end (sheet);
 }
 
 /* ---------------------------------------------------------------------- */

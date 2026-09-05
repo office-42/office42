@@ -421,6 +421,306 @@ m_frozen (PyObject *self, PyObject *args)
   return Py_BuildValue ("(ii)", rows, cols);
 }
 
+/* ---- Operations on a range ----------------------------------------- */
+
+static PyObject *
+m_clear_range (PyObject *self, PyObject *args)
+{
+  int index, formats;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiip", &index, &r.row0, &r.col0, &r.row1, &r.col1, &formats) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (formats) o42_sheet_clear_formats (sheet, &r);
+  else         o42_sheet_clear_range (sheet, &r);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static const char *PASTE_MODES[] = { "all", "values", "formats", "formulas" };
+
+/* copy_range(i, r0, c0, r1, c1, row, col, mode, transpose) */
+static PyObject *
+m_copy_range (PyObject *self, PyObject *args)
+{
+  int index, row, col, transpose, mode;
+  const char *mode_text;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiiiisp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &row, &col, &mode_text, &transpose) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  mode = -1;
+  for (guint i = 0; i < G_N_ELEMENTS (PASTE_MODES); i++)
+    if (g_ascii_strcasecmp (mode_text, PASTE_MODES[i]) == 0)
+      mode = (int) i;
+  if (mode < 0)
+    return PyErr_Format (PyExc_ValueError, "paste mode is all, values, formats or formulas, not %s", mode_text);
+  o42_sheet_copy_range_special (sheet, &r, row, col, (O42PasteMode) mode, transpose);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_move_range (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1, &row, &col) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  o42_sheet_move_range (sheet, &r, row, col);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+/* fill(i, r0, c0, r1, c1, down) and autofill(i, r0, c0, r1, c1, t0, u0, t1, u1) */
+static PyObject *
+m_fill (PyObject *self, PyObject *args)
+{
+  int index, down;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiip", &index, &r.row0, &r.col0, &r.row1, &r.col1, &down) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_fill (sheet, &r, down);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_autofill (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r, t;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiiiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1, &t.row0, &t.col0, &t.row1, &t.col1) ||
+      !range_ok (&r) || !range_ok (&t) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_autofill (sheet, &r, &t);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+/* A list of ints from Python, at most `max` of them. */
+static int
+int_list (PyObject *o, int *out, int max, const char *what)
+{
+  Py_ssize_t n;
+  if (PyLong_Check (o))
+    {
+      out[0] = (int) PyLong_AsLong (o);
+      return PyErr_Occurred () ? -1 : 1;
+    }
+  if (!PySequence_Check (o) || PyUnicode_Check (o))
+    {
+      PyErr_Format (PyExc_TypeError, "%s must be an int or a list of ints", what);
+      return -1;
+    }
+  n = PySequence_Size (o);
+  if (n > max)
+    {
+      PyErr_Format (PyExc_ValueError, "at most %d %s", max, what);
+      return -1;
+    }
+  for (Py_ssize_t i = 0; i < n; i++)
+    {
+      PyObject *item = PySequence_GetItem (o, i);
+      out[i] = item != NULL ? (int) PyLong_AsLong (item) : 0;
+      Py_XDECREF (item);
+      if (PyErr_Occurred ())
+        return -1;
+    }
+  return (int) n;
+}
+
+/* sort(i, r0, c0, r1, c1, keys, ascending, header): keys are columns
+ * counted from the range's left. */
+static PyObject *
+m_sort (PyObject *self, PyObject *args)
+{
+  int index, header;
+  O42Range r;
+  O42Sheet *sheet;
+  PyObject *keys_o, *asc_o;
+  int keys[3], n_keys, n_asc;
+  int asc_i[3] = { 1, 1, 1 };
+  gboolean asc[3];
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiiOOp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &keys_o, &asc_o, &header) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  n_keys = int_list (keys_o, keys, 3, "sort keys");
+  if (n_keys < 0)
+    return NULL;
+  if (PyBool_Check (asc_o))
+    {
+      n_asc = 1;
+      asc_i[0] = asc_o == Py_True;
+    }
+  else if ((n_asc = int_list (asc_o, asc_i, 3, "directions")) < 0)
+    return NULL;
+  for (int k = 0; k < n_keys; k++)
+    {
+      if (keys[k] < 0 || r.col0 + keys[k] > r.col1)
+        return PyErr_Format (PyExc_IndexError, "sort key %d is outside the range", keys[k]);
+      keys[k] += r.col0;
+      asc[k] = k < n_asc ? asc_i[k] != 0 : (n_asc > 0 ? asc_i[n_asc - 1] != 0 : TRUE);
+    }
+  o42_sheet_sort_keys (sheet, &r, keys, asc, n_keys, header);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+/* replace(i, r0, c0, r1, c1, needle, replacement, match_case) -> count;
+ * r0 < 0 means the whole sheet. */
+static PyObject *
+m_replace (PyObject *self, PyObject *args)
+{
+  int index, match_case, count;
+  O42Range r;
+  O42Sheet *sheet;
+  const char *needle, *replacement;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiissp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &needle, &replacement, &match_case) ||
+      (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (r.row0 >= 0 && !range_ok (&r))
+    return NULL;
+  if (*needle == '\0')
+    return PyErr_Format (PyExc_ValueError, "nothing to look for");
+  count = o42_sheet_replace (sheet, r.row0 >= 0 ? &r : NULL, needle, replacement, match_case);
+  if (count > 0)
+    book_touched = TRUE;
+  return PyLong_FromLong (count);
+}
+
+/* find(i, needle, match_case, whole_cell, row, col) -> (row, col) or None,
+ * searching on from just after row, col. */
+static PyObject *
+m_find (PyObject *self, PyObject *args)
+{
+  int index, match_case, whole_cell, row, col;
+  O42Sheet *sheet;
+  const char *needle;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "isppii", &index, &needle, &match_case, &whole_cell, &row, &col) ||
+      (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (!o42_sheet_find (sheet, needle, match_case, whole_cell, &row, &col))
+    Py_RETURN_NONE;
+  return Py_BuildValue ("(ii)", row, col);
+}
+
+/* remove_duplicates(i, r0, c0, r1, c1, cols, header) -> how many rows went;
+ * cols counted from the range's left. */
+static PyObject *
+m_remove_duplicates (PyObject *self, PyObject *args)
+{
+  int index, header, n_cols, removed;
+  O42Range r;
+  O42Sheet *sheet;
+  PyObject *cols_o;
+  int cols[256];
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiiOp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &cols_o, &header) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (cols_o == Py_None)
+    {
+      n_cols = MIN (r.col1 - r.col0 + 1, 256);
+      for (int k = 0; k < n_cols; k++)
+        cols[k] = k;
+    }
+  else if ((n_cols = int_list (cols_o, cols, 256, "columns")) < 0)
+    return NULL;
+  for (int k = 0; k < n_cols; k++)
+    {
+      if (cols[k] < 0 || r.col0 + cols[k] > r.col1)
+        return PyErr_Format (PyExc_IndexError, "column %d is outside the range", cols[k]);
+      cols[k] += r.col0;
+    }
+  if (n_cols == 0)
+    return PyLong_FromLong (0);
+  removed = o42_sheet_remove_duplicates (sheet, &r, cols, n_cols, header);
+  if (removed > 0)
+    book_touched = TRUE;
+  return PyLong_FromLong (removed);
+}
+
+static PyObject *
+m_set_autofilter (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (r.row0 < 0)
+    o42_sheet_clear_autofilter (sheet);
+  else if (range_ok (&r))
+    o42_sheet_set_autofilter (sheet, &r);
+  else
+    return NULL;
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_get_autofilter (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &index) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (!o42_sheet_get_autofilter (sheet, &r))
+    Py_RETURN_NONE;
+  return Py_BuildValue ("(iiii)", r.row0, r.col0, r.row1, r.col1);
+}
+
+/* autofilter_choose(i, col, value or None); with one argument, the choice. */
+static PyObject *
+m_autofilter_choose (PyObject *self, PyObject *args)
+{
+  int index, col;
+  PyObject *value = NULL;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "ii|O", &index, &col, &value) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (value == NULL)
+    {
+      const char *choice = o42_sheet_autofilter_choice (sheet, col);
+      if (choice == NULL)
+        Py_RETURN_NONE;
+      return PyUnicode_FromString (choice);
+    }
+  if (value == Py_None)
+    o42_sheet_autofilter_choose (sheet, col, NULL);
+  else
+    {
+      PyObject *text = PyObject_Str (value);
+      const char *s = text != NULL ? PyUnicode_AsUTF8 (text) : NULL;
+      if (s == NULL)
+        { Py_XDECREF (text); return NULL; }
+      o42_sheet_autofilter_choose (sheet, col, s);
+      Py_DECREF (text);
+    }
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
 static PyObject *
 m_get_input (PyObject *self, PyObject *args)
 {
@@ -978,6 +1278,18 @@ static PyMethodDef METHODS[] = {
   { "set_hidden",     m_set_hidden,     METH_VARARGS, "Hides or shows rows (or columns) first..last." },
   { "hidden",         m_hidden,         METH_VARARGS, "Whether a row (or column) is hidden." },
   { "frozen",         m_frozen,         METH_VARARGS, "The frozen (rows, cols); sets them with two more arguments." },
+  { "clear_range",    m_clear_range,    METH_VARARGS, "Empties a range's cells, or their formats." },
+  { "copy_range",     m_copy_range,     METH_VARARGS, "Copies a range to a cell: all, values, formats or formulas." },
+  { "move_range",     m_move_range,     METH_VARARGS, "Moves a range to a cell, formulas following." },
+  { "fill",           m_fill,           METH_VARARGS, "Fill Down (or Right) over a range." },
+  { "autofill",       m_autofill,       METH_VARARGS, "Continues a range's series over a target." },
+  { "sort",           m_sort,           METH_VARARGS, "Sorts a range's rows by keys." },
+  { "replace",        m_replace,        METH_VARARGS, "Replaces text in a range (or the sheet); how many cells." },
+  { "find",           m_find,           METH_VARARGS, "The next cell holding a text, or None." },
+  { "remove_duplicates", m_remove_duplicates, METH_VARARGS, "Removes a range's duplicate rows; how many." },
+  { "set_autofilter", m_set_autofilter, METH_VARARGS, "Puts an AutoFilter on a range, or takes it off." },
+  { "get_autofilter", m_get_autofilter, METH_VARARGS, "The AutoFilter's range, or None." },
+  { "autofilter_choose", m_autofilter_choose, METH_VARARGS, "A filter column's choice; sets it with a value or None." },
   { "get_input",      m_get_input,      METH_VARARGS, "What was typed into a cell." },
   { "set_input",      m_set_input,      METH_VARARGS, "Types into a cell." },
   { "get_value",      m_get_value,      METH_VARARGS, "A cell's value." },

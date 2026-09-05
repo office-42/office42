@@ -218,7 +218,87 @@ class Range:
             _c.end(i)
 
     def clear(self):
-        self.value = None
+        """Empties the cells, keeping their formats."""
+        _c.clear_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1, False)
+
+    def clear_formats(self):
+        _c.clear_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1, True)
+
+    # -- copying, moving, filling --------------------------------------
+    def _cell_of(self, to):
+        """The top-left cell a target names: a Range, "D1", or (row, col)."""
+        if isinstance(to, Range):
+            return to.row0, to.col0
+        if isinstance(to, str):
+            parsed = _c.ref_parse(to.strip().split(":")[0])
+            if parsed is None:
+                raise ValueError("not a cell: %r" % to)
+            return parsed[0], parsed[1]
+        return to[0], to[1]
+
+    def copy(self, to, mode="all", transpose=False):
+        """Copies the range so that its corner lands on `to`: everything,
+        or only "values", "formats" or "formulas" (Paste Special)."""
+        row, col = self._cell_of(to)
+        _c.copy_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                      row, col, mode, transpose)
+
+    paste_special = copy
+
+    def cut(self, to):
+        """Moves the range to `to`, formulas elsewhere following it."""
+        row, col = self._cell_of(to)
+        _c.move_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1, row, col)
+
+    def fill_down(self):
+        """The first row copied into every other row of the range."""
+        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, True)
+
+    def fill_right(self):
+        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, False)
+
+    def autofill(self, target):
+        """Continues the range's series over `target`, which contains it."""
+        t = target if isinstance(target, Range) else self.sheet.range(target)
+        _c.autofill(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                    t.row0, t.col0, t.row1, t.col1)
+
+    # -- sorting, finding, filtering -----------------------------------
+    def sort(self, keys=0, ascending=True, header=False):
+        """Sorts the rows by up to three key columns, counted from the
+        range's left; `ascending` is one bool or one per key."""
+        _c.sort(self.sheet.index, self.row0, self.col0, self.row1, self.col1, keys, ascending, header)
+
+    def replace(self, old, new, match_case=False):
+        """Replaces text in the cells' inputs; how many cells changed."""
+        return _c.replace(self.sheet.index, self.row0, self.col0, self.row1, self.col1, old, new, match_case)
+
+    def find(self, text, match_case=False, whole_cell=False):
+        """The first cell of the range holding the text, or None."""
+        row, col = self.row0, self.col0 - 1
+        if col < 0:
+            row, col = row - 1, _c.ref_parse("XFD1")[1]
+        first = None
+        while True:
+            # The search wraps round the sheet; seeing the first hit again
+            # means nothing inside the range matched.
+            hit = _c.find(self.sheet.index, text, match_case, whole_cell, row, col)
+            if hit is None or hit == first:
+                return None
+            if first is None:
+                first = hit
+            row, col = hit
+            if self.row0 <= row <= self.row1 and self.col0 <= col <= self.col1:
+                return Range(self.sheet, row, col)
+
+    def remove_duplicates(self, cols=None, header=False):
+        """Removes rows equal in the given columns (counted from the
+        range's left; all of them by default); how many went."""
+        return _c.remove_duplicates(self.sheet.index, self.row0, self.col0, self.row1, self.col1, cols, header)
+
+    def autofilter(self):
+        """Puts the sheet's AutoFilter on this range, its first row headings."""
+        _c.set_autofilter(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
 
     # -- the cells themselves ------------------------------------------
     def merge(self):
@@ -399,6 +479,40 @@ class Sheet:
     def frozen(self):
         """(rows, cols) frozen at the top and left."""
         return _c.frozen(self.index)
+
+    # -- finding and filtering -----------------------------------------
+    def replace(self, old, new, match_case=False):
+        """Replaces text in every cell of the sheet; how many changed."""
+        return _c.replace(self.index, -1, -1, -1, -1, old, new, match_case)
+
+    def find(self, text, match_case=False, whole_cell=False, after=None):
+        """The next cell holding the text, in reading order from just
+        after `after` (a Range or address; the sheet's start by default),
+        wrapping round; None if there is none."""
+        if after is None:
+            row, col = -1, _c.ref_parse("XFD1")[1]
+        else:
+            r = after if isinstance(after, Range) else self.range(after)
+            row, col = r.row0, r.col0
+        hit = _c.find(self.index, text, match_case, whole_cell, row, col)
+        return None if hit is None else Range(self, *hit)
+
+    @property
+    def autofilter(self):
+        """The range the AutoFilter is on, or None."""
+        r = _c.get_autofilter(self.index)
+        return None if r is None else Range(self, *r)
+
+    def clear_autofilter(self):
+        _c.set_autofilter(self.index, -1, -1, -1, -1)
+
+    def autofilter_choose(self, col, value):
+        """Shows only the rows whose cell in column `col` (an absolute
+        index) reads `value`; None for all of them again."""
+        _c.autofilter_choose(self.index, col, value)
+
+    def autofilter_choice(self, col):
+        return _c.autofilter_choose(self.index, col)
 
 
 class Book:
