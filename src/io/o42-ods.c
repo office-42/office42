@@ -785,10 +785,18 @@ num_style (Styles *s, const O42Fmt *fmt)
         name, decimals, decimals, fmt->number == O42_NUM_COMMA ? " number:grouping=\"true\"" : "");
       break;
     case O42_NUM_CURRENCY:
-      g_string_append_printf (s->styles,
-        "<number:currency-style style:name=\"%s\"><number:currency-symbol>$</number:currency-symbol>"
-        "<number:number number:decimal-places=\"%d\" number:min-decimal-places=\"%d\" number:min-integer-digits=\"1\" number:grouping=\"true\"/></number:currency-style>",
-        name, decimals, decimals);
+    case O42_NUM_ACCOUNTING:
+      {
+        /* Accounting is a currency style with the fill character ODF
+         * keeps for it, which is what pushes the symbol to the edge. */
+        char *symbol = g_markup_escape_text (o42_numfmt_currency (), -1);
+        g_string_append_printf (s->styles,
+          "<number:currency-style style:name=\"%s\"><number:currency-symbol>%s</number:currency-symbol>%s"
+          "<number:number number:decimal-places=\"%d\" number:min-decimal-places=\"%d\" number:min-integer-digits=\"1\" number:grouping=\"true\"/></number:currency-style>",
+          name, symbol, fmt->number == O42_NUM_ACCOUNTING ? "<number:fill-character> </number:fill-character>" : "",
+          decimals, decimals);
+        g_free (symbol);
+      }
       break;
     case O42_NUM_PERCENT:
       g_string_append_printf (s->styles,
@@ -1397,10 +1405,10 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
               break;
             }
           g_string_append_printf (out, " office:value-type=\"%s\" office:value=\"%s\"",
-                                  fmt->number == O42_NUM_PERCENT ? "percentage" : fmt->number == O42_NUM_CURRENCY ? "currency" : "float",
+                                  fmt->number == O42_NUM_PERCENT ? "percentage" : (fmt->number == O42_NUM_CURRENCY || fmt->number == O42_NUM_ACCOUNTING) ? "currency" : "float",
                                   g_ascii_dtostr (buf, sizeof buf, value.as.number));
-          if (fmt->number == O42_NUM_CURRENCY)
-            g_string_append (out, " office:currency=\"USD\"");
+          if (fmt->number == O42_NUM_CURRENCY || fmt->number == O42_NUM_ACCOUNTING)
+            g_string_append_printf (out, " office:currency=\"%s\"", o42_numfmt_currency_iso ());
           break;
         case O42_VALUE_BOOL:
           g_string_append_printf (out, " office:value-type=\"boolean\" office:boolean-value=\"%s\"", value.as.boolean ? "true" : "false");
@@ -1832,6 +1840,10 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   g_string_append (content, "<office:automatic-styles>");
   g_string_append (content, s.styles->str);
   g_string_append (content, "</office:automatic-styles><office:body><office:spreadsheet>");
+  if (o42_book_date_1904 (book) || o42_book_precision_as_displayed (book))
+    g_string_append_printf (content, "<table:calculation-settings%s>%s</table:calculation-settings>",
+                            o42_book_precision_as_displayed (book) ? " table:precision-as-shown=\"true\"" : "",
+                            o42_book_date_1904 (book) ? "<table:null-date table:date-value=\"1904-01-01\"/>" : "");
   g_string_append (content, body->str);
   g_string_append (content, "</office:spreadsheet></office:body></office:document-content>");
 
@@ -3276,6 +3288,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "hours") == 0 && ns->number == O42_NUM_DATE)
         ns->number = O42_NUM_DATETIME;
+      else if (strcmp (name, "fill-character") == 0 && ns->number == O42_NUM_CURRENCY)
+        ns->number = O42_NUM_ACCOUNTING;
 
       if (ns->code != NULL)
         {
@@ -3328,6 +3342,21 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
             r->loose_controls = g_array_new (FALSE, FALSE, sizeof (LooseControl));
           g_array_append_val (r->loose_controls, l);
         }
+      return;
+    }
+
+  if (strcmp (name, "calculation-settings") == 0)
+    {
+      o42_book_set_precision_as_displayed (r->book, g_strcmp0 (attr (names, values, "precision-as-shown"), "true") == 0);
+      return;
+    }
+
+  if (strcmp (name, "null-date") == 0)
+    {
+      /* The day serial 0 falls on: 1904-01-01 is the Macintosh epoch,
+       * and 1899-12-30 the usual one. */
+      const char *when = attr (names, values, "date-value");
+      o42_book_set_date_1904 (r->book, when != NULL && g_str_has_prefix (when, "1904"));
       return;
     }
 

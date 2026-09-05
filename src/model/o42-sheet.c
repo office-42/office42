@@ -584,6 +584,58 @@ sheet_evaluate_deep_first (O42Sheet *sheet, guint64 root)
   g_array_unref (stack);
 }
 
+/* Precision as displayed: how many decimals the cell's format shows,
+ * or -1 when it shows them all (General, text, dates). */
+static int
+shown_decimals (O42Sheet *sheet, const O42Cell *cell)
+{
+  const O42Fmt *fmt = o42_fmt_table_get (sheet->formats, cell->fmt);
+  O42NumberFormat number = fmt->number;
+  int decimals = fmt->decimals;
+
+  if (fmt->custom != NULL && !o42_number_format_parse (fmt->custom, &number, &decimals))
+    return -1;
+  switch (number)
+    {
+    case O42_NUM_FIXED: case O42_NUM_COMMA: case O42_NUM_CURRENCY: case O42_NUM_ACCOUNTING:
+      return CLAMP (decimals, 0, 15);
+    case O42_NUM_PERCENT:
+      return CLAMP (decimals + 2, 0, 15);
+    default:
+      return -1;
+    }
+}
+
+static void
+round_to_display (O42Sheet *sheet, O42Cell *cell)
+{
+  int decimals;
+
+  if (sheet->book == NULL || !o42_book_precision_as_displayed (sheet->book) ||
+      cell->value.type != O42_VALUE_NUMBER)
+    return;
+  decimals = shown_decimals (sheet, cell);
+  if (decimals >= 0)
+    cell->value.as.number = o42_number_round_shown (cell->value.as.number, decimals);
+}
+
+static void
+round_cell_to_display (O42Sheet *sheet, int row, int col, gpointer user)
+{
+  O42Cell *cell = sheet_find (sheet, row, col);
+
+  (void) user;
+  if (cell != NULL)
+    round_to_display (sheet, cell);
+}
+
+void
+o42_sheet_round_to_display (O42Sheet *sheet)
+{
+  g_return_if_fail (sheet != NULL);
+  o42_sheet_foreach_cell (sheet, round_cell_to_display, NULL);
+}
+
 static void
 sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
 {
@@ -719,6 +771,7 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
   o42_value_clear (&cell->value);
   cell->value = result;
   cell->dirty = 0;
+  round_to_display (sheet, cell);
   evaluate_depth--;
 }
 
@@ -756,7 +809,8 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
         {
         case O42_NUM_FIXED:      g_snprintf (code, sizeof code, "F%d", fmt->decimals); break;
         case O42_NUM_COMMA:      g_snprintf (code, sizeof code, ",%d", fmt->decimals); break;
-        case O42_NUM_CURRENCY:   g_snprintf (code, sizeof code, "C%d", fmt->decimals); break;
+        case O42_NUM_CURRENCY:
+        case O42_NUM_ACCOUNTING: g_snprintf (code, sizeof code, "C%d", fmt->decimals); break;
         case O42_NUM_PERCENT:    g_snprintf (code, sizeof code, "P%d", fmt->decimals); break;
         case O42_NUM_SCIENTIFIC: g_snprintf (code, sizeof code, "S%d", fmt->decimals); break;
         case O42_NUM_DATE:       g_strlcpy (code, "D4", sizeof code); break;
@@ -2224,7 +2278,7 @@ record_format (O42Sheet *sheet, const O42Range *range, O42FmtMask mask, const O4
   static const char *const VALIGNS[] = { "bottom", "middle", "top" };
   static const char *const NUMBERS[] = { "general", "fixed", "comma", "currency",
                                          "percent", "scientific", "text", "date",
-                                         "time", "datetime" };
+                                         "time", "datetime", "accounting" };
   GString *args = g_string_new (NULL);
   char *a, *b, *line;
 
@@ -2264,7 +2318,7 @@ record_format (O42Sheet *sheet, const O42Range *range, O42FmtMask mask, const O4
       if (fmt->custom != NULL)
         g_string_append_printf (args, "number=\"%s\"", fmt->custom);
       else
-        g_string_append_printf (args, "number=\"%s\"", NUMBERS[CLAMP (fmt->number, 0, 9)]);
+        g_string_append_printf (args, "number=\"%s\"", NUMBERS[CLAMP (fmt->number, 0, 10)]);
     }
   #undef ARG
 
@@ -2392,6 +2446,7 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
                   cell->value = o42_value_number (entry.number);
                   if (entry.format != O42_NUM_GENERAL)
                     cell_take_format (sheet, cell, entry.format, entry.decimals);
+                  round_to_display (sheet, cell);
                 }
               else
                 cell->value = o42_value_text (text);
@@ -4314,6 +4369,17 @@ o42_sheet_apply_fmt (O42Sheet   *sheet,
         op_capture (sheet, row, col);
         cell = sheet_ensure (sheet, row, col);
         cell->fmt = idx;
+        if ((mask & (O42_FMT_NUMBER | O42_FMT_DECIMALS)) && cell->value.type == O42_VALUE_NUMBER &&
+            sheet->book != NULL && o42_book_precision_as_displayed (sheet->book))
+          {
+            /* Precision as displayed: fewer decimals shown are fewer
+             * decimals kept, and what reads the cell is told. */
+            double before = cell->value.as.number;
+
+            round_to_display (sheet, cell);
+            if (cell->value.as.number != before)
+              sheet_invalidate (sheet, row, col);
+          }
       }
 
   op_end (sheet);
@@ -10227,6 +10293,8 @@ o42_sheet_recalculate (O42Sheet *sheet)
   g_return_if_fail (sheet != NULL);
   if (sheet->recalculating)
     return;
+  if (sheet->book != NULL)
+    o42_date_set_1904 (o42_book_date_1904 (sheet->book));   /* this book's calendar */
   sheet->recalculating = TRUE;
   sheet->cycle_seen = FALSE;
 

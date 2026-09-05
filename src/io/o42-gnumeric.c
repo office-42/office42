@@ -1257,10 +1257,13 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
     "xsi:schemaLocation=\"http://www.gnumeric.org/v9.xsd\">\n"
     "  <gnm:Version Epoch=\"1\" Major=\"12\" Minor=\"50\" Full=\"1.12.50\"/>\n"
     "  <gnm:Calculation ManualRecalc=\"%d\" EnableIteration=\"%d\" "
-    "MaxIterations=\"%d\" IterationTolerance=\"%g\" FloatRadix=\"2\" FloatDigits=\"53\"/>\n"
+    "MaxIterations=\"%d\" IterationTolerance=\"%g\" FloatRadix=\"2\" FloatDigits=\"53\"%s/>\n"
     "  <gnm:SheetNameIndex>\n",
     o42_book_manual (book) ? 1 : 0, iteration_on ? 1 : 0,
-    iteration_max, iteration_tolerance);
+    iteration_max, iteration_tolerance,
+    o42_book_date_1904 (book) ? " DateConvention=\"Apple:1904\"" : "");
+    if (o42_book_precision_as_displayed (book))
+      g_string_append (out, "  <gnm:o42-Options PrecisionAsDisplayed=\"1\"/>\n");
   }
   for (int i = 0; i < n; i++)
     {
@@ -1801,6 +1804,14 @@ start_element (GMarkupParseContext *context, const char *element,
                               attr_int (names, values, "EnableIteration", 0) != 0,
                               attr_int (names, values, "MaxIterations", 100),
                               attr_double (names, values, "IterationTolerance", 0.001));
+      /* Gnumeric's name for the Macintosh epoch. */
+      o42_book_set_date_1904 (r->book, g_strcmp0 (attr (names, values, "DateConvention"), "Apple:1904") == 0);
+      return;
+    }
+
+  if (strcmp (name, "o42-Options") == 0)
+    {
+      o42_book_set_precision_as_displayed (r->book, attr_int (names, values, "PrecisionAsDisplayed", 0) != 0);
       return;
     }
 

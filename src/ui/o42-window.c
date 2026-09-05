@@ -38,6 +38,9 @@
 #include "o42-spell.h"
 
 #include "o42-grid.h"
+#include "o42-application.h"
+#include "o42-date.h"
+#include "o42-entry.h"
 #include "o42-image.h"
 #include "o42-pdf.h"
 #include "o42-scan.h"
@@ -297,6 +300,7 @@ action_number (GSimpleAction *a, GVariant *param, gpointer data)
   o42_fmt_init_default (&want);
 
   if (g_strcmp0 (which, "currency") == 0)        { want.number = O42_NUM_CURRENCY;   want.decimals = 2; mask |= O42_FMT_DECIMALS; }
+  else if (g_strcmp0 (which, "accounting") == 0) { want.number = O42_NUM_ACCOUNTING; want.decimals = 2; mask |= O42_FMT_DECIMALS; }
   else if (g_strcmp0 (which, "percent") == 0)    { want.number = O42_NUM_PERCENT;    want.decimals = 0; mask |= O42_FMT_DECIMALS; }
   else if (g_strcmp0 (which, "comma") == 0)      { want.number = O42_NUM_COMMA;      want.decimals = 2; mask |= O42_FMT_DECIMALS; }
   else if (g_strcmp0 (which, "fixed") == 0)      { want.number = O42_NUM_FIXED;      want.decimals = 2; mask |= O42_FMT_DECIMALS; }
@@ -1326,6 +1330,7 @@ typedef struct {
   GtkWidget *dialog;
   GtkWidget *gridlines, *zeros, *checks;
   GtkWidget *manual, *iterate, *iterations, *tolerance;
+  GtkWidget *currency, *date_1904, *as_displayed, *fixed, *fixed_places;
 } OptionsPrompt;
 
 static void
@@ -1342,10 +1347,34 @@ on_options_ok (GtkWidget *w, gpointer data)
 
   o42_book_set_manual (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->manual)));
+  o42_book_set_date_1904 (prompt->window->book,
+    gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->date_1904)));
+  o42_book_set_precision_as_displayed (prompt->window->book,
+    gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->as_displayed)));
+  {
+    /* Fixed decimals is a habit of the typist, kept with the currency. */
+    gboolean fixed = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->fixed));
+    int places = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->fixed_places));
+    char *text = fixed ? g_strdup_printf ("%d", places) : NULL;
+
+    o42_entry_set_fixed_decimals (fixed ? places : -1);
+    o42_prefs_set ("fixed_decimals", text);
+    g_free (text);
+  }
   o42_book_set_iteration (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->iterate)),
     (int) gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->iterations)),
     g_ascii_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->tolerance)), NULL));
+
+  {
+    /* The currency symbol is the program's, not the book's: it is
+     * kept in the options file and shown by every Currency and
+     * Accounting cell from now on. */
+    const char *symbol = gtk_editable_get_text (GTK_EDITABLE (prompt->currency));
+
+    o42_numfmt_set_currency (*symbol != '\0' ? symbol : NULL);
+    o42_prefs_set ("currency", *symbol != '\0' ? symbol : NULL);
+  }
 
   /* Turning iteration on, or going back to calculating as you type,
    * only means anything once everything has been worked out again. */
@@ -1408,11 +1437,29 @@ action_options (GSimpleAction *a, GVariant *p, gpointer data)
     gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->iterate), iterating);
     gtk_box_append (GTK_BOX (content), prompt->iterate);
 
+    prompt->date_1904 = gtk_check_button_new_with_mnemonic ( _("_1904 date system"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->date_1904), o42_book_date_1904 (self->book));
+    gtk_box_append (GTK_BOX (content), prompt->date_1904);
+
+    prompt->as_displayed = gtk_check_button_new_with_mnemonic ( _("_Precision as displayed"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->as_displayed),
+                                 o42_book_precision_as_displayed (self->book));
+    gtk_box_append (GTK_BOX (content), prompt->as_displayed);
+
+    prompt->fixed = gtk_check_button_new_with_mnemonic ( _("Fi_xed decimal places when typing:"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->fixed), o42_entry_fixed_decimals () >= 0);
+    gtk_box_append (GTK_BOX (content), prompt->fixed);
+
     prompt->iterations = labelled (grid, 0, "At most:",
                                    gtk_spin_button_new_with_range (1, 10000, 1));
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->iterations), max);
     prompt->tolerance = labelled (grid, 1, _("Until it moves less than:"), gtk_entry_new ());
     gtk_editable_set_text (GTK_EDITABLE (prompt->tolerance), shown);
+    prompt->fixed_places = labelled (grid, 2, _("Places:"), gtk_spin_button_new_with_range (0, 15, 1));
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->fixed_places), MAX (o42_entry_fixed_decimals (), 2));
+    prompt->currency = labelled (grid, 3, _("Currency symbol:"), gtk_entry_new ());
+    gtk_editable_set_text (GTK_EDITABLE (prompt->currency), o42_numfmt_currency ());
+    gtk_editable_set_width_chars (GTK_EDITABLE (prompt->currency), 6);
     gtk_box_append (GTK_BOX (content), grid);
   }
 
@@ -5345,7 +5392,9 @@ build_format_bar (O42Window *self)
 
   gtk_box_append (GTK_BOX (bar), tool_separator ());
 
-  gtk_box_append (GTK_BOX (bar), target_button ("$", "Currency Style", "win.number", "currency", "o42-glyph"));
+  /* Excel's Currency Style button puts on the Accounting format, with
+   * the symbol at the edge; Ctrl+Shift+4 is the Currency format. */
+  gtk_box_append (GTK_BOX (bar), target_button ("$", "Currency Style", "win.number", "accounting", "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), target_button ("%", "Percent Style",  "win.number", "percent",  "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), target_button (",", "Comma Style",    "win.number", "comma",    "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), icon_int_target_button ("o42-increase-decimal",
@@ -5730,6 +5779,18 @@ on_grid_mapped (GtkWidget *widget, gpointer data)
   gtk_widget_grab_focus (widget);
 }
 
+/* The date system is the book's, and the one in use is the front
+ * window's: a window coming to the front says so. */
+static void
+on_window_active (GObject *window, GParamSpec *pspec, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) window; (void) pspec;
+  if (gtk_window_is_active (GTK_WINDOW (self)) && self->book != NULL)
+    o42_date_set_1904 (o42_book_date_1904 (self->book));
+}
+
 static void
 o42_window_init (O42Window *self)
 {
@@ -5740,6 +5801,7 @@ o42_window_init (O42Window *self)
   self->book = o42_book_new ();
   self->sheet = o42_book_sheet (self->book, 0);
   o42_book_watch (self->book, on_book_changed, self);
+  g_signal_connect (self, "notify::is-active", G_CALLBACK (on_window_active), self);
 
   g_action_map_add_action_entries (G_ACTION_MAP (self), ACTIONS,
                                    G_N_ELEMENTS (ACTIONS), self);

@@ -247,6 +247,9 @@ draw_page (cairo_t      *cr,
           double tx, ty;
           O42HAlign halign;
           gboolean is_text;
+          O42FormatLayout flayout;
+          double fill_left = 0, fill_right = 0, fill_gap = 0;
+          gboolean filled = FALSE;
 
           o42_sheet_get_value (sheet, r, c, &value);
           if (value.type == O42_VALUE_EMPTY)
@@ -297,7 +300,7 @@ draw_page (cairo_t      *cr,
             if (o42_sheet_conditional_fmt (sheet, r, c, &conditional))
               fmt = &conditional;
           }
-          text = o42_fmt_display (fmt, &value);
+          text = o42_fmt_display_layout (fmt, &value, &flayout);
           is_text = value.type == O42_VALUE_TEXT;
           halign = o42_fmt_effective_halign (fmt, &value);
 
@@ -335,6 +338,12 @@ draw_page (cairo_t      *cr,
             PangoAttrList *attrs = o42_runs_attributes (runs, n_runs, fmt, text);
             gboolean linked = o42_sheet_get_link (sheet, r, c) != NULL;
 
+            if (flayout.n_pads > 0)
+              {
+                /* The format's "_x" gaps, as wide as x in this font. */
+                o42_format_pad_attributes (layout, &flayout, &attrs);
+                pango_layout_set_text (layout, text, -1);
+              }
             if (fmt->underline || fmt->strikeout || linked)
               {
                 if (attrs == NULL)
@@ -387,7 +396,11 @@ draw_page (cairo_t      *cr,
                   pango_layout_set_text (layout, text, -1);
                   pango_layout_get_pixel_size (layout, &tw, &th);
                 }
+              flayout.fill_at = -1;
+              flayout.n_pads = 0;
             }
+          filled = !fmt->wrap && o42_format_fill_split (layout, &flayout, w, 3,
+                                                        &fill_left, &fill_right, &fill_gap);
 
           if (fmt->wrap)
             tx = x + 3;
@@ -436,16 +449,28 @@ draw_page (cairo_t      *cr,
             o42_fmt_display_colour (fmt, &value, &colour);
             set_rgb (cr, plain ? 0 : colour);
           }
-          if (fmt->rotation != 0)
+          if (filled)
             {
-              /* Turned about the cell's centre, as on screen. */
-              cairo_translate (cr, x + w / 2.0, y + h / 2.0);
-              cairo_rotate (cr, -fmt->rotation * G_PI / 180.0);
-              cairo_move_to (cr, -tw / 2.0, -th / 2.0);
+              /* A filled format, as the grid draws it: the left half at
+               * the left edge, the right half flush right, the fill
+               * character across the gap. */
+              (void) fill_left;
+              o42_format_draw_filled (cr, layout, text, &flayout, fmt->underline, fmt->strikeout,
+                                      x + 3, x + w - 3 - fill_right, fill_gap, ty);
             }
           else
-            cairo_move_to (cr, tx, ty);
-          pango_cairo_show_layout (cr, layout);
+            {
+              if (fmt->rotation != 0)
+                {
+                  /* Turned about the cell's centre, as on screen. */
+                  cairo_translate (cr, x + w / 2.0, y + h / 2.0);
+                  cairo_rotate (cr, -fmt->rotation * G_PI / 180.0);
+                  cairo_move_to (cr, -tw / 2.0, -th / 2.0);
+                }
+              else
+                cairo_move_to (cr, tx, ty);
+              pango_cairo_show_layout (cr, layout);
+            }
           cairo_restore (cr);
           pango_layout_set_attributes (layout, NULL);
 

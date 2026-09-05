@@ -12,6 +12,219 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef G_OS_WIN32
+#include <windows.h>
+#else
+#include <langinfo.h>
+#endif
+
+/* ---------------------------------------------------------------------- */
+/* The currency symbol                                                     */
+/* ---------------------------------------------------------------------- */
+
+static char *currency_symbol;
+
+/* The symbol the machine's locale uses, or a dollar when it has none
+ * that can be read: Windows keeps it in the locale's LOCALE_SCURRENCY,
+ * and everywhere else nl_langinfo hands back "-$" or "kr " with a sign
+ * position marked on the front. */
+static char *
+locale_currency (void)
+{
+#ifdef G_OS_WIN32
+  wchar_t wide[16];
+
+  if (GetLocaleInfoW (LOCALE_USER_DEFAULT, LOCALE_SCURRENCY, wide, G_N_ELEMENTS (wide)) > 0)
+    {
+      char *utf8 = g_utf16_to_utf8 ((const gunichar2 *) wide, -1, NULL, NULL, NULL);
+      if (utf8 != NULL && *utf8 != '\0')
+        return utf8;
+      g_free (utf8);
+    }
+#else
+  const char *s = nl_langinfo (CRNCYSTR);
+
+  if (s != NULL && (s[0] == '-' || s[0] == '+' || s[0] == '.') && s[1] != '\0')
+    {
+      char *sym = g_strstrip (g_strdup (s + 1));
+      if (*sym != '\0' && g_utf8_validate (sym, -1, NULL))
+        return sym;
+      g_free (sym);
+    }
+#endif
+  return g_strdup ("$");
+}
+
+const char *
+o42_numfmt_currency (void)
+{
+  if (currency_symbol == NULL)
+    currency_symbol = locale_currency ();
+  return currency_symbol;
+}
+
+void
+o42_numfmt_set_currency (const char *symbol)
+{
+  g_free (currency_symbol);
+  currency_symbol = (symbol != NULL && *symbol != '\0') ? g_strdup (symbol) : NULL;
+}
+
+/* The ISO code a file wants beside a value, for the symbols whose
+ * country is plain; the symbol itself otherwise. */
+const char *
+o42_numfmt_currency_iso (void)
+{
+  static const struct { const char *symbol, *iso; } KNOWN[] = {
+    { "$", "USD" }, { "\xe2\x82\xac", "EUR" }, { "\xc2\xa3", "GBP" },
+    { "\xc2\xa5", "JPY" }, { "kr", "NOK" }, { "CHF", "CHF" },
+  };
+  const char *symbol = o42_numfmt_currency ();
+
+  for (guint i = 0; i < G_N_ELEMENTS (KNOWN); i++)
+    if (strcmp (symbol, KNOWN[i].symbol) == 0)
+      return KNOWN[i].iso;
+  return symbol;
+}
+
+/* The "-414" Excel puts after a symbol in [$kr-414], for the symbols
+ * whose country is plain; the euro's is the "-2" Excel itself writes.
+ * An unknown symbol gets no locale, which Excel reads all the same. */
+static const char *
+currency_lcid (const char *symbol)
+{
+  static const struct { const char *symbol, *lcid; } KNOWN[] = {
+    { "$", "-409" }, { "\xe2\x82\xac", "-2" }, { "\xc2\xa3", "-809" },
+    { "\xc2\xa5", "-411" }, { "kr", "-414" }, { "CHF", "-807" },
+  };
+
+  for (guint i = 0; i < G_N_ELEMENTS (KNOWN); i++)
+    if (strcmp (symbol, KNOWN[i].symbol) == 0)
+      return KNOWN[i].lcid;
+  return "";
+}
+
+/* Excel's Accounting code with the symbol and the decimals filled in:
+ * the symbol at the left edge, the number at the right, a negative in
+ * parentheses, a zero as a dash, and text indented like the numbers. */
+static char *
+accounting_code (const char *symbol, int decimals)
+{
+  GString *places = g_string_new ("#,##0");
+  GString *dash = g_string_new (NULL);
+  GString *sym = g_string_new (NULL);
+  char *code;
+
+  if (decimals > 0)
+    {
+      g_string_append_c (places, '.');
+      for (int i = 0; i < decimals; i++)
+        {
+          g_string_append_c (places, '0');
+          g_string_append_c (dash, '?');
+        }
+    }
+  if (symbol != NULL && *symbol != '\0')
+    g_string_append_printf (sym, "\"%s\"", symbol);
+  code = g_strdup_printf ("_(%s* %s_);_(%s* (%s);_(%s* \"-\"%s_);_(@_)",
+                          sym->str, places->str, sym->str, places->str, sym->str, dash->str);
+  g_string_free (places, TRUE);
+  g_string_free (dash, TRUE);
+  g_string_free (sym, TRUE);
+  return code;
+}
+
+static char *format_skeleton (const char *text, gboolean *money, char **symbol);
+
+char *
+o42_number_format_code (O42NumberFormat format, int decimals,
+                        const char *symbol, O42NegativeStyle negative)
+{
+  GString *sym = g_string_new (NULL);
+  GString *pos = g_string_new (NULL);
+  char *code;
+
+  decimals = CLAMP (decimals, 0, 20);
+  if (format == O42_NUM_ACCOUNTING)
+    return accounting_code (symbol, decimals);
+
+  if (symbol != NULL && *symbol != '\0')
+    {
+      if (strcmp (symbol, "$") == 0)
+        g_string_append_c (sym, '$');
+      else
+        g_string_append_printf (sym, "[$%s%s]", symbol, currency_lcid (symbol));
+    }
+  g_string_append (pos, sym->str);
+  g_string_append (pos, format == O42_NUM_FIXED ? "0" : "#,##0");
+  if (decimals > 0)
+    {
+      g_string_append_c (pos, '.');
+      for (int i = 0; i < decimals; i++)
+        g_string_append_c (pos, '0');
+    }
+
+  switch (negative)
+    {
+    case O42_NEG_RED:
+      code = g_strdup_printf ("%s;[Red]-%s", pos->str, pos->str);
+      break;
+    case O42_NEG_PARENS:
+      code = g_strdup_printf ("%s_);(%s)", pos->str, pos->str);
+      break;
+    case O42_NEG_RED_PARENS:
+      code = g_strdup_printf ("%s_);[Red](%s)", pos->str, pos->str);
+      break;
+    default:
+      code = g_string_free (pos, FALSE);
+      pos = NULL;
+      break;
+    }
+  if (pos != NULL)
+    g_string_free (pos, TRUE);
+  g_string_free (sym, TRUE);
+  return code;
+}
+
+void
+o42_number_format_details (const char *code, char **symbol, O42NegativeStyle *negative)
+{
+  gboolean money = FALSE;
+  char *lower, *named = NULL;
+  const char *second;
+
+  if (symbol != NULL) *symbol = NULL;
+  if (negative != NULL) *negative = O42_NEG_MINUS;
+  if (code == NULL)
+    return;
+
+  lower = format_skeleton (code, &money, &named);
+  if (symbol != NULL)
+    {
+      if (named != NULL)
+        *symbol = g_strdup (named);
+      else if (strchr (lower, '$') != NULL)
+        *symbol = g_strdup ("$");
+      else if (*code == '"' && strchr (code + 1, '"') != NULL)
+        *symbol = g_strndup (code + 1, (gsize) (strchr (code + 1, '"') - (code + 1)));
+      else if (strncmp (code, "_(\"", 3) == 0 && strchr (code + 3, '"') != NULL)
+        *symbol = g_strndup (code + 3, (gsize) (strchr (code + 3, '"') - (code + 3)));
+    }
+  g_free (lower);
+  g_free (named);
+
+  /* The second section says how a negative looks. */
+  second = strchr (code, ';');
+  if (second != NULL && negative != NULL)
+    {
+      gboolean red = g_ascii_strncasecmp (second + 1, "[Red]", 5) == 0;
+      gboolean parens = strchr (second + 1, '(') != NULL;
+
+      *negative = red ? (parens ? O42_NEG_RED_PARENS : O42_NEG_RED)
+                      : (parens ? O42_NEG_PARENS : O42_NEG_MINUS);
+    }
+}
+
 /* The shape of a format code, with everything that is not the number
  * taken out: the bracketed sections ([Red], [$kr-414], [>100]), the
  * quoted text, the backslash escapes, and every section after the
@@ -20,13 +233,17 @@
  * this, the "e" in "[RED]" made every coloured format scientific and
  * the "$" in "[$kr-414]" was the only reason that one was not.
  *
- * `money` comes back TRUE when a [$...] section named a currency. */
+ * `money` comes back TRUE when a [$...] section named a currency, and
+ * `symbol` (when asked for) holds the symbol it named, without the
+ * locale after the dash.  Caller frees it. */
 static char *
-format_skeleton (const char *text, gboolean *money)
+format_skeleton (const char *text, gboolean *money, char **symbol)
 {
   GString *out = g_string_new (NULL);
 
   *money = FALSE;
+  if (symbol != NULL)
+    *symbol = NULL;
   for (const char *p = text; *p != '\0'; p++)
     {
       if (*p == '[')
@@ -36,7 +253,14 @@ format_skeleton (const char *text, gboolean *money)
           if (close == NULL)
             break;
           if (p[1] == '$')
-            *money = TRUE;
+            {
+              *money = TRUE;
+              if (symbol != NULL && *symbol == NULL)
+                {
+                  const char *dash = memchr (p + 2, '-', (gsize) (close - (p + 2)));
+                  *symbol = g_strndup (p + 2, (gsize) ((dash != NULL ? dash : close) - (p + 2)));
+                }
+            }
           p = close;
           continue;
         }
@@ -94,6 +318,12 @@ show_round (double n, int places)
   if (fabs (scaled) < 1e13)
     nudged += copysign (fabs (scaled) * 1e-14, scaled);
   return copysign (floor (fabs (nudged) + 0.5), n) / scale;
+}
+
+double
+o42_number_round_shown (double n, int places)
+{
+  return show_round (n, places);
 }
 
 /* Groups the integer part in threes.  Done by hand rather than with the
@@ -162,13 +392,36 @@ o42_number_to_text (double n, gboolean exact)
 char *
 o42_number_format (double n, O42NumberFormat format, int decimals)
 {
+  return o42_number_format_layout (n, format, decimals, NULL);
+}
+
+char *
+o42_number_format_layout (double n, O42NumberFormat format, int decimals,
+                          O42FormatLayout *layout)
+{
   GString *out;
   gboolean negative;
   char buffer[64];
   char *point;
 
+  if (layout != NULL)
+    {
+      layout->fill_at = -1;
+      layout->n_pads = 0;
+    }
+
   if (isnan (n) || isinf (n))
     return g_strdup ("#NUM!");
+
+  if (format == O42_NUM_ACCOUNTING)
+    {
+      /* Accounting is the format language's to write: it is the one
+       * preset whose looks depend on the cell's width. */
+      char *code = accounting_code (o42_numfmt_currency (), CLAMP (decimals, 0, 20));
+      char *shown = o42_format_string_layout (code, n, NULL, layout);
+      g_free (code);
+      return shown;
+    }
 
   if (format == O42_NUM_GENERAL || format == O42_NUM_TEXT)
     return format_general (n);
@@ -215,7 +468,7 @@ o42_number_format (double n, O42NumberFormat format, int decimals)
     g_string_append_c (out, '-');
 
   if (format == O42_NUM_CURRENCY)
-    g_string_append_c (out, '$');
+    g_string_append (out, o42_numfmt_currency ());
 
   point = strchr (buffer, '.');
   if (point != NULL)
@@ -253,11 +506,24 @@ o42_number_format_to_string (O42NumberFormat format, int decimals)
     default: break;
     }
 
-  out = g_string_new (NULL);
   decimals = CLAMP (decimals, 0, 20);
+  if (format == O42_NUM_ACCOUNTING)
+    return accounting_code (o42_numfmt_currency (), decimals);
+
+  out = g_string_new (NULL);
 
   if (format == O42_NUM_CURRENCY)
-    g_string_append (out, "$#,##0");
+    {
+      /* A dollar is written bare, as every spreadsheet reads it; any
+       * other symbol goes in Excel's [$kr-414] section, with the
+       * locale after the dash when the symbol says which it is. */
+      const char *symbol = o42_numfmt_currency ();
+
+      if (strcmp (symbol, "$") == 0)
+        g_string_append (out, "$#,##0");
+      else
+        g_string_append_printf (out, "[$%s%s]#,##0", symbol, currency_lcid (symbol));
+    }
   else if (format == O42_NUM_COMMA)
     g_string_append (out, "#,##0");
   else
@@ -281,7 +547,7 @@ o42_number_format_to_string (O42NumberFormat format, int decimals)
 gboolean
 o42_number_format_parse (const char *text, O42NumberFormat *format, int *decimals)
 {
-  char *lower;
+  char *lower, *symbol = NULL;
   const char *point;
   gboolean has_date, has_time, money = FALSE;
   O42NumberFormat f;
@@ -290,11 +556,16 @@ o42_number_format_parse (const char *text, O42NumberFormat *format, int *decimal
   if (text == NULL)
     return FALSE;
 
-  lower = format_skeleton (text, &money);
+  lower = format_skeleton (text, &money, &symbol);
   has_date = strstr (lower, "yy") != NULL || strstr (lower, "dd") != NULL ||
              strstr (lower, "mmm") != NULL;
   has_time = strstr (lower, "hh") != NULL || strstr (lower, "ss") != NULL ||
              strstr (lower, "h:") != NULL;
+
+  point = strchr (lower, '.');
+  if (point != NULL)
+    for (const char *p = point + 1; *p == '0' || *p == '#'; p++)
+      d++;
 
   if (strcmp (lower, "general") == 0 || *lower == '\0') f = O42_NUM_GENERAL;
   else if (strcmp (lower, "@") == 0)          f = O42_NUM_TEXT;
@@ -304,22 +575,64 @@ o42_number_format_parse (const char *text, O42NumberFormat *format, int *decimal
   else if (strstr (lower, "e+") != NULL ||
            strstr (lower, "e-") != NULL)      f = O42_NUM_SCIENTIFIC;
   else if (strchr (lower, '%') != NULL)       f = O42_NUM_PERCENT;
-  else if (money || strchr (lower, '$') != NULL) f = O42_NUM_CURRENCY;
+  else if (strstr (lower, "* ") != NULL && strstr (lower, "_(") != NULL)
+    {
+      /* Accounting, when it is this machine's: the symbol is what the
+       * preset shows, so a code that names another stays as a code. */
+      char *canonical = accounting_code (o42_numfmt_currency (), d);
+      char *plain = g_strdup (text);
+      char *w = plain;
+      gboolean same;
+
+      for (const char *p = text; *p != '\0'; p++)
+        if (!(*p == '\\' && (p[1] == '(' || p[1] == ')')))
+          *w++ = *p;
+      *w = '\0';
+      same = strcmp (plain, canonical) == 0;
+      g_free (canonical);
+      g_free (plain);
+      g_free (lower);
+      g_free (symbol);
+      if (!same)
+        return FALSE;
+      if (format)   *format = O42_NUM_ACCOUNTING;
+      if (decimals) *decimals = d;
+      return TRUE;
+    }
+  else if (strpbrk (lower, "/*_") != NULL)
+    {
+      /* A fraction, a fill or a gap: things only the code can say. */
+      g_free (lower);
+      g_free (symbol);
+      return FALSE;
+    }
+  else if (money || strchr (lower, '$') != NULL)
+    {
+      /* Currency, likewise, only when the symbol is the one the preset
+       * shows: a file that says kr must not turn into dollars. */
+      const char *ours = o42_numfmt_currency ();
+      gboolean same = symbol != NULL ? strcmp (symbol, ours) == 0 : strcmp (ours, "$") == 0;
+
+      f = O42_NUM_CURRENCY;
+      if (!same)
+        {
+          g_free (lower);
+          g_free (symbol);
+          return FALSE;
+        }
+    }
   else if (strchr (lower, ',') != NULL)       f = O42_NUM_COMMA;
   else if (strchr (lower, '0') != NULL || strchr (lower, '#') != NULL)
     f = O42_NUM_FIXED;
   else
     {
       g_free (lower);
+      g_free (symbol);
       return FALSE;
     }
 
-  point = strchr (lower, '.');
-  if (point != NULL)
-    for (const char *p = point + 1; *p == '0' || *p == '#'; p++)
-      d++;
-
   g_free (lower);
+  g_free (symbol);
 
   if (format)   *format = f;
   if (decimals) *decimals = d;
@@ -335,13 +648,51 @@ o42_number_format_parse (const char *text, O42NumberFormat *format, int *decimal
  * negative, zero and text; "0", "#" and "?" digit places with "," for
  * grouping and scaling and "." for the point; "%"; "E+00"; the date and
  * time codes; "@" for text; text in quotes or after a backslash; "[Red]"
- * and its kin for colour; "_x" for a space and "*x" for a fill, the fill
- * being ignored.  Fractions ("# ?/?") are not done. */
+ * and its kin for colour; "_x" for a gap as wide as x and "*x" for a
+ * fill, both reported to a painter that can draw them; fractions
+ * ("# ?/?", "# ??/??", "?/8"). */
 
 typedef struct {
   const char *start;
   const char *end;
 } Section;
+
+/* "_x": a space in the text, and a note that it should be as wide as
+ * the glyph x.  "*x": nothing in the text, and a note of where the
+ * fill goes.  Both step past x, which may be more than one byte. */
+static const char *
+note_pad (GString *out, const char *p, const char *end, O42FormatLayout *layout)
+{
+  const char *glyph = p + 1;
+  gunichar c = glyph < end ? g_utf8_get_char_validated (glyph, end - glyph) : ' ';
+
+  if (c == (gunichar) -1 || c == (gunichar) -2)
+    c = ' ';
+  if (layout != NULL && layout->n_pads < O42_FORMAT_MAX_PADS)
+    {
+      layout->pads[layout->n_pads].at = (int) out->len;
+      layout->pads[layout->n_pads].glyph = c;
+      layout->n_pads++;
+    }
+  g_string_append_c (out, ' ');
+  return glyph < end ? g_utf8_next_char (glyph) : end;
+}
+
+static const char *
+note_fill (GString *out, const char *p, const char *end, O42FormatLayout *layout)
+{
+  const char *glyph = p + 1;
+  gunichar c = glyph < end ? g_utf8_get_char_validated (glyph, end - glyph) : ' ';
+
+  if (c == (gunichar) -1 || c == (gunichar) -2)
+    c = ' ';
+  if (layout != NULL && layout->fill_at < 0)
+    {
+      layout->fill_at = (int) out->len;
+      layout->fill_char = c;
+    }
+  return glyph < end ? g_utf8_next_char (glyph) : end;
+}
 
 /* Splits a format into its sections, ";" outside quotes. */
 static int
@@ -561,7 +912,7 @@ append_short (GString *out, const char *name)
  * hour code or precedes a second code, in which case it is minutes -- the
  * rule Excel uses and everyone else copied. */
 static void
-format_date_section (GString *out, const Section *s, double n)
+format_date_section (GString *out, const Section *s, double n, O42FormatLayout *layout)
 {
   int y = 0, mo = 1, d = 1, h, mi, sec;
   gboolean ampm = FALSE;
@@ -684,13 +1035,12 @@ format_date_section (GString *out, const Section *s, double n)
           break;
 
         case '_':
-          g_string_append_c (out, ' ');
-          run = 2;
-          break;
+          p = note_pad (out, p, s->end, layout);
+          continue;
 
         case '*':
-          run = 2;
-          break;
+          p = note_fill (out, p, s->end, layout);
+          continue;
 
         default:
           g_string_append_len (out, p, run);
@@ -706,7 +1056,7 @@ format_date_section (GString *out, const Section *s, double n)
 /* Writes a number section: the digit places on either side of the point,
  * with grouping, scaling, percent and an exponent as the section asks. */
 static void
-format_number_section (GString *out, const Section *s, double n)
+format_number_section (GString *out, const Section *s, double n, O42FormatLayout *layout)
 {
   int int_places = 0, dec_places = 0;
   gboolean grouping = FALSE, percent = FALSE, exponent = FALSE, exp_plus = FALSE;
@@ -725,7 +1075,12 @@ format_number_section (GString *out, const Section *s, double n)
       if (*p == '"') { p++; while (p < s->end && *p != '"') p++; continue; }
       if (*p == '\\') { p++; continue; }
       if (*p == '[') { while (p < s->end && *p != ']') p++; continue; }
-      if (*p == '_' || *p == '*') { p++; continue; }
+      if (*p == '_' || *p == '*')
+        {
+          if (p + 1 < s->end)
+            p = g_utf8_next_char (p + 1) - 1;
+          continue;
+        }
 
       if (*p == '0' || *p == '#' || *p == '?')
         {
@@ -832,8 +1187,8 @@ format_number_section (GString *out, const Section *s, double n)
           p = close + 1;
           continue;
         }
-      if (c == '_') { g_string_append_c (out, ' '); p += 2; continue; }
-      if (c == '*') { p += 2; continue; }
+      if (c == '_') { p = note_pad (out, p, s->end, layout); continue; }
+      if (c == '*') { p = note_fill (out, p, s->end, layout); continue; }
 
       if (c == '0' || c == '#' || c == '?')
         {
@@ -925,14 +1280,181 @@ format_number_section (GString *out, const Section *s, double n)
     }
 }
 
+/* A "/" outside quotes and brackets in a section that is not a date
+ * makes it a fraction. */
+static gboolean
+section_is_fraction (const Section *s)
+{
+  gboolean quoted = FALSE;
+
+  for (const char *p = s->start; p < s->end; p++)
+    {
+      if (*p == '"') { quoted = !quoted; continue; }
+      if (quoted) continue;
+      if (*p == '\\') { p++; continue; }
+      if (*p == '[') { while (p < s->end && *p != ']') p++; continue; }
+      if (*p == '/')
+        return TRUE;
+    }
+  return FALSE;
+}
+
+/* Writes a fraction section: "# ?/?" and "# ??/??" find the closest
+ * fraction with a denominator of that many digits, "?/8" and "# ?/16"
+ * keep the denominator given; with no whole-number place the numerator
+ * carries the lot.  A number that is whole shows its whole part and
+ * blanks as wide as the fraction would have been, as Excel does. */
+static void
+format_fraction_section (GString *out, const Section *s, double n, O42FormatLayout *layout)
+{
+  const char *p, *slash = NULL, *gap = NULL;
+  int whole_places = 0, num_places = 0, den_places = 0;
+  long fixed_den = 0;
+  gboolean quoted = FALSE;
+  long whole, num, den;
+  double frac;
+
+  /* The shape: whole-number places, a space, numerator places, the
+   * slash, and the denominator's places or its digits. */
+  for (p = s->start; p < s->end; p++)
+    {
+      if (*p == '"') { quoted = !quoted; continue; }
+      if (quoted) continue;
+      if (*p == '\\') { p++; continue; }
+      if (*p == '[') { while (p < s->end && *p != ']') p++; continue; }
+      if (*p == '_' || *p == '*') { p++; continue; }
+      if (*p == '/' && slash == NULL) { slash = p; continue; }
+      if (*p == '0' || *p == '#' || *p == '?')
+        {
+          if (slash != NULL) den_places++;
+          else num_places++;
+        }
+      else if (g_ascii_isdigit (*p) && slash != NULL)
+        fixed_den = fixed_den * 10 + (*p - '0');
+      else if (*p == ' ' && slash == NULL && num_places > 0 && gap == NULL)
+        {
+          /* The space between the whole number and the fraction: what
+           * came before it was the whole part. */
+          gap = p;
+          whole_places = num_places;
+          num_places = 0;
+        }
+    }
+  if (num_places == 0) num_places = 1;
+
+  whole = (long) floor (n);
+  frac = n - whole;
+
+  if (fixed_den > 0)
+    {
+      den = fixed_den;
+      num = (long) floor (frac * den + 0.5);
+    }
+  else
+    {
+      /* The closest fraction whose denominator has at most so many
+       * digits, found by walking the Stern-Brocot tree. */
+      long max_den = 1;
+      long a = 0, b = 1, c = 1, d = 1;   /* a/b <= frac <= c/d */
+
+      for (int i = 0; i < CLAMP (den_places, 1, 6); i++)
+        max_den *= 10;
+      max_den -= 1;
+      while (b + d <= max_den)
+        {
+          long mn = a + c, md = b + d;
+          if (frac * md < mn) { c = mn; d = md; }
+          else                { a = mn; b = md; }
+        }
+      if (fabs (frac - (double) a / b) <= fabs (frac - (double) c / d))
+        { num = a; den = b; }
+      else
+        { num = c; den = d; }
+    }
+  if (num == den) { num = 0; whole++; }
+  if (whole_places == 0) { num += whole * den; whole = 0; }
+
+  /* Written out, with each place as wide as the code asks. */
+  for (p = s->start; p < s->end; )
+    {
+      if (*p == '"') { p++; while (p < s->end && *p != '"') g_string_append_c (out, *p++); if (p < s->end) p++; continue; }
+      if (*p == '\\') { if (p + 1 < s->end) g_string_append_c (out, p[1]); p += 2; continue; }
+      if (*p == '[') { while (p < s->end && *p != ']') p++; if (p < s->end) p++; continue; }
+      if (*p == '_') { p = note_pad (out, p, s->end, layout); continue; }
+      if (*p == '*') { p = note_fill (out, p, s->end, layout); continue; }
+      if (*p == '0' || *p == '#' || *p == '?')
+        {
+          const char *q = p;
+          int places = 0, blanks = 0;
+          char pad = ' ';
+
+          while (q < s->end && (*q == '0' || *q == '#' || *q == '?'))
+            { places++; if (*q == '0') pad = '0'; if (*q == '?') blanks++; q++; }
+
+          if (gap != NULL && p < gap)
+            {
+              /* The whole part: a "?" place left empty is a blank, a
+               * "#" nothing at all. */
+              if (whole != 0 || num == 0 || pad == '0')
+                g_string_append_printf (out, "%*ld", places, whole);
+              else
+                g_string_append_printf (out, "%*s", blanks, "");
+              p = q;
+              continue;
+            }
+          if (num == 0 && whole_places > 0)
+            {
+              /* No fraction: blanks as wide as "n/d" would have been. */
+              const char *r = q;
+              int width = places;
+
+              if (r < s->end && *r == '/') { width++; r++; }
+              while (r < s->end && (*r == '0' || *r == '#' || *r == '?' || g_ascii_isdigit (*r)))
+                { width++; r++; }
+              g_string_append_printf (out, "%*s", width, "");
+              p = r;
+              continue;
+            }
+          g_string_append_printf (out, pad == '0' ? "%0*ld" : "%*ld", places, num);
+          p = q;
+          if (p < s->end && *p == '/')
+            {
+              g_string_append_c (out, '/');
+              p++;
+              q = p;
+              places = 0;
+              while (q < s->end && (*q == '0' || *q == '#' || *q == '?' || g_ascii_isdigit (*q)))
+                { places++; q++; }
+              g_string_append_printf (out, "%-*ld", places, den);
+              p = q;
+            }
+          continue;
+        }
+      g_string_append_c (out, *p++);
+    }
+}
+
 char *
 o42_format_string (const char *format, double n, const char *text)
+{
+  return o42_format_string_layout (format, n, text, NULL);
+}
+
+char *
+o42_format_string_layout (const char *format, double n, const char *text,
+                          O42FormatLayout *layout)
 {
   Section sections[4];
   int count;
   const Section *use;
   GString *out;
   gboolean negative;
+
+  if (layout != NULL)
+    {
+      layout->fill_at = -1;
+      layout->n_pads = 0;
+    }
 
   g_return_val_if_fail (format != NULL, g_strdup (""));
 
@@ -953,13 +1475,15 @@ o42_format_string (const char *format, double n, const char *text)
         return g_strdup (text);
 
       out = g_string_new (NULL);
-      for (const char *p = use->start; p < use->end; p++)
+      for (const char *p = use->start; p < use->end; )
         {
-          if (*p == '@') g_string_append (out, text);
-          else if (*p == '"') { p++; while (p < use->end && *p != '"') g_string_append_c (out, *p++); }
-          else if (*p == '\\' && p + 1 < use->end) g_string_append_c (out, *++p);
-          else if (*p == '[') { while (p < use->end && *p != ']') p++; }
-          else g_string_append_c (out, *p);
+          if (*p == '@') { g_string_append (out, text); p++; }
+          else if (*p == '"') { p++; while (p < use->end && *p != '"') g_string_append_c (out, *p++); if (p < use->end) p++; }
+          else if (*p == '\\' && p + 1 < use->end) { g_string_append_c (out, p[1]); p += 2; }
+          else if (*p == '[') { while (p < use->end && *p != ']') p++; if (p < use->end) p++; }
+          else if (*p == '_') p = note_pad (out, p, use->end, layout);
+          else if (*p == '*') p = note_fill (out, p, use->end, layout);
+          else g_string_append_c (out, *p++);
         }
       return g_string_free (out, FALSE);
     }
@@ -982,32 +1506,32 @@ o42_format_string (const char *format, double n, const char *text)
   if (use->end - use->start == 7 && g_ascii_strncasecmp (use->start, "General", 7) == 0)
     return o42_number_format (negative && count >= 2 ? -n : n, O42_NUM_GENERAL, 0);
 
-  /* Fractions ("# ?/?") are not done; General is more honest than a
-   * wrong picture. */
-  if (!section_is_date (use))
-    {
-      gboolean quoted = FALSE;
-      for (const char *p = use->start; p < use->end; p++)
-        {
-          if (*p == '"') quoted = !quoted;
-          else if (*p == '/' && !quoted)
-            return o42_number_format (negative && count >= 2 ? -n : n, O42_NUM_GENERAL, 0);
-        }
-    }
-
   out = g_string_new (NULL);
 
   if (section_is_date (use))
-    format_date_section (out, use, n);
+    format_date_section (out, use, n, layout);
   else
     {
-      format_number_section (out, use, fabs (n));
+      if (section_is_fraction (use))
+        format_fraction_section (out, use, fabs (n), layout);
+      else
+        format_number_section (out, use, fabs (n), layout);
 
       /* A single section supplies no sign of its own; the minus goes in
        * front -- unless what was written rounds to nothing, since -0.00
-       * is not a number anyone wants to see. */
+       * is not a number anyone wants to see.  The pads and the fill
+       * move along with it. */
       if (negative && count < 2 && strpbrk (out->str, "123456789") != NULL)
-        g_string_prepend_c (out, '-');
+        {
+          g_string_prepend_c (out, '-');
+          if (layout != NULL)
+            {
+              if (layout->fill_at >= 0)
+                layout->fill_at++;
+              for (int i = 0; i < layout->n_pads; i++)
+                layout->pads[i].at++;
+            }
+        }
     }
 
   return g_string_free (out, FALSE);

@@ -1875,10 +1875,13 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     double tolerance = 0.001;
     gboolean iterate = o42_book_iteration (book, &max, &tolerance);
 
+    if (o42_book_date_1904 (book))
+      g_string_append (s, "<workbookPr date1904=\"1\"/>");
     g_string_append_printf (s, "<calcPr fullCalcOnLoad=\"1\" calcMode=\"%s\" "
-                               "iterate=\"%d\" iterateCount=\"%d\" iterateDelta=\"%g\"/></workbook>",
+                               "iterate=\"%d\" iterateCount=\"%d\" iterateDelta=\"%g\"%s/></workbook>",
                             o42_book_manual (book) ? "manual" : "auto",
-                            iterate ? 1 : 0, max, tolerance);
+                            iterate ? 1 : 0, max, tolerance,
+                            o42_book_precision_as_displayed (book) ? " fullPrecision=\"0\"" : "");
   }
   o42_zip_writer_add (zip, "xl/workbook.xml", s->str, s->len);
 
@@ -2160,6 +2163,26 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
       g_ptr_array_add (r->sheet_names, g_strdup (sname ? sname : "Sheet"));
       g_ptr_array_add (r->sheet_rids, g_strdup (rid ? rid : ""));
     }
+  else if (strcmp (n, "workbookPr") == 0)
+    {
+      const char *d = attr (names, values, "date1904");
+      o42_book_set_date_1904 (r->book, d != NULL && (strcmp (d, "1") == 0 || strcmp (d, "true") == 0));
+    }
+  else if (strcmp (n, "calcPr") == 0)
+    {
+      const char *mode = attr (names, values, "calcMode");
+      const char *full = attr (names, values, "fullPrecision");
+      const char *iterate = attr (names, values, "iterate");
+
+      if (mode != NULL)
+        o42_book_set_manual (r->book, strcmp (mode, "manual") == 0);
+      if (iterate != NULL)
+        o42_book_set_iteration (r->book, strcmp (iterate, "1") == 0 || strcmp (iterate, "true") == 0,
+                                attr_int (names, values, "iterateCount", 100),
+                                g_ascii_strtod (attr (names, values, "iterateDelta") != NULL
+                                                ? attr (names, values, "iterateDelta") : "0.001", NULL));
+      o42_book_set_precision_as_displayed (r->book, full != NULL && (strcmp (full, "0") == 0 || strcmp (full, "false") == 0));
+    }
   else if (strcmp (n, "definedName") == 0)
     {
       const char *dname = attr (names, values, "name");
@@ -2326,6 +2349,10 @@ o42_xlsx_builtin_number_format (int id)
     case 38: return "#,##0 ;[Red](#,##0)";
     case 39: return "#,##0.00;(#,##0.00)";
     case 40: return "#,##0.00;[Red](#,##0.00)";
+    case 41: return "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"_);_(@_)";
+    case 42: return "_(\"$\"* #,##0_);_(\"$\"* \\(#,##0\\);_(\"$\"* \"-\"_);_(@_)";
+    case 43: return "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)";
+    case 44: return "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)";
     case 45: return "mm:ss";
     case 46: return "[h]:mm:ss";
     case 47: return "mm:ss.0";
@@ -2370,7 +2397,10 @@ o42_xlsx_apply_format_code (O42Fmt *fmt, const char *code)
    * negatives, a condition -- so it is kept as it was written and the
    * formatter reads it whole.  Dates keep their preset, which is what
    * the rest of the program tests for. */
-  if (!is_date && (strchr (code, '[') != NULL || strchr (code, ';') != NULL))
+  if (!is_date && o42_number_format_parse (code, &preset, &decimals) &&
+      (preset == O42_NUM_ACCOUNTING || preset == O42_NUM_CURRENCY))
+    { fmt->number = preset; fmt->decimals = decimals; }   /* this machine's money */
+  else if (!is_date && (strchr (code, '[') != NULL || strchr (code, ';') != NULL))
     fmt->custom = g_intern_string (code);
   else if (o42_number_format_parse (code, &preset, &decimals))
     { fmt->number = preset; fmt->decimals = decimals; }

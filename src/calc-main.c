@@ -182,7 +182,7 @@ main (int argc, char *argv[])
               "Python    py pyfile script scripts runscript delscript record\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
-              "          evaluate watch watches unwatch check\n"
+              "          evaluate watch watches unwatch check date1904 precision fixeddecimals\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
               "section 19 says what each does; --functions lists every function.\n");

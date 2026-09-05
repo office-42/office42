@@ -8,6 +8,8 @@
 
 #include "o42-window.h"
 #include "o42-types.h"
+#include "o42-numfmt.h"
+#include "o42-entry.h"
 
 #include <glib/gi18n.h>
 #include <stdlib.h>
@@ -61,6 +63,16 @@ static const struct {
   { "win.prev-sheet", { "<Control>Page_Up", NULL } },
   { "win.replace",    { "<Control>h", NULL } },
   { "win.calculate",  { "F9", NULL } },
+  /* Ctrl+Shift and a digit puts on a number format, as Excel has it;
+   * the shifted symbol is listed too, for the keyboards where the
+   * shifted key reads as the symbol. */
+  { "win.number::general",    { "<Control><Shift>grave", "<Control>asciitilde", NULL } },
+  { "win.number::comma",      { "<Control><Shift>1", "<Control>exclam", NULL } },
+  { "win.number::time",       { "<Control><Shift>2", "<Control>at", NULL } },
+  { "win.number::date",       { "<Control><Shift>3", "<Control>numbersign", NULL } },
+  { "win.number::currency",   { "<Control><Shift>4", "<Control>dollar", NULL } },
+  { "win.number::percent",    { "<Control><Shift>5", "<Control>percent", NULL } },
+  { "win.number::scientific", { "<Control><Shift>6", "<Control>asciicircum", NULL } },
   { "win.full-screen", { "F11", NULL } },
   { "app.quit",       { "<Control>q", NULL } },
 };
@@ -83,6 +95,64 @@ action_quit (GSimpleAction *action, GVariant *param, gpointer data)
 static const GActionEntry APP_ACTIONS[] = {
   { "quit", action_quit, NULL, NULL, NULL, { 0 } },
 };
+
+/* ---- Options that outlive the book ------------------------------------ */
+
+static char *
+prefs_path (void)
+{
+  return g_build_filename (g_get_user_config_dir (), "office42", "options.ini", NULL);
+}
+
+char *
+o42_prefs_get (const char *key)
+{
+  GKeyFile *file = g_key_file_new ();
+  char *path = prefs_path ();
+  char *value = NULL;
+
+  if (g_key_file_load_from_file (file, path, G_KEY_FILE_NONE, NULL))
+    value = g_key_file_get_string (file, "Options", key, NULL);
+  g_key_file_unref (file);
+  g_free (path);
+  return value;
+}
+
+void
+o42_prefs_set (const char *key, const char *value)
+{
+  GKeyFile *file = g_key_file_new ();
+  char *path = prefs_path ();
+  char *dir = g_path_get_dirname (path);
+
+  g_key_file_load_from_file (file, path, G_KEY_FILE_KEEP_COMMENTS, NULL);
+  if (value != NULL)
+    g_key_file_set_string (file, "Options", key, value);
+  else
+    g_key_file_remove_key (file, "Options", key, NULL);
+  g_mkdir_with_parents (dir, 0700);
+  g_key_file_save_to_file (file, path, NULL);
+  g_key_file_unref (file);
+  g_free (dir);
+  g_free (path);
+}
+
+/* What the options file says at start-up: the currency symbol the
+ * Currency and Accounting formats show, if the user chose one. */
+static void
+apply_prefs (void)
+{
+  char *currency = o42_prefs_get ("currency");
+
+  char *fixed = o42_prefs_get ("fixed_decimals");
+
+  if (currency != NULL && *currency != '\0')
+    o42_numfmt_set_currency (currency);
+  if (fixed != NULL && *fixed != '\0')
+    o42_entry_set_fixed_decimals (atoi (fixed));
+  g_free (currency);
+  g_free (fixed);
+}
 
 static void
 load_css (void)
@@ -121,6 +191,7 @@ o42_application_startup (GApplication *app)
 
   load_css ();
   load_icons ();
+  apply_prefs ();
 
   for (guint i = 0; i < G_N_ELEMENTS (ACCELS); i++)
     gtk_application_set_accels_for_action (GTK_APPLICATION (app),

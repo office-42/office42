@@ -191,6 +191,20 @@ gboolean o42_book_iteration     (O42Book *book, int *max, double *tolerance);
 void     o42_book_set_manual    (O42Book *book, gboolean manual);
 gboolean o42_book_manual        (O42Book *book);
 
+/* The 1904 date system (see o42_date_set_1904): a book that counts
+ * its days from 1 January 1904, as one from Excel for the Macintosh
+ * does.  Setting it makes it the system in use, and every sheet is
+ * worked out again. */
+void     o42_book_set_date_1904 (O42Book *book, gboolean on);
+gboolean o42_book_date_1904     (O42Book *book);
+
+/* Precision as displayed: a number in a cell with a fixed number of
+ * decimals is kept rounded to them, as Excel's option has it, so that
+ * a column of shown values adds up to the shown total.  Turning it on
+ * rounds what is there; there is no getting the digits back. */
+void     o42_book_set_precision_as_displayed (O42Book *book, gboolean on);
+gboolean o42_book_precision_as_displayed     (O42Book *book);
+
 /* TRUE if any sheet, or the scripts, changed since it was saved. */
 gboolean  o42_book_is_modified  (O42Book *book);
 void      o42_book_set_modified (O42Book *book, gboolean modified);

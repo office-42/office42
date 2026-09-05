@@ -184,16 +184,37 @@ o42_fmt_table_default (O42FmtTable *table)
 char *
 o42_fmt_display (const O42Fmt *fmt, const O42Value *value)
 {
+  return o42_fmt_display_layout (fmt, value, NULL);
+}
+
+char *
+o42_fmt_display_layout (const O42Fmt *fmt, const O42Value *value, O42FormatLayout *layout)
+{
   g_return_val_if_fail (value != NULL, g_strdup (""));
+
+  if (layout != NULL)
+    {
+      layout->fill_at = -1;
+      layout->n_pads = 0;
+    }
 
   /* A format string applies to numbers and, through its fourth section,
    * to text. */
   if (fmt != NULL && fmt->custom != NULL)
     {
       if (value->type == O42_VALUE_NUMBER)
-        return o42_format_string (fmt->custom, value->as.number, NULL);
+        return o42_format_string_layout (fmt->custom, value->as.number, NULL, layout);
       if (value->type == O42_VALUE_TEXT)
-        return o42_format_string (fmt->custom, 0, value->as.text);
+        return o42_format_string_layout (fmt->custom, 0, value->as.text, layout);
+    }
+
+  /* Accounting indents text as it does numbers. */
+  if (fmt != NULL && fmt->number == O42_NUM_ACCOUNTING && value->type == O42_VALUE_TEXT)
+    {
+      char *code = o42_number_format_to_string (O42_NUM_ACCOUNTING, fmt->decimals);
+      char *shown = o42_format_string_layout (code, 0, value->as.text, layout);
+      g_free (code);
+      return shown;
     }
 
   /* Only numbers have a number format.  Everything else shows as itself. */
@@ -201,7 +222,7 @@ o42_fmt_display (const O42Fmt *fmt, const O42Value *value)
       fmt->number == O42_NUM_GENERAL || fmt->number == O42_NUM_TEXT)
     return o42_value_display (value);
 
-  return o42_number_format (value->as.number, fmt->number, fmt->decimals);
+  return o42_number_format_layout (value->as.number, fmt->number, fmt->decimals, layout);
 }
 
 gboolean

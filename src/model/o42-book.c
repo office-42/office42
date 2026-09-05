@@ -9,6 +9,7 @@
 #include <glib/gstdio.h>
 
 #include "o42-pyquote.h"
+#include "o42-date.h"
 #include <string.h>
 
 /* o42-types.h for the reference check in name_is_legal comes with
@@ -41,6 +42,8 @@ struct _O42Book {
   int           max_iterations;
   double        tolerance;
   gboolean      manual;       /* nothing is worked out until F9 */
+  gboolean      date_1904;    /* days counted from 1 January 1904 */
+  gboolean      as_displayed; /* numbers kept rounded to their format */
   GPtrArray    *custom_lists; /* GStrv: the runs the fill handle continues */
   char         *db_path;      /* the database beside the book, or NULL */
   gboolean      db_embedded;  /* ...and whether it lives inside it */
@@ -165,7 +168,9 @@ add_builtin_styles (O42Book *book)
     { "Neutral",    O42_FMT_COLOUR | O42_FMT_FILL, 0, 0, 0, 0x9C6500, 0xFFEB9C, O42_NUM_GENERAL, 0 },
     { "Note",       O42_FMT_FILL, 0, 0, 0, 0x000000, 0xFFFFCC, O42_NUM_GENERAL, 0 },
     { "Comma",      O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_COMMA, 2 },
-    { "Currency",   O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_CURRENCY, 2 },
+    { "Comma [0]",  O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_COMMA, 0 },
+    { "Currency",   O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_ACCOUNTING, 2 },
+    { "Currency [0]", O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_ACCOUNTING, 0 },
     { "Percent",    O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_PERCENT, 0 },
   };
 
@@ -592,6 +597,61 @@ o42_book_set_manual (O42Book *book, gboolean manual)
 {
   g_return_if_fail (book != NULL);
   book->manual = manual;
+}
+
+void
+o42_book_set_date_1904 (O42Book *book, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (book->date_1904 != on)
+    {
+      book->date_1904 = on;
+      o42_date_set_1904 (on);
+      /* Every date-bearing formula has a new answer. */
+      for (int i = 0; i < o42_book_n_sheets (book); i++)
+        {
+          o42_sheet_set_modified (o42_book_sheet (book, i), TRUE);
+          o42_sheet_stale_formulas (o42_book_sheet (book, i));
+          o42_sheet_recalculate (o42_book_sheet (book, i));
+        }
+    }
+  o42_date_set_1904 (on);
+}
+
+void
+o42_book_set_precision_as_displayed (O42Book *book, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (book->as_displayed == on)
+    return;
+  book->as_displayed = on;
+  for (int i = 0; i < o42_book_n_sheets (book); i++)
+    {
+      O42Sheet *sheet = o42_book_sheet (book, i);
+
+      o42_sheet_set_modified (sheet, TRUE);
+      if (on)
+        {
+          /* The constants first, then everything that reads them. */
+          o42_sheet_round_to_display (sheet);
+          o42_sheet_stale_formulas (sheet);
+          o42_sheet_recalculate (sheet);
+        }
+    }
+}
+
+gboolean
+o42_book_precision_as_displayed (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->as_displayed;
+}
+
+gboolean
+o42_book_date_1904 (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->date_1904;
 }
 
 gboolean

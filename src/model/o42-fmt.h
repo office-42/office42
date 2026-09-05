@@ -158,6 +158,12 @@ O42FmtIdx      o42_fmt_table_default (O42FmtTable *table);
  * "hello" has two decimal places. */
 char *o42_fmt_display (const O42Fmt *fmt, const O42Value *value);
 
+/* The same, with what the format asks of the painter -- Accounting's
+ * fill between the symbol and the number, the "_x" gaps -- reported in
+ * `layout`; see O42FormatLayout. */
+char *o42_fmt_display_layout (const O42Fmt *fmt, const O42Value *value,
+                              O42FormatLayout *layout);
+
 /* Which way a value leans when the format says "General": numbers to the
  * right, text to the left, errors and booleans centred, as Excel does. */
 O42HAlign o42_fmt_effective_halign (const O42Fmt *fmt, const O42Value *value);
