@@ -84,6 +84,7 @@ enum {
   R_EXTERNNAME = 0x0023, R_CONTINUE = 0x003C, R_CODEPAGE = 0x0042, R_PANE = 0x0041,
   R_FONT = 0x0031, R_WINDOW1 = 0x003D, R_DEFCOLWIDTH = 0x0055, R_COLINFO = 0x007D,
   R_BOUNDSHEET = 0x0085, R_PALETTE = 0x0092, R_AUTOFILTERINFO = 0x009D,
+  R_AUTOFILTER = 0x009E, R_FILTERMODE = 0x009B,
   R_MULRK = 0x00BD, R_MULBLANK = 0x00BE, R_RSTRING = 0x00D6, R_XF = 0x00E0,
   R_MERGECELLS = 0x00E5, R_SST = 0x00FC, R_LABELSST = 0x00FD, R_EXTSST = 0x00FF,
   R_DIMENSIONS = 0x0200, R_BLANK = 0x0201, R_NUMBER = 0x0203, R_LABEL = 0x0204,
@@ -385,6 +386,7 @@ typedef struct
   GPtrArray  *name_ranges;   /* char* "Sheet!A1:B2" or NULL per name */
   GArray     *filter_sheets; /* int: sheet index whose _FilterDatabase was seen */
   GPtrArray  *filter_ranges; /* char* range text */
+  GHashTable *filter_criteria;   /* sheet index -> GPtrArray of "entry\tcriterion" */
   int         n_format5;     /* BIFF5 FORMAT records are numbered in order */
 
   /* Current sheet */
@@ -2350,6 +2352,71 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
             o42_sheet_set_col_width (r->sheet, c, r->default_width);
         }
       break;
+    case R_AUTOFILTER:
+      if (len >= 24 && r->sheet)
+        {
+          /* A column's criterion: two DOPERs, of which the first is
+           * taken -- its comparison and a number, a string (whose
+           * characters follow the DOPERs), a blank or a non-blank. */
+          guint entry = rd16 (p);
+          guint vt = p[4], sign = p[5];
+          static const char *signs[] = { "", "<", "", "<=", ">", "<>", ">=" };
+          const char *prefix = sign < G_N_ELEMENTS (signs) ? signs[sign] : "";
+          char *value = NULL;
+
+          if (vt == 2)
+            {
+              double d = rk_value (rd32 (p + 6));
+              char buf[G_ASCII_DTOSTR_BUF_SIZE];
+              value = g_strdup (g_ascii_dtostr (buf, sizeof buf, d));
+            }
+          else if (vt == 4)
+            {
+              char buf[G_ASCII_DTOSTR_BUF_SIZE];
+              value = g_strdup (g_ascii_dtostr (buf, sizeof buf, rd_double (p + 6)));
+            }
+          else if (vt == 6)
+            {
+              guint cch = p[10];
+              const guchar *q = p + 24;
+              if (q < p + len)
+                {
+                  guint flags = *q++;
+                  GString *str = g_string_new (NULL);
+                  for (guint i = 0; i < cch; i++)
+                    {
+                      gunichar c;
+                      if (flags & 1) { if (q + 2 > p + len) break; c = rd16 (q); q += 2; }
+                      else { if (q + 1 > p + len) break; c = *q++; }
+                      g_string_append_unichar (str, c);
+                    }
+                  value = g_string_free (str, FALSE);
+                  /* LibreOffice writes a number's condition as an empty
+                   * string, which would match nothing: left out. */
+                  if (*value == 0)
+                    g_clear_pointer (&value, g_free);
+                }
+            }
+          else if (vt == 0x0C)
+            { value = g_strdup (""); prefix = "="; }
+          else if (vt == 0x0E)
+            { value = g_strdup (""); prefix = "<>"; }
+          if (value != NULL)
+            {
+              GPtrArray *list = g_hash_table_lookup (r->filter_criteria, GINT_TO_POINTER (r->sheet_index));
+              char *criterion = (*prefix != '\0' && strcmp (prefix, "=") != 0) || (*prefix == '=' && *value == '\0')
+                                ? g_strconcat (prefix, value, NULL) : g_strdup (value);
+              if (list == NULL)
+                {
+                  list = g_ptr_array_new_with_free_func (g_free);
+                  g_hash_table_insert (r->filter_criteria, GINT_TO_POINTER (r->sheet_index), list);
+                }
+              g_ptr_array_add (list, g_strdup_printf ("%u\t%s", entry, criterion));
+              g_free (criterion);
+              g_free (value);
+            }
+        }
+      break;
     case R_HLINK:
       if (len >= 8 && r->sheet)
         {
@@ -2739,6 +2806,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.name_ranges = g_ptr_array_new_with_free_func (g_free);
   r.filter_sheets = g_array_new (FALSE, FALSE, sizeof (int));
   r.filter_ranges = g_ptr_array_new_with_free_func (g_free);
+  r.filter_criteria = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, (GDestroyNotify) g_ptr_array_unref);
   r.shared = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, (GDestroyNotify) g_bytes_unref);
   r.txo_text = g_string_new (NULL);
   r.note_texts = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
@@ -2789,8 +2857,28 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
           O42Node *tree = o42_formula_parse (g_ptr_array_index (r.filter_ranges, i));
           if (idx < o42_book_n_sheets (book) && tree->type == O42_NODE_RANGE)
             {
-              o42_sheet_set_autofilter (o42_book_sheet (book, idx), &tree->as.range);
-              o42_sheet_autofilter_refresh (o42_book_sheet (book, idx));
+              O42Sheet *fs = o42_book_sheet (book, idx);
+              GPtrArray *criteria = g_hash_table_lookup (r.filter_criteria, GINT_TO_POINTER (idx));
+
+              o42_sheet_set_autofilter (fs, &tree->as.range);
+              if (criteria != NULL)
+                {
+                  /* The rows the file hid inside the range were hidden
+                   * by the filter, which does it again from the
+                   * criteria; so they are shown first. */
+                  for (int row = tree->as.range.row0 + 1; row <= tree->as.range.row1 && row < O42_MAX_ROWS; row++)
+                    if (o42_sheet_row_hidden_by_hand (fs, row))
+                      o42_sheet_set_row_hidden (fs, row, FALSE);
+                  for (guint k = 0; k < criteria->len; k++)
+                    {
+                      const char *entry = g_ptr_array_index (criteria, k);
+                      const char *tab = strchr (entry, '\t');
+                      int col = tree->as.range.col0 + atoi (entry);
+                      if (tab != NULL && col <= tree->as.range.col1 && o42_sheet_autofilter_choice (fs, col) == NULL)
+                        o42_sheet_autofilter_choose (fs, col, tab + 1);
+                    }
+                }
+              o42_sheet_autofilter_refresh (fs);
             }
           o42_node_free (tree);
         }
@@ -2815,6 +2903,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   g_ptr_array_unref (r.names);
   g_ptr_array_unref (r.name_ranges);
   g_array_unref (r.filter_sheets);
+  g_hash_table_unref (r.filter_criteria);
   g_ptr_array_unref (r.filter_ranges);
   g_hash_table_unref (r.shared);
   g_string_free (r.txo_text, TRUE);
@@ -3995,7 +4084,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     for (int row = 0; row < O42_MAX_ROWS; row++)
       {
         int height = o42_sheet_row_height (sheet, row);
-        gboolean hidden = o42_sheet_row_hidden_by_hand (sheet, row);
+        gboolean hidden = o42_sheet_row_hidden (sheet, row);   /* by hand or by the filter */
         int level = o42_sheet_row_level (sheet, row);
         gboolean has_cells = i < cells->len && g_array_index (cells, CellOut, i).row == row;
         if (!has_cells && height == default_height && !hidden && level == 0)
@@ -4495,9 +4584,68 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     O42Range filter;
     if (o42_sheet_get_autofilter (sheet, &filter))
       {
+        gboolean any = FALSE;
+
+        for (int col = filter.col0; col <= filter.col1; col++)
+          if (o42_sheet_autofilter_choice (sheet, col) != NULL)
+            any = TRUE;
+        if (any)
+          {
+            begin_record (w, R_FILTERMODE);
+            end_record (w);
+          }
         begin_record (w, R_AUTOFILTERINFO);
         put16 (w->out, filter.col1 - filter.col0 + 1);
         end_record (w);
+        /* Each column's criterion: a comparison and a number or a
+         * string in the first DOPER, the second left empty. */
+        for (int col = filter.col0; col <= filter.col1; col++)
+          {
+            const char *choice = o42_sheet_autofilter_choice (sheet, col);
+            static const char *prefixes[] = { "<>", ">=", "<=", "=", ">", "<" };
+            static const guint8 signs[] = { 5, 6, 3, 2, 4, 1 };
+            guint sign = 2;
+            const char *value;
+            char *tail = NULL;
+            double number;
+
+            if (choice == NULL)
+              continue;
+            value = choice;
+            for (guint k = 0; k < G_N_ELEMENTS (prefixes); k++)
+              if (g_str_has_prefix (choice, prefixes[k]))
+                { sign = signs[k]; value = choice + strlen (prefixes[k]); break; }
+            number = g_ascii_strtod (value, &tail);
+            begin_record (w, R_AUTOFILTER);
+            put16 (w->out, col - filter.col0);
+            put16 (w->out, 0);
+            if (*value == '\0')
+              {
+                /* Blanks, or everything but. */
+                put8 (w->out, sign == 5 ? 0x0E : 0x0C); put8 (w->out, sign);
+                for (int k = 0; k < 8; k++) put8 (w->out, 0);
+              }
+            else if (tail != NULL && *tail == '\0' && tail != value)
+              {
+                put8 (w->out, 4); put8 (w->out, sign);
+                put_double (w->out, number);
+              }
+            else
+              {
+                put8 (w->out, 6); put8 (w->out, sign);
+                put32 (w->out, 0);
+                put8 (w->out, MIN (char_count (value), 255));
+                put8 (w->out, 0); put16 (w->out, 0);
+              }
+            for (int k = 0; k < 10; k++) put8 (w->out, 0);   /* the second DOPER: none */
+            if (*value != '\0' && !(tail != NULL && *tail == '\0' && tail != value))
+              {
+                char *cut = g_utf8_substring (value, 0, MIN (char_count (value), 255));
+                put_ustr_body (w->out, cut);
+                g_free (cut);
+              }
+            end_record (w);
+          }
       }
   }
 
