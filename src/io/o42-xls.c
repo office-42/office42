@@ -964,10 +964,38 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             push (&d, n);
           }
           break;
-        case 0x0F: case 0x10: case 0x11:   /* intersection, union, range: keep the first */
+        case 0x0F: case 0x10:   /* intersection, union: the model has both operators */
           {
             O42Node *b = pop (&d);
-            o42_node_free (b);
+            O42Node *a = pop (&d);
+            O42Node *n = node_new (O42_NODE_BINARY);
+            n->as.op.op = base == 0x0F ? O42_OP_ISECT : O42_OP_UNION;
+            n->as.op.a = a;
+            n->as.op.b = b;
+            push (&d, n);
+          }
+          break;
+        case 0x11:   /* range: two cells into the rectangle between them */
+          {
+            O42Node *b = pop (&d);
+            O42Node *a = pop (&d);
+            if (a != NULL && b != NULL && a->type == O42_NODE_REF && b->type == O42_NODE_REF &&
+                g_strcmp0 (a->sheet, b->sheet) == 0)
+              {
+                O42Node *n = node_new (O42_NODE_RANGE);
+                n->sheet = a->sheet;
+                n->as.range = o42_range_normalise (a->as.ref.row, a->as.ref.col, b->as.ref.row, b->as.ref.col);
+                n->abs = (a->abs & (O42_ABS_ROW0 | O42_ABS_COL0)) |
+                         ((b->abs & O42_ABS_ROW0) ? O42_ABS_ROW1 : 0) | ((b->abs & O42_ABS_COL0) ? O42_ABS_COL1 : 0);
+                o42_node_free (a);
+                o42_node_free (b);
+                push (&d, n);
+              }
+            else
+              {
+                o42_node_free (b);
+                push (&d, a);
+              }
           }
           break;
         case 0x12: case 0x13: case 0x14:
@@ -4062,9 +4090,23 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
     case O42_NODE_BINARY:
       {
         static const guint8 ptg[] = { 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x0B, 0x0E, 0x09, 0x0D, 0x0A, 0x0C };
-        compile (w, node->as.op.a, a, FALSE, own_sheet, cb);
-        compile (w, node->as.op.b, a, FALSE, own_sheet, cb);
-        put8 (a, ptg[node->as.op.op]);
+        if (node->as.op.op == O42_OP_IMPLICIT)
+          {
+            /* @A1:A3: Excel 97 had no such operator; the range itself
+             * is read that way by a cell formula. */
+            compile (w, node->as.op.a, a, TRUE, own_sheet, cb);
+            break;
+          }
+        /* The parts of a union or an intersection are references, so
+         * they keep the reference class. */
+        compile (w, node->as.op.a, a, node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT, own_sheet, cb);
+        compile (w, node->as.op.b, a, node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT, own_sheet, cb);
+        if (node->as.op.op == O42_OP_UNION)
+          put8 (a, 0x10);
+        else if (node->as.op.op == O42_OP_ISECT)
+          put8 (a, 0x0F);
+        else
+          put8 (a, ptg[node->as.op.op]);
       }
       break;
     case O42_NODE_NAME:
