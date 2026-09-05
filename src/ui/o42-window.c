@@ -3467,6 +3467,7 @@ typedef struct {
   GtkWidget *dialog;
   guint      shape_id;
   GtkWidget *text, *fill, *no_fill, *line, *width;
+  GtkWidget *dash, *head_start, *head_start_size, *head_end, *head_end_size;
 } ShapePrompt;
 
 static void
@@ -3489,6 +3490,14 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
                     : colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->fill)));
       shape->line = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->line)));
       shape->line_width = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->width));
+      shape->dash = (O42Dash) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->dash));
+      if (prompt->head_start != NULL)
+        {
+          shape->head_start = (O42Head) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_start));
+          shape->head_start_size = (O42HeadSize) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_start_size));
+          shape->head_end = (O42Head) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_end));
+          shape->head_end_size = (O42HeadSize) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_end_size));
+        }
       o42_sheet_end_group (prompt->window->sheet);
       o42_sheet_set_modified (prompt->window->sheet, TRUE);
       o42_grid_refresh (prompt->window->grid);
@@ -3541,6 +3550,29 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->line = labelled (grid, 1, _("Line:"), colour_button (shape->line, _("Shape Line")));
   prompt->width = labelled (grid, 2, _("Line width:"), gtk_spin_button_new_with_range (0.5, 12, 0.5));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->width), shape->line_width);
+  {
+    /* In the order of O42Dash, O42Head and O42HeadSize, so the row is
+     * the value. */
+    static const char *const dashes[] = { N_("Solid"), N_("Dash"), N_("Dot"), N_("Dash dot"),
+                                          N_("Long dash"), N_("Short dash"), N_("Short dot"), NULL };
+    static const char *const heads[] = { N_("None"), N_("Triangle"), N_("Stealth"), N_("Diamond"),
+                                         N_("Oval"), N_("Open arrow"), NULL };
+    static const char *const sizes[] = { N_("Small"), N_("Medium"), N_("Large"), NULL };
+
+    prompt->dash = labelled (grid, 3, _("Dash:"), drop_down_of (dashes));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->dash), (guint) shape->dash);
+    if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
+      {
+        prompt->head_start = labelled (grid, 4, _("Begin arrow:"), drop_down_of (heads));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start), (guint) shape->head_start);
+        prompt->head_start_size = labelled (grid, 5, _("Begin size:"), drop_down_of (sizes));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start_size), (guint) shape->head_start_size);
+        prompt->head_end = labelled (grid, 6, _("End arrow:"), drop_down_of (heads));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end), (guint) shape->head_end);
+        prompt->head_end_size = labelled (grid, 7, _("End size:"), drop_down_of (sizes));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end_size), (guint) shape->head_end_size);
+      }
+  }
   gtk_box_append (GTK_BOX (content), grid);
   prompt->no_fill = gtk_check_button_new_with_mnemonic ( _("_No fill"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), shape->fill == O42_FILL_NONE);

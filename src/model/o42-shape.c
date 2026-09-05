@@ -33,6 +33,9 @@ o42_shape_new (O42ShapeKind kind)
               : (kind == O42_SHAPE_TEXT) ? 0xFFFFCC : 0xDCE6F1;
   shape->line = 0x1F497D;
   shape->line_width = 1.5;
+  if (kind == O42_SHAPE_ARROW)
+    shape->head_end = O42_HEAD_TRIANGLE;
+  shape->head_start_size = shape->head_end_size = O42_HEAD_MEDIUM;
   shape->width = (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW) ? 120 : 140;
   shape->height = (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW) ? 0 : 60;
   if (o42_shape_is_control (kind))
@@ -463,6 +466,143 @@ o42_shape_geom_path (O42ShapeGeom geom, cairo_t *cr, double width, double height
     }
 }
 
+static const char *DASH_NAMES[O42_N_DASHES] = {
+  "solid", "dash", "dot", "dashDot", "lgDash", "sysDash", "sysDot"
+};
+static const char *HEAD_NAMES[O42_N_HEADS] = {
+  "none", "triangle", "stealth", "diamond", "oval", "arrow"
+};
+
+const char *
+o42_dash_name (O42Dash dash)
+{
+  return (guint) dash < O42_N_DASHES ? DASH_NAMES[dash] : DASH_NAMES[0];
+}
+
+gboolean
+o42_dash_parse (const char *name, O42Dash *dash)
+{
+  for (guint i = 0; name != NULL && i < O42_N_DASHES; i++)
+    if (g_ascii_strcasecmp (name, DASH_NAMES[i]) == 0)
+      { *dash = (O42Dash) i; return TRUE; }
+  return FALSE;
+}
+
+const char *
+o42_head_name (O42Head head)
+{
+  return (guint) head < O42_N_HEADS ? HEAD_NAMES[head] : HEAD_NAMES[0];
+}
+
+gboolean
+o42_head_parse (const char *name, O42Head *head)
+{
+  for (guint i = 0; name != NULL && i < O42_N_HEADS; i++)
+    if (g_ascii_strcasecmp (name, HEAD_NAMES[i]) == 0)
+      { *head = (O42Head) i; return TRUE; }
+  return FALSE;
+}
+
+/* The dash pattern, in units of the line's width, as Office draws
+ * each of them. */
+static void
+set_dash (cairo_t *cr, O42Dash dash, double line_width)
+{
+  static const double PATTERNS[O42_N_DASHES][4] = {
+    { 0 },
+    { 4, 3 },
+    { 1, 3 },
+    { 4, 3, 1, 3 },
+    { 8, 3 },
+    { 3, 1 },
+    { 1, 1 }
+  };
+  static const int COUNTS[O42_N_DASHES] = { 0, 2, 2, 4, 2, 2, 2 };
+  double unit = MAX (line_width, 1);
+  double scaled[4];
+
+  if ((guint) dash >= O42_N_DASHES || COUNTS[dash] == 0)
+    {
+      cairo_set_dash (cr, NULL, 0, 0);
+      return;
+    }
+  for (int i = 0; i < COUNTS[dash]; i++)
+    scaled[i] = PATTERNS[dash][i] * unit;
+  cairo_set_dash (cr, scaled, COUNTS[dash], 0);
+}
+
+/* A head at (x, y), pointing along `angle`, of a line `line_width`
+ * wide: filled for the closed kinds, two strokes for the open arrow.
+ * Returns how far back from the point the line should stop, so that a
+ * dashed line does not show through a filled head. */
+static double
+draw_head (cairo_t *cr, double x, double y, double angle, O42Head head,
+           O42HeadSize size, double line_width)
+{
+  static const double SCALE[3] = { 0.7, 1.0, 1.5 };
+  double len = MAX (7, line_width * 3.5) * SCALE[CLAMP (size, 0, 2)];
+  double c = cos (angle), s = sin (angle);
+  double back = 0;
+
+  cairo_save (cr);
+  cairo_set_dash (cr, NULL, 0, 0);
+  switch (head)
+    {
+    case O42_HEAD_TRIANGLE:
+      cairo_move_to (cr, x, y);
+      cairo_line_to (cr, x - len * cos (angle - G_PI / 7), y - len * sin (angle - G_PI / 7));
+      cairo_line_to (cr, x - len * cos (angle + G_PI / 7), y - len * sin (angle + G_PI / 7));
+      cairo_close_path (cr);
+      cairo_fill (cr);
+      back = len * 0.8;
+      break;
+
+    case O42_HEAD_STEALTH:
+      cairo_move_to (cr, x, y);
+      cairo_line_to (cr, x - len * cos (angle - G_PI / 6), y - len * sin (angle - G_PI / 6));
+      cairo_line_to (cr, x - len * 0.6 * c, y - len * 0.6 * s);
+      cairo_line_to (cr, x - len * cos (angle + G_PI / 6), y - len * sin (angle + G_PI / 6));
+      cairo_close_path (cr);
+      cairo_fill (cr);
+      back = len * 0.5;
+      break;
+
+    case O42_HEAD_DIAMOND:
+      {
+        double h = len * 0.5;
+
+        cairo_move_to (cr, x, y);
+        cairo_line_to (cr, x - h * c - h * s, y - h * s + h * c);
+        cairo_line_to (cr, x - len * c, y - len * s);
+        cairo_line_to (cr, x - h * c + h * s, y - h * s - h * c);
+        cairo_close_path (cr);
+        cairo_fill (cr);
+        back = len;
+      }
+      break;
+
+    case O42_HEAD_OVAL:
+      cairo_new_sub_path (cr);
+      cairo_arc (cr, x - len * 0.5 * c, y - len * 0.5 * s, len * 0.5, 0, 2 * G_PI);
+      cairo_fill (cr);
+      back = len;
+      break;
+
+    case O42_HEAD_ARROW:
+      cairo_set_line_width (cr, line_width);
+      cairo_move_to (cr, x - len * cos (angle - G_PI / 6), y - len * sin (angle - G_PI / 6));
+      cairo_line_to (cr, x, y);
+      cairo_line_to (cr, x - len * cos (angle + G_PI / 6), y - len * sin (angle + G_PI / 6));
+      cairo_stroke (cr);
+      break;
+
+    default:
+      break;
+    }
+  cairo_restore (cr);
+  return back;
+}
+
 static void
 set_rgb (cairo_t *cr, guint32 colour)
 {
@@ -486,27 +626,33 @@ o42_shape_draw (const O42Shape *shape, cairo_t *cr, double width, double height)
   cairo_save (cr);
   cairo_new_path (cr);   /* cairo_save does not keep the path out of our way */
   cairo_set_line_width (cr, shape->line_width);
+  set_dash (cr, shape->dash, shape->line_width);
 
   switch (shape->kind)
     {
     case O42_SHAPE_LINE:
     case O42_SHAPE_ARROW:
-      set_rgb (cr, shape->line);
-      cairo_move_to (cr, 0, 0);
-      cairo_line_to (cr, width, height);
-      cairo_stroke (cr);
-      if (shape->kind == O42_SHAPE_ARROW)
-        {
-          /* A head at the far end, along the line. */
-          double angle = atan2 (height, width);
-          double size = MAX (8, shape->line_width * 4);
+      {
+        /* The heads first, each along the line and pointing out of it;
+         * the line then runs between what they leave of its ends. */
+        double angle = atan2 (height, width);
+        double length = hypot (width, height);
+        double from = 0, to = length;
 
-          cairo_move_to (cr, width, height);
-          cairo_line_to (cr, width - size * cos (angle - G_PI / 7), height - size * sin (angle - G_PI / 7));
-          cairo_line_to (cr, width - size * cos (angle + G_PI / 7), height - size * sin (angle + G_PI / 7));
-          cairo_close_path (cr);
-          cairo_fill (cr);
-        }
+        set_rgb (cr, shape->line);
+        if (shape->head_start != O42_HEAD_NONE)
+          from = draw_head (cr, 0, 0, angle + G_PI, shape->head_start,
+                            shape->head_start_size, shape->line_width);
+        if (shape->head_end != O42_HEAD_NONE)
+          to = length - draw_head (cr, width, height, angle, shape->head_end,
+                                   shape->head_end_size, shape->line_width);
+        if (to > from)
+          {
+            cairo_move_to (cr, from * cos (angle), from * sin (angle));
+            cairo_line_to (cr, to * cos (angle), to * sin (angle));
+            cairo_stroke (cr);
+          }
+      }
       break;
 
     case O42_SHAPE_OVAL:

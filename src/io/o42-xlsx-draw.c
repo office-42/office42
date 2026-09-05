@@ -574,8 +574,25 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             g_string_append_printf (dr,
               "<a:ln w=\"%.0f\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
               sh->line_width * EMU_PER_PX, sh->line & 0xFFFFFFu);
-            if (sh->kind == O42_SHAPE_ARROW)
-              g_string_append (dr, "<a:tailEnd type=\"triangle\"/>");
+            if (sh->dash != O42_DASH_SOLID)
+              g_string_append_printf (dr, "<a:prstDash val=\"%s\"/>", o42_dash_name (sh->dash));
+            if (stroke)
+              {
+                /* The head is at the line's first point, the tail at its
+                 * last; a size is "sm", "med" or "lg" both ways. */
+                static const char *const SIZES[] = { "sm", "med", "lg" };
+
+                if (sh->head_start != O42_HEAD_NONE)
+                  g_string_append_printf (dr, "<a:headEnd type=\"%s\" w=\"%s\" len=\"%s\"/>",
+                                          o42_head_name (sh->head_start),
+                                          SIZES[CLAMP (sh->head_start_size, 0, 2)],
+                                          SIZES[CLAMP (sh->head_start_size, 0, 2)]);
+                if (sh->head_end != O42_HEAD_NONE)
+                  g_string_append_printf (dr, "<a:tailEnd type=\"%s\" w=\"%s\" len=\"%s\"/>",
+                                          o42_head_name (sh->head_end),
+                                          SIZES[CLAMP (sh->head_end_size, 0, 2)],
+                                          SIZES[CLAMP (sh->head_end_size, 0, 2)]);
+              }
             g_string_append (dr, "</a:ln></xdr:spPr>");
             g_string_append (dr,
               "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"square\"/><a:lstStyle/><a:p>");
@@ -1048,6 +1065,9 @@ typedef struct
   gboolean    arrow, text_box;
   guint32     fill, line;
   double      line_width;
+  O42Dash     dash;
+  O42Head     head_start, head_end;
+  O42HeadSize head_start_size, head_end_size;
   GString    *body;
 } DrawReader;
 
@@ -1088,6 +1108,9 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->fill = O42_FILL_NONE;
       d->line = 0x000000u;
       d->line_width = 1;
+      d->dash = O42_DASH_SOLID;
+      d->head_start = d->head_end = O42_HEAD_NONE;
+      d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
       g_string_truncate (d->body, 0);
       g_clear_pointer (&d->blip, g_free);
       g_clear_pointer (&d->chart, g_free);
@@ -1147,9 +1170,23 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if ((strcmp (n, "tailEnd") == 0 || strcmp (n, "headEnd") == 0) && d->is_shape)
     {
       const char *type = attr (names, values, "type");
-      if (type != NULL && strcmp (type, "none") != 0)
+      const char *len = attr (names, values, "len");
+      O42Head head = O42_HEAD_NONE;
+      O42HeadSize size = O42_HEAD_MEDIUM;
+
+      if (type != NULL && !o42_head_parse (type, &head))
+        head = O42_HEAD_TRIANGLE;   /* a kind office42 does not draw, but a head */
+      if (len != NULL)
+        size = strcmp (len, "sm") == 0 ? O42_HEAD_SMALL : strcmp (len, "lg") == 0 ? O42_HEAD_LARGE : O42_HEAD_MEDIUM;
+      if (head != O42_HEAD_NONE)
         d->arrow = TRUE;
+      if (n[0] == 'h')
+        { d->head_start = head; d->head_start_size = size; }
+      else
+        { d->head_end = head; d->head_end_size = size; }
     }
+  else if (strcmp (n, "prstDash") == 0 && d->is_shape && d->in_line)
+    o42_dash_parse (attr (names, values, "val"), &d->dash);
   else if (strcmp (n, "noFill") == 0 && d->is_shape && !d->in_line)
     d->fill = O42_FILL_NONE;
   else if ((strcmp (n, "srgbClr") == 0 || strcmp (n, "sysClr") == 0) && d->is_shape)
@@ -1266,6 +1303,14 @@ finish_anchor (DrawReader *d)
           sh->fill = d->fill;
           sh->line = d->line;
           sh->line_width = d->line_width;
+          sh->dash = d->dash;
+          if (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW)
+            {
+              sh->head_start = d->head_start;
+              sh->head_end = d->head_end;
+              sh->head_start_size = d->head_start_size;
+              sh->head_end_size = d->head_end_size;
+            }
           if (d->body->len > 0)
             {
               g_free (sh->text);

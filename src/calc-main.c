@@ -1216,8 +1216,13 @@ main (int argc, char *argv[])
                     printf ("none");
                   else
                     printf ("%06X", sh->fill);
-                  printf (" line %06X/%g \"%s\"", sh->line, sh->line_width,
-                          sh->text != NULL ? sh->text : "");
+                  printf (" line %06X/%g", sh->line, sh->line_width);
+                  if (sh->dash != O42_DASH_SOLID)
+                    printf (" %s", o42_dash_name (sh->dash));
+                  if (sh->head_start != O42_HEAD_NONE || sh->head_end != O42_HEAD_NONE)
+                    printf (" heads %s/%d %s/%d", o42_head_name (sh->head_start), sh->head_start_size,
+                            o42_head_name (sh->head_end), sh->head_end_size);
+                  printf (" \"%s\"", sh->text != NULL ? sh->text : "");
                   if (o42_shape_is_control (sh->kind))
                     {
                       double v = 0;
@@ -1596,12 +1601,25 @@ main (int argc, char *argv[])
                 sh->width = number;
               else if (strcmp (words[2], "height") == 0)
                 sh->height = number;
+              else if (strcmp (words[2], "dash") == 0)
+                { if (!o42_dash_parse (words[3], &sh->dash)) fprintf (stderr, "no such dash\n"); }
+              else if (strcmp (words[2], "headstart") == 0)
+                { if (!o42_head_parse (words[3], &sh->head_start)) fprintf (stderr, "no such head\n"); }
+              else if (strcmp (words[2], "headend") == 0)
+                { if (!o42_head_parse (words[3], &sh->head_end)) fprintf (stderr, "no such head\n"); }
+              else if (strcmp (words[2], "headstartsize") == 0)
+                sh->head_start_size = (O42HeadSize) CLAMP ((int) number, 0, 2);
+              else if (strcmp (words[2], "headendsize") == 0)
+                sh->head_end_size = (O42HeadSize) CLAMP ((int) number, 0, 2);
+              else if (strcmp (words[2], "linewidth") == 0)
+                sh->line_width = number;
               else
                 fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: controlset ID link|source|script|text|value|"
-                             "min|max|step|page|width|height VALUE\n");
+                             "min|max|step|page|width|height|linewidth|dash|headstart|headend|"
+                             "headstartsize|headendsize VALUE\n");
           g_strfreev (words);
           continue;
         }

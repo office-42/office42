@@ -71,12 +71,46 @@ typedef enum {
   O42_N_GEOMS
 } O42ShapeGeom;
 
+/* How an outline is dashed, by Office Open XML's names. */
+typedef enum {
+  O42_DASH_SOLID = 0,
+  O42_DASH_DASH,
+  O42_DASH_DOT,
+  O42_DASH_DASH_DOT,
+  O42_DASH_LONG_DASH,
+  O42_DASH_SYS_DASH,
+  O42_DASH_SYS_DOT,
+  O42_N_DASHES
+} O42Dash;
+
+/* The head at either end of a line, likewise. */
+typedef enum {
+  O42_HEAD_NONE = 0,
+  O42_HEAD_TRIANGLE,
+  O42_HEAD_STEALTH,
+  O42_HEAD_DIAMOND,
+  O42_HEAD_OVAL,
+  O42_HEAD_ARROW,       /* two open strokes */
+  O42_N_HEADS
+} O42Head;
+
+typedef enum {
+  O42_HEAD_SMALL = 0,
+  O42_HEAD_MEDIUM,
+  O42_HEAD_LARGE
+} O42HeadSize;
+
 typedef struct {
   guint         id;         /* stable for the shape's lifetime */
   guint         group;      /* objects grouped together share one; 0 for none */
   guint         z;          /* the painting order: higher is nearer the front */
   O42ShapeKind  kind;
   O42ShapeGeom  geom;       /* the outline of a rectangle kind */
+  O42Dash       dash;       /* how the outline is dashed */
+  O42Head       head_start; /* a line's heads: at its first point ... */
+  O42Head       head_end;   /* ... and at its last; an arrow is a line with one here */
+  O42HeadSize   head_start_size;
+  O42HeadSize   head_end_size;
   int           row;        /* the anchor cell */
   int           col;
   double        dx;         /* offset inside the anchor cell, pixels */
@@ -158,6 +192,13 @@ const char *o42_shape_ods_type    (const O42Shape *shape);   /* NULL for a plain
 gboolean    o42_shape_apply_ods_type (O42Shape *shape, const char *type);
 int         o42_shape_spt         (const O42Shape *shape);
 gboolean    o42_shape_apply_spt   (O42Shape *shape, int spt);
+
+/* The dashes and heads by Office Open XML's names ("dashDot",
+ * "stealth"), which .gnumeric uses as well. */
+const char *o42_dash_name  (O42Dash dash);
+gboolean    o42_dash_parse (const char *name, O42Dash *dash);
+const char *o42_head_name  (O42Head head);
+gboolean    o42_head_parse (const char *name, O42Head *head);
 
 /* Adds the outline of a rectangle-kind shape to the current path, in
  * the box (0, 0, width, height) less `inset` all round. */

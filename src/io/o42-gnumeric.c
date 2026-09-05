@@ -952,10 +952,13 @@ write_sheet (GString *out, O42Sheet *sheet)
 
         g_string_append_printf (w.out,
           "      <gnm:o42-Shape Kind=\"%s\" Geom=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
-          "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\" Z=\"%u\"%s>%s</gnm:o42-Shape>\n",
+          "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\" Z=\"%u\" "
+          "Dash=\"%s\" HeadStart=\"%s\" HeadEnd=\"%s\" HeadStartSize=\"%d\" HeadEndSize=\"%d\"%s>%s</gnm:o42-Shape>\n",
           o42_shape_kind_name (sh->kind), o42_shape_geom_name (sh->geom), at,
           sh->dx, sh->dy, sh->width, sh->height,
           (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group, sh->z,
+          o42_dash_name (sh->dash), o42_head_name (sh->head_start), o42_head_name (sh->head_end),
+          (int) sh->head_start_size, (int) sh->head_end_size,
           control != NULL ? control : "", body);
         g_free (control);
         g_free (at);
@@ -1987,6 +1990,11 @@ start_element (GMarkupParseContext *context, const char *element,
           if (attr (names, values, "Z") != NULL)
             r->shape->z = (guint) attr_int (names, values, "Z", 0);
           o42_shape_geom_parse (attr (names, values, "Geom"), &r->shape->geom);
+          o42_dash_parse (attr (names, values, "Dash"), &r->shape->dash);
+          o42_head_parse (attr (names, values, "HeadStart"), &r->shape->head_start);
+          o42_head_parse (attr (names, values, "HeadEnd"), &r->shape->head_end);
+          r->shape->head_start_size = (O42HeadSize) CLAMP (attr_int (names, values, "HeadStartSize", 1), 0, 2);
+          r->shape->head_end_size = (O42HeadSize) CLAMP (attr_int (names, values, "HeadEndSize", 1), 0, 2);
           if (o42_shape_is_control (kind))
             {
               const char *link = attr (names, values, "Link");
