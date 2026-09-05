@@ -362,7 +362,8 @@ m_ref_name (PyObject *self, PyObject *args)
 static const char *HALIGNS[] = { "general", "left", "centre", "right" };
 static const char *VALIGNS[] = { "bottom", "middle", "top" };
 static const char *NUMBERS[] = { "general", "fixed", "comma", "currency", "percent",
-                                 "scientific", "text", "date", "time", "datetime" };
+                                 "scientific", "text", "date", "time", "datetime",
+                                 "accounting" };
 
 static gboolean
 colour_arg (PyObject *o, guint32 *out)

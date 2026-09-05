@@ -575,10 +575,18 @@ num_style (Styles *s, const O42Fmt *fmt)
         name, decimals, decimals, fmt->number == O42_NUM_COMMA ? " number:grouping=\"true\"" : "");
       break;
     case O42_NUM_CURRENCY:
-      g_string_append_printf (s->styles,
-        "<number:currency-style style:name=\"%s\"><number:currency-symbol>$</number:currency-symbol>"
-        "<number:number number:decimal-places=\"%d\" number:min-decimal-places=\"%d\" number:min-integer-digits=\"1\" number:grouping=\"true\"/></number:currency-style>",
-        name, decimals, decimals);
+    case O42_NUM_ACCOUNTING:
+      {
+        /* Accounting is a currency style with the fill character ODF
+         * keeps for it, which is what pushes the symbol to the edge. */
+        char *symbol = g_markup_escape_text (o42_numfmt_currency (), -1);
+        g_string_append_printf (s->styles,
+          "<number:currency-style style:name=\"%s\"><number:currency-symbol>%s</number:currency-symbol>%s"
+          "<number:number number:decimal-places=\"%d\" number:min-decimal-places=\"%d\" number:min-integer-digits=\"1\" number:grouping=\"true\"/></number:currency-style>",
+          name, symbol, fmt->number == O42_NUM_ACCOUNTING ? "<number:fill-character> </number:fill-character>" : "",
+          decimals, decimals);
+        g_free (symbol);
+      }
       break;
     case O42_NUM_PERCENT:
       g_string_append_printf (s->styles,
@@ -1187,10 +1195,10 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
               break;
             }
           g_string_append_printf (out, " office:value-type=\"%s\" office:value=\"%s\"",
-                                  fmt->number == O42_NUM_PERCENT ? "percentage" : fmt->number == O42_NUM_CURRENCY ? "currency" : "float",
+                                  fmt->number == O42_NUM_PERCENT ? "percentage" : (fmt->number == O42_NUM_CURRENCY || fmt->number == O42_NUM_ACCOUNTING) ? "currency" : "float",
                                   g_ascii_dtostr (buf, sizeof buf, value.as.number));
-          if (fmt->number == O42_NUM_CURRENCY)
-            g_string_append (out, " office:currency=\"USD\"");
+          if (fmt->number == O42_NUM_CURRENCY || fmt->number == O42_NUM_ACCOUNTING)
+            g_string_append_printf (out, " office:currency=\"%s\"", o42_numfmt_currency_iso ());
           break;
         case O42_VALUE_BOOL:
           g_string_append_printf (out, " office:value-type=\"boolean\" office:boolean-value=\"%s\"", value.as.boolean ? "true" : "false");
@@ -2767,6 +2775,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "hours") == 0 && ns->number == O42_NUM_DATE)
         ns->number = O42_NUM_DATETIME;
+      else if (strcmp (name, "fill-character") == 0 && ns->number == O42_NUM_CURRENCY)
+        ns->number = O42_NUM_ACCOUNTING;
 
       if (ns->code != NULL)
         {

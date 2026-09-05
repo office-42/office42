@@ -5045,6 +5045,7 @@ draw_cell_text (O42Grid      *self,
   int tw, th;
   double tx, ty;
   O42HAlign halign;
+  O42FormatLayout flayout;
 
   if (o42_sheet_conditional_fmt (self->sheet, row, col, &conditional))
     fmt = &conditional;
@@ -5057,7 +5058,7 @@ draw_cell_text (O42Grid      *self,
       return;
     }
 
-  text = o42_fmt_display (fmt, &value);
+  text = o42_fmt_display_layout (fmt, &value, &flayout);
   halign = o42_fmt_effective_halign (fmt, &value);
   is_text = (value.type == O42_VALUE_TEXT);
   colour = fmt->colour;
@@ -5111,6 +5112,12 @@ draw_cell_text (O42Grid      *self,
         if (fmt->strikeout)
           pango_attr_list_insert (attrs, pango_attr_strikethrough_new (TRUE));
       }
+    if (flayout.n_pads > 0)
+      {
+        /* The format's "_x" gaps, each as wide as x in this font. */
+        o42_format_pad_attributes (self->layout, &flayout, &attrs);
+        pango_layout_set_text (self->layout, text, -1);
+      }
     pango_layout_set_attributes (self->layout, attrs);
     if (attrs != NULL)
       pango_attr_list_unref (attrs);
@@ -5151,6 +5158,7 @@ draw_cell_text (O42Grid      *self,
         {
           GString *hashes = g_string_new ("#");
 
+          pango_layout_set_attributes (self->layout, NULL);
           pango_layout_set_text (self->layout, "#", -1);
           pango_layout_get_pixel_size (self->layout, &tw, &th);
           while (tw > 0 && (hashes->len + 1) * tw + 2 * CELL_PAD <= w)
@@ -5161,6 +5169,7 @@ draw_cell_text (O42Grid      *self,
           pango_layout_set_text (self->layout, text, -1);
           pango_layout_get_pixel_size (self->layout, &tw, &th);
         }
+      flayout.fill_at = -1;
     }
 
   if (fmt->wrap)
@@ -5211,16 +5220,37 @@ draw_cell_text (O42Grid      *self,
   }
 
   set_rgb (cr, colour);
-  if (fmt->rotation != 0)
-    {
-      /* Turned about the cell's centre. */
-      cairo_translate (cr, x + w / 2.0, y + h / 2.0);
-      cairo_rotate (cr, -fmt->rotation * G_PI / 180.0);
-      cairo_move_to (cr, -tw / 2.0, -th / 2.0);
-    }
-  else
-    cairo_move_to (cr, tx, ty);
-  pango_cairo_show_layout (cr, self->layout);
+  {
+    double left_w, right_w, gap;
+
+    if (fmt->rotation != 0)
+      {
+        /* Turned about the cell's centre. */
+        cairo_translate (cr, x + w / 2.0, y + h / 2.0);
+        cairo_rotate (cr, -fmt->rotation * G_PI / 180.0);
+        cairo_move_to (cr, -tw / 2.0, -th / 2.0);
+        pango_cairo_show_layout (cr, self->layout);
+      }
+    else if (!fmt->wrap && o42_format_fill_split (self->layout, &flayout, w, CELL_PAD,
+                                                   &left_w, &right_w, &gap))
+      {
+        /* A filled format: what is before the fill at the left edge,
+         * what is after it flush right, the fill character repeated
+         * across the gap.  Accounting's "* " is how the symbol and the
+         * number come to stand apart. */
+        gboolean linked = o42_sheet_get_link (self->sheet, row, col) != NULL;
+
+        (void) left_w;
+        o42_format_draw_filled (cr, self->layout, text, &flayout,
+                                fmt->underline || linked, fmt->strikeout,
+                                x + CELL_PAD, x + w - CELL_PAD - right_w, gap, ty);
+      }
+    else
+      {
+        cairo_move_to (cr, tx, ty);
+        pango_cairo_show_layout (cr, self->layout);
+      }
+  }
   cairo_restore (cr);
   pango_layout_set_attributes (self->layout, NULL);
 

@@ -756,7 +756,8 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
         {
         case O42_NUM_FIXED:      g_snprintf (code, sizeof code, "F%d", fmt->decimals); break;
         case O42_NUM_COMMA:      g_snprintf (code, sizeof code, ",%d", fmt->decimals); break;
-        case O42_NUM_CURRENCY:   g_snprintf (code, sizeof code, "C%d", fmt->decimals); break;
+        case O42_NUM_CURRENCY:
+        case O42_NUM_ACCOUNTING: g_snprintf (code, sizeof code, "C%d", fmt->decimals); break;
         case O42_NUM_PERCENT:    g_snprintf (code, sizeof code, "P%d", fmt->decimals); break;
         case O42_NUM_SCIENTIFIC: g_snprintf (code, sizeof code, "S%d", fmt->decimals); break;
         case O42_NUM_DATE:       g_strlcpy (code, "D4", sizeof code); break;
@@ -2039,7 +2040,7 @@ record_format (O42Sheet *sheet, const O42Range *range, O42FmtMask mask, const O4
   static const char *const VALIGNS[] = { "bottom", "middle", "top" };
   static const char *const NUMBERS[] = { "general", "fixed", "comma", "currency",
                                          "percent", "scientific", "text", "date",
-                                         "time", "datetime" };
+                                         "time", "datetime", "accounting" };
   GString *args = g_string_new (NULL);
   char *a, *b, *line;
 
@@ -2079,7 +2080,7 @@ record_format (O42Sheet *sheet, const O42Range *range, O42FmtMask mask, const O4
       if (fmt->custom != NULL)
         g_string_append_printf (args, "number=\"%s\"", fmt->custom);
       else
-        g_string_append_printf (args, "number=\"%s\"", NUMBERS[CLAMP (fmt->number, 0, 9)]);
+        g_string_append_printf (args, "number=\"%s\"", NUMBERS[CLAMP (fmt->number, 0, 10)]);
     }
   #undef ARG
 

@@ -54,11 +54,11 @@ static const char *BORDER_STYLE_NAMES[] = { N_("None"), N_("Thin"), N_("Medium")
 static const O42NumberFormat NUMBER_CHOICES[] = {
   O42_NUM_GENERAL, O42_NUM_FIXED, O42_NUM_COMMA, O42_NUM_CURRENCY,
   O42_NUM_PERCENT, O42_NUM_SCIENTIFIC, O42_NUM_TEXT, O42_NUM_DATE,
-  O42_NUM_TIME, O42_NUM_DATETIME,
+  O42_NUM_TIME, O42_NUM_DATETIME, O42_NUM_ACCOUNTING,
 };
 static const char *NUMBER_NAMES[] = {
   N_("General"), N_("Fixed"), N_("Comma"), N_("Currency"), N_("Percent"), N_("Scientific"), N_("Text"),
-  N_("Date"), N_("Time"), N_("Date and Time"), N_("Custom"), NULL,
+  N_("Date"), N_("Time"), N_("Date and Time"), N_("Accounting"), N_("Custom"), NULL,
 };
 static const char *HALIGN_NAMES[] = { N_("General"), N_("Left"), N_("Center"), N_("Right"), NULL };
 static const char *VALIGN_NAMES[] = { N_("Bottom"), N_("Middle"), N_("Top"), NULL };

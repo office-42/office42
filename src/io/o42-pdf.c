@@ -186,6 +186,9 @@ draw_page (cairo_t      *cr,
           PangoFontDescription *desc;
           int tw, th;
           double tx, ty;
+          O42FormatLayout flayout;
+          double fill_left = 0, fill_right = 0, fill_gap = 0;
+          gboolean filled = FALSE;
 
           o42_sheet_get_value (sheet, r, c, &value);
           if (value.type == O42_VALUE_EMPTY)
@@ -223,7 +226,7 @@ draw_page (cairo_t      *cr,
             if (o42_sheet_conditional_fmt (sheet, r, c, &conditional))
               fmt = &conditional;
           }
-          text = o42_fmt_display (fmt, &value);
+          text = o42_fmt_display_layout (fmt, &value, &flayout);
 
           desc = pango_font_description_new ();
           pango_font_description_set_family (desc, fmt->family ? fmt->family : "Sans");
@@ -282,6 +285,8 @@ draw_page (cairo_t      *cr,
                   pango_layout_set_text (layout, text, -1);
                   pango_layout_get_pixel_size (layout, &tw, &th);
                 }
+              flayout.fill_at = -1;
+              flayout.n_pads = 0;
             }
 
           {
@@ -291,12 +296,20 @@ draw_page (cairo_t      *cr,
                                      ? o42_sheet_runs (sheet, r, c, &n_runs) : NULL;
             PangoAttrList *attrs = o42_runs_attributes (runs, n_runs, fmt, text);
 
+            if (flayout.n_pads > 0)
+              {
+                /* The format's "_x" gaps, as wide as x in this font. */
+                o42_format_pad_attributes (layout, &flayout, &attrs);
+                pango_layout_set_text (layout, text, -1);
+              }
             if (attrs != NULL)
               {
                 pango_layout_set_attributes (layout, attrs);
                 pango_attr_list_unref (attrs);
                 pango_layout_get_pixel_size (layout, &tw, &th);
               }
+            filled = !fmt->wrap && o42_format_fill_split (layout, &flayout, w, 3,
+                                                          &fill_left, &fill_right, &fill_gap);
 
             if (value.type == O42_VALUE_TEXT && tw + 6 > w &&
                 o42_fmt_effective_halign (fmt, &value) == O42_HALIGN_LEFT)
@@ -324,8 +337,20 @@ draw_page (cairo_t      *cr,
             o42_fmt_display_colour (fmt, &value, &colour);
             set_rgb (cr, colour);
           }
-          cairo_move_to (cr, tx, ty);
-          pango_cairo_show_layout (cr, layout);
+          if (filled)
+            {
+              /* A filled format, as the grid draws it: the left half at
+               * the left edge, the right half flush right, the fill
+               * character across the gap. */
+              (void) fill_left;
+              o42_format_draw_filled (cr, layout, text, &flayout, fmt->underline, fmt->strikeout,
+                                      x + 3, x + w - 3 - fill_right, fill_gap, ty);
+            }
+          else
+            {
+              cairo_move_to (cr, tx, ty);
+              pango_cairo_show_layout (cr, layout);
+            }
           cairo_restore (cr);
             pango_layout_set_attributes (layout, NULL);
 

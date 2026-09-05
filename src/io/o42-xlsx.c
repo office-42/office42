@@ -2285,6 +2285,10 @@ o42_xlsx_builtin_number_format (int id)
     case 38: return "#,##0 ;[Red](#,##0)";
     case 39: return "#,##0.00;(#,##0.00)";
     case 40: return "#,##0.00;[Red](#,##0.00)";
+    case 41: return "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"_);_(@_)";
+    case 42: return "_(\"$\"* #,##0_);_(\"$\"* \\(#,##0\\);_(\"$\"* \"-\"_);_(@_)";
+    case 43: return "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)";
+    case 44: return "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)";
     case 45: return "mm:ss";
     case 46: return "[h]:mm:ss";
     case 47: return "mm:ss.0";
@@ -2329,7 +2333,10 @@ o42_xlsx_apply_format_code (O42Fmt *fmt, const char *code)
    * negatives, a condition -- so it is kept as it was written and the
    * formatter reads it whole.  Dates keep their preset, which is what
    * the rest of the program tests for. */
-  if (!is_date && (strchr (code, '[') != NULL || strchr (code, ';') != NULL))
+  if (!is_date && o42_number_format_parse (code, &preset, &decimals) &&
+      (preset == O42_NUM_ACCOUNTING || preset == O42_NUM_CURRENCY))
+    { fmt->number = preset; fmt->decimals = decimals; }   /* this machine's money */
+  else if (!is_date && (strchr (code, '[') != NULL || strchr (code, ';') != NULL))
     fmt->custom = g_intern_string (code);
   else if (o42_number_format_parse (code, &preset, &decimals))
     { fmt->number = preset; fmt->decimals = decimals; }
