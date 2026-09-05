@@ -968,6 +968,37 @@ GPtrArray  *o42_sheet_charts       (O42Sheet *sheet);   /* owned by the sheet */
 void        o42_sheet_draw_chart   (O42Sheet *sheet, const O42Chart *chart,
                                     cairo_t *cr, double width, double height);
 
+/* ---- The objects together ---------------------------------------------- */
+
+/* Pictures, shapes and charts share one painting order: each carries a
+ * `z`, and whoever paints or hit-tests them walks this list, which is
+ * every object on the sheet from the back to the front. */
+typedef enum {
+  O42_OBJECT_PICTURE,
+  O42_OBJECT_SHAPE,
+  O42_OBJECT_CHART
+} O42ObjectType;
+
+typedef struct {
+  O42ObjectType type;
+  gpointer      object;   /* the O42Picture, O42Shape or O42Chart */
+  guint         id;
+  guint         z;
+} O42ObjectRef;
+
+GArray  *o42_sheet_objects (O42Sheet *sheet);   /* O42ObjectRef, back to front; free it */
+
+/* Format > Order: the object goes to the front or the back of them all,
+ * or one step either way.  One undo step.  FALSE if nothing moved. */
+typedef enum {
+  O42_ORDER_FRONT,
+  O42_ORDER_BACK,
+  O42_ORDER_FORWARD,
+  O42_ORDER_BACKWARD
+} O42Order;
+
+gboolean o42_sheet_reorder_object (O42Sheet *sheet, O42ObjectType type, guint id, O42Order how);
+
 /* Before moving or resizing a picture or chart by hand, inside a
  * begin/end group, so the drag is one undo step. */
 void        o42_sheet_capture_object (O42Sheet *sheet, guint id);

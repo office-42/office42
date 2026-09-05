@@ -510,101 +510,97 @@ draw_page (cairo_t      *cr,
   if (draft)
     return;
 
-  /* Pictures, clipped to the band they overlap. */
+  /* The objects, back to front as the grid paints them, each clipped
+   * to the band it overlaps. */
   {
-    GPtrArray *pictures = o42_sheet_pictures (sheet);
+    GArray *objects = o42_sheet_objects (sheet);
 
-    for (guint i = 0; i < pictures->len; i++)
+    for (guint i = 0; i < objects->len; i++)
       {
-        O42Picture *pic = g_ptr_array_index (pictures, i);
-        cairo_surface_t *surface;
+        const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i);
+        int col, row;
+        double dx, dy, width, height;
         double px = 0.0, py = 0.0;
+
+        switch (ref->type)
+          {
+          case O42_OBJECT_PICTURE:
+            {
+              const O42Picture *pic = ref->object;
+              col = pic->col; row = pic->row; dx = pic->dx; dy = pic->dy;
+              width = pic->width; height = pic->height;
+            }
+            break;
+          case O42_OBJECT_SHAPE:
+            {
+              const O42Shape *shape = ref->object;
+              col = shape->col; row = shape->row; dx = shape->dx; dy = shape->dy;
+              width = shape->width; height = shape->height;
+            }
+            break;
+          default:
+            {
+              const O42Chart *chart = ref->object;
+              col = chart->col; row = chart->row; dx = chart->dx; dy = chart->dy;
+              width = chart->width; height = chart->height;
+            }
+            break;
+          }
 
         /* Its position relative to the band's corner. */
-        for (int c = 0; c < pic->col; c++)
+        for (int c = 0; c < col; c++)
           px += o42_sheet_col_width (sheet, c);
-        for (int r = 0; r < pic->row; r++)
+        for (int r = 0; r < row; r++)
           py += o42_sheet_row_height (sheet, r);
-        px += pic->dx - cols->offset;
-        py += pic->dy - rows->offset;
+        px += dx - cols->offset;
+        py += dy - rows->offset;
 
         if (px > band_w || py > band_h ||
-            px + pic->width < 0 || py + pic->height < 0)
-          continue;
-
-        surface = o42_picture_surface (pic);
-        if (surface == NULL)
+            px + MAX (width, 1) < 0 || py + MAX (height, 1) < 0)
           continue;
 
         cairo_save (cr);
         cairo_rectangle (cr, 0, 0, band_w, band_h);
         cairo_clip (cr);
+        /* Turned and mirrored about its centre, as on screen. */
+        {
+          double rotation = 0;
+          gboolean flip_h = FALSE, flip_v = FALSE;
+
+          if (ref->type == O42_OBJECT_SHAPE)
+            {
+              const O42Shape *shape = ref->object;
+              rotation = shape->rotation; flip_h = shape->flip_h; flip_v = shape->flip_v;
+            }
+          else if (ref->type == O42_OBJECT_PICTURE)
+            {
+              const O42Picture *pic = ref->object;
+              rotation = pic->rotation; flip_h = pic->flip_h; flip_v = pic->flip_v;
+            }
+          if (rotation != 0 || flip_h || flip_v)
+            {
+              cairo_translate (cr, px + width / 2, py + height / 2);
+              cairo_rotate (cr, rotation * G_PI / 180);
+              cairo_scale (cr, flip_h ? -1 : 1, flip_v ? -1 : 1);
+              cairo_translate (cr, -(px + width / 2), -(py + height / 2));
+            }
+        }
         cairo_translate (cr, px, py);
-        cairo_scale (cr, pic->width / cairo_image_surface_get_width (surface),
-                         pic->height / cairo_image_surface_get_height (surface));
-        cairo_set_source_surface (cr, surface, 0, 0);
-        cairo_paint (cr);
+        switch (ref->type)
+          {
+          case O42_OBJECT_PICTURE:
+            o42_picture_paint (ref->object, cr, width, height);
+            break;
+          case O42_OBJECT_SHAPE:
+            o42_sheet_draw_shape (sheet, ref->object, cr, width, height);
+            break;
+          default:
+            o42_sheet_draw_chart (sheet, ref->object, cr, width, height);
+            break;
+          }
         cairo_restore (cr);
       }
-  }
-
-  /* Shapes, likewise. */
-  {
-    GPtrArray *shapes = o42_sheet_shapes (sheet);
-
-    for (guint i = 0; i < shapes->len; i++)
-      {
-        O42Shape *shape = g_ptr_array_index (shapes, i);
-        double px = 0.0, py = 0.0;
-
-        for (int c = 0; c < shape->col; c++)
-          px += o42_sheet_col_width (sheet, c);
-        for (int r = 0; r < shape->row; r++)
-          py += o42_sheet_row_height (sheet, r);
-        px += shape->dx - cols->offset;
-        py += shape->dy - rows->offset;
-
-        if (px > band_w || py > band_h ||
-            px + MAX (shape->width, 1) < 0 || py + MAX (shape->height, 1) < 0)
-          continue;
-
-        cairo_save (cr);
-        cairo_rectangle (cr, 0, 0, band_w, band_h);
-        cairo_clip (cr);
-        cairo_translate (cr, px, py);
-        o42_sheet_draw_shape (sheet, shape, cr, shape->width, shape->height);
-        cairo_restore (cr);
-      }
-  }
-
-  /* Charts, likewise. */
-
-  {
-    GPtrArray *charts = o42_sheet_charts (sheet);
-
-    for (guint i = 0; i < charts->len; i++)
-      {
-        O42Chart *chart = g_ptr_array_index (charts, i);
-        double px = 0.0, py = 0.0;
-
-        for (int c = 0; c < chart->col; c++)
-          px += o42_sheet_col_width (sheet, c);
-        for (int r = 0; r < chart->row; r++)
-          py += o42_sheet_row_height (sheet, r);
-        px += chart->dx - cols->offset;
-        py += chart->dy - rows->offset;
-
-        if (px > band_w || py > band_h ||
-            px + chart->width < 0 || py + chart->height < 0)
-          continue;
-
-        cairo_save (cr);
-        cairo_rectangle (cr, 0, 0, band_w, band_h);
-        cairo_clip (cr);
-        cairo_translate (cr, px, py);
-        o42_sheet_draw_chart (sheet, chart, cr, chart->width, chart->height);
-        cairo_restore (cr);
-      }
+    g_array_free (objects, TRUE);
   }
 
   /* Notes shown where they are: a yellow box to the right of the cell,

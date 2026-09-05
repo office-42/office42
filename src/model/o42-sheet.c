@@ -184,6 +184,7 @@ struct _O42Sheet {
 };
 
 static void sizes_changed (O42Sheet *sheet);
+static guint top_z (O42Sheet *sheet);
 static int compare_ints (gconstpointer a, gconstpointer b);
 
 /* ---------------------------------------------------------------------- */
@@ -5964,6 +5965,7 @@ o42_sheet_add_chart (O42Sheet *sheet, O42ChartKind kind, const O42Range *data,
 
   chart = o42_chart_new (kind, data);
   chart->id = sheet->next_picture_id++;     /* one id space for all objects */
+  chart->z = top_z (sheet);
   op_begin (sheet);
   obj_capture (sheet, OBJ_CHART, chart->id, 0);   /* absent: undo removes it */
   op_end (sheet);
@@ -6054,6 +6056,7 @@ o42_sheet_add_picture (O42Sheet   *sheet,
     return NULL;
 
   picture->id  = sheet->next_picture_id++;
+  picture->z = top_z (sheet);
   op_begin (sheet);
   obj_capture (sheet, OBJ_PICTURE, picture->id, 0);
   op_end (sheet);
@@ -6494,23 +6497,24 @@ picture_copy (const O42Picture *pic)
   copy->row = pic->row; copy->col = pic->col;
   copy->dx = pic->dx; copy->dy = pic->dy;
   copy->width = pic->width; copy->height = pic->height;
+  copy->group = pic->group;
+  copy->z = pic->z;
+  copy->rotation = pic->rotation;
+  copy->flip_h = pic->flip_h;
+  copy->flip_v = pic->flip_v;
+  copy->crop_l = pic->crop_l; copy->crop_r = pic->crop_r;
+  copy->crop_t = pic->crop_t; copy->crop_b = pic->crop_b;
+  copy->lock_aspect = pic->lock_aspect;
   return copy;
 }
 
 static O42Shape *
 shape_copy (const O42Shape *shape)
 {
-  O42Shape *copy = o42_shape_new (shape->kind);
+  O42Shape *copy = o42_shape_copy (shape);
 
   copy->id = shape->id;
-  copy->row = shape->row; copy->col = shape->col;
-  copy->dx = shape->dx; copy->dy = shape->dy;
-  copy->width = shape->width; copy->height = shape->height;
-  g_free (copy->text);
-  copy->text = g_strdup (shape->text != NULL ? shape->text : "");
-  copy->fill = shape->fill;
-  copy->line = shape->line;
-  copy->line_width = shape->line_width;
+  copy->group = shape->group;
   return copy;
 }
 
@@ -6519,6 +6523,8 @@ chart_copy (const O42Chart *chart)
 {
   O42Chart *copy = o42_chart_new (chart->kind, &chart->data);
   copy->id = chart->id;
+  copy->group = chart->group;
+  copy->z = chart->z;
   copy->first_row_labels = chart->first_row_labels;
   copy->first_col_labels = chart->first_col_labels;
   copy->series_in_rows = chart->series_in_rows;
@@ -6733,6 +6739,12 @@ obj_snap_apply (const ObjSnap *snap)
             pic->row = snap->picture->row; pic->col = snap->picture->col;
             pic->dx = snap->picture->dx; pic->dy = snap->picture->dy;
             pic->width = snap->picture->width; pic->height = snap->picture->height;
+            pic->group = snap->picture->group; pic->z = snap->picture->z;
+            pic->rotation = snap->picture->rotation;
+            pic->flip_h = snap->picture->flip_h; pic->flip_v = snap->picture->flip_v;
+            pic->crop_l = snap->picture->crop_l; pic->crop_r = snap->picture->crop_r;
+            pic->crop_t = snap->picture->crop_t; pic->crop_b = snap->picture->crop_b;
+            pic->lock_aspect = snap->picture->lock_aspect;
           }
         else
           g_ptr_array_add (sheet->pictures, picture_copy (snap->picture));
@@ -6756,6 +6768,7 @@ obj_snap_apply (const ObjSnap *snap)
             chart->row = snap->chart->row; chart->col = snap->chart->col;
             chart->dx = snap->chart->dx; chart->dy = snap->chart->dy;
             chart->width = snap->chart->width; chart->height = snap->chart->height;
+            chart->group = snap->chart->group; chart->z = snap->chart->z;
           }
         else
           g_ptr_array_add (sheet->charts, chart_copy (snap->chart));
@@ -9651,6 +9664,172 @@ o42_sheet_page_breaks (O42Sheet *sheet, gboolean rows)
 }
 
 /* ---------------------------------------------------------------------- */
+/* The objects together                                                    */
+/* ---------------------------------------------------------------------- */
+
+static int
+compare_z (gconstpointer a, gconstpointer b)
+{
+  const O42ObjectRef *x = a, *y = b;
+
+  if (x->z != y->z)
+    return x->z < y->z ? -1 : 1;
+  /* Objects of equal z -- a file that carried none -- keep the order
+   * they were added in, pictures first as the grid always painted them. */
+  if (x->type != y->type)
+    return (int) x->type - (int) y->type;
+  return x->id < y->id ? -1 : x->id > y->id ? 1 : 0;
+}
+
+GArray *
+o42_sheet_objects (O42Sheet *sheet)
+{
+  GArray *list;
+
+  g_return_val_if_fail (sheet != NULL, NULL);
+  list = g_array_sized_new (FALSE, FALSE, sizeof (O42ObjectRef),
+                            sheet->pictures->len + sheet->shapes->len + sheet->charts->len);
+  for (guint i = 0; i < sheet->pictures->len; i++)
+    {
+      O42Picture *pic = g_ptr_array_index (sheet->pictures, i);
+      O42ObjectRef ref = { O42_OBJECT_PICTURE, pic, pic->id, pic->z };
+      g_array_append_val (list, ref);
+    }
+  for (guint i = 0; i < sheet->shapes->len; i++)
+    {
+      O42Shape *sh = g_ptr_array_index (sheet->shapes, i);
+      O42ObjectRef ref = { O42_OBJECT_SHAPE, sh, sh->id, sh->z };
+      g_array_append_val (list, ref);
+    }
+  for (guint i = 0; i < sheet->charts->len; i++)
+    {
+      O42Chart *chart = g_ptr_array_index (sheet->charts, i);
+      O42ObjectRef ref = { O42_OBJECT_CHART, chart, chart->id, chart->z };
+      g_array_append_val (list, ref);
+    }
+  g_array_sort (list, compare_z);
+  return list;
+}
+
+/* The z above every object's, for the next one added. */
+static guint
+top_z (O42Sheet *sheet)
+{
+  guint top = 0;
+
+  for (guint i = 0; i < sheet->pictures->len; i++)
+    top = MAX (top, ((O42Picture *) g_ptr_array_index (sheet->pictures, i))->z);
+  for (guint i = 0; i < sheet->shapes->len; i++)
+    top = MAX (top, ((O42Shape *) g_ptr_array_index (sheet->shapes, i))->z);
+  for (guint i = 0; i < sheet->charts->len; i++)
+    top = MAX (top, ((O42Chart *) g_ptr_array_index (sheet->charts, i))->z);
+  return top + 1;
+}
+
+static void
+object_set_z (const O42ObjectRef *ref, guint z)
+{
+  switch (ref->type)
+    {
+    case O42_OBJECT_PICTURE: ((O42Picture *) ref->object)->z = z; break;
+    case O42_OBJECT_SHAPE:   ((O42Shape *) ref->object)->z = z;   break;
+    case O42_OBJECT_CHART:   ((O42Chart *) ref->object)->z = z;   break;
+    }
+}
+
+static void
+object_capture (O42Sheet *sheet, const O42ObjectRef *ref)
+{
+  switch (ref->type)
+    {
+    case O42_OBJECT_PICTURE: obj_capture (sheet, OBJ_PICTURE, (int) ref->id, 0); break;
+    case O42_OBJECT_SHAPE:   obj_capture (sheet, OBJ_SHAPE, (int) ref->id, 0);   break;
+    case O42_OBJECT_CHART:   obj_capture (sheet, OBJ_CHART, (int) ref->id, 0);   break;
+    }
+}
+
+gboolean
+o42_sheet_reorder_object (O42Sheet *sheet, O42ObjectType type, guint id, O42Order how)
+{
+  GArray *list;
+  int at = -1, n;
+  gboolean moved = FALSE;
+
+  g_return_val_if_fail (sheet != NULL, FALSE);
+  list = o42_sheet_objects (sheet);
+  n = (int) list->len;
+  for (int i = 0; i < n; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (list, O42ObjectRef, i);
+      if (ref->type == type && ref->id == id)
+        at = i;
+    }
+  if (at < 0)
+    {
+      g_array_free (list, TRUE);
+      return FALSE;
+    }
+
+  op_begin (sheet);
+  switch (how)
+    {
+    case O42_ORDER_FRONT:
+      if (at < n - 1)
+        {
+          object_capture (sheet, &g_array_index (list, O42ObjectRef, at));
+          object_set_z (&g_array_index (list, O42ObjectRef, at), top_z (sheet));
+          moved = TRUE;
+        }
+      break;
+
+    case O42_ORDER_BACK:
+      if (at > 0)
+        {
+          /* Everything is numbered afresh from one, the object first. */
+          guint z = 1;
+
+          for (int i = 0; i < n; i++)
+            object_capture (sheet, &g_array_index (list, O42ObjectRef, i));
+          object_set_z (&g_array_index (list, O42ObjectRef, at), z++);
+          for (int i = 0; i < n; i++)
+            if (i != at)
+              object_set_z (&g_array_index (list, O42ObjectRef, i), z++);
+          moved = TRUE;
+        }
+      break;
+
+    case O42_ORDER_FORWARD:
+    case O42_ORDER_BACKWARD:
+      {
+        int other = how == O42_ORDER_FORWARD ? at + 1 : at - 1;
+
+        if (other >= 0 && other < n)
+          {
+            O42ObjectRef *a = &g_array_index (list, O42ObjectRef, at);
+            O42ObjectRef *b = &g_array_index (list, O42ObjectRef, other);
+            guint za = a->z, zb = b->z;
+
+            object_capture (sheet, a);
+            object_capture (sheet, b);
+            /* Equal z (from a file without any) would swap to nothing:
+             * number the pair apart. */
+            if (za == zb)
+              { zb = za + 1; }
+            object_set_z (a, how == O42_ORDER_FORWARD ? MAX (za, zb) : MIN (za, zb));
+            object_set_z (b, how == O42_ORDER_FORWARD ? MIN (za, zb) : MAX (za, zb));
+            moved = TRUE;
+          }
+      }
+      break;
+    }
+  op_end (sheet);
+  if (moved)
+    sheet->modified = TRUE;
+  g_array_free (list, TRUE);
+  return moved;
+}
+
+/* ---------------------------------------------------------------------- */
 /* Shapes                                                                  */
 /* ---------------------------------------------------------------------- */
 
@@ -9662,6 +9841,7 @@ o42_sheet_add_shape (O42Sheet *sheet, O42ShapeKind kind, int row, int col)
   g_return_val_if_fail (sheet != NULL, NULL);
   shape = o42_shape_new (kind);
   shape->id = sheet->next_shape_id++;
+  shape->z = top_z (sheet);
   shape->row = CLAMP (row, 0, O42_MAX_ROWS - 1);
   shape->col = CLAMP (col, 0, O42_MAX_COLS - 1);
   /* The snapshot is taken before the shape exists, so undoing takes

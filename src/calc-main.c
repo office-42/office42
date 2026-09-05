@@ -258,7 +258,7 @@ main (int argc, char *argv[])
               "          table pivot refresh validate validations goalseek solve scenario summary\n"
               "          analyse whatif split splitfixed\n"
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
-              "          picture pictures objgroup objungroup note link links\n"
+              "          picture pictures objects order objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
               "          pagebreak margin pageopt header footer titlerows\n"
               "Python    py pyfile script scripts runscript delscript record select\n"
@@ -1406,6 +1406,76 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* pictureset ID rotation|fliph|flipv|width|height VALUE */
+      if (g_str_has_prefix (text, "pictureset "))
+        {
+          char **words = g_strsplit (text, " ", 4);
+          int n = (int) g_strv_length (words);
+          O42Picture *pic = n >= 2 ? o42_sheet_find_picture (sheet, (guint) atoi (words[1])) : NULL;
+
+          if (pic == NULL)
+            fprintf (stderr, "no such picture\n");
+          else if (n >= 4)
+            {
+              double number = g_ascii_strtod (words[3], NULL);
+
+              if (strcmp (words[2], "rotation") == 0)    pic->rotation = number;
+              else if (strcmp (words[2], "cropl") == 0)  pic->crop_l = number;
+              else if (strcmp (words[2], "cropr") == 0)  pic->crop_r = number;
+              else if (strcmp (words[2], "cropt") == 0)  pic->crop_t = number;
+              else if (strcmp (words[2], "cropb") == 0)  pic->crop_b = number;
+              else if (strcmp (words[2], "lockaspect") == 0) pic->lock_aspect = number != 0;
+              else if (strcmp (words[2], "fliph") == 0)  pic->flip_h = number != 0;
+              else if (strcmp (words[2], "flipv") == 0)  pic->flip_v = number != 0;
+              else if (strcmp (words[2], "width") == 0)  pic->width = number;
+              else if (strcmp (words[2], "height") == 0) pic->height = number;
+              else fprintf (stderr, "no such field\n");
+            }
+          else
+            fprintf (stderr, "usage: pictureset ID rotation|fliph|flipv|width|height|"
+                             "cropl|cropr|cropt|cropb|lockaspect VALUE\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* objects: every picture, shape and chart from the back to the
+       * front; order shape|picture|chart ID front|back|forward|backward */
+      if (strcmp (text, "objects") == 0)
+        {
+          GArray *objects = o42_sheet_objects (sheet);
+
+          for (guint i = 0; i < objects->len; i++)
+            {
+              const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i);
+              printf ("%s %u z %u\n",
+                      ref->type == O42_OBJECT_PICTURE ? "picture"
+                      : ref->type == O42_OBJECT_SHAPE ? "shape" : "chart", ref->id, ref->z);
+            }
+          g_array_free (objects, TRUE);
+          continue;
+        }
+      if (g_str_has_prefix (text, "order "))
+        {
+          char **words = g_strsplit (text + 6, " ", 3);
+          O42ObjectType type = O42_OBJECT_SHAPE;
+          O42Order how = O42_ORDER_FRONT;
+          gboolean ok = g_strv_length (words) == 3;
+
+          if (ok && strcmp (words[0], "picture") == 0) type = O42_OBJECT_PICTURE;
+          else if (ok && strcmp (words[0], "chart") == 0) type = O42_OBJECT_CHART;
+          else if (ok && strcmp (words[0], "shape") != 0) ok = FALSE;
+          if (ok && strcmp (words[2], "back") == 0) how = O42_ORDER_BACK;
+          else if (ok && strcmp (words[2], "forward") == 0) how = O42_ORDER_FORWARD;
+          else if (ok && strcmp (words[2], "backward") == 0) how = O42_ORDER_BACKWARD;
+          else if (ok && strcmp (words[2], "front") != 0) ok = FALSE;
+          if (!ok)
+            fprintf (stderr, "usage: order shape|picture|chart ID front|back|forward|backward\n");
+          else if (!o42_sheet_reorder_object (sheet, type, (guint) atoi (words[1]), how))
+            fprintf (stderr, "nothing moved\n");
+          g_strfreev (words);
+          continue;
+        }
+
       /* objgroup A1:D10; objungroup A1:D10 -- "group" is taken by the
        * outline grouping of rows and columns. */
       if (g_str_has_prefix (text, "objgroup ") || g_str_has_prefix (text, "objungroup "))
@@ -1447,8 +1517,15 @@ main (int argc, char *argv[])
                   const O42Picture *pic = g_ptr_array_index (list, i);
                   char *at = o42_ref_name (pic->row, pic->col);
 
-                  printf ("picture %u: %s at %s %gx%g\n", pic->id,
+                  printf ("picture %u: %s at %s %gx%g", pic->id,
                           pic->format != NULL ? pic->format : "?", at, pic->width, pic->height);
+                  if (pic->rotation != 0 || pic->flip_h || pic->flip_v)
+                    printf (" turned %g%s%s", pic->rotation, pic->flip_h ? " flip-h" : "", pic->flip_v ? " flip-v" : "");
+                  if (pic->crop_l > 0 || pic->crop_r > 0 || pic->crop_t > 0 || pic->crop_b > 0)
+                    printf (" crop %g %g %g %g", pic->crop_l, pic->crop_t, pic->crop_r, pic->crop_b);
+                  if (!pic->lock_aspect)
+                    printf (" free");
+                  printf ("\n");
                   g_free (at);
                 }
             }
@@ -1491,15 +1568,24 @@ main (int argc, char *argv[])
                 {
                   const O42Shape *sh = g_ptr_array_index (shapes, i);
                   char *at = o42_ref_name (sh->row, sh->col);
-                  printf ("shape %u: %s at %s %gx%g group %u fill ", sh->id,
-                          o42_shape_kind_name (sh->kind), at, sh->width, sh->height,
+                  printf ("shape %u: %s", sh->id, o42_shape_kind_name (sh->kind));
+                  if (sh->geom != O42_GEOM_RECT)
+                    printf ("/%s", o42_shape_geom_name (sh->geom));
+                  printf (" at %s %gx%g group %u fill ", at, sh->width, sh->height,
                           sh->group);
                   if (sh->fill == O42_FILL_NONE)
                     printf ("none");
                   else
                     printf ("%06X", sh->fill);
-                  printf (" line %06X/%g \"%s\"", sh->line, sh->line_width,
-                          sh->text != NULL ? sh->text : "");
+                  printf (" line %06X/%g", sh->line, sh->line_width);
+                  if (sh->dash != O42_DASH_SOLID)
+                    printf (" %s", o42_dash_name (sh->dash));
+                  if (sh->rotation != 0 || sh->flip_h || sh->flip_v)
+                    printf (" turned %g%s%s", sh->rotation, sh->flip_h ? " flip-h" : "", sh->flip_v ? " flip-v" : "");
+                  if (sh->head_start != O42_HEAD_NONE || sh->head_end != O42_HEAD_NONE)
+                    printf (" heads %s/%d %s/%d", o42_head_name (sh->head_start), sh->head_start_size,
+                            o42_head_name (sh->head_end), sh->head_end_size);
+                  printf (" \"%s\"", sh->text != NULL ? sh->text : "");
                   if (o42_shape_is_control (sh->kind))
                     {
                       double v = 0;
@@ -1519,20 +1605,28 @@ main (int argc, char *argv[])
           else
             {
               char **words = g_strsplit (text + 6, " ", 3);
-              O42ShapeKind kind;
+              O42ShapeKind kind = O42_SHAPE_RECT;
+              O42ShapeGeom geom = O42_GEOM_RECT;
               int srow, scol;
 
-              if (g_strv_length (words) >= 2 && o42_shape_kind_parse (words[0], &kind) &&
+              if (g_strv_length (words) >= 2 &&
+                  (o42_shape_kind_parse (words[0], &kind) || o42_shape_geom_parse (words[0], &geom)) &&
                   o42_ref_parse (words[1], &srow, &scol, NULL))
                 {
                   O42Shape *sh = o42_sheet_add_shape (sheet, kind, srow, scol);
+                  if (sh != NULL)
+                    sh->geom = geom;
                   if (sh != NULL && g_strv_length (words) >= 3)
                     { g_free (sh->text); sh->text = g_strdup (words[2]); }
                 }
               else
                 fprintf (stderr, "usage: shape rectangle|oval|line|arrow|textbox|"
                                  "button|checkbox|option|spinner|scrollbar|listbox|"
-                                 "combo|label|groupbox A1 [TEXT]\n");
+                                 "combo|label|groupbox|roundrect|triangle|rttriangle|"
+                                 "diamond|pentagon|hexagon|octagon|plus|star4|star5|star8|"
+                                 "rightarrow|leftarrow|uparrow|downarrow|leftrightarrow|"
+                                 "rectcallout|ellipsecallout|flowprocess|flowdecision|"
+                                 "flowterminator A1 [TEXT]\n");
               g_strfreev (words);
             }
           continue;
@@ -1893,12 +1987,31 @@ main (int argc, char *argv[])
                 sh->width = number;
               else if (strcmp (words[2], "height") == 0)
                 sh->height = number;
+              else if (strcmp (words[2], "dash") == 0)
+                { if (!o42_dash_parse (words[3], &sh->dash)) fprintf (stderr, "no such dash\n"); }
+              else if (strcmp (words[2], "headstart") == 0)
+                { if (!o42_head_parse (words[3], &sh->head_start)) fprintf (stderr, "no such head\n"); }
+              else if (strcmp (words[2], "headend") == 0)
+                { if (!o42_head_parse (words[3], &sh->head_end)) fprintf (stderr, "no such head\n"); }
+              else if (strcmp (words[2], "headstartsize") == 0)
+                sh->head_start_size = (O42HeadSize) CLAMP ((int) number, 0, 2);
+              else if (strcmp (words[2], "headendsize") == 0)
+                sh->head_end_size = (O42HeadSize) CLAMP ((int) number, 0, 2);
+              else if (strcmp (words[2], "linewidth") == 0)
+                sh->line_width = number;
+              else if (strcmp (words[2], "rotation") == 0)
+                sh->rotation = number;
+              else if (strcmp (words[2], "fliph") == 0)
+                sh->flip_h = number != 0;
+              else if (strcmp (words[2], "flipv") == 0)
+                sh->flip_v = number != 0;
               else
                 fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: controlset ID link|source|script|text|value|"
-                             "min|max|step|page|width|height VALUE\n");
+                             "min|max|step|page|width|height|linewidth|dash|headstart|headend|"
+                             "headstartsize|headendsize|rotation|fliph|flipv VALUE\n");
           g_strfreev (words);
           continue;
         }

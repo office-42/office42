@@ -117,6 +117,33 @@
           <item><attribute name="label" translatable="yes">_Line</attribute><attribute name="action">win.shape</attribute><attribute name="target">line</attribute></item>
           <item><attribute name="label" translatable="yes">_Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">arrow</attribute></item>
           <item><attribute name="label" translatable="yes">_Text Box</attribute><attribute name="action">win.shape</attribute><attribute name="target">textbox</attribute></item>
+          <section>
+            <item><attribute name="label" translatable="yes">Rounded Rectan_gle</attribute><attribute name="action">win.shape</attribute><attribute name="target">roundrect</attribute></item>
+            <item><attribute name="label" translatable="yes">Trian_gle</attribute><attribute name="action">win.shape</attribute><attribute name="target">triangle</attribute></item>
+            <item><attribute name="label" translatable="yes">Right Triangle</attribute><attribute name="action">win.shape</attribute><attribute name="target">rttriangle</attribute></item>
+            <item><attribute name="label" translatable="yes">_Diamond</attribute><attribute name="action">win.shape</attribute><attribute name="target">diamond</attribute></item>
+            <item><attribute name="label" translatable="yes">_Pentagon</attribute><attribute name="action">win.shape</attribute><attribute name="target">pentagon</attribute></item>
+            <item><attribute name="label" translatable="yes">_Hexagon</attribute><attribute name="action">win.shape</attribute><attribute name="target">hexagon</attribute></item>
+            <item><attribute name="label" translatable="yes">Octagon</attribute><attribute name="action">win.shape</attribute><attribute name="target">octagon</attribute></item>
+            <item><attribute name="label" translatable="yes">Cross</attribute><attribute name="action">win.shape</attribute><attribute name="target">plus</attribute></item>
+            <item><attribute name="label" translatable="yes">_4-Point Star</attribute><attribute name="action">win.shape</attribute><attribute name="target">star4</attribute></item>
+            <item><attribute name="label" translatable="yes">_5-Point Star</attribute><attribute name="action">win.shape</attribute><attribute name="target">star5</attribute></item>
+            <item><attribute name="label" translatable="yes">_8-Point Star</attribute><attribute name="action">win.shape</attribute><attribute name="target">star8</attribute></item>
+          </section>
+          <section>
+            <item><attribute name="label" translatable="yes">_Right Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">rightarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">_Left Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">leftarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">_Up Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">uparrow</attribute></item>
+            <item><attribute name="label" translatable="yes">_Down Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">downarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">Left-Right Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">leftrightarrow</attribute></item>
+          </section>
+          <section>
+            <item><attribute name="label" translatable="yes">Rectangular _Callout</attribute><attribute name="action">win.shape</attribute><attribute name="target">rectcallout</attribute></item>
+            <item><attribute name="label" translatable="yes">Oval Call_out</attribute><attribute name="action">win.shape</attribute><attribute name="target">ellipsecallout</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: _Process</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowprocess</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: _Decision</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowdecision</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: _Terminator</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowterminator</attribute></item>
+          </section>
         </submenu>
         <submenu>
           <attribute name="label" translatable="yes">Co_ntrol</attribute>
@@ -157,9 +184,17 @@
         <item><attribute name="label" translatable="yes">Conditional _Formatting...</attribute><attribute name="action">win.conditional</attribute></item>
         <item><attribute name="label" translatable="yes">C_hart...</attribute><attribute name="action">win.format-chart</attribute></item>
         <item><attribute name="label" translatable="yes">Sha_pe...</attribute><attribute name="action">win.format-shape</attribute></item>
+        <item><attribute name="label" translatable="yes">P_icture...</attribute><attribute name="action">win.format-picture</attribute></item>
         <item><attribute name="label" translatable="yes">Contro_l...</attribute><attribute name="action">win.format-control</attribute></item>
         <item><attribute name="label" translatable="yes">_Group Objects</attribute><attribute name="action">win.group-objects</attribute></item>
         <item><attribute name="label" translatable="yes">U_ngroup Objects</attribute><attribute name="action">win.ungroup-objects</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">O_rder</attribute>
+          <item><attribute name="label" translatable="yes">Bring to _Front</attribute><attribute name="action">win.order</attribute><attribute name="target">front</attribute></item>
+          <item><attribute name="label" translatable="yes">Send to _Back</attribute><attribute name="action">win.order</attribute><attribute name="target">back</attribute></item>
+          <item><attribute name="label" translatable="yes">Bring F_orward</attribute><attribute name="action">win.order</attribute><attribute name="target">forward</attribute></item>
+          <item><attribute name="label" translatable="yes">Send Back_ward</attribute><attribute name="action">win.order</attribute><attribute name="target">backward</attribute></item>
+        </submenu>
         <item><attribute name="label" translatable="yes">_Merge Cells</attribute><attribute name="action">win.merge-cells</attribute></item>
         <item><attribute name="label" translatable="yes">Unmer_ge Cells</attribute><attribute name="action">win.unmerge-cells</attribute></item>
         <item><attribute name="label" translatable="yes">Rename _Sheet...</attribute><attribute name="action">win.rename-sheet</attribute></item>

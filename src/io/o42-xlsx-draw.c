@@ -447,6 +447,38 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   return g_string_free (out, FALSE);
 }
 
+/* The a:xfrm attributes for a turned or mirrored object: the angle in
+ * 60,000ths of a degree, and the flips.  A static buffer: one call per
+ * printf. */
+static const char *
+xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
+{
+  static char buffer[64];
+
+  buffer[0] = '\0';
+  if (rotation != 0)
+    g_snprintf (buffer, sizeof buffer, " rot=\"%.0f\"", fmod (rotation + 360, 360) * 60000);
+  if (flip_h)
+    g_strlcat (buffer, " flipH=\"1\"", sizeof buffer);
+  if (flip_v)
+    g_strlcat (buffer, " flipV=\"1\"", sizeof buffer);
+  return buffer;
+}
+
+/* A cropped picture's a:srcRect, the margins in thousandths of a per
+ * cent; nothing for one that is whole.  A static buffer, as above. */
+static const char *
+src_rect (const O42Picture *pic)
+{
+  static char buffer[96];
+
+  if (pic->crop_l <= 0 && pic->crop_r <= 0 && pic->crop_t <= 0 && pic->crop_b <= 0)
+    return "";
+  g_snprintf (buffer, sizeof buffer, "<a:srcRect l=\"%.0f\" t=\"%.0f\" r=\"%.0f\" b=\"%.0f\"/>",
+              pic->crop_l * 100000, pic->crop_t * 100000, pic->crop_r * 100000, pic->crop_b * 100000);
+  return buffer;
+}
+
 int
 o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                      GString *content_types, GHashTable *extensions_seen,
@@ -468,114 +500,151 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<Relationships xmlns=\"" NS_PKG "\">");
 
-  for (guint i = 0; i < pictures->len; i++)
-    {
-      const O42Picture *pic = g_ptr_array_index (pictures, i);
-      const char *ext = pic->format ? pic->format : "png";
-      char *part = g_strdup_printf ("xl/media/image%d_%u.%s", index, i + 1, ext);
+  /* The objects go out back to front, as they are painted, so that a
+   * reader that paints in document order -- Excel does -- shows them in
+   * the same order.  Each kind keeps its own numbering for its parts. */
+  {
+    GArray *objects = o42_sheet_objects (sheet);
+    guint n_pic = 0, n_chart = 0, n_shape = 0;
 
-      o42_zip_writer_add (zip, part, g_bytes_get_data (pic->data, NULL), g_bytes_get_size (pic->data));
-      if (!g_hash_table_contains (extensions_seen, ext))
-        {
-          g_hash_table_add (extensions_seen, g_strdup (ext));
-          g_string_append_printf (content_types, "<Default Extension=\"%s\" ContentType=\"%s\"/>", ext, mime_for (ext));
-        }
-      g_string_append_printf (rels,
-        "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image%d_%u.%s\"/>",
-        rid, index, i + 1, ext);
+    for (guint k = 0; k < objects->len; k++)
+      {
+        const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, k);
 
-      append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height);
-      g_string_append_printf (dr,
-        "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr></xdr:nvPicPr>"
-        "<xdr:blipFill><a:blip r:embed=\"rId%d\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
-        "<xdr:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
-        "<xdr:clientData/></xdr:twoCellAnchor>",
-        shape, i + 1, rid, pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
-      rid++;
-      shape++;
-      g_free (part);
-    }
+        if (ref->type == O42_OBJECT_PICTURE)
+          {
+            const O42Picture *pic = ref->object;
+            guint i = n_pic++;
+            const char *ext = pic->format ? pic->format : "png";
+            char *part = g_strdup_printf ("xl/media/image%d_%u.%s", index, i + 1, ext);
 
-  for (guint i = 0; i < charts->len; i++)
-    {
-      const O42Chart *chart = g_ptr_array_index (charts, i);
-      char *part = g_strdup_printf ("xl/charts/chart%d_%u.xml", index, i + 1);
-      char *xml = chart_xml (sheet, chart);
+            o42_zip_writer_add (zip, part, g_bytes_get_data (pic->data, NULL), g_bytes_get_size (pic->data));
+            if (!g_hash_table_contains (extensions_seen, ext))
+              {
+                g_hash_table_add (extensions_seen, g_strdup (ext));
+                g_string_append_printf (content_types, "<Default Extension=\"%s\" ContentType=\"%s\"/>", ext, mime_for (ext));
+              }
+            g_string_append_printf (rels,
+              "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image%d_%u.%s\"/>",
+              rid, index, i + 1, ext);
 
-      o42_zip_writer_add (zip, part, xml, strlen (xml));
-      g_string_append_printf (content_types,
-        "<Override PartName=\"/%s\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>", part);
-      g_string_append_printf (rels,
-        "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"../charts/chart%d_%u.xml\"/>",
-        rid, index, i + 1);
+            append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height);
+            g_string_append_printf (dr,
+              "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"%d\"/></xdr:cNvPicPr></xdr:nvPicPr>"
+              "<xdr:blipFill><a:blip r:embed=\"rId%d\"/>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
+              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
+              "<xdr:clientData/></xdr:twoCellAnchor>",
+              shape, i + 1, pic->lock_aspect ? 1 : 0, rid, src_rect (pic),
+              xfrm_attrs (pic->rotation, pic->flip_h, pic->flip_v),
+              pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
+            rid++;
+            shape++;
+            g_free (part);
+          }
 
-      /* A chart sheet has no cells to anchor to, so its chart is
-       * placed absolutely, as Excel places one. */
-      if (o42_sheet_is_chart_sheet (sheet))
-        g_string_append_printf (dr,
-          "<xdr:absoluteAnchor><xdr:pos x=\"0\" y=\"0\"/><xdr:ext cx=\"%.0f\" cy=\"%.0f\"/>",
-          chart->width * EMU_PER_PX, chart->height * EMU_PER_PX);
-      else
-        append_anchor (dr, sheet, chart->row, chart->col, chart->dx, chart->dy,
-                       chart->width, chart->height);
-      g_string_append_printf (dr,
-        "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"%d\" name=\"Chart %u\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>"
-        "<xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
-        "<a:graphic><a:graphicData uri=\"" NS_C "\"><c:chart xmlns:c=\"" NS_C "\" r:id=\"rId%d\"/></a:graphicData></a:graphic>"
-        "</xdr:graphicFrame><xdr:clientData/>%s",
-        shape, i + 1, rid,
-        o42_sheet_is_chart_sheet (sheet) ? "</xdr:absoluteAnchor>" : "</xdr:twoCellAnchor>");
-      rid++;
-      shape++;
-      g_free (xml);
-      g_free (part);
-    }
+        if (ref->type == O42_OBJECT_CHART)
+          {
+            const O42Chart *chart = ref->object;
+            guint i = n_chart++;
+            char *part = g_strdup_printf ("xl/charts/chart%d_%u.xml", index, i + 1);
+            char *xml = chart_xml (sheet, chart);
 
-  /* Shapes are drawn by the file rather than carried in it: a preset
-   * geometry, a fill, an outline and whatever is written inside. */
-  for (guint i = 0; i < shapes->len; i++)
-    {
-      const O42Shape *sh = g_ptr_array_index (shapes, i);
-      gboolean stroke = sh->kind == O42_SHAPE_LINE || sh->kind == O42_SHAPE_ARROW;
+            o42_zip_writer_add (zip, part, xml, strlen (xml));
+            g_string_append_printf (content_types,
+              "<Override PartName=\"/%s\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>", part);
+            g_string_append_printf (rels,
+              "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"../charts/chart%d_%u.xml\"/>",
+              rid, index, i + 1);
 
-      /* A form control is not a drawing: it goes into the sheet's
-       * legacy drawing, with an x:ClientData that says what it does.
-       * Writing it here as well would put two of it on the sheet. */
-      if (o42_shape_is_control (sh->kind))
-        continue;
+            /* A chart sheet has no cells to anchor to, so its chart is
+             * placed absolutely, as Excel places one. */
+            if (o42_sheet_is_chart_sheet (sheet))
+              g_string_append_printf (dr,
+                "<xdr:absoluteAnchor><xdr:pos x=\"0\" y=\"0\"/><xdr:ext cx=\"%.0f\" cy=\"%.0f\"/>",
+                chart->width * EMU_PER_PX, chart->height * EMU_PER_PX);
+            else
+              append_anchor (dr, sheet, chart->row, chart->col, chart->dx, chart->dy,
+                             chart->width, chart->height);
+            g_string_append_printf (dr,
+              "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"%d\" name=\"Chart %u\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>"
+              "<xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
+              "<a:graphic><a:graphicData uri=\"" NS_C "\"><c:chart xmlns:c=\"" NS_C "\" r:id=\"rId%d\"/></a:graphicData></a:graphic>"
+              "</xdr:graphicFrame><xdr:clientData/>%s",
+              shape, i + 1, rid,
+              o42_sheet_is_chart_sheet (sheet) ? "</xdr:absoluteAnchor>" : "</xdr:twoCellAnchor>");
+            rid++;
+            shape++;
+            g_free (xml);
+            g_free (part);
+          }
 
-      append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height);
-      g_string_append_printf (dr,
-        "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
-        "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
-        "<xdr:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>"
-        "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>",
-        shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : "Shape", i + 1,
-        sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
-        sh->width * EMU_PER_PX, sh->height * EMU_PER_PX,
-        sh->kind == O42_SHAPE_OVAL ? "ellipse" : stroke ? "line" : "rect");
-      if (sh->fill == O42_FILL_NONE || stroke)
-        g_string_append (dr, "<a:noFill/>");
-      else
-        g_string_append_printf (dr, "<a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
-                                sh->fill & 0xFFFFFFu);
-      g_string_append_printf (dr,
-        "<a:ln w=\"%.0f\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
-        sh->line_width * EMU_PER_PX, sh->line & 0xFFFFFFu);
-      if (sh->kind == O42_SHAPE_ARROW)
-        g_string_append (dr, "<a:tailEnd type=\"triangle\"/>");
-      g_string_append (dr, "</a:ln></xdr:spPr>");
-      g_string_append (dr,
-        "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"square\"/><a:lstStyle/><a:p>");
-      if (sh->text != NULL && sh->text[0] != '\0')
-        {
-          char *t = g_markup_escape_text (sh->text, -1);
-          g_string_append_printf (dr, "<a:r><a:rPr lang=\"en-US\"/><a:t>%s</a:t></a:r>", t);
-          g_free (t);
-        }
-      g_string_append (dr, "</a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
-      shape++;
-    }
+        /* Shapes are drawn by the file rather than carried in it: a preset
+         * geometry, a fill, an outline and whatever is written inside. */
+        if (ref->type == O42_OBJECT_SHAPE)
+          {
+            const O42Shape *sh = ref->object;
+            guint i = n_shape++;
+            gboolean stroke = sh->kind == O42_SHAPE_LINE || sh->kind == O42_SHAPE_ARROW;
+
+            /* A form control is not a drawing: it goes into the sheet's
+             * legacy drawing, with an x:ClientData that says what it does.
+             * Writing it here as well would put two of it on the sheet. */
+            if (o42_shape_is_control (sh->kind))
+              continue;
+
+            append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height);
+            g_string_append_printf (dr,
+              "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
+              "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
+              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>"
+              "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>",
+              shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : "Shape", i + 1,
+              sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
+              xfrm_attrs (sh->rotation, sh->flip_h, sh->flip_v),
+              sh->width * EMU_PER_PX, sh->height * EMU_PER_PX,
+              o42_shape_prst (sh));
+            if (sh->fill == O42_FILL_NONE || stroke)
+              g_string_append (dr, "<a:noFill/>");
+            else
+              g_string_append_printf (dr, "<a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
+                                      sh->fill & 0xFFFFFFu);
+            g_string_append_printf (dr,
+              "<a:ln w=\"%.0f\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
+              sh->line_width * EMU_PER_PX, sh->line & 0xFFFFFFu);
+            if (sh->dash != O42_DASH_SOLID)
+              g_string_append_printf (dr, "<a:prstDash val=\"%s\"/>", o42_dash_name (sh->dash));
+            if (stroke)
+              {
+                /* The head is at the line's first point, the tail at its
+                 * last; a size is "sm", "med" or "lg" both ways. */
+                static const char *const SIZES[] = { "sm", "med", "lg" };
+
+                if (sh->head_start != O42_HEAD_NONE)
+                  g_string_append_printf (dr, "<a:headEnd type=\"%s\" w=\"%s\" len=\"%s\"/>",
+                                          o42_head_name (sh->head_start),
+                                          SIZES[CLAMP (sh->head_start_size, 0, 2)],
+                                          SIZES[CLAMP (sh->head_start_size, 0, 2)]);
+                if (sh->head_end != O42_HEAD_NONE)
+                  g_string_append_printf (dr, "<a:tailEnd type=\"%s\" w=\"%s\" len=\"%s\"/>",
+                                          o42_head_name (sh->head_end),
+                                          SIZES[CLAMP (sh->head_end_size, 0, 2)],
+                                          SIZES[CLAMP (sh->head_end_size, 0, 2)]);
+              }
+            g_string_append (dr, "</a:ln></xdr:spPr>");
+            g_string_append (dr,
+              "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"square\"/><a:lstStyle/><a:p>");
+            if (sh->text != NULL && sh->text[0] != '\0')
+              {
+                char *t = g_markup_escape_text (sh->text, -1);
+                g_string_append_printf (dr, "<a:r><a:rPr lang=\"en-US\"/><a:t>%s</a:t></a:r>", t);
+                g_free (t);
+              }
+            g_string_append (dr, "</a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
+            shape++;
+          }
+      }
+    g_array_free (objects, TRUE);
+  }
 
   g_string_append (dr, "</xdr:wsDr>");
   g_string_append (rels, "</Relationships>");
@@ -1033,6 +1102,13 @@ typedef struct
   gboolean    arrow, text_box;
   guint32     fill, line;
   double      line_width;
+  O42Dash     dash;
+  O42Head     head_start, head_end;
+  O42HeadSize head_start_size, head_end_size;
+  double      rotation;    /* degrees, from a:xfrm */
+  gboolean    flip_h, flip_v;
+  double      crop[4];     /* a:srcRect l, t, r, b as fractions */
+  gboolean    lock_aspect;
   GString    *body;
 } DrawReader;
 
@@ -1073,6 +1149,13 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->fill = O42_FILL_NONE;
       d->line = 0x000000u;
       d->line_width = 1;
+      d->dash = O42_DASH_SOLID;
+      d->rotation = 0;
+      d->flip_h = d->flip_v = FALSE;
+      d->crop[0] = d->crop[1] = d->crop[2] = d->crop[3] = 0;
+      d->lock_aspect = TRUE;
+      d->head_start = d->head_end = O42_HEAD_NONE;
+      d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
       g_string_truncate (d->body, 0);
       g_clear_pointer (&d->blip, g_free);
       g_clear_pointer (&d->chart, g_free);
@@ -1086,6 +1169,32 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *x = attr (names, values, "x"), *y = attr (names, values, "y");
       if (x) d->abs_x = g_ascii_strtod (x, NULL) / EMU_PER_PX;
       if (y) d->abs_y = g_ascii_strtod (y, NULL) / EMU_PER_PX;
+    }
+  else if (strcmp (n, "srcRect") == 0)
+    {
+      static const char *const SIDES[4] = { "l", "t", "r", "b" };
+
+      for (int i = 0; i < 4; i++)
+        {
+          const char *v = attr (names, values, SIDES[i]);
+          d->crop[i] = v != NULL ? CLAMP (g_ascii_strtod (v, NULL) / 100000, 0, 0.99) : 0;
+        }
+    }
+  else if (strcmp (n, "picLocks") == 0)
+    {
+      const char *v = attr (names, values, "noChangeAspect");
+      d->lock_aspect = v != NULL && strcmp (v, "0") != 0 && strcmp (v, "false") != 0;
+    }
+  else if (strcmp (n, "xfrm") == 0)
+    {
+      const char *rot = attr (names, values, "rot");
+      const char *fh = attr (names, values, "flipH");
+      const char *fv = attr (names, values, "flipV");
+
+      if (rot != NULL)
+        d->rotation = g_ascii_strtod (rot, NULL) / 60000;
+      d->flip_h = fh != NULL && strcmp (fh, "0") != 0 && strcmp (fh, "false") != 0;
+      d->flip_v = fv != NULL && strcmp (fv, "0") != 0 && strcmp (fv, "false") != 0;
     }
   else if (strcmp (n, "ext") == 0 && !d->have_ext)
     {
@@ -1132,9 +1241,23 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if ((strcmp (n, "tailEnd") == 0 || strcmp (n, "headEnd") == 0) && d->is_shape)
     {
       const char *type = attr (names, values, "type");
-      if (type != NULL && strcmp (type, "none") != 0)
+      const char *len = attr (names, values, "len");
+      O42Head head = O42_HEAD_NONE;
+      O42HeadSize size = O42_HEAD_MEDIUM;
+
+      if (type != NULL && !o42_head_parse (type, &head))
+        head = O42_HEAD_TRIANGLE;   /* a kind office42 does not draw, but a head */
+      if (len != NULL)
+        size = strcmp (len, "sm") == 0 ? O42_HEAD_SMALL : strcmp (len, "lg") == 0 ? O42_HEAD_LARGE : O42_HEAD_MEDIUM;
+      if (head != O42_HEAD_NONE)
         d->arrow = TRUE;
+      if (n[0] == 'h')
+        { d->head_start = head; d->head_start_size = size; }
+      else
+        { d->head_end = head; d->head_end_size = size; }
     }
+  else if (strcmp (n, "prstDash") == 0 && d->is_shape && d->in_line)
+    o42_dash_parse (attr (names, values, "val"), &d->dash);
   else if (strcmp (n, "noFill") == 0 && d->is_shape && !d->in_line)
     d->fill = O42_FILL_NONE;
   else if ((strcmp (n, "srgbClr") == 0 || strcmp (n, "sysClr") == 0) && d->is_shape)
@@ -1224,6 +1347,12 @@ finish_anchor (DrawReader *d)
               pic->dy = dy;
               pic->width = width;
               pic->height = height;
+              pic->rotation = d->rotation;
+              pic->flip_h = d->flip_h;
+              pic->flip_v = d->flip_v;
+              pic->crop_l = d->crop[0]; pic->crop_t = d->crop[1];
+              pic->crop_r = d->crop[2]; pic->crop_b = d->crop[3];
+              pic->lock_aspect = d->lock_aspect;
             }
         }
       g_free (part);
@@ -1233,9 +1362,7 @@ finish_anchor (DrawReader *d)
       O42ShapeKind kind = O42_SHAPE_RECT;
       O42Shape *sh;
 
-      if (strcmp (d->geom, "ellipse") == 0)
-        kind = O42_SHAPE_OVAL;
-      else if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
+      if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
         kind = d->arrow ? O42_SHAPE_ARROW : O42_SHAPE_LINE;
       else if (d->text_box || d->body->len > 0)
         kind = O42_SHAPE_TEXT;   /* Excel says txBox; others just write in it */
@@ -1243,6 +1370,9 @@ finish_anchor (DrawReader *d)
       sh = o42_sheet_add_shape (d->sheet, kind, row, col);
       if (sh != NULL)
         {
+          /* The preset outline: an ellipse is a kind of its own, the
+           * AutoShapes are outlines a rectangle wears. */
+          o42_shape_apply_prst (sh, d->geom);
           sh->dx = dx;
           sh->dy = dy;
           sh->width = width;
@@ -1250,6 +1380,17 @@ finish_anchor (DrawReader *d)
           sh->fill = d->fill;
           sh->line = d->line;
           sh->line_width = d->line_width;
+          sh->dash = d->dash;
+          sh->rotation = d->rotation;
+          sh->flip_h = d->flip_h;
+          sh->flip_v = d->flip_v;
+          if (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW)
+            {
+              sh->head_start = d->head_start;
+              sh->head_end = d->head_end;
+              sh->head_start_size = d->head_start_size;
+              sh->head_end_size = d->head_end_size;
+            }
           if (d->body->len > 0)
             {
               g_free (sh->text);

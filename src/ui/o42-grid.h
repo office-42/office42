@@ -94,13 +94,23 @@ void o42_grid_insert_chart (O42Grid *self, O42ChartKind kind, const char *title,
                             gboolean first_row_labels, gboolean first_col_labels);
 
 /* Puts a shape near the active cell and selects it. */
-void o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, const char *text);
+void o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, const char *text);
 
 /* The shape selected by clicking it, or NULL. */
 O42Shape *o42_grid_selected_shape (O42Grid *self);
 
+/* Format > Order on the selected object.  FALSE if there is none or
+ * it did not move. */
+gboolean  o42_grid_reorder_selected (O42Grid *self, O42Order how);
+
+/* Whether any object -- a picture too -- is selected. */
+gboolean  o42_grid_has_selected_object (O42Grid *self);
+
 /* The chart selected by clicking it, or NULL. */
 O42Chart *o42_grid_selected_chart (O42Grid *self);
+
+/* The picture selected by clicking it, or NULL. */
+O42Picture *o42_grid_selected_picture (O42Grid *self);
 
 /* The guess the chart would make about the selection's labels. */
 void o42_grid_guess_chart_labels (O42Grid *self, gboolean *first_row,

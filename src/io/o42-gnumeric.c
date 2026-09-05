@@ -443,6 +443,7 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
   double fx0, fy0, fx1, fy1;
   char *a, *b, *encoded;
   char fx0s[32], fy0s[32], fx1s[32], fy1s[32];
+  char ct[32], cb[32], cl[32], cr[32];
 
   locate (sheet, TRUE, x0, &c0, &fx0);
   locate (sheet, FALSE, y0, &r0, &fy0);
@@ -455,12 +456,20 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
   g_ascii_dtostr (fy0s, sizeof fy0s, fy0);
   g_ascii_dtostr (fx1s, sizeof fx1s, fx1);
   g_ascii_dtostr (fy1s, sizeof fy1s, fy1);
+  /* Gnumeric's own crop attributes, fractions of the picture. */
+  g_ascii_dtostr (ct, sizeof ct, pic->crop_t);
+  g_ascii_dtostr (cb, sizeof cb, pic->crop_b);
+  g_ascii_dtostr (cl, sizeof cl, pic->crop_l);
+  g_ascii_dtostr (cr, sizeof cr, pic->crop_r);
 
   g_string_append_printf (out,
     "      <gnm:SheetObjectImage ObjectBound=\"%s:%s\" ObjectOffset=\"%s %s %s %s\" "
     "ObjectAnchorType=\"16 16 16 16\" Direction=\"17\" "
-    "crop-top=\"0\" crop-bottom=\"0\" crop-left=\"0\" crop-right=\"0\">\n",
-    a, b, fx0s, fy0s, fx1s, fy1s);
+    "crop-top=\"%s\" crop-bottom=\"%s\" crop-left=\"%s\" crop-right=\"%s\" "
+    "o42-z=\"%u\" o42-group=\"%u\" o42-rotation=\"%g\" o42-flip-h=\"%d\" o42-flip-v=\"%d\" "
+    "o42-lock-aspect=\"%d\">\n",
+    a, b, fx0s, fy0s, fx1s, fy1s, ct, cb, cl, cr, pic->z, pic->group, pic->rotation,
+    pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0);
 
   encoded = g_base64_encode (g_bytes_get_data (pic->data, NULL),
                              g_bytes_get_size (pic->data));
@@ -525,7 +534,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     "o42-kind=\"%s\" o42-first-row-labels=\"%d\" o42-first-col-labels=\"%d\" "
     "o42-series-in-rows=\"%d\" o42-legend=\"%d\" o42-gridlines=\"%d\" o42-labels=\"%d\" "
     "o42-trend=\"%s\" o42-trend-order=\"%d\" o42-errbars=\"%s\" o42-errvalue=\"%g\" "
-    "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-group=\"%u\" "
+    "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-group=\"%u\" o42-z=\"%u\" "
     "o42-yformat=\"%s\" o42-secondary=\"%d\" "
     "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\"%s>\n"
     "        <gnm:GogObject type=\"GogGraph\">\n"
@@ -536,7 +545,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     chart->data_labels ? 1 : 0, o42_trend_kind_name (chart->trend), chart->trend_order,
     o42_errbar_kind_name (chart->err_bars), chart->err_value,
     chart->font_family != NULL ? chart->font_family : "", chart->font_size,
-    chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0, chart->group,
+    chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0, chart->group, chart->z,
     yfmt, chart->secondary_from,
     o42_marker_kind_name (chart->marker), chart->marker_size,
     chart->marker_picture, bounds);
@@ -1038,10 +1047,16 @@ write_sheet (GString *out, O42Sheet *sheet)
           }
 
         g_string_append_printf (w.out,
-          "      <gnm:o42-Shape Kind=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
-          "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\"%s>%s</gnm:o42-Shape>\n",
-          o42_shape_kind_name (sh->kind), at, sh->dx, sh->dy, sh->width, sh->height,
-          (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group,
+          "      <gnm:o42-Shape Kind=\"%s\" Geom=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
+          "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\" Z=\"%u\" "
+          "Dash=\"%s\" HeadStart=\"%s\" HeadEnd=\"%s\" HeadStartSize=\"%d\" HeadEndSize=\"%d\" "
+          "Rotation=\"%g\" FlipH=\"%d\" FlipV=\"%d\"%s>%s</gnm:o42-Shape>\n",
+          o42_shape_kind_name (sh->kind), o42_shape_geom_name (sh->geom), at,
+          sh->dx, sh->dy, sh->width, sh->height,
+          (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group, sh->z,
+          o42_dash_name (sh->dash), o42_head_name (sh->head_start), o42_head_name (sh->head_end),
+          (int) sh->head_start_size, (int) sh->head_end_size,
+          sh->rotation, sh->flip_h ? 1 : 0, sh->flip_v ? 1 : 0,
           control != NULL ? control : "", body);
         g_free (control);
         g_free (at);
@@ -1546,6 +1561,13 @@ typedef struct {
   int         graph_labels, graph_trend, graph_trend_order, graph_secondary;
   gboolean    graph_3d;
   guint       graph_group;
+  guint       graph_z;
+  guint       object_z;         /* an image's z and group, from its start tag */
+  guint       object_group;
+  double      object_rotation;
+  gboolean    object_flip_h, object_flip_v;
+  double      object_crop[4];   /* left, top, right, bottom */
+  gboolean    object_lock_aspect;
   char       *graph_trend_name, *graph_err_name, *graph_font, *graph_data_sheet;
   char       *graph_marker_name;
   double      graph_marker_size;
@@ -2223,6 +2245,17 @@ start_element (GMarkupParseContext *context, const char *element,
           r->shape->line = (guint32) attr_int (names, values, "Line", 0);
           r->shape->line_width = attr_double (names, values, "LineWidth", 1.5);
           r->shape->group = (guint) attr_int (names, values, "Group", 0);
+          if (attr (names, values, "Z") != NULL)
+            r->shape->z = (guint) attr_int (names, values, "Z", 0);
+          o42_shape_geom_parse (attr (names, values, "Geom"), &r->shape->geom);
+          o42_dash_parse (attr (names, values, "Dash"), &r->shape->dash);
+          o42_head_parse (attr (names, values, "HeadStart"), &r->shape->head_start);
+          o42_head_parse (attr (names, values, "HeadEnd"), &r->shape->head_end);
+          r->shape->head_start_size = (O42HeadSize) CLAMP (attr_int (names, values, "HeadStartSize", 1), 0, 2);
+          r->shape->head_end_size = (O42HeadSize) CLAMP (attr_int (names, values, "HeadEndSize", 1), 0, 2);
+          r->shape->rotation = attr_double (names, values, "Rotation", 0);
+          r->shape->flip_h = attr_int (names, values, "FlipH", 0) != 0;
+          r->shape->flip_v = attr_int (names, values, "FlipV", 0) != 0;
           if (o42_shape_is_control (kind))
             {
               const char *link = attr (names, values, "Link");
@@ -2428,6 +2461,7 @@ start_element (GMarkupParseContext *context, const char *element,
           r->graph_marker_size = attr_double (names, values, "o42-marker-size", 0);
           r->graph_marker_picture = (guint) attr_int (names, values, "o42-marker-picture", 0);
           r->graph_group = (guint) attr_int (names, values, "o42-group", 0);
+          r->graph_z = (guint) attr_int (names, values, "o42-z", 0);
           g_free (r->graph_err_name);
           r->graph_err_name = g_strdup (attr (names, values, "o42-errbars"));
           g_free (r->graph_font);
@@ -2518,6 +2552,16 @@ start_element (GMarkupParseContext *context, const char *element,
       r->in_object = FALSE;
       r->object_offset[0] = r->object_offset[1] = 0;
       r->object_offset[2] = r->object_offset[3] = 1;
+      r->object_z = (guint) attr_int (names, values, "o42-z", 0);
+      r->object_group = (guint) attr_int (names, values, "o42-group", 0);
+      r->object_rotation = attr_double (names, values, "o42-rotation", 0);
+      r->object_crop[0] = attr_double (names, values, "crop-left", 0);
+      r->object_crop[1] = attr_double (names, values, "crop-top", 0);
+      r->object_crop[2] = attr_double (names, values, "crop-right", 0);
+      r->object_crop[3] = attr_double (names, values, "crop-bottom", 0);
+      r->object_lock_aspect = attr_int (names, values, "o42-lock-aspect", 1) != 0;
+      r->object_flip_h = attr_int (names, values, "o42-flip-h", 0) != 0;
+      r->object_flip_v = attr_int (names, values, "o42-flip-v", 0) != 0;
 
       if (bound != NULL &&
           o42_ref_parse (bound, &r->object_bound.row0, &r->object_bound.col0, &used))
@@ -2721,6 +2765,17 @@ finish_picture (Reader *r)
   g_bytes_unref (data);
   if (pic == NULL)
     return;
+  if (r->object_z > 0)
+    pic->z = r->object_z;
+  pic->group = r->object_group;
+  pic->rotation = r->object_rotation;
+  pic->flip_h = r->object_flip_h;
+  pic->flip_v = r->object_flip_v;
+  pic->crop_l = CLAMP (r->object_crop[0], 0, 0.99);
+  pic->crop_t = CLAMP (r->object_crop[1], 0, 0.99);
+  pic->crop_r = CLAMP (r->object_crop[2], 0, 0.99);
+  pic->crop_b = CLAMP (r->object_crop[3], 0, 0.99);
+  pic->lock_aspect = r->object_lock_aspect;
 
   x0 = offset_px (r->sheet, TRUE, r->object_bound.col0) +
        r->object_offset[0] * o42_sheet_col_width (r->sheet, r->object_bound.col0);
@@ -3169,6 +3224,8 @@ end_element (GMarkupParseContext *context, const char *element,
             }
           chart->three_d = r->graph_3d;
           chart->group = r->graph_group;
+          if (r->graph_z > 0)
+            chart->z = r->graph_z;
           if (r->graph_data_sheet != NULL)
             {
               g_free (chart->data_sheet);

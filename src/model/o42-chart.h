@@ -82,6 +82,7 @@ typedef enum {
 typedef struct {
   guint         id;
   guint         group;       /* objects grouped together share one; 0 for none */
+  guint         z;           /* the painting order: higher is nearer the front */
   O42ChartKind  kind;
   O42Range      data;          /* the source cells */
   char         *data_sheet;    /* owned: the sheet they are on, "" for the

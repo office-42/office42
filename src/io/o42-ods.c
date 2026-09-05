@@ -1229,7 +1229,7 @@ write_forms (GString *out, O42Sheet *sheet)
 
 /* Everything anchored to one cell, drawn inside its element. */
 static void
-write_cell_drawings (GString *out, O42Sheet *sheet, int sheet_index, int row, int col)
+write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, int col)
 {
   GPtrArray *pictures = o42_sheet_pictures (sheet);
   GPtrArray *shapes = o42_sheet_shapes (sheet);
@@ -1272,19 +1272,60 @@ write_cell_drawings (GString *out, O42Sheet *sheet, int sheet_index, int row, in
         }
       name = g_strdup_printf ("Shape %u", i + 1);
       text = g_markup_escape_text (shape->text != NULL ? shape->text : "", -1);
+      /* The shape's fill and line as a graphic style of its own; the
+       * dashes and the heads are named in styles.xml. */
+      {
+        static const char *const DASH_NAMES[O42_N_DASHES] = {
+          NULL, "Dash", "Dot", "Dash_20_Dot", "Long_20_Dash", "Short_20_Dash", "Short_20_Dot"
+        };
+        static const char *const HEAD_NAMES[O42_N_HEADS] = {
+          NULL, "Triangle", "Stealth", "Diamond", "Circle", "Open_20_Arrow"
+        };
+        static const double HEAD_WIDTH[3] = { 0.2, 0.3, 0.45 };
+        gboolean line_kind = shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW;
+
+        g_string_append_printf (s->styles,
+          "<style:style style:name=\"gr%d_%u\" style:family=\"graphic\"><style:graphic-properties "
+          "draw:stroke=\"%s\" svg:stroke-width=\"%.3fcm\" svg:stroke-color=\"#%06x\" "
+          "draw:fill=\"%s\" draw:fill-color=\"#%06x\"",
+          sheet_index, i, shape->dash != O42_DASH_SOLID ? "dash" : "solid",
+          shape->line_width * PX_TO_CM, shape->line & 0xFFFFFF,
+          (!line_kind && shape->fill != O42_FILL_NONE) ? "solid" : "none",
+          (shape->fill != O42_FILL_NONE ? shape->fill : 0xFFFFFF) & 0xFFFFFF);
+        if (shape->dash != O42_DASH_SOLID)
+          g_string_append_printf (s->styles, " draw:stroke-dash=\"%s\"", DASH_NAMES[shape->dash]);
+        if (line_kind && shape->head_start != O42_HEAD_NONE)
+          g_string_append_printf (s->styles, " draw:marker-start=\"%s\" draw:marker-start-width=\"%.2fcm\"",
+                                  HEAD_NAMES[shape->head_start], HEAD_WIDTH[CLAMP (shape->head_start_size, 0, 2)]);
+        if (line_kind && shape->head_end != O42_HEAD_NONE)
+          g_string_append_printf (s->styles, " draw:marker-end=\"%s\" draw:marker-end-width=\"%.2fcm\"",
+                                  HEAD_NAMES[shape->head_end], HEAD_WIDTH[CLAMP (shape->head_end_size, 0, 2)]);
+        g_string_append (s->styles, " draw:textarea-horizontal-align=\"center\" "
+                                    "draw:textarea-vertical-align=\"middle\"/></style:style>");
+      }
       /* A line is a line; everything else is a box or an ellipse, and
        * the text inside it goes in a paragraph as it does anywhere. */
       if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
         g_string_append_printf (out,
-          "<draw:line draw:name=\"%s\" svg:x1=\"%.3fcm\" svg:y1=\"%.3fcm\" "
+          "<draw:line draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x1=\"%.3fcm\" svg:y1=\"%.3fcm\" "
           "svg:x2=\"%.3fcm\" svg:y2=\"%.3fcm\"><text:p/></draw:line>",
-          name, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+          name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           (shape->dx + shape->width) * PX_TO_CM, (shape->dy + shape->height) * PX_TO_CM);
+      else if (o42_shape_ods_type (shape) != NULL)
+        /* An AutoShape is a custom shape whose enhanced geometry names
+         * the outline; LibreOffice draws it from the name. */
+        g_string_append_printf (out,
+          "<draw:custom-shape draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\"><text:p>%s</text:p>"
+          "<draw:enhanced-geometry draw:type=\"%s\"/></draw:custom-shape>",
+          name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+          shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
+          o42_shape_ods_type (shape));
       else
         g_string_append_printf (out,
-          "<draw:%s draw:name=\"%s\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+          "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
           "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\"><text:p>%s</text:p></draw:%s>",
-          shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect", name,
+          shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect", name, sheet_index, i,
           shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
           shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect");
@@ -1422,7 +1463,7 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
         }
     }
   g_string_append_c (out, '>');
-  write_cell_drawings (out, sheet, sheet_index, row, col);
+  write_cell_drawings (out, s, sheet, sheet_index, row, col);
   if (note != NULL)
     {
       g_string_append (out, "<office:annotation office:display=\"false\">");
@@ -1865,7 +1906,21 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
       "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles " NS_HEAD ">"
       "<office:styles><style:default-style style:family=\"table-cell\">"
       "<style:text-properties fo:font-family=\"Arial\" fo:font-size=\"10pt\"/></style:default-style>"
-      "<style:style style:name=\"Default\" style:family=\"table-cell\"/></office:styles>"
+      "<style:style style:name=\"Default\" style:family=\"table-cell\"/>"
+      /* The dashes, in lengths of the line's width, and the heads a
+       * line can wear, by the names the graphic styles use. */
+      "<draw:stroke-dash draw:name=\"Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"400%\" draw:distance=\"300%\"/>"
+      "<draw:stroke-dash draw:name=\"Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"100%\" draw:distance=\"300%\"/>"
+      "<draw:stroke-dash draw:name=\"Dash_20_Dot\" draw:display-name=\"Dash Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"400%\" draw:dots2=\"1\" draw:dots2-length=\"100%\" draw:distance=\"300%\"/>"
+      "<draw:stroke-dash draw:name=\"Long_20_Dash\" draw:display-name=\"Long Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"800%\" draw:distance=\"300%\"/>"
+      "<draw:stroke-dash draw:name=\"Short_20_Dash\" draw:display-name=\"Short Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"300%\" draw:distance=\"100%\"/>"
+      "<draw:stroke-dash draw:name=\"Short_20_Dot\" draw:display-name=\"Short Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"100%\" draw:distance=\"100%\"/>"
+      "<draw:marker draw:name=\"Triangle\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h20z\"/>"
+      "<draw:marker draw:name=\"Stealth\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30 10-9 10 9z\"/>"
+      "<draw:marker draw:name=\"Diamond\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 15 10 15 10-15z\"/>"
+      "<draw:marker draw:name=\"Circle\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0c-5.5 0-10 4.5-10 10s4.5 10 10 10 10-4.5 10-10-4.5-10-10-10z\"/>"
+      "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>"
+      "</office:styles>"
       "<office:automatic-styles>");
 
     g_string_append (styles, s.hf_style_xml->str);
@@ -1918,6 +1973,17 @@ typedef struct {
   guint32  tab_colour;     /* tables: the tab's colour, or O42_TAB_NO_COLOUR */
   gboolean page_break;     /* rows and columns: fo:break-before="page" */
   char    *master_page;    /* tables: the master page they print on */
+
+  /* Graphic styles: a shape's fill and line. */
+  gboolean graphic;
+  gboolean fill_none;
+  guint32  fill;
+  guint32  line;
+  double   line_width;     /* px, or 0 for unsaid */
+  gboolean stroke_none;
+  O42Dash  dash;
+  O42Head  head_start, head_end;
+  O42HeadSize head_start_size, head_end_size;
 } Style;
 
 /* A page layout from styles.xml, and the master page that uses it:
@@ -1942,6 +2008,7 @@ typedef struct {
   O42Sheet   *sheet;
   int         n_tables;
   GHashTable *styles;        /* name -> Style */
+  GHashTable *dashes;        /* a draw:stroke-dash name -> its O42Dash, by its look */
   GHashTable *num_styles;    /* name -> NumStyle */
   Style      *style;         /* the style being read */
   NumStyle   *num;           /* the number style being read */
@@ -2250,6 +2317,89 @@ colour_of (const char *text, guint32 fallback)
   if (text != NULL && text[0] == '#' && strlen (text) == 7)
     return (guint32) g_ascii_strtoull (text + 1, NULL, 16);
   return fallback;
+}
+
+static double ods_length (const char *text);
+
+/* A draw:stroke-dash's look, from its definition: a second dot makes
+ * it dash-dot, a long first one a long dash, a short gap a system
+ * dash or dot.  The lengths are in per cent of the line's width, or
+ * absolute, in which case a dash is anything over a millimetre. */
+static O42Dash
+dash_from_definition (const char *dots1_length, const char *dots2, const char *distance)
+{
+  double len = 300, gap = 300;
+  gboolean percent = dots1_length != NULL && strchr (dots1_length, '%') != NULL;
+
+  if (dots2 != NULL && atoi (dots2) > 0)
+    return O42_DASH_DASH_DOT;
+  if (dots1_length != NULL)
+    len = percent ? g_ascii_strtod (dots1_length, NULL) : ods_length (dots1_length) * PX_TO_CM * 1000;
+  if (distance != NULL)
+    gap = strchr (distance, '%') != NULL ? g_ascii_strtod (distance, NULL) : ods_length (distance) * PX_TO_CM * 1000;
+  if (!percent)
+    { len = len / 0.4; gap = gap / 0.4; }   /* a 0.04cm line: a millimetre is 250% */
+  if (len >= 700)
+    return O42_DASH_LONG_DASH;
+  if (len >= 250)
+    return gap <= 150 ? O42_DASH_SYS_DASH : O42_DASH_DASH;
+  return gap <= 150 ? O42_DASH_SYS_DOT : O42_DASH_DOT;
+}
+
+/* A dash by the name a graphic style gives it: the definitions read
+ * from the file first, then office42's own names, then a guess from
+ * the name. */
+static O42Dash
+graphic_dash (Reader *r, const char *name)
+{
+  O42Dash dash;
+  char *lower;
+  gpointer known;
+
+  if (name == NULL)
+    return O42_DASH_SOLID;
+  if (g_hash_table_lookup_extended (r->dashes, name, NULL, &known))
+    return (O42Dash) GPOINTER_TO_INT (known);
+  if (o42_dash_parse (name, &dash))
+    return dash;
+  lower = g_ascii_strdown (name, -1);
+  if (strstr (lower, "dot") != NULL && strstr (lower, "dash") != NULL) dash = O42_DASH_DASH_DOT;
+  else if (strstr (lower, "long") != NULL) dash = O42_DASH_LONG_DASH;
+  else if (strstr (lower, "short") != NULL || strstr (lower, "fine") != NULL)
+    dash = strstr (lower, "dot") != NULL ? O42_DASH_SYS_DOT : O42_DASH_SYS_DASH;
+  else if (strstr (lower, "dot") != NULL) dash = O42_DASH_DOT;
+  else dash = O42_DASH_DASH;
+  g_free (lower);
+  return dash;
+}
+
+/* A head by its marker's name, likewise. */
+static O42Head
+graphic_head (const char *name)
+{
+  O42Head head;
+  char *lower;
+
+  if (name == NULL || *name == '\0')
+    return O42_HEAD_NONE;
+  if (o42_head_parse (name, &head))
+    return head;
+  lower = g_ascii_strdown (name, -1);
+  if (strstr (lower, "stealth") != NULL || strstr (lower, "concave") != NULL) head = O42_HEAD_STEALTH;
+  else if (strstr (lower, "diamond") != NULL || strstr (lower, "rhombus") != NULL) head = O42_HEAD_DIAMOND;
+  else if (strstr (lower, "circle") != NULL || strstr (lower, "oval") != NULL || strstr (lower, "dot") != NULL) head = O42_HEAD_OVAL;
+  else if (strstr (lower, "open") != NULL || strstr (lower, "line") != NULL) head = O42_HEAD_ARROW;
+  else head = O42_HEAD_TRIANGLE;
+  g_free (lower);
+  return head;
+}
+
+static O42HeadSize
+graphic_head_size (const char *width)
+{
+  double cm = width != NULL ? ods_length (width) * PX_TO_CM : 0.3;
+
+  return cm < 0.25 ? O42_HEAD_SMALL : cm > 0.4 ? O42_HEAD_LARGE : O42_HEAD_MEDIUM;
 }
 
 static void
@@ -2875,13 +3025,38 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                 }
             }
         }
+      else if (strcmp (name, "enhanced-geometry") == 0 && r->shape != NULL)
+        o42_shape_apply_ods_type (r->shape, attr (names, values, "type"));
       else if (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
-               strcmp (name, "circle") == 0 || strcmp (name, "line") == 0)
+               strcmp (name, "circle") == 0 || strcmp (name, "line") == 0 ||
+               strcmp (name, "custom-shape") == 0)
         {
           O42ShapeKind kind = strcmp (name, "line") == 0 ? O42_SHAPE_LINE
-                              : (name[0] == 'r' ? O42_SHAPE_RECT : O42_SHAPE_OVAL);
+                              : (name[0] == 'r' || name[1] == 'u') ? O42_SHAPE_RECT : O42_SHAPE_OVAL;
           O42Shape *shape = o42_sheet_add_shape (r->sheet, kind, r->row, r->cell_col);
+          const char *style_name = attr (names, values, "style-name");
+          const Style *st = style_name != NULL ? g_hash_table_lookup (r->styles, style_name) : NULL;
 
+          if (shape != NULL && st != NULL && st->graphic)
+            {
+              /* The style's fill and line, dashes and heads. */
+              shape->fill = (kind != O42_SHAPE_LINE && !st->fill_none) ? st->fill : O42_FILL_NONE;
+              shape->line = st->line;
+              if (st->line_width > 0)
+                shape->line_width = st->line_width;
+              else if (st->stroke_none)
+                shape->line_width = 0.5;
+              shape->dash = st->dash;
+              if (kind == O42_SHAPE_LINE)
+                {
+                  shape->head_start = st->head_start;
+                  shape->head_end = st->head_end;
+                  shape->head_start_size = st->head_start_size;
+                  shape->head_end_size = st->head_end_size;
+                  if (st->head_end != O42_HEAD_NONE)
+                    shape->kind = O42_SHAPE_ARROW;
+                }
+            }
           if (shape != NULL)
             {
               if (kind == O42_SHAPE_LINE)
@@ -3122,6 +3297,14 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
     }
 
   /* Styles. */
+  if (strcmp (name, "stroke-dash") == 0 && attr (names, values, "name") != NULL)
+    {
+      g_hash_table_replace (r->dashes, g_strdup (attr (names, values, "name")),
+                            GINT_TO_POINTER (dash_from_definition (attr (names, values, "dots1-length"),
+                                                                   attr (names, values, "dots2"),
+                                                                   attr (names, values, "distance"))));
+      return;
+    }
   if (strcmp (name, "style") == 0 && attr (names, values, "family") != NULL)
     {
       const char *sname = attr (names, values, "name");
@@ -3157,6 +3340,31 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           const char *brk = attr (names, values, "break-before");
           st->height = length_px (attr (names, values, "row-height"));
           st->page_break = brk != NULL && strcmp (brk, "page") == 0;
+        }
+      else if (strcmp (name, "graphic-properties") == 0)
+        {
+          const char *fill = attr (names, values, "fill");
+          const char *fill_colour = attr (names, values, "fill-color");
+          const char *stroke = attr (names, values, "stroke");
+          const char *stroke_colour = attr (names, values, "stroke-color");
+          const char *stroke_width = attr (names, values, "stroke-width");
+          const char *dash = attr (names, values, "stroke-dash");
+          const char *ms = attr (names, values, "marker-start");
+          const char *me = attr (names, values, "marker-end");
+          const char *msw = attr (names, values, "marker-start-width");
+          const char *mew = attr (names, values, "marker-end-width");
+
+          st->graphic = TRUE;
+          st->fill_none = fill != NULL && strcmp (fill, "none") == 0;
+          st->fill = fill_colour != NULL ? colour_of (fill_colour, 0xFFFFFF) : 0xFFFFFF;
+          st->stroke_none = stroke != NULL && strcmp (stroke, "none") == 0;
+          st->line = stroke_colour != NULL ? colour_of (stroke_colour, 0) : 0;
+          st->line_width = stroke_width != NULL ? floor (ods_length (stroke_width) * 100 + 0.5) / 100 : 0;
+          st->dash = graphic_dash (r, stroke != NULL && strcmp (stroke, "dash") == 0 ? dash : NULL);
+          st->head_start = graphic_head (ms);
+          st->head_end = graphic_head (me);
+          st->head_start_size = graphic_head_size (msw);
+          st->head_end_size = graphic_head_size (mew);
         }
       else if (strcmp (name, "table-cell-properties") == 0)
         {
@@ -3536,7 +3744,8 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
 
   if (r->shape != NULL &&
       (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
-       strcmp (name, "circle") == 0 || strcmp (name, "line") == 0))
+       strcmp (name, "circle") == 0 || strcmp (name, "line") == 0 ||
+       strcmp (name, "custom-shape") == 0))
     r->shape = NULL;
 
   if (r->in_cell)
@@ -3806,6 +4015,7 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   r.page_layouts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, page_layout_free);
   r.font_faces = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.master_pages = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  r.dashes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   r.form_controls = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, form_control_free);
   r.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.col_styles = g_ptr_array_new_with_free_func (g_free);
@@ -3825,6 +4035,7 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
     for (int j = 0; j < 3; j++)
       if (r.hf_parts[i][j] != NULL)
         g_string_free (r.hf_parts[i][j], TRUE);
+  g_hash_table_unref (r.dashes);
   g_hash_table_unref (r.form_controls);
   g_hash_table_unref (r.num_styles);
   g_ptr_array_unref (r.col_styles);

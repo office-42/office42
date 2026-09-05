@@ -3884,11 +3884,15 @@ action_shape (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   O42ShapeKind kind = O42_SHAPE_RECT;
+  O42ShapeGeom geom = O42_GEOM_RECT;
   const char *name = p != NULL ? g_variant_get_string (p, NULL) : "rectangle";
   const char *caption = "";
 
   (void) a;
-  o42_shape_kind_parse (name, &kind);
+  /* The target names a kind ("oval") or one of the AutoShape outlines
+   * a rectangle can wear ("star5"). */
+  if (!o42_shape_kind_parse (name, &kind))
+    o42_shape_geom_parse (name, &geom);
   /* A new control says what it is until it is given a caption of its
    * own; the ones that show no caption start empty. */
   switch (kind)
@@ -3901,7 +3905,30 @@ action_shape (GSimpleAction *a, GVariant *p, gpointer data)
     case O42_SHAPE_GROUPBOX: caption = "Group Box"; break;
     default:                 break;
     }
-  o42_grid_insert_shape (self->grid, kind, caption);
+  o42_grid_insert_shape (self->grid, kind, geom, caption);
+  window_sync (self);
+}
+
+/* Format > Order: the selected object to the front or the back of the
+ * others, or one step either way. */
+static void
+action_order (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  const char *how = p != NULL ? g_variant_get_string (p, NULL) : "front";
+  O42Order order = strcmp (how, "back") == 0 ? O42_ORDER_BACK
+                 : strcmp (how, "forward") == 0 ? O42_ORDER_FORWARD
+                 : strcmp (how, "backward") == 0 ? O42_ORDER_BACKWARD : O42_ORDER_FRONT;
+
+  (void) a;
+  if (o42_grid_selected_shape (self->grid) == NULL &&
+      o42_grid_selected_chart (self->grid) == NULL &&
+      !o42_grid_has_selected_object (self->grid))
+    {
+      show_error (self, "Click a picture, shape or chart first; Format > Order moves the selected one.", NULL);
+      return;
+    }
+  o42_grid_reorder_selected (self->grid, order);
   window_sync (self);
 }
 
@@ -3910,6 +3937,8 @@ typedef struct {
   GtkWidget *dialog;
   guint      shape_id;
   GtkWidget *text, *fill, *no_fill, *line, *width;
+  GtkWidget *dash, *head_start, *head_start_size, *head_end, *head_end_size;
+  GtkWidget *rotation, *flip_h, *flip_v;
 } ShapePrompt;
 
 static void
@@ -3932,6 +3961,17 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
                     : colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->fill)));
       shape->line = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->line)));
       shape->line_width = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->width));
+      shape->dash = (O42Dash) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->dash));
+      shape->rotation = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->rotation));
+      shape->flip_h = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_h));
+      shape->flip_v = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_v));
+      if (prompt->head_start != NULL)
+        {
+          shape->head_start = (O42Head) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_start));
+          shape->head_start_size = (O42HeadSize) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_start_size));
+          shape->head_end = (O42Head) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_end));
+          shape->head_end_size = (O42HeadSize) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_end_size));
+        }
       o42_sheet_end_group (prompt->window->sheet);
       o42_sheet_set_modified (prompt->window->sheet, TRUE);
       o42_grid_refresh (prompt->window->grid);
@@ -3984,12 +4024,149 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->line = labelled (grid, 1, _("Line:"), colour_button (shape->line, _("Shape Line")));
   prompt->width = labelled (grid, 2, _("Line width:"), gtk_spin_button_new_with_range (0.5, 12, 0.5));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->width), shape->line_width);
+  {
+    /* In the order of O42Dash, O42Head and O42HeadSize, so the row is
+     * the value. */
+    static const char *const dashes[] = { N_("Solid"), N_("Dash"), N_("Dot"), N_("Dash dot"),
+                                          N_("Long dash"), N_("Short dash"), N_("Short dot"), NULL };
+    static const char *const heads[] = { N_("None"), N_("Triangle"), N_("Stealth"), N_("Diamond"),
+                                         N_("Oval"), N_("Open arrow"), NULL };
+    static const char *const sizes[] = { N_("Small"), N_("Medium"), N_("Large"), NULL };
+
+    prompt->dash = labelled (grid, 3, _("Dash:"), drop_down_of (dashes));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->dash), (guint) shape->dash);
+    if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
+      {
+        prompt->head_start = labelled (grid, 4, _("Begin arrow:"), drop_down_of (heads));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start), (guint) shape->head_start);
+        prompt->head_start_size = labelled (grid, 5, _("Begin size:"), drop_down_of (sizes));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start_size), (guint) shape->head_start_size);
+        prompt->head_end = labelled (grid, 6, _("End arrow:"), drop_down_of (heads));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end), (guint) shape->head_end);
+        prompt->head_end_size = labelled (grid, 7, _("End size:"), drop_down_of (sizes));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end_size), (guint) shape->head_end_size);
+      }
+  }
+  prompt->rotation = labelled (grid, 8, _("Rotation (degrees):"), gtk_spin_button_new_with_range (-360, 360, 5));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->rotation), shape->rotation);
   gtk_box_append (GTK_BOX (content), grid);
   prompt->no_fill = gtk_check_button_new_with_mnemonic ( _("_No fill"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), shape->fill == O42_FILL_NONE);
   gtk_box_append (GTK_BOX (content), prompt->no_fill);
+  prompt->flip_h = gtk_check_button_new_with_mnemonic ( _("Flip _horizontal"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_h), shape->flip_h);
+  gtk_box_append (GTK_BOX (content), prompt->flip_h);
+  prompt->flip_v = gtk_check_button_new_with_mnemonic ( _("Flip _vertical"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_v), shape->flip_v);
+  gtk_box_append (GTK_BOX (content), prompt->flip_v);
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_shape_format_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Format > Picture -------------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  guint      picture_id;
+  GtkWidget *width, *height, *rotation, *flip_h, *flip_v;
+  GtkWidget *crop[4], *lock_aspect;     /* left, top, right, bottom, per cent */
+} PicturePrompt;
+
+static void
+on_picture_format_ok (GtkWidget *w, gpointer data)
+{
+  PicturePrompt *prompt = data;
+  O42Picture *pic = o42_sheet_find_picture (prompt->window->sheet, prompt->picture_id);
+
+  (void) w;
+  if (pic != NULL)
+    {
+      o42_sheet_begin_group (prompt->window->sheet);
+      o42_sheet_capture_object (prompt->window->sheet, pic->id);
+      pic->width = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->width));
+      pic->height = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->height));
+      pic->rotation = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->rotation));
+      pic->flip_h = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_h));
+      pic->flip_v = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_v));
+      pic->crop_l = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[0])) / 100;
+      pic->crop_t = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[1])) / 100;
+      pic->crop_r = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[2])) / 100;
+      pic->crop_b = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[3])) / 100;
+      pic->lock_aspect = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->lock_aspect));
+      o42_sheet_end_group (prompt->window->sheet);
+      o42_sheet_set_modified (prompt->window->sheet, TRUE);
+      o42_grid_refresh (prompt->window->grid);
+      window_sync (prompt->window);
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+action_format_picture (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  O42Picture *pic = o42_grid_selected_picture (self->grid);
+  PicturePrompt *prompt;
+  GtkWidget *content, *buttons, *grid, *ok;
+
+  (void) a; (void) p;
+  if (pic == NULL)
+    {
+      GPtrArray *pictures = o42_sheet_pictures (self->sheet);
+      if (pictures->len == 1)
+        pic = g_ptr_array_index (pictures, 0);
+    }
+  if (pic == NULL)
+    {
+      show_error (self, "Click a picture first; Format > Picture works on the selected one.", NULL);
+      return;
+    }
+
+  prompt = g_new0 (PicturePrompt, 1);
+  prompt->window = self;
+  prompt->picture_id = pic->id;
+  prompt->dialog = dialog_frame (self, _("Format Picture"), TRUE, &content, &buttons);
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->width = labelled (grid, 0, _("Width (pixels):"), gtk_spin_button_new_with_range (4, 4000, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->width), pic->width);
+  prompt->height = labelled (grid, 1, _("Height (pixels):"), gtk_spin_button_new_with_range (4, 4000, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->height), pic->height);
+  prompt->rotation = labelled (grid, 2, _("Rotation (degrees):"), gtk_spin_button_new_with_range (-360, 360, 5));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->rotation), pic->rotation);
+  {
+    /* The crop, as Excel's Picture tab has it: how much of each side
+     * is cut away. */
+    static const char *const sides[4] = { N_("Crop left (%):"), N_("Crop top (%):"),
+                                          N_("Crop right (%):"), N_("Crop bottom (%):") };
+    const double crops[4] = { pic->crop_l, pic->crop_t, pic->crop_r, pic->crop_b };
+
+    for (int i = 0; i < 4; i++)
+      {
+        prompt->crop[i] = labelled (grid, 3 + i, _(sides[i]), gtk_spin_button_new_with_range (0, 99, 1));
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->crop[i]), crops[i] * 100);
+      }
+  }
+  gtk_box_append (GTK_BOX (content), grid);
+  prompt->lock_aspect = gtk_check_button_new_with_mnemonic ( _("_Lock aspect ratio"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->lock_aspect), pic->lock_aspect);
+  gtk_box_append (GTK_BOX (content), prompt->lock_aspect);
+  prompt->flip_h = gtk_check_button_new_with_mnemonic ( _("Flip _horizontal"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_h), pic->flip_h);
+  gtk_box_append (GTK_BOX (content), prompt->flip_h);
+  prompt->flip_v = gtk_check_button_new_with_mnemonic ( _("Flip _vertical"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_v), pic->flip_v);
+  gtk_box_append (GTK_BOX (content), prompt->flip_v);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_picture_format_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
   gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
@@ -5147,7 +5324,9 @@ static const GActionEntry ACTIONS[] = {
   { "page-setup",     action_page_setup,     NULL, NULL, NULL, { 0 } },
   { "insert-link",    action_insert_link,    NULL, NULL, NULL, { 0 } },
   { "format-chart",   action_format_chart,   NULL, NULL, NULL, { 0 } },
+  { "format-picture", action_format_picture, NULL, NULL, NULL, { 0 } },
   { "shape",          action_shape,          "s",  NULL, NULL, { 0 } },
+  { "order",          action_order,          "s",  NULL, NULL, { 0 } },
   { "format-shape",   action_format_shape,   NULL, NULL, NULL, { 0 } },
   { "format-control", action_format_control, NULL, NULL, NULL, { 0 } },
   { "db-connect",     action_db_connect,     NULL, NULL, NULL, { 0 } },
