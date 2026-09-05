@@ -367,6 +367,7 @@ typedef struct
   gsize       len;
 
   GPtrArray  *sst;           /* shared strings */
+  GPtrArray  *sst_runs;      /* alongside: GArray of guint16 pairs (ich, ifnt), or NULL */
   GHashTable *formats;       /* id -> code */
   GArray     *fonts;         /* O42Fmt with the font fields */
   GArray     *xfs;           /* O42Fmt */
@@ -673,7 +674,22 @@ read_sst (Reader *r, GPtrArray *segs)
         }
       g_ptr_array_add (r->sst, g_string_free (s, FALSE));
       {
-        gsize skip = (gsize) runs * 4 + ext;
+        /* The formatting runs, four bytes each -- a character index and
+         * a font -- which may go on into the next record whole. */
+        GArray *list = runs > 0 ? g_array_new (FALSE, FALSE, sizeof (guint16)) : NULL;
+        for (guint i = 0; i < runs; i++)
+          {
+            guint16 ich, ifnt;
+            if (p >= end) NEXT_SEG ();
+            if (end - p < 4) break;
+            ich = rd16 (p); ifnt = rd16 (p + 2); p += 4;
+            g_array_append_val (list, ich);
+            g_array_append_val (list, ifnt);
+          }
+        g_ptr_array_add (r->sst_runs, list);
+      }
+      {
+        gsize skip = ext;
         while (skip > 0)
           {
             gsize here = MIN (skip, (gsize) (end - p));
@@ -1237,6 +1253,13 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
   return result;
 }
 
+static void
+unref_array_or_null (gpointer array)
+{
+  if (array != NULL)
+    g_array_unref (array);
+}
+
 /* ---- records ---- */
 
 static void
@@ -1267,6 +1290,54 @@ set_cell (Reader *r, int row, int col, guint xf, const char *input)
   if (input != NULL && input[0] != '\0')
     o42_sheet_set_input (r->sheet, row, col, input);
   apply_xf (r, row, col, xf);
+}
+
+/* A rich string's runs onto the cell: each run starts at a character
+ * index and wears one of the file's fonts over the cell's own format,
+ * as the model has it. */
+static void
+apply_runs (Reader *r, int row, int col, const char *text, GArray *pairs)
+{
+  const O42Fmt *cell;
+  GArray *runs;
+
+  if (r->sheet == NULL || row < 0 || row >= O42_MAX_ROWS || col < 0 || col >= O42_MAX_COLS)
+    return;
+  cell = o42_sheet_get_fmt (r->sheet, row, col);
+  runs = g_array_new (FALSE, FALSE, sizeof (O42TextRun));
+  for (guint i = 0; i + 1 < pairs->len; i += 2)
+    {
+      guint ich = g_array_index (pairs, guint16, i);
+      guint ifnt = g_array_index (pairs, guint16, i + 1);
+      O42TextRun run;
+      const char *q = text;
+      guint units = 0;
+
+      /* The index counts UTF-16 units; the run's start is a byte offset. */
+      while (*q != '\0' && units < ich)
+        {
+          units += g_utf8_get_char (q) > 0xFFFF ? 2 : 1;
+          q = g_utf8_next_char (q);
+        }
+      run.start = q - text;
+      run.fmt = *cell;
+      if (ifnt > 4) ifnt--;
+      if (ifnt < r->fonts->len)
+        {
+          const O42Fmt *font = &g_array_index (r->fonts, O42Fmt, ifnt);
+          run.fmt.family = font->family;
+          run.fmt.size = font->size;
+          run.fmt.bold = font->bold;
+          run.fmt.italic = font->italic;
+          run.fmt.underline = font->underline;
+          run.fmt.strikeout = font->strikeout;
+          run.fmt.colour = font->colour;
+        }
+      g_array_append_val (runs, run);
+    }
+  if (runs->len > 0)
+    o42_sheet_set_runs (r->sheet, row, col, (const O42TextRun *) runs->data, runs->len);
+  g_array_unref (runs);
 }
 
 static double
@@ -2185,6 +2256,9 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
               char *text = o42_entry_quote_text (g_ptr_array_index (r->sst, idx));
               set_cell (r, rd16 (p), rd16 (p + 2), rd16 (p + 4), text);
               g_free (text);
+              if (idx < r->sst_runs->len && g_ptr_array_index (r->sst_runs, idx) != NULL)
+                apply_runs (r, rd16 (p), rd16 (p + 2), g_ptr_array_index (r->sst, idx),
+                            g_ptr_array_index (r->sst_runs, idx));
             }
         }
       break;
@@ -2792,6 +2866,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.biff = 8;
   r.data = g_bytes_get_data (stream, &r.len);
   r.sst = g_ptr_array_new_with_free_func (g_free);
+  r.sst_runs = g_ptr_array_new_with_free_func ((GDestroyNotify) unref_array_or_null);
   r.formats = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
   r.fonts = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
   r.pending_fonts = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
@@ -2890,6 +2965,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
     }
 
   g_ptr_array_unref (r.sst);
+  g_ptr_array_unref (r.sst_runs);
   g_hash_table_unref (r.formats);
   g_array_unref (r.fonts);
   g_ptr_array_unref (r.pending_fonts);
@@ -2938,7 +3014,8 @@ typedef struct
   GHashTable *xf_index;       /* FmtKey -> xf index + 1 */
   GPtrArray  *formats;        /* custom format codes, id 164 + i */
   GPtrArray  *sst;
-  GHashTable *sst_idx;
+  GHashTable *sst_idx;        /* the text, and its runs if any, -> index */
+  GPtrArray  *sst_runs;       /* alongside sst: GArray of guint16 pairs, or NULL */
   GArray     *sst_offsets;    /* gsize pairs: stream offset of every string and
                                * of the record it sits in, for EXTSST */
   GArray     *palette;        /* guint32 colours at index 8 + i */
@@ -2980,14 +3057,18 @@ record_len (Writer *w)
 }
 
 static void
-put_ustr_body_continued (Writer *w, const char *text, glong n_chars)
+put_ustr_body_continued_rich (Writer *w, const char *text, glong n_chars, guint n_runs, gsize *flags_at)
 {
   gboolean latin1 = is_latin1 (text);
   glong n = 0;
   gunichar2 *u = latin1 ? NULL : g_utf8_to_utf16 (text, -1, NULL, &n, NULL);
   const char *p = text;
 
-  put8 (w->out, latin1 ? 0 : 1);
+  if (flags_at != NULL)
+    *flags_at = w->out->len;
+  put8 (w->out, (latin1 ? 0 : 1) | (n_runs > 0 ? 0x08 : 0));
+  if (n_runs > 0)
+    put16 (w->out, n_runs);
   for (glong i = 0; i < n_chars; i++)
     {
       if (latin1 ? *p == '\0' : i >= n)
@@ -3007,6 +3088,12 @@ put_ustr_body_continued (Writer *w, const char *text, glong n_chars)
         put16 (w->out, u[i]);
     }
   g_free (u);
+}
+
+static void
+put_ustr_body_continued (Writer *w, const char *text, glong n_chars)
+{
+  put_ustr_body_continued_rich (w, text, n_chars, 0, NULL);
 }
 
 static guint palette_index (Writer *w, guint32 colour);
@@ -3151,18 +3238,47 @@ format_id (Writer *w, const O42Fmt *fmt)
   return id;
 }
 
+/* The shared string for a text and its runs: the same text in other
+ * fonts is another string.  A run becomes a character index (in
+ * UTF-16 units) and a font. */
 static guint
-sst_index (Writer *w, const char *text)
+sst_index (Writer *w, const char *text, const O42TextRun *runs, int n_runs)
 {
   gpointer found;
-  if (g_hash_table_lookup_extended (w->sst_idx, text, NULL, &found))
-    return GPOINTER_TO_UINT (found);
-  {
-    char *copy = g_strdup (text);
-    g_ptr_array_add (w->sst, copy);
-    g_hash_table_insert (w->sst_idx, copy, GUINT_TO_POINTER (w->sst->len - 1));
-    return w->sst->len - 1;
-  }
+  GString *key = g_string_new (text);
+  GArray *pairs = NULL;
+
+  if (runs != NULL && n_runs > 0)
+    {
+      pairs = g_array_new (FALSE, FALSE, sizeof (guint16));
+      for (int i = 0; i < n_runs; i++)
+        {
+          guint16 ich = 0, ifnt;
+          const char *q = text;
+          while (*q != '\0' && q - text < runs[i].start)
+            {
+              ich += g_utf8_get_char (q) > 0xFFFF ? 2 : 1;
+              q = g_utf8_next_char (q);
+            }
+          {
+            guint font = font_index (w, &runs[i].fmt);
+            ifnt = font == 0 ? 0 : font + 4;
+          }
+          g_array_append_val (pairs, ich);
+          g_array_append_val (pairs, ifnt);
+          g_string_append_printf (key, "\001%u:%u", ich, ifnt);
+        }
+    }
+  if (g_hash_table_lookup_extended (w->sst_idx, key->str, NULL, &found))
+    {
+      g_string_free (key, TRUE);
+      if (pairs != NULL) g_array_unref (pairs);
+      return GPOINTER_TO_UINT (found);
+    }
+  g_ptr_array_add (w->sst, g_strdup (text));
+  g_ptr_array_add (w->sst_runs, pairs);
+  g_hash_table_insert (w->sst_idx, g_string_free (key, FALSE), GUINT_TO_POINTER (w->sst->len - 1));
+  return w->sst->len - 1;
 }
 
 /* ---- compiling formulas ---- */
@@ -3417,6 +3533,7 @@ typedef struct
   GBytes  *array;    /* the head of an array block: tokens for its ARRAY record */
   gsize    array_cce;   /* how many of them are tokens, before array-constant data */
   O42Range block;
+  guint    sst;      /* the shared string, for a text */
 } CellOut;
 
 typedef struct
@@ -3490,7 +3607,11 @@ gather_cell (O42Sheet *sheet, int row, int col, gpointer user)
       o42_node_free (tree);
     }
   else if (c.value.type == O42_VALUE_TEXT)
-    sst_index (g->w, c.value.as.text);
+    {
+      int n_runs = 0;
+      const O42TextRun *runs = o42_sheet_runs (sheet, row, col, &n_runs);
+      c.sst = sst_index (g->w, c.value.as.text, runs, n_runs);
+    }
   g_free (input);
   g_array_append_val (g->cells, c);
 }
@@ -3562,7 +3683,7 @@ write_cell (Writer *w, const CellOut *c)
     case O42_VALUE_TEXT:
       begin_record (w, R_LABELSST);
       put16 (w->out, c->row); put16 (w->out, c->col); put16 (w->out, xf);
-      put32 (w->out, sst_index (w, c->value.as.text));
+      put32 (w->out, c->sst);
       end_record (w);
       break;
     case O42_VALUE_BOOL:
@@ -4738,7 +4859,8 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   w.xfs = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
   w.formats = g_ptr_array_new_with_free_func (g_free);
   w.sst = g_ptr_array_new_with_free_func (g_free);
-  w.sst_idx = g_hash_table_new (g_str_hash, g_str_equal);
+  w.sst_idx = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  w.sst_runs = g_ptr_array_new_with_free_func ((GDestroyNotify) unref_array_or_null);
   w.sst_offsets = g_array_new (FALSE, FALSE, sizeof (gsize));
   w.palette = g_array_new (FALSE, FALSE, sizeof (guint32));
   w.addin_names = g_ptr_array_new_with_free_func (g_free);
@@ -4991,8 +5113,9 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   for (guint i = 0; i < w.sst->len; i++)
     {
       const char *text = g_ptr_array_index (w.sst, i);
+      GArray *pairs = g_ptr_array_index (w.sst_runs, i);
       glong n = MIN (char_count (text), 32767);
-      if (record_len (&w) + 5 > RECORD_MAX)
+      if (record_len (&w) + 7 > RECORD_MAX)
         {
           end_record (&w);
           begin_record (&w, R_CONTINUE);
@@ -5003,7 +5126,26 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         g_array_append_val (w.sst_offsets, rec);
       }
       put16 (w.out, n);
-      put_ustr_body_continued (&w, text, n);
+      if (pairs == NULL)
+        put_ustr_body_continued (&w, text, n);
+      else
+        {
+          /* A rich string: the run count goes between the flags and
+           * the characters, and the runs after them, four bytes each,
+           * never split across records. */
+          gsize flags_at;
+          put_ustr_body_continued_rich (&w, text, n, pairs->len / 2, &flags_at);
+          for (guint k = 0; k + 1 < pairs->len; k += 2)
+            {
+              if (record_len (&w) + 4 > RECORD_MAX)
+                {
+                  end_record (&w);
+                  begin_record (&w, R_CONTINUE);
+                }
+              put16 (w.out, g_array_index (pairs, guint16, k));
+              put16 (w.out, g_array_index (pairs, guint16, k + 1));
+            }
+        }
     }
   end_record (&w);
 
@@ -5069,6 +5211,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   g_clear_pointer (&w.xf_index, g_hash_table_unref);
   g_ptr_array_unref (w.formats);
   g_hash_table_unref (w.sst_idx);
+  g_ptr_array_unref (w.sst_runs);
   g_ptr_array_unref (w.sst);
   g_array_unref (w.sst_offsets);
   g_array_unref (w.palette);
