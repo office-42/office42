@@ -103,8 +103,28 @@ o42_error_name (O42ErrorCode code)
     case O42_ERR_NA:       return "#N/A";
     case O42_ERR_CIRCULAR: return "#CIRCULAR!";
     case O42_ERR_SPILL:    return "#SPILL!";
+    case O42_ERR_CALC:     return "#CALC!";
     default:               return "#ERR!";
     }
+}
+
+gboolean
+o42_error_code_parse (const char *text, O42ErrorCode *out)
+{
+  static const O42ErrorCode codes[] = {
+    O42_ERR_NULL, O42_ERR_DIV0, O42_ERR_VALUE, O42_ERR_REF, O42_ERR_NAME,
+    O42_ERR_NUM, O42_ERR_NA, O42_ERR_SPILL, O42_ERR_CALC
+  };
+
+  if (text == NULL || text[0] != '#')
+    return FALSE;
+  for (guint i = 0; i < G_N_ELEMENTS (codes); i++)
+    if (g_ascii_strcasecmp (text, o42_error_name (codes[i])) == 0)
+      {
+        if (out != NULL) *out = codes[i];
+        return TRUE;
+      }
+  return FALSE;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -243,6 +263,11 @@ o42_value_compare (const O42Value *a, const O42Value *b)
     return (*b->as.text == '\0') ? 0 : -1;
   if (b->type == O42_VALUE_EMPTY && a->type == O42_VALUE_TEXT)
     return (*a->as.text == '\0') ? 0 : 1;
+  /* And against a boolean it is FALSE: =A1=FALSE is TRUE of an empty A1. */
+  if (a->type == O42_VALUE_EMPTY && b->type == O42_VALUE_BOOL)
+    return b->as.boolean ? -1 : 0;
+  if (b->type == O42_VALUE_EMPTY && a->type == O42_VALUE_BOOL)
+    return a->as.boolean ? 1 : 0;
 
   if (a->type != b->type)
     {

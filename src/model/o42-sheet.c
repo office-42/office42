@@ -359,6 +359,18 @@ static gboolean ranges_overlap (const O42Range *a, const O42Range *b);
 
 /* The evaluator asking how far a sheet's cells reach, so that A:A is
  * walked as far as there is anything to walk. */
+/* For AGGREGATE: whether a row is hidden, by hand or by a filter. */
+static gboolean
+sheet_row_hidden_for_eval (O42EvalContext *ctx, const char *sheet_name, int row)
+{
+  O42Sheet *sheet = ctx->user_data;
+  O42Sheet *target = sheet;
+
+  if (sheet_name != NULL && g_ascii_strcasecmp (sheet_name, sheet->name) != 0)
+    target = (sheet->book != NULL) ? o42_book_find_sheet (sheet->book, sheet_name) : NULL;
+  return target != NULL && o42_sheet_row_hidden (target, row);
+}
+
 static gboolean
 sheet_get_extent (O42EvalContext *ctx, const char *sheet_name, O42Range *used)
 {
@@ -1974,6 +1986,7 @@ o42_sheet_new (const char *name)
   sheet->eval.get_name = sheet_get_name;
   sheet->eval.sheets_between = sheet_sheets_between;
   sheet->eval.get_extent = sheet_get_extent;
+  sheet->eval.row_hidden = sheet_row_hidden_for_eval;
   sheet->eval.user_data = sheet;
 
   return sheet;
@@ -2643,10 +2656,16 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
               /* TRUE and FALSE typed into a cell are the values, not
                * the words: it is what Excel does, and it is what a
                * check box writes into the cell it drives. */
+              O42ErrorCode typed_error;
+
               if (g_ascii_strcasecmp (text, "TRUE") == 0)
                 cell->value = o42_value_bool (TRUE);
               else if (g_ascii_strcasecmp (text, "FALSE") == 0)
                 cell->value = o42_value_bool (FALSE);
+              else if (o42_error_code_parse (text, &typed_error))
+                /* #N/A typed into a cell is the error value, as in Excel,
+                 * so that =ISNA(A1) sees it. */
+                cell->value = o42_value_error (typed_error);
               else if (o42_entry_parse (text, &entry))
                 {
                   /* 5%, $1,000, 1/2/2026 and 3:45 PM are numbers, and

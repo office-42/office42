@@ -1679,9 +1679,114 @@ fn_error_type (O42EvalContext *ctx, O42Operand *args, int n)
     case O42_ERR_CIRCULAR: code = 4; break;
     case O42_ERR_NAME:  code = 5; break;
     case O42_ERR_NUM:   code = 6; break;
+    case O42_ERR_SPILL: code = 9; break;
+    case O42_ERR_CALC:  code = 14; break;
     default:            code = 7; break;
     }
   return o42_value_number (code);
+}
+
+/* ---- AGGREGATE ---- */
+
+static const O42Function *find_function (const char *name);
+
+/* AGGREGATE(function, options, ref...) and AGGREGATE(function, options,
+ * array, k): nineteen aggregates by number, over the cells left after the
+ * options have dropped hidden rows (1), errors (2), or both (3; 4 to 7
+ * add nested SUBTOTALs, which are not told apart here).  The kept cells
+ * are gathered into one array and the named function is given that. */
+static O42Value
+fn_aggregate (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  static const char *names[] = { "AVERAGE", "COUNT", "COUNTA", "MAX", "MIN", "PRODUCT",
+                                 "STDEV.S", "STDEV.P", "SUM", "VAR.S", "VAR.P", "MEDIAN",
+                                 "MODE.SNGL", "LARGE", "SMALL", "PERCENTILE.INC",
+                                 "QUARTILE.INC", "PERCENTILE.EXC", "QUARTILE.EXC" };
+  double which, options;
+  const O42Function *fn;
+  gboolean skip_hidden, skip_errors;
+  int n_refs;
+  GArray *kept;
+  ArrayConst *a;
+  O42Operand call[2];
+  O42Value result;
+
+  ARG_NUMBER (0, which);
+  ARG_NUMBER (1, options);
+  if (which < 1 || which > 19 || options < 0 || options > 7 || n < 3)
+    return o42_value_error (O42_ERR_VALUE);
+  fn = find_function (names[(int) which - 1]);
+  if (fn == NULL)
+    return o42_value_error (O42_ERR_NAME);
+  skip_hidden = ((int) options & 1) != 0;
+  skip_errors = ((int) options & 2) != 0;
+  /* Functions 14 to 19 take one array and a k; the rest any number of
+   * references. */
+  n_refs = which >= 14 ? 1 : n - 2;
+  if (which >= 14 && n != 4)
+    return o42_value_error (O42_ERR_VALUE);
+
+  kept = g_array_new (FALSE, FALSE, sizeof (O42Value));
+  for (int i = 2; i < 2 + n_refs; i++)
+    {
+      const O42Operand *op = &args[i];
+
+      if (!op->is_range)
+        {
+          O42Value v = o42_value_copy (&op->value);
+          if (v.type == O42_VALUE_ERROR && !skip_errors)
+            { result = v; goto out_error; }
+          if (v.type != O42_VALUE_EMPTY && v.type != O42_VALUE_ERROR)
+            g_array_append_val (kept, v);
+          else
+            o42_value_clear (&v);
+          continue;
+        }
+      for (int r = op->range.row0; r <= op->range.row1; r++)
+        {
+          if (skip_hidden && ctx->row_hidden != NULL && ctx->row_hidden (ctx, op->sheet, r))
+            continue;
+          for (int c = op->range.col0; c <= op->range.col1; c++)
+            {
+              O42Value v;
+
+              ctx->get_cell (ctx, op->sheet, r, c, &v);
+              if (v.type == O42_VALUE_ERROR)
+                {
+                  if (!skip_errors)
+                    { result = v; goto out_error; }
+                  o42_value_clear (&v);
+                  continue;
+                }
+              if (v.type == O42_VALUE_EMPTY)
+                { o42_value_clear (&v); continue; }
+              g_array_append_val (kept, v);
+            }
+        }
+    }
+
+  if (kept->len == 0)
+    {
+      g_array_free (kept, TRUE);
+      /* Nothing left: COUNT and COUNTA say none, the rest #DIV/0! as
+       * their functions do over nothing. */
+      return (which == 2 || which == 3) ? o42_value_number (0) : o42_value_error (O42_ERR_DIV0);
+    }
+  a = array_const_new ((int) kept->len, 1);
+  for (guint i = 0; i < kept->len; i++)
+    a->cells[i] = g_array_index (kept, O42Value, i);
+  g_array_free (kept, TRUE);
+  memset (call, 0, sizeof call);
+  call[0] = array_operand (a);
+  if (which >= 14)
+    call[1] = args[3];
+  return fn->fn (ctx, call, which >= 14 ? 2 : 1);
+
+out_error:
+  for (guint i = 0; i < kept->len; i++)
+    o42_value_clear (&g_array_index (kept, O42Value, i));
+  g_array_free (kept, TRUE);
+  return result;
 }
 
 static O42Value
@@ -5186,6 +5291,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           (n_args >= 3 && !eval_number_arg (ctx, node, 2, &start)) || (n_args >= 4 && !eval_number_arg (ctx, node, 3, &step)))
         { out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
       rows = floor (rows); cols = floor (cols);
+      if (rows == 0 || cols == 0)
+        { out->value = o42_value_error (O42_ERR_CALC); return TRUE; }   /* an empty array */
       if (rows < 1 || cols < 1 || rows > O42_MAX_ROWS || cols > O42_MAX_COLS)
         { out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
       if (rows * cols > ARRAY_CELLS_MAX)
@@ -5402,7 +5509,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
               *out = alt;
             }
           else
-            out->value = o42_value_error (O42_ERR_VALUE);
+            out->value = o42_value_error (O42_ERR_CALC);
         }
       else
         {
@@ -9271,6 +9378,7 @@ static const O42Function FUNCTIONS[] = {
   { "EFFECT", 2, 2, fn_effect },
   { "ERROR", 1, 1, fn_error },
   { "ERROR.TYPE", 1, 1, fn_error_type },
+  { "AGGREGATE", 3, -1, fn_aggregate },
   { "EVEN", 1, 1, fn_even },
   { "EXP", 1, 1, fn_exp },
   { "EXPM1", 1, 1, fn_expm1 },
@@ -9854,6 +9962,7 @@ static const struct {
   { "EFFECT", "EFFECT(nominal_rate, npery)", "The effective annual interest rate." },
   { "ERROR", "ERROR(text)", "The error value that text names." },
   { "ERROR.TYPE", "ERROR.TYPE(error)", "A number for each kind of error value." },
+  { "AGGREGATE", "AGGREGATE(function, options, ref1, ...)", "One of nineteen aggregates, leaving out hidden rows or errors as the options say." },
   { "EVEN", "EVEN(number)", "Rounds away from zero to an even integer." },
   { "EXP", "EXP(number)", "e raised to a power." },
   { "EXPM1", "EXPM1(x)", "exp(x) - 1, keeping the digits a small x would lose." },

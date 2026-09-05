@@ -56,6 +56,11 @@ struct _O42EvalContext {
    * the sheet is empty or unknown.  May be NULL, and then a whole
    * column is walked whole. */
   gboolean (*get_extent) (O42EvalContext *ctx, const char *sheet, O42Range *used);
+
+  /* Whether a row of the named sheet (NULL for the formula's own) is
+   * hidden, for AGGREGATE's option to leave such rows out.  May be
+   * NULL, and then no row is. */
+  gboolean (*row_hidden) (O42EvalContext *ctx, const char *sheet, int row);
 };
 
 /* An argument is either a single value or a rectangle of them.  Keeping the

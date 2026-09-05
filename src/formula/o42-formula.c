@@ -80,6 +80,8 @@ static const struct {
   { "#NAME?",   O42_ERR_NAME  },
   { "#NUM!",    O42_ERR_NUM   },
   { "#N/A",     O42_ERR_NA    },
+  { "#SPILL!",  O42_ERR_SPILL },
+  { "#CALC!",   O42_ERR_CALC  },
 };
 
 static void
