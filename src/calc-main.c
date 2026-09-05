@@ -174,7 +174,7 @@ main (int argc, char *argv[])
               "          table pivot refresh validate validations goalseek solve scenario\n"
               "          analyse whatif\n"
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
-              "          picture pictures objgroup objungroup note link links\n"
+              "          picture pictures objects order objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
               "          pagebreak margin\n"
               "Python    py pyfile script scripts runscript delscript record\n"
@@ -1081,6 +1081,44 @@ main (int argc, char *argv[])
           if (o42_ref_parse (text + 9, &erow, &ecol, NULL))
             printf ("%s %s\n", o42_sheet_cell_editable (sheet, erow, ecol) ? "editable" : "locked",
                     o42_sheet_formula_hidden (sheet, erow, ecol) ? "hidden" : "shown");
+          continue;
+        }
+
+      /* objects: every picture, shape and chart from the back to the
+       * front; order shape|picture|chart ID front|back|forward|backward */
+      if (strcmp (text, "objects") == 0)
+        {
+          GArray *objects = o42_sheet_objects (sheet);
+
+          for (guint i = 0; i < objects->len; i++)
+            {
+              const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i);
+              printf ("%s %u z %u\n",
+                      ref->type == O42_OBJECT_PICTURE ? "picture"
+                      : ref->type == O42_OBJECT_SHAPE ? "shape" : "chart", ref->id, ref->z);
+            }
+          g_array_free (objects, TRUE);
+          continue;
+        }
+      if (g_str_has_prefix (text, "order "))
+        {
+          char **words = g_strsplit (text + 6, " ", 3);
+          O42ObjectType type = O42_OBJECT_SHAPE;
+          O42Order how = O42_ORDER_FRONT;
+          gboolean ok = g_strv_length (words) == 3;
+
+          if (ok && strcmp (words[0], "picture") == 0) type = O42_OBJECT_PICTURE;
+          else if (ok && strcmp (words[0], "chart") == 0) type = O42_OBJECT_CHART;
+          else if (ok && strcmp (words[0], "shape") != 0) ok = FALSE;
+          if (ok && strcmp (words[2], "back") == 0) how = O42_ORDER_BACK;
+          else if (ok && strcmp (words[2], "forward") == 0) how = O42_ORDER_FORWARD;
+          else if (ok && strcmp (words[2], "backward") == 0) how = O42_ORDER_BACKWARD;
+          else if (ok && strcmp (words[2], "front") != 0) ok = FALSE;
+          if (!ok)
+            fprintf (stderr, "usage: order shape|picture|chart ID front|back|forward|backward\n");
+          else if (!o42_sheet_reorder_object (sheet, type, (guint) atoi (words[1]), how))
+            fprintf (stderr, "nothing moved\n");
+          g_strfreev (words);
           continue;
         }
 

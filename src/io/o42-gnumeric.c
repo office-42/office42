@@ -406,8 +406,9 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
   g_string_append_printf (out,
     "      <gnm:SheetObjectImage ObjectBound=\"%s:%s\" ObjectOffset=\"%s %s %s %s\" "
     "ObjectAnchorType=\"16 16 16 16\" Direction=\"17\" "
-    "crop-top=\"0\" crop-bottom=\"0\" crop-left=\"0\" crop-right=\"0\">\n",
-    a, b, fx0s, fy0s, fx1s, fy1s);
+    "crop-top=\"0\" crop-bottom=\"0\" crop-left=\"0\" crop-right=\"0\" "
+    "o42-z=\"%u\" o42-group=\"%u\">\n",
+    a, b, fx0s, fy0s, fx1s, fy1s, pic->z, pic->group);
 
   encoded = g_base64_encode (g_bytes_get_data (pic->data, NULL),
                              g_bytes_get_size (pic->data));
@@ -472,7 +473,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     "o42-kind=\"%s\" o42-first-row-labels=\"%d\" o42-first-col-labels=\"%d\" "
     "o42-series-in-rows=\"%d\" o42-legend=\"%d\" o42-gridlines=\"%d\" o42-labels=\"%d\" "
     "o42-trend=\"%s\" o42-trend-order=\"%d\" o42-errbars=\"%s\" o42-errvalue=\"%g\" "
-    "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-group=\"%u\" "
+    "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-group=\"%u\" o42-z=\"%u\" "
     "o42-yformat=\"%s\" o42-secondary=\"%d\" "
     "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\"%s>\n"
     "        <gnm:GogObject type=\"GogGraph\">\n"
@@ -483,7 +484,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     chart->data_labels ? 1 : 0, o42_trend_kind_name (chart->trend), chart->trend_order,
     o42_errbar_kind_name (chart->err_bars), chart->err_value,
     chart->font_family != NULL ? chart->font_family : "", chart->font_size,
-    chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0, chart->group,
+    chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0, chart->group, chart->z,
     yfmt, chart->secondary_from,
     o42_marker_kind_name (chart->marker), chart->marker_size,
     chart->marker_picture, bounds);
@@ -951,10 +952,10 @@ write_sheet (GString *out, O42Sheet *sheet)
 
         g_string_append_printf (w.out,
           "      <gnm:o42-Shape Kind=\"%s\" Geom=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
-          "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\"%s>%s</gnm:o42-Shape>\n",
+          "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\" Z=\"%u\"%s>%s</gnm:o42-Shape>\n",
           o42_shape_kind_name (sh->kind), o42_shape_geom_name (sh->geom), at,
           sh->dx, sh->dy, sh->width, sh->height,
-          (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group,
+          (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group, sh->z,
           control != NULL ? control : "", body);
         g_free (control);
         g_free (at);
@@ -1426,6 +1427,9 @@ typedef struct {
   int         graph_labels, graph_trend, graph_trend_order, graph_secondary;
   gboolean    graph_3d;
   guint       graph_group;
+  guint       graph_z;
+  guint       object_z;         /* an image's z and group, from its start tag */
+  guint       object_group;
   char       *graph_trend_name, *graph_err_name, *graph_font, *graph_data_sheet;
   char       *graph_marker_name;
   double      graph_marker_size;
@@ -1980,6 +1984,8 @@ start_element (GMarkupParseContext *context, const char *element,
           r->shape->line = (guint32) attr_int (names, values, "Line", 0);
           r->shape->line_width = attr_double (names, values, "LineWidth", 1.5);
           r->shape->group = (guint) attr_int (names, values, "Group", 0);
+          if (attr (names, values, "Z") != NULL)
+            r->shape->z = (guint) attr_int (names, values, "Z", 0);
           o42_shape_geom_parse (attr (names, values, "Geom"), &r->shape->geom);
           if (o42_shape_is_control (kind))
             {
@@ -2186,6 +2192,7 @@ start_element (GMarkupParseContext *context, const char *element,
           r->graph_marker_size = attr_double (names, values, "o42-marker-size", 0);
           r->graph_marker_picture = (guint) attr_int (names, values, "o42-marker-picture", 0);
           r->graph_group = (guint) attr_int (names, values, "o42-group", 0);
+          r->graph_z = (guint) attr_int (names, values, "o42-z", 0);
           g_free (r->graph_err_name);
           r->graph_err_name = g_strdup (attr (names, values, "o42-errbars"));
           g_free (r->graph_font);
@@ -2276,6 +2283,8 @@ start_element (GMarkupParseContext *context, const char *element,
       r->in_object = FALSE;
       r->object_offset[0] = r->object_offset[1] = 0;
       r->object_offset[2] = r->object_offset[3] = 1;
+      r->object_z = (guint) attr_int (names, values, "o42-z", 0);
+      r->object_group = (guint) attr_int (names, values, "o42-group", 0);
 
       if (bound != NULL &&
           o42_ref_parse (bound, &r->object_bound.row0, &r->object_bound.col0, &used))
@@ -2479,6 +2488,9 @@ finish_picture (Reader *r)
   g_bytes_unref (data);
   if (pic == NULL)
     return;
+  if (r->object_z > 0)
+    pic->z = r->object_z;
+  pic->group = r->object_group;
 
   x0 = offset_px (r->sheet, TRUE, r->object_bound.col0) +
        r->object_offset[0] * o42_sheet_col_width (r->sheet, r->object_bound.col0);
@@ -2902,6 +2914,8 @@ end_element (GMarkupParseContext *context, const char *element,
             }
           chart->three_d = r->graph_3d;
           chart->group = r->graph_group;
+          if (r->graph_z > 0)
+            chart->z = r->graph_z;
           if (r->graph_data_sheet != NULL)
             {
               g_free (chart->data_sheet);

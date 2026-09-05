@@ -3439,6 +3439,29 @@ action_shape (GSimpleAction *a, GVariant *p, gpointer data)
   window_sync (self);
 }
 
+/* Format > Order: the selected object to the front or the back of the
+ * others, or one step either way. */
+static void
+action_order (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  const char *how = p != NULL ? g_variant_get_string (p, NULL) : "front";
+  O42Order order = strcmp (how, "back") == 0 ? O42_ORDER_BACK
+                 : strcmp (how, "forward") == 0 ? O42_ORDER_FORWARD
+                 : strcmp (how, "backward") == 0 ? O42_ORDER_BACKWARD : O42_ORDER_FRONT;
+
+  (void) a;
+  if (o42_grid_selected_shape (self->grid) == NULL &&
+      o42_grid_selected_chart (self->grid) == NULL &&
+      !o42_grid_has_selected_object (self->grid))
+    {
+      show_error (self, "Click a picture, shape or chart first; Format > Order moves the selected one.", NULL);
+      return;
+    }
+  o42_grid_reorder_selected (self->grid, order);
+  window_sync (self);
+}
+
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
@@ -4652,6 +4675,7 @@ static const GActionEntry ACTIONS[] = {
   { "insert-link",    action_insert_link,    NULL, NULL, NULL, { 0 } },
   { "format-chart",   action_format_chart,   NULL, NULL, NULL, { 0 } },
   { "shape",          action_shape,          "s",  NULL, NULL, { 0 } },
+  { "order",          action_order,          "s",  NULL, NULL, { 0 } },
   { "format-shape",   action_format_shape,   NULL, NULL, NULL, { 0 } },
   { "format-control", action_format_control, NULL, NULL, NULL, { 0 } },
   { "db-connect",     action_db_connect,     NULL, NULL, NULL, { 0 } },

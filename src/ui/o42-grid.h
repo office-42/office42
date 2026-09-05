@@ -99,6 +99,13 @@ void o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom,
 /* The shape selected by clicking it, or NULL. */
 O42Shape *o42_grid_selected_shape (O42Grid *self);
 
+/* Format > Order on the selected object.  FALSE if there is none or
+ * it did not move. */
+gboolean  o42_grid_reorder_selected (O42Grid *self, O42Order how);
+
+/* Whether any object -- a picture too -- is selected. */
+gboolean  o42_grid_has_selected_object (O42Grid *self);
+
 /* The chart selected by clicking it, or NULL. */
 O42Chart *o42_grid_selected_chart (O42Grid *self);
 

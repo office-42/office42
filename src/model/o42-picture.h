@@ -19,6 +19,7 @@ G_BEGIN_DECLS
 typedef struct {
   guint            id;         /* stable for the picture's lifetime */
   guint            group;      /* objects grouped together share one; 0 for none */
+  guint            z;          /* the painting order: higher is nearer the front */
   GBytes          *data;       /* the file's bytes, as loaded */
   const char      *format;     /* interned: "png", "jpeg", ... */
   int              pixel_w;

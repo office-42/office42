@@ -517,28 +517,17 @@ split_bar_at (O42Grid *self, double x, double y)
   return 0;
 }
 
-/* The topmost shape under a point, or NULL.  A line has no width to
+/* Whether a shape's box is under a point.  A line has no width to
  * speak of, so its box is grown a little to be clickable. */
-static O42Shape *
-shape_at (O42Grid *self, double x, double y)
+static gboolean
+shape_hit (O42Grid *self, const O42Shape *shape, double x, double y)
 {
-  GPtrArray *shapes;
+  double sx, sy, sw, sh;
 
-  if (self->sheet == NULL)
-    return NULL;
-  shapes = o42_sheet_shapes (self->sheet);
-  for (guint i = shapes->len; i > 0; i--)
-    {
-      O42Shape *shape = g_ptr_array_index (shapes, i - 1);
-      double sx, sy, sw, sh;
-
-      shape_rect (self, shape, &sx, &sy, &sw, &sh);
-      if (sw < 0) { sx += sw; sw = -sw; }
-      if (sh < 0) { sy += sh; sh = -sh; }
-      if (x >= sx - 3 && x < sx + sw + 3 && y >= sy - 3 && y < sy + sh + 3)
-        return shape;
-    }
-  return NULL;
+  shape_rect (self, shape, &sx, &sy, &sw, &sh);
+  if (sw < 0) { sx += sw; sw = -sw; }
+  if (sh < 0) { sy += sh; sh = -sh; }
+  return x >= sx - 3 && x < sx + sw + 3 && y >= sy - 3 && y < sy + sh + 3;
 }
 
 /* Where a chart sits, in widget pixels. */
@@ -552,25 +541,64 @@ chart_rect (O42Grid *self, const O42Chart *chart,
   *h = chart->height;
 }
 
+static void picture_rect (O42Grid *self, const O42Picture *pic,
+                          double *x, double *y, double *w, double *h);
+
+/* The frontmost object under a point, whatever its kind: the objects
+ * are walked from the front, in the order they are painted. */
+static gboolean
+object_at (O42Grid *self, double x, double y, O42ObjectRef *hit)
+{
+  GArray *objects;
+  gboolean found = FALSE;
+
+  if (self->sheet == NULL)
+    return FALSE;
+  objects = o42_sheet_objects (self->sheet);
+  for (guint i = objects->len; i > 0 && !found; i--)
+    {
+      const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i - 1);
+      double ox, oy, ow, oh;
+
+      switch (ref->type)
+        {
+        case O42_OBJECT_SHAPE:
+          found = shape_hit (self, ref->object, x, y);
+          break;
+        case O42_OBJECT_CHART:
+          chart_rect (self, ref->object, &ox, &oy, &ow, &oh);
+          found = x >= ox && x < ox + ow && y >= oy && y < oy + oh;
+          break;
+        case O42_OBJECT_PICTURE:
+          picture_rect (self, ref->object, &ox, &oy, &ow, &oh);
+          found = x >= ox && x < ox + ow && y >= oy && y < oy + oh;
+          break;
+        }
+      if (found)
+        *hit = *ref;
+    }
+  g_array_free (objects, TRUE);
+  return found;
+}
+
+/* The shape under a point, when a shape is what is on top there. */
+static O42Shape *
+shape_at (O42Grid *self, double x, double y)
+{
+  O42ObjectRef hit;
+
+  if (object_at (self, x, y, &hit) && hit.type == O42_OBJECT_SHAPE)
+    return hit.object;
+  return NULL;
+}
+
 static O42Chart *
 chart_at (O42Grid *self, double x, double y)
 {
-  GPtrArray *charts;
+  O42ObjectRef hit;
 
-  if (self->sheet == NULL)
-    return NULL;
-
-  charts = o42_sheet_charts (self->sheet);
-  for (guint i = charts->len; i > 0; i--)
-    {
-      O42Chart *chart = g_ptr_array_index (charts, i - 1);
-      double cx, cy, cw, ch;
-
-      chart_rect (self, chart, &cx, &cy, &cw, &ch);
-      if (x >= cx && x < cx + cw && y >= cy && y < cy + ch)
-        return chart;
-    }
-
+  if (object_at (self, x, y, &hit) && hit.type == O42_OBJECT_CHART)
+    return hit.object;
   return NULL;
 }
 
@@ -671,27 +699,14 @@ selected_object_set_rect (O42Grid *self, double x, double y, double w, double h)
     }
 }
 
-/* The topmost picture under a point, or NULL. */
+/* The picture under a point, when a picture is what is on top there. */
 static O42Picture *
 picture_at (O42Grid *self, double x, double y)
 {
-  GPtrArray *pictures;
+  O42ObjectRef hit;
 
-  if (self->sheet == NULL)
-    return NULL;
-
-  pictures = o42_sheet_pictures (self->sheet);
-
-  for (guint i = pictures->len; i > 0; i--)
-    {
-      O42Picture *pic = g_ptr_array_index (pictures, i - 1);
-      double px, py, pw, ph;
-
-      picture_rect (self, pic, &px, &py, &pw, &ph);
-      if (x >= px && x < px + pw && y >= py && y < py + ph)
-        return pic;
-    }
-
+  if (object_at (self, x, y, &hit) && hit.type == O42_OBJECT_PICTURE)
+    return hit.object;
   return NULL;
 }
 
@@ -5691,6 +5706,88 @@ paint_row_headers (O42Grid *self, cairo_t *cr, const O42Range *sel, double hx,
       }
 }
 
+/* Eight handles round a selected object, as Excel drew them; each drags
+ * its edge. */
+static void
+paint_handles (cairo_t *cr, double x, double y, double w, double h)
+{
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  cairo_set_line_width (cr, 1.0);
+  cairo_rectangle (cr, floor (x) + 0.5, floor (y) + 0.5, floor (w), floor (h));
+  cairo_stroke (cr);
+  for (int k = 0; k < 8; k++)
+    {
+      cairo_rectangle (cr, x + HANDLE_X[k] * w - 3, y + HANDLE_Y[k] * h - 3, 6, 6);
+      cairo_fill (cr);
+    }
+}
+
+/* The pictures, shapes and charts, back to front in one pass, so that
+ * whatever was brought to the front is in front.  Only those that
+ * touch the rectangle (vx, vy, vw, vh) of sheet pixels are painted: the
+ * scrolled view, or a frozen band's share of it. */
+static void
+paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, double vh)
+{
+  GArray *objects = o42_sheet_objects (self->sheet);
+
+  for (guint i = 0; i < objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i);
+      double ox, oy, ow, oh;
+      gboolean selected;
+
+      switch (ref->type)
+        {
+        case O42_OBJECT_PICTURE:
+          picture_rect (self, ref->object, &ox, &oy, &ow, &oh);
+          selected = ref->id == self->selected_picture && !self->selected_is_chart && !self->selected_is_shape;
+          break;
+        case O42_OBJECT_SHAPE:
+          shape_rect (self, ref->object, &ox, &oy, &ow, &oh);
+          selected = ref->id == self->selected_picture && self->selected_is_shape;
+          break;
+        default:
+          chart_rect (self, ref->object, &ox, &oy, &ow, &oh);
+          selected = ref->id == self->selected_picture && self->selected_is_chart;
+          break;
+        }
+      if (ox > vx + vw || oy > vy + vh || ox + MAX (ow, 1) < vx || oy + MAX (oh, 1) < vy)
+        continue;
+
+      cairo_save (cr);
+      cairo_translate (cr, ox, oy);
+      switch (ref->type)
+        {
+        case O42_OBJECT_PICTURE:
+          {
+            cairo_surface_t *surface = o42_picture_surface (ref->object);
+
+            if (surface != NULL)
+              {
+                cairo_scale (cr, ow / cairo_image_surface_get_width (surface),
+                                 oh / cairo_image_surface_get_height (surface));
+                cairo_set_source_surface (cr, surface, 0, 0);
+                cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
+                cairo_paint (cr);
+              }
+          }
+          break;
+        case O42_OBJECT_SHAPE:
+          o42_sheet_draw_shape (self->sheet, ref->object, cr, ow, oh);
+          break;
+        default:
+          o42_sheet_draw_chart (self->sheet, ref->object, cr, ow, oh);
+          break;
+        }
+      cairo_restore (cr);
+
+      if (selected)
+        paint_handles (cr, ox, oy, ow, oh);
+    }
+  g_array_free (objects, TRUE);
+}
+
 static void
 o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
 {
@@ -5841,120 +5938,18 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
       }
   }
 
-  /* Pictures float above the cells. */
+  /* The objects float above the cells, back to front, clipped to the
+   * scrolling part of the grid: the frozen bands paint their own. */
   {
-    GPtrArray *pictures = o42_sheet_pictures (self->sheet);
+    double frozen_w = self->frozen_cols > 0 ? col_x (self, self->frozen_cols) - HEADER_W : 0;
+    double frozen_h = self->frozen_rows > 0 ? row_y (self, self->frozen_rows) - HEADER_H : 0;
 
-    for (guint i = 0; i < pictures->len; i++)
-      {
-        O42Picture *pic = g_ptr_array_index (pictures, i);
-        cairo_surface_t *surface;
-        double px, py, pw, ph;
-
-        picture_rect (self, pic, &px, &py, &pw, &ph);
-
-        if (px > scroll_x + view_w || py > scroll_y + view_h ||
-            px + pw < scroll_x || py + ph < scroll_y)
-          continue;
-
-        surface = o42_picture_surface (pic);
-        if (surface == NULL)
-          continue;
-
-        cairo_save (cr);
-        cairo_translate (cr, px, py);
-        cairo_scale (cr, pw / cairo_image_surface_get_width (surface),
-                         ph / cairo_image_surface_get_height (surface));
-        cairo_set_source_surface (cr, surface, 0, 0);
-        cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
-        cairo_paint (cr);
-        cairo_restore (cr);
-
-        if (pic->id == self->selected_picture && !self->selected_is_chart)
-          {
-            /* Eight handles, as Excel drew them; each drags its edge. */
-            cairo_set_source_rgb (cr, 0, 0, 0);
-            cairo_set_line_width (cr, 1.0);
-            cairo_rectangle (cr, floor (px) + 0.5, floor (py) + 0.5,
-                             floor (pw), floor (ph));
-            cairo_stroke (cr);
-
-            for (int k = 0; k < 8; k++)
-              {
-                cairo_rectangle (cr, px + HANDLE_X[k] * pw - 3, py + HANDLE_Y[k] * ph - 3,
-                                 6, 6);
-                cairo_fill (cr);
-              }
-          }
-      }
-  }
-
-  /* Shapes: rectangles, ovals, lines, arrows and text boxes. */
-  {
-    GPtrArray *shapes = o42_sheet_shapes (self->sheet);
-
-    for (guint i = 0; i < shapes->len; i++)
-      {
-        O42Shape *shape = g_ptr_array_index (shapes, i);
-        double sx, sy, shape_w, shape_h;
-
-        shape_rect (self, shape, &sx, &sy, &shape_w, &shape_h);
-        if (sx > scroll_x + view_w || sy > scroll_y + view_h ||
-            sx + MAX (shape_w, 1) < scroll_x || sy + MAX (shape_h, 1) < scroll_y)
-          continue;
-
-        cairo_save (cr);
-        cairo_translate (cr, sx, sy);
-        o42_sheet_draw_shape (self->sheet, shape, cr, shape_w, shape_h);
-        cairo_restore (cr);
-
-        if (shape->id == self->selected_picture && self->selected_is_shape)
-          {
-            cairo_set_source_rgb (cr, 0, 0, 0);
-            cairo_set_line_width (cr, 1.0);
-            cairo_rectangle (cr, floor (sx) + 0.5, floor (sy) + 0.5, floor (shape_w), floor (shape_h));
-            cairo_stroke (cr);
-            for (int k = 0; k < 8; k++)
-              {
-                cairo_rectangle (cr, sx + HANDLE_X[k] * shape_w - 3, sy + HANDLE_Y[k] * shape_h - 3, 6, 6);
-                cairo_fill (cr);
-              }
-          }
-      }
-  }
-
-  /* Charts, drawn from the cells as they stand. */
-  {
-    GPtrArray *charts = o42_sheet_charts (self->sheet);
-
-    for (guint i = 0; i < charts->len; i++)
-      {
-        O42Chart *chart = g_ptr_array_index (charts, i);
-        double cx, cy, cw, ch;
-
-        chart_rect (self, chart, &cx, &cy, &cw, &ch);
-        if (cx > scroll_x + view_w || cy > scroll_y + view_h ||
-            cx + cw < scroll_x || cy + ch < scroll_y)
-          continue;
-
-        cairo_save (cr);
-        cairo_translate (cr, cx, cy);
-        o42_sheet_draw_chart (self->sheet, chart, cr, cw, ch);
-        cairo_restore (cr);
-
-        if (chart->id == self->selected_picture && self->selected_is_chart)
-          {
-            cairo_set_source_rgb (cr, 0, 0, 0);
-            cairo_set_line_width (cr, 1.0);
-            cairo_rectangle (cr, floor (cx) + 0.5, floor (cy) + 0.5, floor (cw), floor (ch));
-            cairo_stroke (cr);
-            for (int k = 0; k < 8; k++)
-              {
-                cairo_rectangle (cr, cx + HANDLE_X[k] * cw - 3, cy + HANDLE_Y[k] * ch - 3, 6, 6);
-                cairo_fill (cr);
-              }
-          }
-      }
+    cairo_save (cr);
+    cairo_rectangle (cr, scroll_x + HEADER_W + frozen_w, scroll_y + HEADER_H + frozen_h,
+                     view_w, view_h);
+    cairo_clip (cr);
+    paint_objects (self, cr, scroll_x, scroll_y, view_w, view_h);
+    cairo_restore (cr);
   }
 
   /* The range an autofill drag will fill, as a grey outline. */
@@ -6139,6 +6134,8 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_translate (cr, 0, dy);
           paint_cells (self, cr, &sel, top_row, band_last_row, first_col, last_col);
           paint_selection (self, cr, &sel);
+          paint_objects (self, cr, scroll_x + HEADER_W + frozen_w, scroll_y + HEADER_H - dy,
+                         view_w, frozen_h);
           cairo_restore (cr);
         }
 
@@ -6153,6 +6150,8 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_translate (cr, dx, 0);
           paint_cells (self, cr, &sel, first_row, last_row, left_col, band_last_col);
           paint_selection (self, cr, &sel);
+          paint_objects (self, cr, scroll_x + HEADER_W - dx, scroll_y + HEADER_H + frozen_h,
+                         frozen_w, view_h);
           cairo_restore (cr);
         }
 
@@ -6166,6 +6165,8 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_translate (cr, dx, dy);
           paint_cells (self, cr, &sel, top_row, band_last_row, left_col, band_last_col);
           paint_selection (self, cr, &sel);
+          paint_objects (self, cr, scroll_x + HEADER_W - dx, scroll_y + HEADER_H - dy,
+                         frozen_w, frozen_h);
           cairo_restore (cr);
         }
 
@@ -6586,6 +6587,16 @@ object_menu (O42Grid *self)
     }
   menu_add (menu, "_Group Objects", "win.group-objects");
   menu_add (menu, "_Ungroup Objects", "win.ungroup-objects");
+  {
+    GMenu *order = g_menu_new ();
+
+    menu_add (order, "Bring to _Front", "win.order::front");
+    menu_add (order, "Send to _Back", "win.order::back");
+    menu_add (order, "Bring F_orward", "win.order::forward");
+    menu_add (order, "Send Back_ward", "win.order::backward");
+    g_menu_append_submenu (menu, "O_rder", G_MENU_MODEL (order));
+    g_object_unref (order);
+  }
   return menu;
 }
 
@@ -6937,6 +6948,30 @@ o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, cons
   self->selected_is_chart = FALSE;
   self->selected_is_shape = TRUE;
   gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_has_selected_object (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->sheet != NULL && self->selected_picture != 0;
+}
+
+gboolean
+o42_grid_reorder_selected (O42Grid *self, O42Order how)
+{
+  O42ObjectType type;
+  gboolean moved;
+
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  if (self->sheet == NULL || self->selected_picture == 0)
+    return FALSE;
+  type = self->selected_is_shape ? O42_OBJECT_SHAPE
+       : self->selected_is_chart ? O42_OBJECT_CHART : O42_OBJECT_PICTURE;
+  moved = o42_sheet_reorder_object (self->sheet, type, self->selected_picture, how);
+  if (moved)
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+  return moved;
 }
 
 O42Shape *

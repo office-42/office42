@@ -74,6 +74,7 @@ typedef enum {
 typedef struct {
   guint         id;         /* stable for the shape's lifetime */
   guint         group;      /* objects grouped together share one; 0 for none */
+  guint         z;          /* the painting order: higher is nearer the front */
   O42ShapeKind  kind;
   O42ShapeGeom  geom;       /* the outline of a rectangle kind */
   int           row;        /* the anchor cell */
