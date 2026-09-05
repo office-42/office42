@@ -85,6 +85,7 @@ struct _O42Grid {
   double         zoom;                     /* 1.0 is 100% */
   int            frozen_rows, frozen_cols; /* View > Freeze Panes */
   gboolean       show_breaks;              /* View > Page Breaks */
+  GArray        *freeform;                 /* double pairs, sheet px: the outline being drawn, or NULL */
   gboolean       split;                    /* Window > Split: the bands
                                             * scroll on their own rather
                                             * than staying pinned */
@@ -528,6 +529,8 @@ shape_hit (O42Grid *self, const O42Shape *shape, double x, double y)
   shape_rect (self, shape, &sx, &sy, &sw, &sh);
   if (sw < 0) { sx += sw; sw = -sw; }
   if (sh < 0) { sy += sh; sh = -sh; }
+  if (shape->kind == O42_SHAPE_FREEFORM || shape->kind == O42_SHAPE_OVAL)
+    return o42_shape_contains (shape, x - sx, y - sy, sw, sh, 3);
   return x >= sx - 3 && x < sx + sw + 3 && y >= sy - 3 && y < sy + sh + 3;
 }
 
@@ -657,6 +660,8 @@ chart_at (O42Grid *self, double x, double y)
 
 static void anchor_place (O42Grid *self, int *arow, int *acol, double *adx,
                           double *ady, double x, double y);
+static void freeform_finish (O42Grid *self);
+static void freeform_point (O42Grid *self, double x, double y, gboolean last);
 static void picture_place (O42Grid *self, O42Picture *pic, double x, double y);
 
 /* The eight handles of a selected object, in the order they are drawn:
@@ -4425,6 +4430,11 @@ on_key_pressed (GtkEventControllerKey *controller,
       return GDK_EVENT_STOP;
 
     case GDK_KEY_Escape:
+      if (self->freeform != NULL)
+        {
+          freeform_finish (self);
+          return GDK_EVENT_STOP;
+        }
       move_active (self, row, col, FALSE);
       return GDK_EVENT_STOP;
 
@@ -4476,6 +4486,14 @@ on_click_pressed (GtkGestureClick *gesture,
 
   row = row_at_y (self, y);
   col = col_at_x (self, x);
+
+  /* A freeform being drawn: a click is a point of it, a double-click
+   * the last. */
+  if (self->freeform != NULL)
+    {
+      freeform_point (self, x, y, n_press >= 2);
+      return;
+    }
 
   /* A click while a formula is being typed writes the cell into it,
    * and the button stays down to drag out a range. */
@@ -6116,6 +6134,135 @@ paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, doub
   g_array_free (objects, TRUE);
 }
 
+/* ---- Freeforms ---------------------------------------------------------- */
+
+void
+o42_grid_begin_freeform (O42Grid *self)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->editing)
+    o42_grid_commit_edit (self);
+  g_clear_pointer (&self->freeform, g_array_unref);
+  self->freeform = g_array_new (FALSE, FALSE, sizeof (double));
+  gtk_widget_grab_focus (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_drawing_freeform (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->freeform != NULL;
+}
+
+/* The points so far become the shape: its box is their bounds, anchored
+ * at the cell under the top left, and each point a fraction of it. */
+static void
+freeform_finish (O42Grid *self)
+{
+  GArray *pts = self->freeform;
+  guint n;
+  double x0 = G_MAXDOUBLE, y0 = G_MAXDOUBLE, x1 = -G_MAXDOUBLE, y1 = -G_MAXDOUBLE;
+  gboolean closed = FALSE;
+  O42Shape *shape;
+  int row, col;
+  double dx, dy;
+
+  self->freeform = NULL;
+  if (pts == NULL)
+    return;
+  n = pts->len / 2;
+  if (n >= 3)
+    {
+      double fx = g_array_index (pts, double, 0), fy = g_array_index (pts, double, 1);
+      double lx = g_array_index (pts, double, 2 * n - 2), ly = g_array_index (pts, double, 2 * n - 1);
+
+      /* A last point back on the first closes the outline and is not a
+       * point of its own. */
+      if (hypot (lx - fx, ly - fy) <= 6)
+        { closed = TRUE; n--; }
+    }
+  if (n < 2)
+    {
+      g_array_unref (pts);
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+      return;
+    }
+  for (guint i = 0; i < n; i++)
+    {
+      double x = g_array_index (pts, double, 2 * i), y = g_array_index (pts, double, 2 * i + 1);
+      x0 = MIN (x0, x); y0 = MIN (y0, y); x1 = MAX (x1, x); y1 = MAX (y1, y);
+    }
+  if (x1 - x0 < 1) x1 = x0 + 1;
+  if (y1 - y0 < 1) y1 = y0 + 1;
+  anchor_place (self, &row, &col, &dx, &dy, x0, y0);
+  shape = o42_sheet_add_shape (self->sheet, O42_SHAPE_FREEFORM, row, col);
+  if (shape != NULL)
+    {
+      shape->dx = dx;
+      shape->dy = dy;
+      shape->width = x1 - x0;
+      shape->height = y1 - y0;
+      shape->closed = closed;
+      if (!closed)
+        shape->fill = O42_FILL_NONE;
+      for (guint i = 0; i < n; i++)
+        {
+          double x = g_array_index (pts, double, 2 * i), y = g_array_index (pts, double, 2 * i + 1);
+          o42_shape_path_add (shape, i == 0 ? 'M' : 'L', (x - x0) / shape->width, (y - y0) / shape->height, 0, 0, 0, 0);
+        }
+      self->selected_picture = shape->id;
+      self->selected_is_chart = FALSE;
+      self->selected_is_shape = TRUE;
+      sheet_changed (self);
+    }
+  g_array_unref (pts);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+static void
+freeform_point (O42Grid *self, double x, double y, gboolean last)
+{
+  if (self->freeform == NULL)
+    return;
+  if (!last || self->freeform->len == 0)
+    {
+      g_array_append_val (self->freeform, x);
+      g_array_append_val (self->freeform, y);
+    }
+  if (last)
+    freeform_finish (self);
+  else
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* The outline being drawn, as a dashed line through its points. */
+static void
+paint_freeform (O42Grid *self, cairo_t *cr)
+{
+  static const double dashes[] = { 4, 3 };
+
+  if (self->freeform == NULL || self->freeform->len < 2)
+    return;
+  cairo_save (cr);
+  cairo_set_source_rgb (cr, 0.1, 0.3, 0.8);
+  cairo_set_line_width (cr, 1.5);
+  cairo_set_dash (cr, dashes, 2, 0);
+  for (guint i = 0; i + 1 < self->freeform->len; i += 2)
+    {
+      double x = g_array_index (self->freeform, double, i), y = g_array_index (self->freeform, double, i + 1);
+      if (i == 0) cairo_move_to (cr, x, y); else cairo_line_to (cr, x, y);
+    }
+  cairo_stroke (cr);
+  cairo_set_dash (cr, NULL, 0, 0);
+  for (guint i = 0; i + 1 < self->freeform->len; i += 2)
+    {
+      double x = g_array_index (self->freeform, double, i), y = g_array_index (self->freeform, double, i + 1);
+      cairo_rectangle (cr, x - 2, y - 2, 4, 4);
+    }
+  cairo_fill (cr);
+  cairo_restore (cr);
+}
+
 static void
 o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
 {
@@ -6277,6 +6424,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
                      view_w, view_h);
     cairo_clip (cr);
     paint_objects (self, cr, scroll_x, scroll_y, view_w, view_h);
+    paint_freeform (self, cr);
     cairo_restore (cr);
   }
 
@@ -7048,6 +7196,7 @@ o42_grid_dispose (GObject *object)
 
   g_clear_pointer (&self->complete_names, g_ptr_array_unref);
   g_clear_pointer (&self->extra_sel, g_array_unref);
+  g_clear_pointer (&self->freeform, g_array_unref);
   g_clear_pointer (&self->refs, g_array_unref);
   g_clear_pointer (&self->arrows, g_array_unref);
   g_clear_object (&self->layout);

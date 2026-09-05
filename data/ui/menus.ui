@@ -117,6 +117,7 @@
           <item><attribute name="label" translatable="yes">_Line</attribute><attribute name="action">win.shape</attribute><attribute name="target">line</attribute></item>
           <item><attribute name="label" translatable="yes">_Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">arrow</attribute></item>
           <item><attribute name="label" translatable="yes">_Text Box</attribute><attribute name="action">win.shape</attribute><attribute name="target">textbox</attribute></item>
+          <item><attribute name="label" translatable="yes">_Freeform</attribute><attribute name="action">win.shape</attribute><attribute name="target">freeform</attribute></item>
           <section>
             <item><attribute name="label" translatable="yes">Rounded Rectan_gle</attribute><attribute name="action">win.shape</attribute><attribute name="target">roundrect</attribute></item>
             <item><attribute name="label" translatable="yes">Trian_gle</attribute><attribute name="action">win.shape</attribute><attribute name="target">triangle</attribute></item>

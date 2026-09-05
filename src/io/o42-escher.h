@@ -73,6 +73,9 @@ typedef struct {
   gboolean has_text;               /* an lTxid: a TXO follows the OBJ */
   double   text_inset;             /* px, from dxTextLeft; -1 when unsaid */
   int      text_wrap;              /* WrapText: 0 square, 2 none; -1 when unsaid */
+  GArray  *path;                   /* O42PathPoint: a freeform's outline, or NULL; the caller frees */
+  gboolean closed;
+  gboolean path_raw;               /* the path's numbers are EMU of the shape's box, not fractions */
 } O42EscherFound;
 
 /* The images in a group container, in store order: GBytes with the

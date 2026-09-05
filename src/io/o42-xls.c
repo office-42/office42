@@ -2358,19 +2358,37 @@ read_drawing (Reader *r)
         }
       /* A drawn shape: its Sp names the outline, its Opt the fill and
        * line, the TXO after its OBJ the text. */
-      if (!f->is_picture && f->spt != 0 && f->spt != 201 &&
+      if (!f->is_picture && (f->spt != 0 || f->path != NULL) && f->spt != 201 &&
           f->col1 < O42_MAX_COLS && f->row1 < O42_MAX_ROWS &&
           (info == NULL || info->ot != 0x19))
         {
           O42Shape *shape = o42_sheet_add_shape (r->sheet, O42_SHAPE_RECT, f->row1, f->col1);
 
-          /* An outline office42 has no drawing for -- LibreOffice
-           * writes every AutoShape as a freeform path, type 4095 --
-           * comes in as a rectangle with the shape's fill, line and
-           * text, which is more of it than nothing. */
+          /* A freeform -- and LibreOffice writes every AutoShape as one,
+           * type 4095 -- comes in with its outline; an outline office42
+           * has no drawing for and no path comes in as a rectangle with
+           * the shape's fill, line and text, which is more of it than
+           * nothing. */
           if (shape != NULL)
             {
-              if (!o42_shape_apply_spt (shape, f->spt))
+              if (f->path != NULL)
+                {
+                  /* Raw numbers are EMU of the box the anchor gives. */
+                  double sx = sheet_col_x (r->sheet, MIN (f->col2, O42_MAX_COLS - 1)) + f->dx2 * o42_sheet_col_width (r->sheet, MIN (f->col2, O42_MAX_COLS - 1))
+                              - (sheet_col_x (r->sheet, f->col1) + f->dx1 * o42_sheet_col_width (r->sheet, f->col1));
+                  double sy = sheet_row_y (r->sheet, MIN (f->row2, O42_MAX_ROWS - 1)) + f->dy2 * o42_sheet_row_height (r->sheet, MIN (f->row2, O42_MAX_ROWS - 1))
+                              - (sheet_row_y (r->sheet, f->row1) + f->dy1 * o42_sheet_row_height (r->sheet, f->row1));
+                  double kx = f->path_raw ? 1.0 / (MAX (sx, 1) * 9525) : 1, ky = f->path_raw ? 1.0 / (MAX (sy, 1) * 9525) : 1;
+
+                  shape->kind = O42_SHAPE_FREEFORM;
+                  for (guint k = 0; k < f->path->len; k++)
+                    {
+                      const O42PathPoint *pp = &g_array_index (f->path, O42PathPoint, k);
+                      o42_shape_path_add (shape, pp->op, pp->x * kx, pp->y * ky, pp->x1 * kx, pp->y1 * ky, pp->x2 * kx, pp->y2 * ky);
+                    }
+                  shape->closed = f->closed;
+                }
+              else if (!o42_shape_apply_spt (shape, f->spt))
                 shape->kind = O42_SHAPE_RECT;
               double sx0 = sheet_col_x (r->sheet, f->col1) + f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
               double sy0 = sheet_row_y (r->sheet, f->row1) + f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
@@ -2383,7 +2401,7 @@ read_drawing (Reader *r)
               shape->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
               shape->width = line_kind ? sx1 - sx0 : MAX (sx1 - sx0, 4);
               shape->height = line_kind ? sy1 - sy0 : MAX (sy1 - sy0, 4);
-              shape->fill = (!line_kind && f->filled) ? f->fill : O42_FILL_NONE;
+              shape->fill = (!line_kind && f->filled && (f->path == NULL || f->closed)) ? f->fill : O42_FILL_NONE;
               shape->line = f->line;
               shape->line_width = f->lined ? MAX (f->line_width, 0.5) : 0.5;
               shape->dash = f->dash;
@@ -2450,6 +2468,9 @@ read_drawing (Reader *r)
           pic->flip_v = f->flip_v;
         }
     }
+  for (guint i = 0; i < found->len; i++)
+    if (g_array_index (found, O42EscherFound, i).path != NULL)
+      g_array_unref (g_array_index (found, O42EscherFound, i).path);
   g_array_unref (found);
 }
 

@@ -96,6 +96,13 @@ void o42_grid_insert_chart (O42Grid *self, O42ChartKind kind, const char *title,
 /* Puts a shape near the active cell and selects it. */
 void o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, const char *text);
 
+/* Insert > Shape > Freeform: from now until a double-click (or Escape,
+ * or a point back on the first), every click adds a point of the
+ * outline, and the shape is made of them; one that ends where it began
+ * is closed and filled. */
+void o42_grid_begin_freeform (O42Grid *self);
+gboolean o42_grid_drawing_freeform (O42Grid *self);
+
 /* The shape selected by clicking it, or NULL. */
 O42Shape *o42_grid_selected_shape (O42Grid *self);
 

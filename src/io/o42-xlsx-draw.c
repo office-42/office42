@@ -450,6 +450,33 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
 /* The a:xfrm attributes for a turned or mirrored object: the angle in
  * 60,000ths of a degree, and the flips.  A static buffer: one call per
  * printf. */
+/* A freeform's outline as a custom geometry: one path the size of the
+ * box, in EMU, with the moves, lines and curves as they are. */
+static void
+append_cust_geom (GString *dr, const O42Shape *sh)
+{
+  double w = MAX (sh->width, 1) * EMU_PER_PX, h = MAX (sh->height, 1) * EMU_PER_PX;
+
+  g_string_append_printf (dr,
+    "<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l=\"0\" t=\"0\" r=\"r\" b=\"b\"/>"
+    "<a:pathLst><a:path w=\"%.0f\" h=\"%.0f\">", w, h);
+  for (guint i = 0; i < sh->path->len; i++)
+    {
+      const O42PathPoint *p = &g_array_index (sh->path, O42PathPoint, i);
+
+      if (p->op == 'M')
+        g_string_append_printf (dr, "<a:moveTo><a:pt x=\"%.0f\" y=\"%.0f\"/></a:moveTo>", p->x * w, p->y * h);
+      else if (p->op == 'C')
+        g_string_append_printf (dr, "<a:cubicBezTo><a:pt x=\"%.0f\" y=\"%.0f\"/><a:pt x=\"%.0f\" y=\"%.0f\"/><a:pt x=\"%.0f\" y=\"%.0f\"/></a:cubicBezTo>",
+                                p->x1 * w, p->y1 * h, p->x2 * w, p->y2 * h, p->x * w, p->y * h);
+      else
+        g_string_append_printf (dr, "<a:lnTo><a:pt x=\"%.0f\" y=\"%.0f\"/></a:lnTo>", p->x * w, p->y * h);
+    }
+  if (sh->closed)
+    g_string_append (dr, "<a:close/>");
+  g_string_append (dr, "</a:path></a:pathLst></a:custGeom>");
+}
+
 /* The words in a shape, a paragraph per line, with the body's anchor,
  * wrap and insets and each run's font: what Excel writes, so that it
  * reads them back the same. */
@@ -632,14 +659,16 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             g_string_append_printf (dr,
               "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
               "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
-              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>"
-              "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>",
-              shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : "Shape", i + 1,
+              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>",
+              shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : sh->kind == O42_SHAPE_FREEFORM ? "Freeform" : "Shape", i + 1,
               sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
               xfrm_attrs (sh->rotation, sh->flip_h, sh->flip_v),
-              sh->width * EMU_PER_PX, sh->height * EMU_PER_PX,
-              o42_shape_prst (sh));
-            if (sh->fill == O42_FILL_NONE || stroke)
+              sh->width * EMU_PER_PX, sh->height * EMU_PER_PX);
+            if (sh->kind == O42_SHAPE_FREEFORM && sh->path != NULL)
+              append_cust_geom (dr, sh);
+            else
+              g_string_append_printf (dr, "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>", o42_shape_prst (sh));
+            if (sh->fill == O42_FILL_NONE || stroke || (sh->kind == O42_SHAPE_FREEFORM && !sh->closed))
               g_string_append (dr, "<a:noFill/>");
             else
               g_string_append_printf (dr, "<a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
@@ -1140,6 +1169,16 @@ typedef struct
   gboolean    lock_aspect;
   GString    *body;
 
+  /* A custom geometry: the path's own size and its steps, gathered as
+   * a:pt come. */
+  gboolean    custom;
+  double      path_w, path_h;
+  char        path_op;      /* the step being read: 'M', 'L' or 'C' */
+  double      cubic[6];     /* a curve's points so far */
+  int         cubic_n;
+  GArray     *path;         /* O42PathPoint */
+  gboolean    path_closed;
+
   /* The body's text style, from a:bodyPr, the first a:pPr and the
    * first a:rPr. */
   gboolean    in_rpr;
@@ -1201,6 +1240,11 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->head_start = d->head_end = O42_HEAD_NONE;
       d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
       d->in_rpr = d->have_rpr = d->have_ppr = d->have_anchor = FALSE;
+      d->custom = d->path_closed = FALSE;
+      d->path_w = d->path_h = 0;
+      d->path_op = 0;
+      d->cubic_n = 0;
+      if (d->path != NULL) g_array_set_size (d->path, 0);
       d->t_halign = O42_HALIGN_GENERAL;
       d->t_valign = O42_VALIGN_BOTTOM;
       d->t_nowrap = FALSE;
@@ -1323,6 +1367,69 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
           else if (d->in_rpr) d->t_colour = colour;
           else if (!d->in_body) d->fill = colour;
         }
+    }
+  else if (strcmp (n, "custGeom") == 0 && d->is_shape)
+    {
+      d->custom = TRUE;
+      if (d->path == NULL) d->path = g_array_new (FALSE, FALSE, sizeof (O42PathPoint));
+    }
+  else if (strcmp (n, "path") == 0 && d->custom)
+    {
+      const char *w = attr (names, values, "w"), *h = attr (names, values, "h");
+      /* The first path is the one taken; Excel writes one. */
+      if (d->path->len == 0)
+        {
+          d->path_w = w != NULL ? g_ascii_strtod (w, NULL) : 0;
+          d->path_h = h != NULL ? g_ascii_strtod (h, NULL) : 0;
+        }
+    }
+  else if (d->custom && (strcmp (n, "moveTo") == 0 || strcmp (n, "lnTo") == 0 || strcmp (n, "cubicBezTo") == 0))
+    {
+      d->path_op = n[0] == 'm' ? 'M' : n[0] == 'l' ? 'L' : 'C';
+      d->cubic_n = 0;
+    }
+  else if (d->custom && strcmp (n, "quadBezTo") == 0)
+    {
+      d->path_op = 'Q';
+      d->cubic_n = 0;
+    }
+  else if (d->custom && strcmp (n, "close") == 0)
+    d->path_closed = TRUE;
+  else if (d->custom && strcmp (n, "pt") == 0 && d->path_op != 0)
+    {
+      const char *xs = attr (names, values, "x"), *ys = attr (names, values, "y");
+      double w = d->path_w > 0 ? d->path_w : 1, h = d->path_h > 0 ? d->path_h : 1;
+      double x = xs != NULL ? g_ascii_strtod (xs, NULL) / w : 0;
+      double y = ys != NULL ? g_ascii_strtod (ys, NULL) / h : 0;
+      O42PathPoint p = { d->path_op, x, y, 0, 0, 0, 0 };
+
+      if (d->path_op == 'C' || d->path_op == 'Q')
+        {
+          d->cubic[d->cubic_n * 2] = x;
+          d->cubic[d->cubic_n * 2 + 1] = y;
+          d->cubic_n++;
+          if (d->path_op == 'C' && d->cubic_n == 3)
+            {
+              p.x1 = d->cubic[0]; p.y1 = d->cubic[1]; p.x2 = d->cubic[2]; p.y2 = d->cubic[3];
+              p.x = d->cubic[4]; p.y = d->cubic[5];
+              g_array_append_val (d->path, p);
+              d->cubic_n = 0;
+            }
+          else if (d->path_op == 'Q' && d->cubic_n == 2)
+            {
+              /* A quadratic as the cubic it equals, from the last point. */
+              const O42PathPoint *last = d->path->len > 0 ? &g_array_index (d->path, O42PathPoint, d->path->len - 1) : NULL;
+              double lx = last != NULL ? last->x : d->cubic[0], ly = last != NULL ? last->y : d->cubic[1];
+              p.op = 'C';
+              p.x1 = lx + 2.0 / 3 * (d->cubic[0] - lx); p.y1 = ly + 2.0 / 3 * (d->cubic[1] - ly);
+              p.x2 = d->cubic[2] + 2.0 / 3 * (d->cubic[0] - d->cubic[2]); p.y2 = d->cubic[3] + 2.0 / 3 * (d->cubic[1] - d->cubic[3]);
+              p.x = d->cubic[2]; p.y = d->cubic[3];
+              g_array_append_val (d->path, p);
+              d->cubic_n = 0;
+            }
+        }
+      else
+        g_array_append_val (d->path, p);
     }
   else if (strcmp (n, "txBody") == 0)
     d->in_body = TRUE;
@@ -1462,7 +1569,9 @@ finish_anchor (DrawReader *d)
       O42ShapeKind kind = O42_SHAPE_RECT;
       O42Shape *sh;
 
-      if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
+      if (d->custom && d->path != NULL && d->path->len >= 2)
+        kind = O42_SHAPE_FREEFORM;
+      else if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
         kind = d->arrow ? O42_SHAPE_ARROW : O42_SHAPE_LINE;
       else if (d->text_box || (d->body->len > 0 && strcmp (d->geom, "rect") == 0 && d->fill == O42_FILL_NONE))
         kind = O42_SHAPE_TEXT;   /* Excel says txBox; an unfilled rectangle with words is one too */
@@ -1471,8 +1580,19 @@ finish_anchor (DrawReader *d)
       if (sh != NULL)
         {
           /* The preset outline: an ellipse is a kind of its own, the
-           * AutoShapes are outlines a rectangle wears. */
-          o42_shape_apply_prst (sh, d->geom);
+           * AutoShapes are outlines a rectangle wears; a freeform brings
+           * its own. */
+          if (kind == O42_SHAPE_FREEFORM)
+            {
+              for (guint k = 0; k < d->path->len; k++)
+                {
+                  const O42PathPoint *pp = &g_array_index (d->path, O42PathPoint, k);
+                  o42_shape_path_add (sh, pp->op, pp->x, pp->y, pp->x1, pp->y1, pp->x2, pp->y2);
+                }
+              sh->closed = d->path_closed;
+            }
+          else
+            o42_shape_apply_prst (sh, d->geom);
           sh->dx = dx;
           sh->dy = dy;
           sh->width = width;
@@ -1603,6 +1723,7 @@ o42_xlsx_draw_read (GHashTable *parts, const char *sheet_part, const char *rid, 
 
   g_string_free (d.text, TRUE);
   g_string_free (d.body, TRUE);
+  if (d.path != NULL) g_array_unref (d.path);
   g_free (d.blip);
   g_free (d.chart);
   g_free (d.dir);

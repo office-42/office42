@@ -38,8 +38,22 @@ typedef enum {
   O42_SHAPE_LISTBOX,
   O42_SHAPE_COMBO,
   O42_SHAPE_LABEL,
-  O42_SHAPE_GROUPBOX
+  O42_SHAPE_GROUPBOX,
+
+  /* A freeform: an outline of the user's own, drawn point by point, a
+   * polygon when it closes and a polyline when it does not.  Its
+   * points are in `path`, as fractions of the box, so the box's size
+   * is the outline's. */
+  O42_SHAPE_FREEFORM
 } O42ShapeKind;
+
+/* One step of a freeform's outline, in fractions of the box: a move, a
+ * line to a point, or a cubic curve to it through two control points. */
+typedef struct {
+  char   op;              /* 'M', 'L' or 'C' */
+  double x, y;
+  double x1, y1, x2, y2;  /* the curve's controls, for 'C' */
+} O42PathPoint;
 
 /* The outline a rectangle-kind shape is drawn with: Excel's AutoShapes,
  * by the names Office Open XML gives them.  A shape of kind
@@ -121,6 +135,8 @@ typedef struct {
   gboolean      flip_h;     /* mirrored left to right, before turning */
   gboolean      flip_v;
   char         *text;       /* owned; may be empty */
+  GArray       *path;       /* O42PathPoint, a freeform's outline; NULL otherwise */
+  gboolean      closed;     /* the freeform's last point joins its first */
 
   /* How the text is set: the family (interned; NULL for the default,
    * Arial), the size in points (0 for 10), the style, the colour, the
@@ -226,6 +242,24 @@ O42HAlign   o42_shape_text_halign (const O42Shape *shape);
 O42VAlign   o42_shape_text_valign (const O42Shape *shape);
 /* The font as Pango wants it: "Arial Bold 12".  Caller frees. */
 char       *o42_shape_font_string (const O42Shape *shape);
+
+/* A freeform's outline: a step added (coordinates as fractions of the
+ * box), and the whole put on cairo's path in a box of `width` by
+ * `height`. */
+void        o42_shape_path_add    (O42Shape *shape, char op, double x, double y,
+                                   double x1, double y1, double x2, double y2);
+void        o42_shape_freeform_path (const O42Shape *shape, cairo_t *cr, double width, double height);
+/* The outline as text, "M0,0 L1,0 C0.5,0.2;0.7,0.9;1,1", and back;
+ * what .gnumeric keeps.  The text is the caller's to free. */
+char       *o42_shape_path_to_string   (const O42Shape *shape);
+void        o42_shape_path_from_string (O42Shape *shape, const char *text);
+
+/* Whether a point of the box (0..width, 0..height) is on the shape as
+ * drawn: inside a filled outline, on its stroke, or within `slack` of
+ * either.  A rectangle kind is its box; an oval and a freeform are
+ * what they show. */
+gboolean    o42_shape_contains    (const O42Shape *shape, double x, double y,
+                                   double width, double height, double slack);
 
 /* Adds the outline of a rectangle-kind shape to the current path, in
  * the box (0, 0, width, height) less `inset` all round. */

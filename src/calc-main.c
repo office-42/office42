@@ -1586,6 +1586,18 @@ main (int argc, char *argv[])
                     printf (" heads %s/%d %s/%d", o42_head_name (sh->head_start), sh->head_start_size,
                             o42_head_name (sh->head_end), sh->head_end_size);
                   printf (" \"%s\"", sh->text != NULL ? sh->text : "");
+                  if (sh->path != NULL)
+                    {
+                      printf (" %s", sh->closed ? "closed" : "open");
+                      for (guint k = 0; k < sh->path->len; k++)
+                        {
+                          const O42PathPoint *pt = &g_array_index (sh->path, O42PathPoint, k);
+                          if (pt->op == 'C')
+                            printf (" C%.2f,%.2f;%.2f,%.2f;%.2f,%.2f", pt->x1, pt->y1, pt->x2, pt->y2, pt->x, pt->y);
+                          else
+                            printf (" %c%.2f,%.2f", pt->op, pt->x, pt->y);
+                        }
+                    }
                   if (sh->font != NULL || sh->font_size > 0 || sh->bold || sh->italic || sh->text_colour != 0 ||
                       sh->text_halign != O42_HALIGN_GENERAL || sh->text_valign != O42_VALIGN_BOTTOM ||
                       sh->text_nowrap || sh->text_inset != 4)
@@ -1629,7 +1641,33 @@ main (int argc, char *argv[])
                   O42Shape *sh = o42_sheet_add_shape (sheet, kind, srow, scol);
                   if (sh != NULL)
                     sh->geom = geom;
-                  if (sh != NULL && g_strv_length (words) >= 3)
+                  if (sh != NULL && kind == O42_SHAPE_FREEFORM && g_strv_length (words) >= 3)
+                    {
+                      /* shape freeform A1 x,y x,y ...: pixels from the cell's
+                       * corner; a last point on the first closes it. */
+                      char **pts = g_strsplit (words[2], " ", -1);
+                      int n = (int) g_strv_length (pts);
+                      double x0 = G_MAXDOUBLE, y0 = G_MAXDOUBLE, x1 = -G_MAXDOUBLE, y1 = -G_MAXDOUBLE;
+
+                      if (n >= 3 && strcmp (pts[0], pts[n - 1]) == 0)
+                        { sh->closed = TRUE; n--; }
+                      else
+                        sh->fill = O42_FILL_NONE;
+                      for (int k = 0; k < n; k++)
+                        {
+                          double x = g_ascii_strtod (pts[k], NULL), y = g_ascii_strtod (strchr (pts[k], ',') ? strchr (pts[k], ',') + 1 : "0", NULL);
+                          x0 = MIN (x0, x); y0 = MIN (y0, y); x1 = MAX (x1, x); y1 = MAX (y1, y);
+                        }
+                      sh->dx = x0; sh->dy = y0;
+                      sh->width = MAX (x1 - x0, 1); sh->height = MAX (y1 - y0, 1);
+                      for (int k = 0; k < n; k++)
+                        {
+                          double x = g_ascii_strtod (pts[k], NULL), y = g_ascii_strtod (strchr (pts[k], ',') ? strchr (pts[k], ',') + 1 : "0", NULL);
+                          o42_shape_path_add (sh, k == 0 ? 'M' : 'L', (x - x0) / sh->width, (y - y0) / sh->height, 0, 0, 0, 0);
+                        }
+                      g_strfreev (pts);
+                    }
+                  else if (sh != NULL && g_strv_length (words) >= 3)
                     { g_free (sh->text); sh->text = g_strdup (words[2]); }
                 }
               else
@@ -1639,7 +1677,7 @@ main (int argc, char *argv[])
                                  "diamond|pentagon|hexagon|octagon|plus|star4|star5|star8|"
                                  "rightarrow|leftarrow|uparrow|downarrow|leftrightarrow|"
                                  "rectcallout|ellipsecallout|flowprocess|flowdecision|"
-                                 "flowterminator A1 [TEXT]\n");
+                                 "flowterminator A1 [TEXT]; shape freeform A1 x,y x,y ...\n");
               g_strfreev (words);
             }
           continue;

@@ -1064,6 +1064,12 @@ write_sheet (GString *out, O42Sheet *sheet)
           g_string_append_printf (ta, " TextHAlign=\"%d\" TextVAlign=\"%d\"", (int) sh->text_halign, (int) sh->text_valign);
           if (sh->text_nowrap) g_string_append (ta, " NoWrap=\"1\"");
           if (sh->text_inset != 4) g_string_append_printf (ta, " Inset=\"%g\"", sh->text_inset);
+          if (sh->path != NULL)
+            {
+              char *path = o42_shape_path_to_string (sh);
+              g_string_append_printf (ta, " Path=\"%s\" Closed=\"%d\"", path, sh->closed ? 1 : 0);
+              g_free (path);
+            }
           text_attrs = g_string_free (ta, FALSE);
         }
         g_string_append_printf (w.out,
@@ -2289,6 +2295,11 @@ start_element (GMarkupParseContext *context, const char *element,
             r->shape->text_valign = (O42VAlign) CLAMP (attr_int (names, values, "TextVAlign", 0), 0, 2);
           r->shape->text_nowrap = attr_int (names, values, "NoWrap", 0) != 0;
           r->shape->text_inset = attr_double (names, values, "Inset", 4);
+          if (attr (names, values, "Path") != NULL)
+            {
+              o42_shape_path_from_string (r->shape, attr (names, values, "Path"));
+              r->shape->closed = attr_int (names, values, "Closed", 0) != 0;
+            }
           if (o42_shape_is_control (kind))
             {
               const char *link = attr (names, values, "Link");

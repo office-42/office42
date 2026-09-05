@@ -61,13 +61,15 @@ o42_shape_free (O42Shape *shape)
   g_free (shape->link);
   g_free (shape->source);
   g_free (shape->script);
+  if (shape->path != NULL)
+    g_array_unref (shape->path);
   g_free (shape);
 }
 
 static const char *KIND_NAMES[] = {
   "rectangle", "oval", "line", "arrow", "textbox",
   "button", "checkbox", "option", "spinner", "scrollbar",
-  "listbox", "combo", "label", "groupbox"
+  "listbox", "combo", "label", "groupbox", "freeform"
 };
 
 const char *
@@ -99,7 +101,142 @@ o42_shape_copy (const O42Shape *shape)
   copy->link = g_strdup (shape->link);
   copy->source = g_strdup (shape->source);
   copy->script = g_strdup (shape->script);
+  if (shape->path != NULL)
+    {
+      copy->path = g_array_sized_new (FALSE, FALSE, sizeof (O42PathPoint), shape->path->len);
+      g_array_append_vals (copy->path, shape->path->data, shape->path->len);
+    }
   return copy;
+}
+
+/* ---- Freeforms --------------------------------------------------------- */
+
+void
+o42_shape_path_add (O42Shape *shape, char op, double x, double y,
+                    double x1, double y1, double x2, double y2)
+{
+  O42PathPoint pt = { op, x, y, x1, y1, x2, y2 };
+
+  g_return_if_fail (shape != NULL);
+  if (shape->path == NULL)
+    shape->path = g_array_new (FALSE, FALSE, sizeof (O42PathPoint));
+  g_array_append_val (shape->path, pt);
+}
+
+void
+o42_shape_freeform_path (const O42Shape *shape, cairo_t *cr, double width, double height)
+{
+  g_return_if_fail (shape != NULL && cr != NULL);
+  if (shape->path == NULL)
+    return;
+  for (guint i = 0; i < shape->path->len; i++)
+    {
+      const O42PathPoint *p = &g_array_index (shape->path, O42PathPoint, i);
+
+      switch (p->op)
+        {
+        case 'M': cairo_move_to (cr, p->x * width, p->y * height); break;
+        case 'C': cairo_curve_to (cr, p->x1 * width, p->y1 * height, p->x2 * width, p->y2 * height,
+                                  p->x * width, p->y * height); break;
+        default:  cairo_line_to (cr, p->x * width, p->y * height); break;
+        }
+    }
+  if (shape->closed)
+    cairo_close_path (cr);
+}
+
+char *
+o42_shape_path_to_string (const O42Shape *shape)
+{
+  GString *out = g_string_new (NULL);
+  char b[6][G_ASCII_DTOSTR_BUF_SIZE];
+
+  g_return_val_if_fail (shape != NULL, NULL);
+  for (guint i = 0; shape->path != NULL && i < shape->path->len; i++)
+    {
+      const O42PathPoint *p = &g_array_index (shape->path, O42PathPoint, i);
+
+      if (i > 0)
+        g_string_append_c (out, ' ');
+      if (p->op == 'C')
+        g_string_append_printf (out, "C%s,%s;%s,%s;%s,%s",
+                                g_ascii_formatd (b[0], sizeof b[0], "%.4g", p->x1), g_ascii_formatd (b[1], sizeof b[1], "%.4g", p->y1),
+                                g_ascii_formatd (b[2], sizeof b[2], "%.4g", p->x2), g_ascii_formatd (b[3], sizeof b[3], "%.4g", p->y2),
+                                g_ascii_formatd (b[4], sizeof b[4], "%.4g", p->x), g_ascii_formatd (b[5], sizeof b[5], "%.4g", p->y));
+      else
+        g_string_append_printf (out, "%c%s,%s", p->op,
+                                g_ascii_formatd (b[0], sizeof b[0], "%.4g", p->x), g_ascii_formatd (b[1], sizeof b[1], "%.4g", p->y));
+    }
+  return g_string_free (out, FALSE);
+}
+
+void
+o42_shape_path_from_string (O42Shape *shape, const char *text)
+{
+  char **steps;
+
+  g_return_if_fail (shape != NULL);
+  if (shape->path != NULL)
+    g_array_set_size (shape->path, 0);
+  if (text == NULL)
+    return;
+  steps = g_strsplit (text, " ", -1);
+  for (int i = 0; steps[i] != NULL; i++)
+    {
+      const char *s = steps[i];
+      char op = s[0];
+      double v[6] = { 0, 0, 0, 0, 0, 0 };
+      int n = 0;
+
+      if (op != 'M' && op != 'L' && op != 'C')
+        continue;
+      for (const char *q = s + 1; *q != '\0' && n < 6; )
+        {
+          char *end;
+          v[n++] = g_ascii_strtod (q, &end);
+          if (end == q) break;
+          q = end;
+          while (*q == ',' || *q == ';') q++;
+        }
+      if (op == 'C' && n == 6)
+        o42_shape_path_add (shape, 'C', v[4], v[5], v[0], v[1], v[2], v[3]);
+      else if (op != 'C' && n >= 2)
+        o42_shape_path_add (shape, op, v[0], v[1], 0, 0, 0, 0);
+    }
+  g_strfreev (steps);
+}
+
+gboolean
+o42_shape_contains (const O42Shape *shape, double x, double y, double width, double height, double slack)
+{
+  cairo_surface_t *surface;
+  cairo_t *cr;
+  gboolean hit;
+
+  g_return_val_if_fail (shape != NULL, FALSE);
+  if (shape->kind != O42_SHAPE_FREEFORM && shape->kind != O42_SHAPE_OVAL)
+    return x >= -slack && x < width + slack && y >= -slack && y < height + slack;
+
+  /* The outline as it is drawn, asked whether the point is in it or on
+   * it; cairo needs a context to answer, so a small one is made. */
+  surface = cairo_image_surface_create (CAIRO_FORMAT_A8, 1, 1);
+  cr = cairo_create (surface);
+  if (shape->kind == O42_SHAPE_OVAL)
+    {
+      cairo_save (cr);
+      cairo_translate (cr, width / 2, height / 2);
+      cairo_scale (cr, MAX (width / 2, 1), MAX (height / 2, 1));
+      cairo_arc (cr, 0, 0, 1, 0, 2 * G_PI);
+      cairo_restore (cr);
+    }
+  else
+    o42_shape_freeform_path (shape, cr, width, height);
+  cairo_set_line_width (cr, MAX (shape->line_width, 1) + 2 * slack);
+  hit = cairo_in_stroke (cr, x, y) ||
+        ((shape->kind == O42_SHAPE_OVAL || shape->closed) && shape->fill != O42_FILL_NONE && cairo_in_fill (cr, x, y));
+  cairo_destroy (cr);
+  cairo_surface_destroy (surface);
+  return hit;
 }
 
 /* ---- The outlines ------------------------------------------------------ */
@@ -241,6 +378,7 @@ o42_shape_spt (const O42Shape *shape)
   switch (shape->kind)
     {
     case O42_SHAPE_OVAL:  return 3;
+    case O42_SHAPE_FREEFORM: return 0;   /* msosptNotPrimitive: the path says it all */
     case O42_SHAPE_LINE:
     case O42_SHAPE_ARROW: return 20;
     case O42_SHAPE_TEXT:  return shape->geom == O42_GEOM_RECT ? 202 : GEOMS[shape->geom].spt;
@@ -656,6 +794,17 @@ o42_shape_draw (const O42Shape *shape, cairo_t *cr, double width, double height)
             cairo_stroke (cr);
           }
       }
+      break;
+
+    case O42_SHAPE_FREEFORM:
+      o42_shape_freeform_path (shape, cr, width, height);
+      if (shape->closed && shape->fill != O42_FILL_NONE)
+        {
+          set_rgb (cr, shape->fill);
+          cairo_fill_preserve (cr);
+        }
+      set_rgb (cr, shape->line);
+      cairo_stroke (cr);
       break;
 
     case O42_SHAPE_OVAL:

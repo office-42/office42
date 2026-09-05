@@ -3890,7 +3890,14 @@ action_shape (GSimpleAction *a, GVariant *p, gpointer data)
 
   (void) a;
   /* The target names a kind ("oval") or one of the AutoShape outlines
-   * a rectangle can wear ("star5"). */
+   * a rectangle can wear ("star5"); a freeform is drawn point by point. */
+  if (strcmp (name, "freeform") == 0)
+    {
+      o42_grid_begin_freeform (self->grid);
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("Click the points of the freeform; double-click the last, or click the first again to close it."));
+      return;
+    }
   if (!o42_shape_kind_parse (name, &kind))
     o42_shape_geom_parse (name, &geom);
   /* A new control says what it is until it is given a caption of its

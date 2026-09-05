@@ -1348,9 +1348,56 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
             shape->text_nowrap ? " fo:wrap-option=\"no-wrap\"" : " fo:wrap-option=\"wrap\"");
         }
       }
-      /* A line is a line; everything else is a box or an ellipse, and
-       * the text inside it goes in a paragraph as it does anywhere. */
-      if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
+      /* A line is a line; a freeform is a polygon, a polyline or a path;
+       * everything else is a box or an ellipse, and the text inside it
+       * goes in a paragraph as it does anywhere. */
+      if (shape->kind == O42_SHAPE_FREEFORM && shape->path != NULL)
+        {
+          /* Points in a view box of hundredths of a pixel, so the numbers
+           * stay whole. */
+          double vw = MAX (floor (shape->width * 100 + 0.5), 1), vh = MAX (floor (shape->height * 100 + 0.5), 1);
+          gboolean curved = FALSE;
+          GString *pts = g_string_new (NULL);
+
+          for (guint k = 0; k < shape->path->len; k++)
+            {
+              const O42PathPoint *pp = &g_array_index (shape->path, O42PathPoint, k);
+              if (pp->op == 'C') curved = TRUE;
+            }
+          if (!curved)
+            {
+              for (guint k = 0; k < shape->path->len; k++)
+                {
+                  const O42PathPoint *pp = &g_array_index (shape->path, O42PathPoint, k);
+                  g_string_append_printf (pts, "%s%.0f,%.0f", k > 0 ? " " : "", pp->x * vw, pp->y * vh);
+                }
+              g_string_append_printf (out,
+                "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+                "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\" svg:viewBox=\"0 0 %.0f %.0f\" draw:points=\"%s\">%s</draw:%s>",
+                shape->closed ? "polygon" : "polyline", name, sheet_index, i,
+                shape->dx * PX_TO_CM, shape->dy * PX_TO_CM, shape->width * PX_TO_CM, shape->height * PX_TO_CM,
+                vw, vh, pts->str, text, shape->closed ? "polygon" : "polyline");
+            }
+          else
+            {
+              for (guint k = 0; k < shape->path->len; k++)
+                {
+                  const O42PathPoint *pp = &g_array_index (shape->path, O42PathPoint, k);
+                  if (pp->op == 'C')
+                    g_string_append_printf (pts, "C %.0f %.0f %.0f %.0f %.0f %.0f ", pp->x1 * vw, pp->y1 * vh, pp->x2 * vw, pp->y2 * vh, pp->x * vw, pp->y * vh);
+                  else
+                    g_string_append_printf (pts, "%c %.0f %.0f ", pp->op, pp->x * vw, pp->y * vh);
+                }
+              if (shape->closed) g_string_append (pts, "Z");
+              g_string_append_printf (out,
+                "<draw:path draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+                "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\" svg:viewBox=\"0 0 %.0f %.0f\" svg:d=\"%s\">%s</draw:path>",
+                name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+                shape->width * PX_TO_CM, shape->height * PX_TO_CM, vw, vh, g_strstrip (pts->str), text);
+            }
+          g_string_free (pts, TRUE);
+        }
+      else if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
         g_string_append_printf (out,
           "<draw:line draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x1=\"%.3fcm\" svg:y1=\"%.3fcm\" "
           "svg:x2=\"%.3fcm\" svg:y2=\"%.3fcm\"><text:p/></draw:line>",
@@ -2976,6 +3023,109 @@ hf_sync (Reader *r)
   *cur = *want;
 }
 
+/* A polygon's or polyline's points, or a path's d, into a freeform's
+ * outline as fractions of the view box. */
+static void
+ods_read_freeform (O42Shape *shape, const char *element, const char *viewbox,
+                   const char *points, const char *d)
+{
+  double vx = 0, vy = 0, vw = 1, vh = 1;
+
+  if (viewbox != NULL)
+    {
+      char **vb = g_strsplit_set (viewbox, " ,", -1);
+      if (g_strv_length (vb) >= 4)
+        {
+          vx = g_ascii_strtod (vb[0], NULL); vy = g_ascii_strtod (vb[1], NULL);
+          vw = g_ascii_strtod (vb[2], NULL); vh = g_ascii_strtod (vb[3], NULL);
+        }
+      g_strfreev (vb);
+    }
+  if (vw <= 0) vw = 1;
+  if (vh <= 0) vh = 1;
+  shape->closed = strcmp (element, "polygon") == 0;
+  if (points != NULL && strcmp (element, "path") != 0)
+    {
+      char **pts = g_strsplit (points, " ", -1);
+      for (int i = 0; pts[i] != NULL; i++)
+        {
+          char *comma = strchr (pts[i], ',');
+          if (comma == NULL || *pts[i] == '\0') continue;
+          o42_shape_path_add (shape, i == 0 ? 'M' : 'L',
+                              (g_ascii_strtod (pts[i], NULL) - vx) / vw,
+                              (g_ascii_strtod (comma + 1, NULL) - vy) / vh, 0, 0, 0, 0);
+        }
+      g_strfreev (pts);
+    }
+  else if (d != NULL)
+    {
+      /* The SVG path grammar, the part a spreadsheet meets: M L C Z and
+       * their relative forms, numbers run together. */
+      const char *p = d;
+      char op = 0;
+      double cx = 0, cy = 0;
+      gboolean relative = FALSE;
+
+      while (*p != '\0')
+        {
+          double v[6];
+          int n = 0;
+
+          while (*p == ' ' || *p == ',') p++;
+          if (g_ascii_isalpha (*p))
+            {
+              op = g_ascii_toupper (*p);
+              relative = g_ascii_islower (*p);
+              p++;
+              if (op == 'Z')
+                { shape->closed = TRUE; continue; }
+            }
+          if (op == 0) break;
+          {
+            int want = op == 'C' ? 6 : op == 'Q' ? 4 : op == 'H' || op == 'V' ? 1 : 2;
+            while (n < want)
+              {
+                char *end;
+                while (*p == ' ' || *p == ',') p++;
+                v[n] = g_ascii_strtod (p, &end);
+                if (end == p) break;
+                p = end;
+                n++;
+              }
+            if (n < want) break;
+          }
+          if (op == 'H') { v[1] = cy; if (relative) v[0] += cx; }
+          else if (op == 'V') { v[1] = v[0]; v[0] = cx; if (relative) v[1] += cy; }
+          else if (relative)
+            for (int k = 0; k < n; k += 2) { v[k] += cx; v[k + 1] += cy; }
+          if (op == 'M' || op == 'L' || op == 'H' || op == 'V')
+            {
+              o42_shape_path_add (shape, op == 'M' ? 'M' : 'L', (v[0] - vx) / vw, (v[1] - vy) / vh, 0, 0, 0, 0);
+              cx = v[0]; cy = v[1];
+              if (op == 'M') op = 'L';   /* points after a move are lines */
+            }
+          else if (op == 'C')
+            {
+              o42_shape_path_add (shape, 'C', (v[4] - vx) / vw, (v[5] - vy) / vh,
+                                  (v[0] - vx) / vw, (v[1] - vy) / vh, (v[2] - vx) / vw, (v[3] - vy) / vh);
+              cx = v[4]; cy = v[5];
+            }
+          else if (op == 'Q')
+            {
+              double x1 = cx + 2.0 / 3 * (v[0] - cx), y1 = cy + 2.0 / 3 * (v[1] - cy);
+              double x2 = v[2] + 2.0 / 3 * (v[0] - v[2]), y2 = v[3] + 2.0 / 3 * (v[1] - v[3]);
+              o42_shape_path_add (shape, 'C', (v[2] - vx) / vw, (v[3] - vy) / vh,
+                                  (x1 - vx) / vw, (y1 - vy) / vh, (x2 - vx) / vw, (y2 - vy) / vh);
+              cx = v[2]; cy = v[3];
+            }
+          else
+            break;
+        }
+    }
+  if (!shape->closed)
+    shape->fill = O42_FILL_NONE;
+}
+
 static void
 content_start (GMarkupParseContext *ctx, const char *element, const char **names,
                const char **values, gpointer user, GError **error)
@@ -3115,9 +3265,12 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         o42_shape_apply_ods_type (r->shape, attr (names, values, "type"));
       else if (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
                strcmp (name, "circle") == 0 || strcmp (name, "line") == 0 ||
-               strcmp (name, "custom-shape") == 0)
+               strcmp (name, "custom-shape") == 0 || strcmp (name, "polygon") == 0 ||
+               strcmp (name, "polyline") == 0 || strcmp (name, "path") == 0)
         {
+          gboolean freeform = name[0] == 'p';
           O42ShapeKind kind = strcmp (name, "line") == 0 ? O42_SHAPE_LINE
+                              : freeform ? O42_SHAPE_FREEFORM
                               : (name[0] == 'r' || name[1] == 'u') ? O42_SHAPE_RECT : O42_SHAPE_OVAL;
           O42Shape *shape = o42_sheet_add_shape (r->sheet, kind, r->row, r->cell_col);
           const char *style_name = attr (names, values, "style-name");
@@ -3146,6 +3299,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                     shape->kind = O42_SHAPE_ARROW;
                 }
             }
+          if (shape != NULL && freeform)
+            ods_read_freeform (shape, name, attr (names, values, "viewBox"),
+                               attr (names, values, "points"), attr (names, values, "d"));
           if (shape != NULL)
             {
               if (kind == O42_SHAPE_LINE)
@@ -3844,7 +4000,8 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
   if (r->shape != NULL &&
       (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
        strcmp (name, "circle") == 0 || strcmp (name, "line") == 0 ||
-       strcmp (name, "custom-shape") == 0))
+       strcmp (name, "custom-shape") == 0 || strcmp (name, "polygon") == 0 ||
+       strcmp (name, "polyline") == 0 || strcmp (name, "path") == 0))
     r->shape = NULL;
 
   if (r->in_cell)
