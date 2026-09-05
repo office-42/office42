@@ -122,6 +122,8 @@ struct _O42Sheet {
   gboolean     cycle_seen;    /* a formula asked for itself while evaluating */
   gboolean     recalculating; /* inside o42_sheet_recalculate */
   GArray      *data_tables;   /* O42DataTable: What-If tables kept live */
+  gboolean     summary_above; /* the outline's summary rows above their detail */
+  gboolean     summary_left;  /* and the summary columns to the left */
   GHashTable  *table_values;  /* key -> O42Value*, what TABLE() shows */
   gboolean     tables_stale;  /* something changed since the tables were filled */
   gboolean     filling_tables;
@@ -7209,14 +7211,18 @@ outline_scan_cell (O42Sheet *sheet, int row, int col, gpointer user)
       if (p->sheet != NULL && g_ascii_strcasecmp (p->sheet, sheet->name) != 0)
         continue;
       r = o42_range_normalise (p->range.row0, p->range.col0, p->range.row1, p->range.col1);
-      if (r.row1 > r.row0 && r.col0 <= col && col <= r.col1 && r.row1 == row - 1 &&
+      /* The summary stands below its detail, or above it when the
+       * settings say so; likewise right or left. */
+      if (r.row1 > r.row0 && r.col0 <= col && col <= r.col1 &&
+          (sheet->summary_above ? r.row0 == row + 1 : r.row1 == row - 1) &&
           r.row1 - r.row0 < 100000)
         {
           O42Range run = { r.row0, 0, r.row1, 0 };
           if (!runs_have (scan->row_runs, &run))
             g_array_append_val (scan->row_runs, run);
         }
-      if (r.col1 > r.col0 && r.row0 <= row && row <= r.row1 && r.col1 == col - 1 &&
+      if (r.col1 > r.col0 && r.row0 <= row && row <= r.row1 &&
+          (sheet->summary_left ? r.col0 == col + 1 : r.col1 == col - 1) &&
           r.col1 - r.col0 < 10000)
         {
           O42Range run = { 0, r.col0, 0, r.col1 };
@@ -7288,11 +7294,14 @@ o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gboolean show)
   if (at < 0 || at >= limit)
     return FALSE;
   level = line_level (sheet, rows, at);
-  /* A summary row sits just below a deeper run: that run is its
-   * detail.  A row in no group and below none has nothing to fold. */
-  if (at > 0 && line_level (sheet, rows, at - 1) > level)
+  /* A summary row sits just below a deeper run (or just above it, when
+   * the settings put summaries above): that run is its detail.  A row
+   * in no group and beside none has nothing to fold. */
+  if ((rows ? sheet->summary_above : sheet->summary_left)
+      ? (at + 1 < limit && line_level (sheet, rows, at + 1) > level)
+      : (at > 0 && line_level (sheet, rows, at - 1) > level))
     {
-      at--;
+      at += (rows ? sheet->summary_above : sheet->summary_left) ? 1 : -1;
       level = line_level (sheet, rows, at);
     }
   if (level == 0)
@@ -7307,6 +7316,30 @@ o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gboolean show)
     line_hide (sheet, rows, i, !show);
   op_end (sheet);
   return TRUE;
+}
+
+void
+o42_sheet_set_outline_settings (O42Sheet *sheet, gboolean summary_above, gboolean summary_left)
+{
+  g_return_if_fail (sheet != NULL);
+  if (sheet->summary_above != summary_above || sheet->summary_left != summary_left)
+    sheet->modified = TRUE;
+  sheet->summary_above = summary_above;
+  sheet->summary_left = summary_left;
+}
+
+gboolean
+o42_sheet_summary_above (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, FALSE);
+  return sheet->summary_above;
+}
+
+gboolean
+o42_sheet_summary_left (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, FALSE);
+  return sheet->summary_left;
 }
 
 void

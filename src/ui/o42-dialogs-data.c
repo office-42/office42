@@ -1304,6 +1304,66 @@ action_auto_outline (GSimpleAction *a, GVariant *p, gpointer data)
                         _("No formula sums up the rows above it or the columns to its left."));
 }
 
+/* Data > Group and Outline > Settings: which side the summaries are on. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *above, *left, *auto_outline;
+} OutlineSettingsPrompt;
+
+static void
+on_outline_settings_ok (GtkWidget *w, gpointer data)
+{
+  OutlineSettingsPrompt *prompt = data;
+  O42Window *self = prompt->window;
+
+  (void) w;
+  o42_sheet_set_outline_settings (self->sheet,
+                                  gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->above)),
+                                  gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->left)));
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->auto_outline)))
+    o42_sheet_auto_outline (self->sheet);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_outline_settings (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  OutlineSettingsPrompt *prompt = g_new0 (OutlineSettingsPrompt, 1);
+  GtkWidget *content, *buttons, *ok, *label;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Outline Settings"), TRUE, &content, &buttons);
+  label = gtk_label_new (_("Direction"));
+  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+  gtk_widget_add_css_class (label, "heading");
+  gtk_box_append (GTK_BOX (content), label);
+  prompt->above = gtk_check_button_new_with_mnemonic (_("Summary rows _above detail"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->above), o42_sheet_summary_above (self->sheet));
+  gtk_box_append (GTK_BOX (content), prompt->above);
+  prompt->left = gtk_check_button_new_with_mnemonic (_("Summary columns to _left of detail"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->left), o42_sheet_summary_left (self->sheet));
+  gtk_box_append (GTK_BOX (content), prompt->left);
+  prompt->auto_outline = gtk_check_button_new_with_mnemonic (_("_Create the outline now (Auto Outline)"));
+  gtk_box_append (GTK_BOX (content), prompt->auto_outline);
+  label = gtk_label_new (_("Auto Outline, Show Detail, Hide Detail and the fold boxes follow the direction."));
+  gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+  gtk_widget_add_css_class (label, "dim-label");
+  gtk_box_append (GTK_BOX (content), label);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_outline_settings_ok), prompt);
+  dialog_button (buttons, _("Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
 void
 action_clear_outline (GSimpleAction *a, GVariant *p, gpointer data)
 {

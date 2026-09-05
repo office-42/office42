@@ -2738,6 +2738,19 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* outlinesettings above|below left|right: where the summaries stand. */
+      if (g_str_has_prefix (text, "outlinesettings"))
+        {
+          gboolean above = o42_sheet_summary_above (sheet), left = o42_sheet_summary_left (sheet);
+          if (strstr (text, "above") != NULL) above = TRUE;
+          if (strstr (text, "below") != NULL) above = FALSE;
+          if (strstr (text, "left") != NULL) left = TRUE;
+          if (strstr (text, "right") != NULL) left = FALSE;
+          o42_sheet_set_outline_settings (sheet, above, left);
+          printf ("summary rows %s, summary columns %s\n", above ? "above" : "below", left ? "left" : "right");
+          continue;
+        }
+
       /* group rows 2 5 / group cols 2 3 / ungroup rows 2 5; levels */
       if (g_str_has_prefix (text, "group ") || g_str_has_prefix (text, "ungroup "))
         {

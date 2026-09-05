@@ -327,6 +327,7 @@
           <item><attribute name="label" translatable="yes">_Hide Detail</attribute><attribute name="action">win.hide-detail</attribute></item>
           <item><attribute name="label" translatable="yes">_Auto Outline</attribute><attribute name="action">win.auto-outline</attribute></item>
           <item><attribute name="label" translatable="yes">Cl_ear Outline</attribute><attribute name="action">win.clear-outline</attribute></item>
+          <item><attribute name="label" translatable="yes">_Settings...</attribute><attribute name="action">win.outline-settings</attribute></item>
         </submenu>
       </section>
     </submenu>

@@ -6112,7 +6112,12 @@ paint_outline (O42Grid *self, cairo_t *cr, gboolean rows, double hx, double hy,
            * scroll, which hx and hy carry. */
           a = rows ? hy + row_y (self, i) : hx + col_x (self, i);
           b = rows ? hy + row_y (self, end + 1) : hx + col_x (self, end + 1);
-          box = b;   /* the summary row's top */
+          /* The box against the summary: the row after the run, or the
+           * one before it when the settings put summaries above. */
+          if (rows ? o42_sheet_summary_above (self->sheet) : o42_sheet_summary_left (self->sheet))
+            box = a - 12;
+          else
+            box = b;
           collapsed = outline_run_hidden (self->sheet, rows, i, end);
 
           cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
@@ -6232,16 +6237,33 @@ outline_click (O42Grid *self, double x, double y)
   if (level < 1 || level > levels)
     return TRUE;
 
-  /* The box sits at the top of the row after a run: find the run whose
+  /* The box sits at the top of the row after a run (or the bottom of
+   * the row before it, with summaries above): find the run whose
    * summary row the click is in. */
   {
+    gboolean above = rows ? o42_sheet_summary_above (self->sheet) : o42_sheet_summary_left (self->sheet);
     int at = rows ? row_at_y (self, along) : col_at_x (self, along);
-    int end = at - 1, start;
-    if (end < 0 || (rows ? o42_sheet_row_level (self->sheet, end) : o42_sheet_col_level (self->sheet, end)) < level)
-      return TRUE;
-    start = end;
-    while (start > 0 && (rows ? o42_sheet_row_level (self->sheet, start - 1) : o42_sheet_col_level (self->sheet, start - 1)) >= level)
-      start--;
+    int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
+    int end, start;
+
+    if (above)
+      {
+        start = at + 1;
+        if (start >= limit || (rows ? o42_sheet_row_level (self->sheet, start) : o42_sheet_col_level (self->sheet, start)) < level)
+          return TRUE;
+        end = start;
+        while (end + 1 < limit && (rows ? o42_sheet_row_level (self->sheet, end + 1) : o42_sheet_col_level (self->sheet, end + 1)) >= level)
+          end++;
+      }
+    else
+      {
+        end = at - 1;
+        if (end < 0 || (rows ? o42_sheet_row_level (self->sheet, end) : o42_sheet_col_level (self->sheet, end)) < level)
+          return TRUE;
+        start = end;
+        while (start > 0 && (rows ? o42_sheet_row_level (self->sheet, start - 1) : o42_sheet_col_level (self->sheet, start - 1)) >= level)
+          start--;
+      }
     {
       gboolean hide = !outline_run_hidden (self->sheet, rows, start, end);
       o42_sheet_begin_group (self->sheet);

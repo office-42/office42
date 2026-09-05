@@ -436,11 +436,14 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     guint32 tab = o42_sheet_tab_colour (sheet);
     gboolean fit = ps->fit_wide > 0 || ps->fit_tall > 0;
 
-    if (fit || tab != O42_TAB_NO_COLOUR)
+    if (fit || tab != O42_TAB_NO_COLOUR || o42_sheet_summary_above (sheet) || o42_sheet_summary_left (sheet))
       {
         g_string_append (out, "<sheetPr>");
         if (tab != O42_TAB_NO_COLOUR)
           g_string_append_printf (out, "<tabColor rgb=\"FF%06X\"/>", tab & 0xFFFFFF);
+        if (o42_sheet_summary_above (sheet) || o42_sheet_summary_left (sheet))
+          g_string_append_printf (out, "<outlinePr summaryBelow=\"%d\" summaryRight=\"%d\"/>",
+                                  o42_sheet_summary_above (sheet) ? 0 : 1, o42_sheet_summary_left (sheet) ? 0 : 1);
         if (fit)
           g_string_append (out, "<pageSetUpPr fitToPage=\"1\"/>");
         g_string_append (out, "</sheetPr>");
@@ -2879,6 +2882,9 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
   const char *n = local (name);
   (void) ctx; (void) error;
 
+  if (strcmp (n, "outlinePr") == 0 && r->sheet != NULL)
+    o42_sheet_set_outline_settings (r->sheet, attr_int (names, values, "summaryBelow", 1) == 0,
+                                    attr_int (names, values, "summaryRight", 1) == 0);
   if (strcmp (n, "pageSetUpPr") == 0 && r->sheet != NULL)
     r->fit_to_page = attr_int (names, values, "fitToPage", 0) != 0;
   if (strcmp (n, "tabColor") == 0 && r->sheet != NULL)

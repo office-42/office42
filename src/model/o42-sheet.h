@@ -422,6 +422,14 @@ gboolean o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gbool
  * everything at or above it shown. */
 void o42_sheet_outline_to_level (O42Sheet *sheet, gboolean rows, int level);
 
+/* Data > Group and Outline > Settings: where the summary rows stand,
+ * below their detail (Excel's default) or above, and the summary
+ * columns to the right or the left.  Auto Outline, Show and Hide
+ * Detail and the fold boxes follow it. */
+void     o42_sheet_set_outline_settings (O42Sheet *sheet, gboolean summary_above, gboolean summary_left);
+gboolean o42_sheet_summary_above (O42Sheet *sheet);
+gboolean o42_sheet_summary_left  (O42Sheet *sheet);
+
 /* ---- Pivot tables -------------------------------------------------------- */
 
 /* A pivot table: a source table with a header row, a field whose values
