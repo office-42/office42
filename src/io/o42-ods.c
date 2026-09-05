@@ -2017,6 +2017,8 @@ typedef struct {
   gboolean grouping;
   GString *code;      /* a date or time style, rebuilt as a format code */
   guint    lang;      /* the language it named, as an Excel LCID */
+  char     symbol[32];   /* a currency style's symbol, as written */
+  gboolean in_symbol;    /* reading it */
 } NumStyle;
 
 typedef struct {
@@ -2564,6 +2566,29 @@ apply_named_style (Reader *r, const char *name, int row0, int col0, int row1, in
           fmt.decimals = ns->decimals;
           if (ns->code != NULL && ns->code->len > 0)
             fmt.custom = g_intern_string (ns->code->str);
+          /* A currency the file names that is not this machine's stays
+           * as it was written, as a code: a $ from an American file must
+           * not turn into kr here. */
+          if ((ns->number == O42_NUM_CURRENCY || ns->number == O42_NUM_ACCOUNTING) &&
+              ns->symbol[0] != '\0' && strcmp (ns->symbol, o42_numfmt_currency ()) != 0)
+            {
+              GString *digits = g_string_new ("#,##0");
+              char *code;
+
+              if (ns->decimals > 0)
+                {
+                  g_string_append_c (digits, '.');
+                  for (int i = 0; i < ns->decimals; i++) g_string_append_c (digits, '0');
+                }
+              if (ns->number == O42_NUM_ACCOUNTING)
+                code = g_strdup_printf ("_(\"%s\"* %s_);_(\"%s\"* (%s);_(\"%s\"* \"-\"??_);_(@_)",
+                                        ns->symbol, digits->str, ns->symbol, digits->str, ns->symbol);
+              else
+                code = g_strdup_printf ("\"%s\"%s", ns->symbol, digits->str);
+              fmt.custom = g_intern_string (code);
+              g_free (code);
+              g_string_free (digits, TRUE);
+            }
         }
     }
   o42_sheet_apply_fmt (r->sheet, &range, O42_FMT_ALL, &fmt);
@@ -3516,6 +3541,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         ns->number = O42_NUM_DATETIME;
       else if (strcmp (name, "fill-character") == 0 && ns->number == O42_NUM_CURRENCY)
         ns->number = O42_NUM_ACCOUNTING;
+      else if ((strcmp (name, "currency-symbol") == 0 || strcmp (name, "text") == 0) &&
+               (ns->number == O42_NUM_CURRENCY || ns->number == O42_NUM_ACCOUNTING))
+        ns->in_symbol = TRUE;
 
       if (ns->code != NULL)
         {
@@ -3870,6 +3898,18 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
 {
   Reader *r = user;
   (void) ctx; (void) error;
+  if (r->in_num_style && r->num != NULL && r->num->in_symbol)
+    {
+      /* The currency's symbol, or the text before or after the number
+       * that stands for one: spaces around it are not the symbol. */
+      char *piece = g_strstrip (g_strndup (text, len));
+
+      if (*piece != '\0' && strlen (r->num->symbol) + strlen (piece) < sizeof r->num->symbol)
+        strcat (r->num->symbol, piece);
+      g_free (piece);
+      r->num->in_symbol = FALSE;
+      return;
+    }
   if (r->in_num_style && r->num != NULL && r->num->code != NULL)
     {
       /* What stands between the fields of a date style is part of the
@@ -4020,7 +4060,23 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   archive = g_file_load_bytes (file, NULL, NULL, error);
   if (archive == NULL)
     return FALSE;
-  parts = o42_zip_read (archive, error);
+  {
+    /* A flat OpenDocument file (.fods) is the one XML document with
+     * the styles, the content and the settings in it: it stands for
+     * every part at once, and is walked once for the content. */
+    gsize len = 0;
+    const char *head = g_bytes_get_data (archive, &len);
+    gboolean flat = len > 5 && (g_str_has_prefix (head, "<?xml") || g_str_has_prefix (head, "<office:"));
+
+    if (flat)
+      {
+        parts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_bytes_unref);
+        g_hash_table_insert (parts, g_strdup ("content.xml"), g_bytes_ref (archive));
+        g_hash_table_insert (parts, g_strdup ("settings.xml"), g_bytes_ref (archive));
+      }
+    else
+      parts = o42_zip_read (archive, error);
+  }
   g_bytes_unref (archive);
   if (parts == NULL)
     return FALSE;
@@ -4046,7 +4102,8 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   /* LibreOffice keeps number styles in styles.xml; the same walker
    * reads them, finding no tables there. */
   r.parts = parts;
-  ok = parse_part (parts, "styles.xml", &content_parser, &r, error) &&
+  ok = (g_hash_table_lookup (parts, "styles.xml") == NULL ||
+        parse_part (parts, "styles.xml", &content_parser, &r, error)) &&
        parse_part (parts, "content.xml", &content_parser, &r, error) &&
        parse_part (parts, "settings.xml", &settings_parser, &r, error);
 

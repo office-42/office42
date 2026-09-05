@@ -483,7 +483,7 @@ main (int argc, char *argv[])
           gboolean csv = g_str_has_suffix (path, ".csv");
           gboolean xlsx = g_str_has_suffix (path, ".xlsx");
           gboolean xls = g_str_has_suffix (path, ".xls");
-          gboolean ods = g_str_has_suffix (path, ".ods");
+          gboolean ods = g_str_has_suffix (path, ".ods") || g_str_has_suffix (path, ".fods");
           gboolean html = g_str_has_suffix (path, ".html") || g_str_has_suffix (path, ".htm");
           gboolean dif = g_str_has_suffix (path, ".dif");
           gboolean sylk = g_str_has_suffix (path, ".slk") || g_str_has_suffix (path, ".sylk");

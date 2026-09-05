@@ -5037,7 +5037,7 @@ static gboolean
 file_is_ods (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  gboolean ods = name != NULL && g_str_has_suffix (name, ".ods");
+  gboolean ods = name != NULL && (g_str_has_suffix (name, ".ods") || g_str_has_suffix (name, ".fods"));
   g_free (name);
   return ods;
 }
@@ -5203,7 +5203,7 @@ book_filters (void)
   g_list_store_append (filters, pattern_filter ("Gnumeric Spreadsheets (*.gnumeric)", "*.gnumeric"));
   g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
   g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
-  g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods)", "*.ods"));
+  g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods, *.fods)", "*.ods"));
   g_list_store_append (filters, pattern_filter ("Web Pages (*.html)", "*.html"));
   g_list_store_append (filters, pattern_filter ("Comma-Separated Values (*.csv)", "*.csv"));
   g_list_store_append (filters, pattern_filter ("Data Interchange Format (*.dif)", "*.dif"));
