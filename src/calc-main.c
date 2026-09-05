@@ -2701,22 +2701,33 @@ main (int argc, char *argv[])
               p.data_field = words[3];
               for (guint i = 0; i < G_N_ELEMENTS (aggs); i++)
                 if (strcmp (words[4], aggs[i]) == 0) p.agg = (O42PivotAgg) i;
-              if (g_strv_length (words) >= 6 && strchr (words[5], '=') != NULL)
+              for (guint k = 5; k < g_strv_length (words); k++)
                 {
-                  /* A page filter, Field=Value. */
-                  char *at = strchr (words[5], '=');
-                  *at = '\0';
-                  p.filter_field = words[5];
-                  p.filter_value = at + 1;
+                  if (g_str_has_prefix (words[k], "opts="))
+                    {
+                      /* The further parts: data=Count:Orders|Average:Price;groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=r;dataon=rows */
+                      o42_pivot_options_apply (&p, words[k] + 5);
+                    }
+                  else if (strchr (words[k], '=') != NULL)
+                    {
+                      /* A page filter, Field=Value. */
+                      char *at = strchr (words[k], '=');
+                      *at = '\0';
+                      p.filter_field = words[k];
+                      p.filter_value = at + 1;
+                    }
                 }
               o42_sheet_add_pivot (dest, &p);
               g_strfreev (p.row_fields);
               g_strfreev (p.col_fields);
+              g_strfreev (p.data_fields);
+              g_free (p.groups);
               sheet = dest;
               printf ("pivot on %s\n", o42_sheet_get_name (dest));
             }
           else
-            fprintf (stderr, "usage: pivot A1:C9 Region|Year Quarter|- Sales|=Sales-Costs sum [Field=Value]\n");
+            fprintf (stderr, "usage: pivot A1:C9 Region|Year Quarter|- Sales|=Sales-Costs sum [Field=Value] "
+                             "[opts=data=Count:Orders;groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=rc;dataon=rows]\n");
           g_strfreev (words);
           continue;
         }

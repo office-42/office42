@@ -982,8 +982,19 @@ typedef struct {
   GtkWidget *dialog;
   GtkWidget *source, *row_field, *row_field2, *col_field, *col_field2, *data_field, *agg;
   GtkWidget *calc, *filter_field, *filter_value;
+  GtkWidget *agg2, *data_field2, *data_on_rows;      /* a second data field */
+  GtkWidget *group_field, *group_kind, *bucket_start, *bucket_size, *manual_groups;
+  GtkWidget *subtotals, *grand_rows, *grand_cols;
   GStrv      fields;
 } PivotPrompt;
+
+/* How a field may be grouped, in the drop-down's order; the specs are
+ * what O42Pivot.groups spells. */
+static const char *const PIVOT_GROUP_KINDS[] = {
+  "(not grouped)", "Years", "Years and quarters", "Years, quarters and months",
+  "Quarters", "Months", "Days", "Number buckets", "Named groups", NULL
+};
+static const char *const PIVOT_GROUP_SPECS[] = { "", "y", "y,q", "y,q,m", "q", "m", "d", "n", "g" };
 
 
 
@@ -1036,9 +1047,46 @@ on_pivot_ok (GtkWidget *w, gpointer data)
         p.filter_value = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->filter_value));
       }
   }
+  {
+    /* The further parts: a second data field, a grouping, the totals. */
+    guint di2 = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->data_field2));
+    guint gf = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->group_field));
+    guint gk = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->group_kind));
+    GString *groups = g_string_new (NULL);
+
+    if (di2 > 0 && di2 != GTK_INVALID_LIST_POSITION)
+      {
+        char *spec = g_strdup_printf ("%s:%s", PIVOT_AGGS[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->agg2))],
+                                      prompt->fields[MIN (di2 - 1, n - 1)]);
+        p.data_fields = g_new0 (char *, 2);
+        p.data_fields[0] = spec;
+      }
+    p.data_on_rows = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->data_on_rows));
+    if (gf > 0 && gf != GTK_INVALID_LIST_POSITION && gk > 0 && gk < G_N_ELEMENTS (PIVOT_GROUP_SPECS))
+      {
+        const char *field = prompt->fields[MIN (gf - 1, n - 1)];
+        if (strcmp (PIVOT_GROUP_SPECS[gk], "n") == 0)
+          {
+            char a[G_ASCII_DTOSTR_BUF_SIZE], b[G_ASCII_DTOSTR_BUF_SIZE];
+            g_string_append_printf (groups, "%s=n,%s,%s", field,
+                                    g_ascii_formatd (a, sizeof a, "%g", gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->bucket_start))),
+                                    g_ascii_formatd (b, sizeof b, "%g", gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->bucket_size))));
+          }
+        else if (strcmp (PIVOT_GROUP_SPECS[gk], "g") == 0)
+          g_string_append_printf (groups, "%s=g,%s", field, gtk_editable_get_text (GTK_EDITABLE (prompt->manual_groups)));
+        else
+          g_string_append_printf (groups, "%s=%s", field, PIVOT_GROUP_SPECS[gk]);
+      }
+    p.groups = g_string_free (groups, FALSE);
+    p.subtotals = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->subtotals));
+    p.no_grand_rows = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->grand_rows));
+    p.no_grand_cols = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->grand_cols));
+  }
 
   dest = o42_book_add_sheet (self->book, NULL, -1);
   o42_sheet_add_pivot (dest, &p);
+  g_strfreev (p.data_fields);
+  g_free (p.groups);
   g_free (calc_text);
   g_ptr_array_free (rows, TRUE);
   g_ptr_array_free (cols, TRUE);
@@ -1130,6 +1178,18 @@ action_pivot (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content), row);
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("and:")));
+  prompt->agg2 = drop_down_of (PIVOT_AGGS);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->agg2), 1);
+  gtk_box_append (GTK_BOX (row), prompt->agg2);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("of")));
+  prompt->data_field2 = gtk_drop_down_new_from_strings ((const char * const *) col_choices->pdata);
+  gtk_box_append (GTK_BOX (row), prompt->data_field2);
+  prompt->data_on_rows = gtk_check_button_new_with_mnemonic (_("Data fields _down the rows"));
+  gtk_box_append (GTK_BOX (row), prompt->data_on_rows);
+  gtk_box_append (GTK_BOX (content), row);
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("or calculated field:")));
   prompt->calc = gtk_entry_new ();
   gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->calc), _("=Sales-Costs"));
@@ -1146,6 +1206,43 @@ action_pivot (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_set_hexpand (prompt->filter_value, TRUE);
   gtk_box_append (GTK_BOX (row), prompt->filter_value);
   gtk_box_append (GTK_BOX (content), row);
+  /* Grouping: one field, by dates, buckets or named groups. */
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Group:")));
+  prompt->group_field = gtk_drop_down_new_from_strings ((const char * const *) col_choices->pdata);
+  gtk_box_append (GTK_BOX (row), prompt->group_field);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("by")));
+  prompt->group_kind = drop_down_of (PIVOT_GROUP_KINDS);
+  gtk_box_append (GTK_BOX (row), prompt->group_kind);
+  gtk_box_append (GTK_BOX (content), row);
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Buckets from")));
+  prompt->bucket_start = gtk_spin_button_new_with_range (-1e9, 1e9, 1);
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->bucket_start), 0);
+  gtk_box_append (GTK_BOX (row), prompt->bucket_start);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("of")));
+  prompt->bucket_size = gtk_spin_button_new_with_range (0.01, 1e9, 1);
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->bucket_size), 100);
+  gtk_box_append (GTK_BOX (row), prompt->bucket_size);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("or groups:")));
+  prompt->manual_groups = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->manual_groups), _("Coast=East|West,Inland=Central"));
+  gtk_widget_set_hexpand (prompt->manual_groups, TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->manual_groups);
+  gtk_box_append (GTK_BOX (content), row);
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  prompt->subtotals = gtk_check_button_new_with_mnemonic (_("_Subtotals"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->subtotals), TRUE);
+  prompt->grand_rows = gtk_check_button_new_with_mnemonic (_("Grand total for _rows"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->grand_rows), TRUE);
+  prompt->grand_cols = gtk_check_button_new_with_mnemonic (_("Grand total for _columns"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->grand_cols), TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->subtotals);
+  gtk_box_append (GTK_BOX (row), prompt->grand_rows);
+  gtk_box_append (GTK_BOX (row), prompt->grand_cols);
+  gtk_box_append (GTK_BOX (content), row);
+
   gtk_box_append (GTK_BOX (content), gtk_label_new (_("The table is laid out on a new sheet; Data > Refresh Pivot Table lays it out again.")));
   g_ptr_array_free (col_choices, TRUE);
 

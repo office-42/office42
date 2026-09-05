@@ -1115,12 +1115,14 @@ write_sheet (GString *out, O42Sheet *sheet)
         char *a1 = o42_ref_name (p->source.row0, p->source.col0);
         char *b1 = o42_ref_name (p->source.row1, p->source.col1);
         char *at = o42_ref_name (p->row, p->col);
+        char *opts_raw = o42_pivot_options_to_string (p);
+        char *opts = g_markup_escape_text (opts_raw, -1);
         g_string_append_printf (w.out,
           "      <gnm:o42-Pivot Source=\"%s\" Range=\"%s:%s\" RowField=\"%s\" ColField=\"%s\" "
-          "DataField=\"%s\" Agg=\"%d\" At=\"%s\" Rows=\"%d\" Cols=\"%d\" Filter=\"%s\" FilterValue=\"%s\"/>\n",
-          src, a1, b1, rf, cf, df, (int) p->agg, at, p->rows, p->cols, ff, fv);
+          "DataField=\"%s\" Agg=\"%d\" At=\"%s\" Rows=\"%d\" Cols=\"%d\" Filter=\"%s\" FilterValue=\"%s\" Options=\"%s\"/>\n",
+          src, a1, b1, rf, cf, df, (int) p->agg, at, p->rows, p->cols, ff, fv, opts);
         g_free (src); g_free (rf); g_free (cf); g_free (df); g_free (a1); g_free (b1); g_free (at);
-        g_free (ff); g_free (fv);
+        g_free (ff); g_free (fv); g_free (opts); g_free (opts_raw);
       }
   }
 
@@ -2340,9 +2342,12 @@ start_element (GMarkupParseContext *context, const char *element,
           p.agg = (O42PivotAgg) attr_int (names, values, "Agg", 0);
           p.rows = attr_int (names, values, "Rows", 0);
           p.cols = attr_int (names, values, "Cols", 0);
+          o42_pivot_options_apply (&p, attr (names, values, "Options"));
           o42_sheet_define_pivot (r->sheet, &p);
           g_strfreev (p.row_fields);
           g_strfreev (p.col_fields);
+          g_strfreev (p.data_fields);
+          g_free (p.groups);
         }
       return;
     }

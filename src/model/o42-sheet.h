@@ -445,12 +445,34 @@ typedef struct {
   char        *filter_value;   /* owned */
   int          row, col;       /* where the table is laid out */
   int          rows, cols;     /* the extent of the last layout, for clearing */
+
+  /* Excel's further parts.  More data fields, each "Agg:Header" with
+   * Agg one of Sum Count Average Min Max, laid side by side under each
+   * column key (or down the rows, one per row key, when data_on_rows).
+   * Grouping, per field: "Date=y,q,m" groups a date field by any of
+   * years (y), quarters (q), months (m), days (d), outer to inner;
+   * "Amount=n,0,100" puts a number into buckets of 100 from 0;
+   * "Region=g,Coast=East|West,Inland=Central" gathers items into named
+   * groups, the rest standing alone.  Fields are separated by ';'.
+   * Subtotals close each outer key of an axis with a "key Total" line;
+   * the grand totals can be left out. */
+  char       **data_fields;    /* owned; NULL or empty for the one data_field */
+  gboolean     data_on_rows;
+  char        *groups;         /* owned; NULL or "" for none */
+  gboolean     subtotals;
+  gboolean     no_grand_rows, no_grand_cols;
 } O42Pivot;
 
 /* The fields of one axis as text, "Region|Year", and back: how the
  * files and office42-calc spell them. */
 char  *o42_pivot_fields_to_string (char **fields);
 char **o42_pivot_fields_from_string (const char *text);
+
+/* The further parts as one text -- "data=Count:Orders|Average:Price;
+ * groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=r;dataon=rows" -- and
+ * back, for the files. */
+char  *o42_pivot_options_to_string (const O42Pivot *pivot);
+void   o42_pivot_options_apply     (O42Pivot *pivot, const char *text);   /* sets owned copies */
 
 /* Adds a pivot (copying the strings) and lays it out; `define` only
  * remembers one, for a file whose cells already hold the layout;

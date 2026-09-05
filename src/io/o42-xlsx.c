@@ -1851,10 +1851,17 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
             char *a1 = o42_ref_name (p->source.row0, p->source.col0);
             char *b1 = o42_ref_name (p->source.row1, p->source.col1);
             char *at = o42_ref_name (p->row, p->col);
-            char *text = g_strdup_printf ("%s;%s:%s;%s;%s;%s;%d;%s;%d;%d;%s;%s",
-                                          p->source_sheet ? p->source_sheet : "", a1, b1, rf, cf,
-                                          p->data_field ? p->data_field : "", (int) p->agg, at, p->rows, p->cols,
-                                          p->filter_field ? p->filter_field : "", p->filter_value ? p->filter_value : "");
+            char *opts = o42_pivot_options_to_string (p);
+            char *text;
+
+            /* The options' own ';' become '\t' inside the ';'-separated text. */
+            for (char *q = opts; *q != '\0'; q++)
+              if (*q == ';') *q = '\t';
+            text = g_strdup_printf ("%s;%s:%s;%s;%s;%s;%d;%s;%d;%d;%s;%s;%s",
+                                    p->source_sheet ? p->source_sheet : "", a1, b1, rf, cf,
+                                    p->data_field ? p->data_field : "", (int) p->agg, at, p->rows, p->cols,
+                                    p->filter_field ? p->filter_field : "", p->filter_value ? p->filter_value : "", opts);
+            g_free (opts);
             char *quoted = g_strdup_printf ("\"%s\"", text);
             char *esc = g_markup_escape_text (quoted, -1);
             g_string_append_printf (defs, "<definedName name=\"_o42.pivot.%u\" localSheetId=\"%d\" hidden=\"1\">%s</definedName>",
@@ -3771,9 +3778,17 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                           p.filter_field = f[9][0] ? f[9] : NULL;
                           p.filter_value = f[10];
                         }
+                      if (g_strv_length (f) >= 12)
+                        {
+                          for (char *q = f[11]; *q != '\0'; q++)
+                            if (*q == '\t') *q = ';';
+                          o42_pivot_options_apply (&p, f[11]);
+                        }
                       o42_sheet_define_pivot (target, &p);
                       g_strfreev (p.row_fields);
                       g_strfreev (p.col_fields);
+                      g_strfreev (p.data_fields);
+                      g_free (p.groups);
                     }
                 }
               g_strfreev (f);

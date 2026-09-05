@@ -7259,6 +7259,8 @@ pivot_clear (O42Pivot *pivot)
   g_free (pivot->data_field);
   g_free (pivot->filter_field);
   g_free (pivot->filter_value);
+  g_strfreev (pivot->data_fields);
+  g_free (pivot->groups);
   memset (pivot, 0, sizeof *pivot);
 }
 
@@ -7272,6 +7274,8 @@ pivot_copy (const O42Pivot *pivot)
   copy.data_field = g_strdup (pivot->data_field ? pivot->data_field : "");
   copy.filter_field = pivot->filter_field != NULL && *pivot->filter_field != '\0' ? g_strdup (pivot->filter_field) : NULL;
   copy.filter_value = g_strdup (pivot->filter_value != NULL ? pivot->filter_value : "");
+  copy.data_fields = pivot->data_fields != NULL ? g_strdupv (pivot->data_fields) : NULL;
+  copy.groups = pivot->groups != NULL && *pivot->groups != '\0' ? g_strdup (pivot->groups) : NULL;
   return copy;
 }
 
@@ -7352,16 +7356,36 @@ pivot_field_col (O42Sheet *src, const O42Range *table, const char *field)
 
 typedef struct { double sum, min, max; int count; } Bucket;
 
-/* A key is the values of an axis's fields joined by \002; keys sort
- * field by field, numbers by value and the rest by collation. */
+/* A key is the values of an axis's levels joined by \002; each part is
+ * "sortable\003shown" or plain text.  Keys sort level by level, numbers
+ * by value and the rest by collation. */
+static const char *
+part_shown (const char *part)
+{
+  const char *sep = strchr (part, '\003');
+  return sep != NULL ? sep + 1 : part;
+}
+
 static int
 compare_key_parts (const char *x, const char *y)
 {
+  char *sx = g_strdup (x), *sy = g_strdup (y);
+  char *cx = strchr (sx, '\003'), *cy = strchr (sy, '\003');
   char *ex, *ey;
-  double nx = g_ascii_strtod (x, &ex), ny = g_ascii_strtod (y, &ey);
-  if (*x && *y && *ex == '\0' && *ey == '\0')
-    return nx < ny ? -1 : nx > ny ? 1 : 0;
-  return g_utf8_collate (x, y);
+  double nx, ny;
+  int r;
+
+  if (cx != NULL) *cx = '\0';
+  if (cy != NULL) *cy = '\0';
+  nx = g_ascii_strtod (sx, &ex);
+  ny = g_ascii_strtod (sy, &ey);
+  if (*sx && *sy && *ex == '\0' && *ey == '\0')
+    r = nx < ny ? -1 : nx > ny ? 1 : 0;
+  else
+    r = g_utf8_collate (sx, sy);
+  g_free (sx);
+  g_free (sy);
+  return r;
 }
 
 static int
@@ -7397,6 +7421,24 @@ pivot_put_bold (O42Sheet *sheet, int row, int col)
   o42_sheet_apply_fmt (sheet, &one, O42_FMT_BOLD, &f);
 }
 
+/* A shown label typed as text even when it looks like a number, so a
+ * year or a bucket's "0-99" stays what it is. */
+static void
+pivot_put_label (O42Sheet *sheet, int row, int col, const char *label)
+{
+  O42Entry entry;
+
+  if (o42_entry_parse (label, &entry) || g_ascii_strcasecmp (label, "TRUE") == 0 ||
+      g_ascii_strcasecmp (label, "FALSE") == 0 || label[0] == '=' || label[0] == '#')
+    {
+      char *quoted = g_strconcat ("'", label, NULL);
+      set_input_internal (sheet, row, col, quoted);
+      g_free (quoted);
+    }
+  else
+    set_input_internal (sheet, row, col, label);
+}
+
 static double
 bucket_value (const Bucket *b, O42PivotAgg agg)
 {
@@ -7423,14 +7465,186 @@ bucket_init (Bucket *b)
   b->sum = 0; b->count = 0; b->min = HUGE_VAL; b->max = -HUGE_VAL;
 }
 
+/* ---- Grouping: a field's cell becomes one or more key parts ---- */
+
+typedef enum { LEVEL_PLAIN, LEVEL_YEAR, LEVEL_QUARTER, LEVEL_MONTH, LEVEL_DAY,
+               LEVEL_BUCKET, LEVEL_MANUAL } LevelKind;
+
+typedef struct {
+  const char *label;     /* the header over the level */
+  int         src_col;
+  LevelKind   kind;
+  double      start, size;   /* LEVEL_BUCKET */
+  GHashTable *manual;        /* LEVEL_MANUAL: shown item -> group name */
+} Level;
+
+/* The grouping spec of one field in `groups`, or NULL. */
+static char *
+pivot_group_spec (const char *groups, const char *field)
+{
+  char **specs = groups != NULL ? g_strsplit (groups, ";", -1) : NULL;
+  char *found = NULL;
+
+  for (int i = 0; specs != NULL && specs[i] != NULL && found == NULL; i++)
+    {
+      const char *eq = strchr (specs[i], '=');
+      if (eq != NULL && (gsize) (eq - specs[i]) == strlen (field) &&
+          g_ascii_strncasecmp (specs[i], field, eq - specs[i]) == 0)
+        found = g_strdup (eq + 1);
+    }
+  g_strfreev (specs);
+  return found;
+}
+
+/* The levels a field contributes to its axis: one, or several when it
+ * is grouped.  Returns how many were added. */
+static int
+pivot_add_levels (GArray *levels, const char *field, int src_col, const char *groups)
+{
+  char *spec = pivot_group_spec (groups, field);
+  Level level = { field, src_col, LEVEL_PLAIN, 0, 0, NULL };
+  int added = 0;
+
+  if (spec == NULL || *spec == '\0')
+    {
+      g_array_append_val (levels, level);
+      g_free (spec);
+      return 1;
+    }
+  if (spec[0] == 'n')
+    {
+      /* n,start,size */
+      char **parts = g_strsplit (spec, ",", -1);
+      level.kind = LEVEL_BUCKET;
+      level.start = parts[1] != NULL ? g_ascii_strtod (parts[1], NULL) : 0;
+      level.size = parts[1] != NULL && parts[2] != NULL ? g_ascii_strtod (parts[2], NULL) : 100;
+      if (level.size <= 0) level.size = 100;
+      g_strfreev (parts);
+      g_array_append_val (levels, level);
+      added = 1;
+    }
+  else if (spec[0] == 'g')
+    {
+      /* g,Group=item|item,Group2=item: a group level, then the items. */
+      char **parts = g_strsplit (spec, ",", -1);
+      Level group = { NULL, src_col, LEVEL_MANUAL, 0, 0, NULL };
+
+      group.manual = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+      for (int i = 1; parts[i] != NULL; i++)
+        {
+          char *eq = strchr (parts[i], '=');
+          if (eq == NULL) continue;
+          *eq = '\0';
+          {
+            char **items = g_strsplit (eq + 1, "|", -1);
+            for (int k = 0; items[k] != NULL; k++)
+              g_hash_table_insert (group.manual, g_strdup (items[k]), g_strdup (parts[i]));
+            g_strfreev (items);
+          }
+        }
+      g_strfreev (parts);
+      {
+        char *name = g_strdup_printf ("%s Group", field);
+        group.label = g_intern_string (name);
+        g_free (name);
+      }
+      g_array_append_val (levels, group);
+      g_array_append_val (levels, level);
+      added = 2;
+    }
+  else
+    {
+      /* y,q,m,d in the order given, outer to inner; the innermost wears
+       * the field's name, the others the unit's. */
+      char **units = g_strsplit (spec, ",", -1);
+      int n = (int) g_strv_length (units);
+
+      for (int i = 0; i < n; i++)
+        {
+          Level l = level;
+          switch (g_ascii_tolower (units[i][0]))
+            {
+            case 'y': l.kind = LEVEL_YEAR; l.label = "Years"; break;
+            case 'q': l.kind = LEVEL_QUARTER; l.label = "Quarters"; break;
+            case 'm': l.kind = LEVEL_MONTH; l.label = "Months"; break;
+            case 'd': l.kind = LEVEL_DAY; l.label = "Days"; break;
+            default: continue;
+            }
+          if (i == n - 1) l.label = field;
+          g_array_append_val (levels, l);
+          added++;
+        }
+      g_strfreev (units);
+      if (added == 0)
+        { g_array_append_val (levels, level); added = 1; }
+    }
+  g_free (spec);
+  return added;
+}
+
+/* One key part of a source row for a level. */
+static char *
+pivot_level_part (O42Sheet *src, int row, const Level *level)
+{
+  static const char *const months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+  O42Value v;
+  char *part;
+
+  if (level->kind == LEVEL_PLAIN)
+    return o42_sheet_get_display (src, row, level->src_col);
+  if (level->kind == LEVEL_MANUAL)
+    {
+      char *shown = o42_sheet_get_display (src, row, level->src_col);
+      const char *group = g_hash_table_lookup (level->manual, shown);
+      part = g_strdup (group != NULL ? group : shown);
+      g_free (shown);
+      return part;
+    }
+
+  o42_sheet_get_value (src, row, level->src_col, &v);
+  if (v.type != O42_VALUE_NUMBER)
+    {
+      /* Not a date or a number: it is its own group, after the others. */
+      char *shown = o42_sheet_get_display (src, row, level->src_col);
+      o42_value_clear (&v);
+      return shown;
+    }
+  if (level->kind == LEVEL_BUCKET)
+    {
+      double n = floor ((v.as.number - level->start) / level->size);
+      double lo = level->start + n * level->size, hi = lo + level->size;
+      char a[G_ASCII_DTOSTR_BUF_SIZE], b[G_ASCII_DTOSTR_BUF_SIZE], k[G_ASCII_DTOSTR_BUF_SIZE];
+      g_ascii_formatd (a, sizeof a, "%.15g", lo);
+      g_ascii_formatd (b, sizeof b, "%.15g", hi - (level->size == floor (level->size) ? 1 : 0));
+      g_ascii_formatd (k, sizeof k, "%.15g", lo);
+      part = g_strdup_printf ("%s\003%s-%s", k, a, b);
+    }
+  else
+    {
+      int year, month, day;
+      if (!o42_date_from_serial (v.as.number, &year, &month, &day))
+        { year = 1900; month = 1; day = 1; }
+      switch (level->kind)
+        {
+        case LEVEL_YEAR: part = g_strdup_printf ("%d\003%d", year, year); break;
+        case LEVEL_QUARTER: part = g_strdup_printf ("%d\003Qtr%d", (month - 1) / 3 + 1, (month - 1) / 3 + 1); break;
+        case LEVEL_MONTH: part = g_strdup_printf ("%02d\003%s", month, months[CLAMP (month, 1, 12) - 1]); break;
+        default: part = g_strdup_printf ("%04d%02d%02d\003%d-%02d-%02d", year, month, day, year, month, day); break;
+        }
+    }
+  o42_value_clear (&v);
+  return part;
+}
+
 /* The key of a record along one axis. */
 static char *
-pivot_key (O42Sheet *src, int row, const int *cols, int n)
+pivot_key (O42Sheet *src, int row, const GArray *levels)
 {
   GString *key = g_string_new (NULL);
-  for (int i = 0; i < n; i++)
+  for (guint i = 0; i < levels->len; i++)
     {
-      char *v = o42_sheet_get_display (src, row, cols[i]);
+      char *v = pivot_level_part (src, row, &g_array_index (levels, Level, i));
       if (i > 0) g_string_append_c (key, '\002');
       g_string_append (key, v);
       g_free (v);
@@ -7438,6 +7652,16 @@ pivot_key (O42Sheet *src, int row, const int *cols, int n)
   return g_string_free (key, FALSE);
 }
 
+static void
+pivot_key_add (GPtrArray *keys, GHashTable *seen, const char *key)
+{
+  if (g_hash_table_contains (seen, key))
+    return;
+  g_hash_table_add (seen, g_strdup (key));
+  g_ptr_array_add (keys, g_strdup (key));
+}
+
+/* The same without a hash, for the few keys Consolidate gathers. */
 static void
 key_list_add (GPtrArray *keys, const char *key)
 {
@@ -7447,34 +7671,167 @@ key_list_add (GPtrArray *keys, const char *key)
   g_ptr_array_add (keys, g_strdup (key));
 }
 
+/* ---- The lines of an axis: its keys, and the subtotals between them ---- */
+
+typedef struct {
+  char *key;      /* the leaf's key, or the first `depth` parts of one */
+  int   depth;    /* parts that count; a leaf has them all */
+  gboolean total; /* a "key Total" line */
+} AxisLine;
+
+/* The first `depth` parts of a key. */
+static char *
+key_prefix (const char *key, int depth)
+{
+  char **parts = g_strsplit (key, "\002", -1);
+  GString *out = g_string_new (NULL);
+  for (int i = 0; i < depth && parts[i] != NULL; i++)
+    {
+      if (i > 0) g_string_append_c (out, '\002');
+      g_string_append (out, parts[i]);
+    }
+  g_strfreev (parts);
+  return g_string_free (out, FALSE);
+}
+
+static gboolean
+key_has_prefix (const char *key, const char *prefix, int depth)
+{
+  char *own = key_prefix (key, depth);
+  gboolean same = strcmp (own, prefix) == 0;
+  g_free (own);
+  return same;
+}
+
+/* The sorted keys, each followed by the subtotal lines its outer parts
+ * close, when there is more than one level and subtotals are asked. */
+static GArray *
+axis_lines (GPtrArray *keys, int n_levels, gboolean subtotals)
+{
+  GArray *lines = g_array_new (FALSE, FALSE, sizeof (AxisLine));
+
+  for (guint i = 0; i < keys->len; i++)
+    {
+      const char *key = g_ptr_array_index (keys, i);
+      const char *next = i + 1 < keys->len ? g_ptr_array_index (keys, i + 1) : NULL;
+      AxisLine leaf = { g_strdup (key), n_levels, FALSE };
+
+      g_array_append_val (lines, leaf);
+      if (!subtotals || n_levels < 2)
+        continue;
+      for (int depth = n_levels - 1; depth >= 1; depth--)
+        {
+          char *prefix = key_prefix (key, depth);
+          if (next == NULL || !key_has_prefix (next, prefix, depth))
+            {
+              AxisLine total = { prefix, depth, TRUE };
+              g_array_append_val (lines, total);
+            }
+          else
+            {
+              g_free (prefix);
+              break;   /* the outer parts go on too */
+            }
+        }
+    }
+  return lines;
+}
+
+static void
+axis_lines_free (GArray *lines)
+{
+  for (guint i = 0; i < lines->len; i++)
+    g_free (g_array_index (lines, AxisLine, i).key);
+  g_array_free (lines, TRUE);
+}
+
+/* ---- The data fields ---- */
+
+typedef struct {
+  char        *field;     /* header, or "=expression" */
+  O42PivotAgg  agg;
+  int          src_col;   /* -1 for a calculated field */
+} DataField;
+
+static const char *const AGG_NAMES[] = { "Sum", "Count", "Average", "Min", "Max" };
+
+static gboolean
+agg_from_name (const char *name, O42PivotAgg *out)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (AGG_NAMES); i++)
+    if (g_ascii_strcasecmp (name, AGG_NAMES[i]) == 0)
+      { *out = (O42PivotAgg) i; return TRUE; }
+  return FALSE;
+}
+
 /* Lays a pivot out from its source, first clearing where it was. */
 static void
 pivot_layout (O42Sheet *sheet, O42Pivot *p)
 {
   O42Sheet *src = sheet;
-  int n_row = p->row_fields ? (int) g_strv_length (p->row_fields) : 0;
-  int n_col = p->col_fields ? (int) g_strv_length (p->col_fields) : 0;
-  int row_cols[8], col_cols[8], data_col;
+  int n_row_fields = p->row_fields ? (int) g_strv_length (p->row_fields) : 0;
+  int n_col_fields = p->col_fields ? (int) g_strv_length (p->col_fields) : 0;
+  GArray *row_levels = g_array_new (FALSE, FALSE, sizeof (Level));
+  GArray *col_levels = g_array_new (FALSE, FALSE, sizeof (Level));
+  GArray *data = g_array_new (FALSE, FALSE, sizeof (DataField));
   GPtrArray *row_keys = g_ptr_array_new_with_free_func (g_free);
   GPtrArray *col_keys = g_ptr_array_new_with_free_func (g_free);
+  GHashTable *row_seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  GHashTable *col_seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   GHashTable *buckets = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-  static const char *agg_names[] = { "Sum", "Count", "Average", "Min", "Max" };
-  gboolean ok = TRUE, calculated, has_filter;
-  int filter_col = -1;
+  gboolean ok = TRUE, has_filter;
+  int filter_col = -1, n_data;
+  GArray *rlines = NULL, *clines = NULL;
 
   if (p->source_sheet != NULL && sheet->book != NULL)
     {
       src = o42_book_find_sheet (sheet->book, p->source_sheet);
       if (src == NULL) src = sheet;
     }
-  n_row = MIN (n_row, 8);
-  n_col = MIN (n_col, 8);
-  for (int i = 0; i < n_row; i++)
-    if ((row_cols[i] = pivot_field_col (src, &p->source, p->row_fields[i])) < 0) ok = FALSE;
-  for (int i = 0; i < n_col; i++)
-    if ((col_cols[i] = pivot_field_col (src, &p->source, p->col_fields[i])) < 0) ok = FALSE;
-  calculated = p->data_field != NULL && p->data_field[0] == '=';
-  data_col = calculated ? -1 : pivot_field_col (src, &p->source, p->data_field);
+  for (int i = 0; i < MIN (n_row_fields, 8); i++)
+    {
+      int col = pivot_field_col (src, &p->source, p->row_fields[i]);
+      if (col < 0) ok = FALSE;
+      else pivot_add_levels (row_levels, p->row_fields[i], col, p->groups);
+    }
+  for (int i = 0; i < MIN (n_col_fields, 8); i++)
+    {
+      int col = pivot_field_col (src, &p->source, p->col_fields[i]);
+      if (col < 0) ok = FALSE;
+      else pivot_add_levels (col_levels, p->col_fields[i], col, p->groups);
+    }
+  {
+    /* The data fields: the first, then the others as "Agg:Header". */
+    DataField d = { p->data_field, p->agg, -1 };
+    if (d.field == NULL) d.field = (char *) "";
+    if (d.field[0] != '=')
+      d.src_col = pivot_field_col (src, &p->source, d.field);
+    if (d.src_col < 0 && d.field[0] != '=') ok = FALSE;
+    g_array_append_val (data, d);
+    for (int i = 0; p->data_fields != NULL && p->data_fields[i] != NULL; i++)
+      {
+        char *spec = g_strdup (p->data_fields[i]);
+        char *colon = strchr (spec, ':');
+        DataField more = { NULL, O42_PIVOT_SUM, -1 };
+
+        if (colon != NULL)
+          {
+            char *agg_name = g_strndup (spec, colon - spec);
+            gboolean known = agg_from_name (g_strstrip (agg_name), &more.agg);
+            g_free (agg_name);
+            more.field = g_strdup (known ? colon + 1 : spec);
+          }
+        else
+          more.field = g_strdup (spec);
+        if (more.field[0] != '=')
+          more.src_col = pivot_field_col (src, &p->source, more.field);
+        if (more.src_col < 0 && more.field[0] != '=')
+          { g_free (more.field); g_free (spec); continue; }
+        g_array_append_val (data, more);
+        g_free (spec);
+      }
+  }
+  n_data = (int) data->len;
   has_filter = p->filter_field != NULL && *p->filter_field != '\0';
   if (has_filter && (filter_col = pivot_field_col (src, &p->source, p->filter_field)) < 0)
     ok = FALSE;
@@ -7492,16 +7849,17 @@ pivot_layout (O42Sheet *sheet, O42Pivot *p)
           }
       o42_sheet_clear_formats (sheet, &old);
     }
-  if (!ok || n_row < 1 || (data_col < 0 && !calculated))
+  if (!ok || row_levels->len < 1)
     {
       p->rows = p->cols = 0;
       goto out;
     }
 
-  /* Gather keys and buckets, from the rows the filter lets through. */
+  /* Gather keys and buckets, from the rows the filter lets through; a
+   * bucket per data field per (row key, column key). */
   for (int r = p->source.row0 + 1; r <= p->source.row1; r++)
     {
-      char *rk;
+      char *rk, *ck;
       if (has_filter)
         {
           char *shown = o42_sheet_get_display (src, r, filter_col);
@@ -7509,64 +7867,80 @@ pivot_layout (O42Sheet *sheet, O42Pivot *p)
           g_free (shown);
           if (!keep) continue;
         }
-      rk = pivot_key (src, r, row_cols, n_row);
-      char *ck = n_col > 0 ? pivot_key (src, r, col_cols, n_col) : g_strdup ("");
-      char *key = g_strdup_printf ("%s\001%s", rk, ck);
-      Bucket *b = g_hash_table_lookup (buckets, key);
-      O42Value v;
-      double x;
-      O42ErrorCode e = O42_ERR_VALUE;
+      rk = pivot_key (src, r, row_levels);
+      ck = col_levels->len > 0 ? pivot_key (src, r, col_levels) : g_strdup ("");
+      pivot_key_add (row_keys, row_seen, rk);
+      pivot_key_add (col_keys, col_seen, ck);
+      for (int d = 0; d < n_data; d++)
+        {
+          const DataField *df = &g_array_index (data, DataField, d);
+          char *key = g_strdup_printf ("%d\001%s\001%s", d, rk, ck);
+          Bucket *b = g_hash_table_lookup (buckets, key);
+          O42Value v;
+          double x;
+          O42ErrorCode e = O42_ERR_VALUE;
 
-      key_list_add (row_keys, rk);
-      key_list_add (col_keys, ck);
-      if (b == NULL)
-        {
-          b = g_new0 (Bucket, 1);
-          bucket_init (b);
-          g_hash_table_insert (buckets, g_strdup (key), b);
+          if (b == NULL)
+            {
+              b = g_new0 (Bucket, 1);
+              bucket_init (b);
+              g_hash_table_insert (buckets, g_strdup (key), b);
+            }
+          if (df->src_col < 0)
+            {
+              double calc;
+              v = pivot_calc_value (src, &p->source, df->field, r, &calc) ? o42_value_number (calc) : o42_value_empty ();
+            }
+          else
+            o42_sheet_get_value (src, r, df->src_col, &v);
+          if (df->agg == O42_PIVOT_COUNT)
+            {
+              if (v.type != O42_VALUE_EMPTY) b->count++;
+            }
+          else if (v.type == O42_VALUE_NUMBER && o42_value_to_number (&v, &x, &e))
+            {
+              b->sum += x; b->count++;
+              b->min = MIN (b->min, x); b->max = MAX (b->max, x);
+            }
+          o42_value_clear (&v);
+          g_free (key);
         }
-      if (calculated)
-        {
-          double calc;
-          v = pivot_calc_value (src, &p->source, p->data_field, r, &calc) ? o42_value_number (calc) : o42_value_empty ();
-        }
-      else
-        o42_sheet_get_value (src, r, data_col, &v);
-      if (p->agg == O42_PIVOT_COUNT)
-        {
-          if (v.type != O42_VALUE_EMPTY) b->count++;
-        }
-      else if (v.type == O42_VALUE_NUMBER && o42_value_to_number (&v, &x, &e))
-        {
-          b->sum += x; b->count++;
-          b->min = MIN (b->min, x); b->max = MAX (b->max, x);
-        }
-      o42_value_clear (&v);
-      g_free (key);
       g_free (rk);
       g_free (ck);
     }
   g_ptr_array_sort (row_keys, compare_keys_collate);
   g_ptr_array_sort (col_keys, compare_keys_collate);
+  rlines = axis_lines (row_keys, (int) row_levels->len, p->subtotals);
+  clines = axis_lines (col_keys, (int) col_levels->len, p->subtotals);
 
-  /* Lay it out: a title, the column-key header rows, the row keys in
-   * their columns, one row per row key, totals. */
+  /* Lay it out.  Down the rows: the row keys (a row per data field when
+   * the data fields go on rows), subtotal lines, a grand total.  Across:
+   * the row levels' columns, then for each column line a column per
+   * data field (or one), then the row totals, one per data field. */
   {
     int filter_rows = has_filter ? 2 : 0;         /* "Field: value" and a blank */
     int r0 = p->row + filter_rows, c0 = p->col;
-    int ncols = (int) col_keys->len;
-    gboolean by_col = n_col > 0;
-    int header_rows = by_col ? n_col : 1;
-    int data_c0 = c0 + n_row;                     /* first value column */
-    int total_c = data_c0 + (by_col ? ncols : 0); /* the row-total column */
-    int out_rows = 1 + header_rows + (int) row_keys->len + 1;
-    int out_cols = n_row + (by_col ? ncols : 0) + 1;
-    char *title = g_strdup_printf ("%s of %s", agg_names[p->agg], calculated ? p->data_field + 1 : p->data_field);
-    Bucket *col_totals;
+    gboolean by_col = col_levels->len > 0;
+    gboolean data_across = n_data > 1 && !p->data_on_rows;
+    gboolean data_down = n_data > 1 && p->data_on_rows;
+    int n_rl = (int) row_levels->len, n_cl = (int) col_levels->len;
+    int per_col = data_across ? n_data : 1;        /* value columns per column line */
+    int header_rows = by_col ? n_cl + (data_across ? 1 : 0) : 1;
+    int label_cols = n_rl + (data_down ? 1 : 0);   /* row keys, and a "Data" column */
+    int data_c0 = c0 + label_cols;
+    int n_value_cols = by_col ? (int) clines->len * per_col : 0;
+    int total_c = data_c0 + n_value_cols;          /* the first row-total column */
+    int n_total_cols = p->no_grand_cols && by_col ? 0 : per_col;
+    int rows_per_line = data_down ? n_data : 1;
+    int body_rows = (int) rlines->len * rows_per_line;
+    int grand_rows = p->no_grand_rows ? 0 : rows_per_line;
+    int out_rows = 1 + header_rows + body_rows + grand_rows;
+    int out_cols = label_cols + n_value_cols + n_total_cols;
+    int r;
 
-    if (r0 + out_rows > O42_MAX_ROWS || c0 + out_cols > O42_MAX_COLS)
-      { g_free (title); p->rows = p->cols = 0; goto out; }
-    for (int r = p->row; r < r0 + out_rows; r++)
+    if (r0 + out_rows > O42_MAX_ROWS || c0 + out_cols > O42_MAX_COLS || out_cols < 1)
+      { p->rows = p->cols = 0; goto out; }
+    for (r = p->row; r < r0 + out_rows; r++)
       for (int c = c0; c < c0 + out_cols; c++)
         op_capture (sheet, r, c);
     if (has_filter)
@@ -7577,119 +7951,346 @@ pivot_layout (O42Sheet *sheet, O42Pivot *p)
         g_free (line);
       }
 
-    set_input_internal (sheet, r0, c0, title);
-    pivot_put_bold (sheet, r0, c0);
-    g_free (title);
+    /* The title: "Sum of Sales", or "Values" over several. */
+    {
+      const DataField *d0 = &g_array_index (data, DataField, 0);
+      char *title = n_data > 1 ? g_strdup ("Values")
+                    : g_strdup_printf ("%s of %s", AGG_NAMES[d0->agg], d0->field[0] == '=' ? d0->field + 1 : d0->field);
+      set_input_internal (sheet, r0, c0, title);
+      pivot_put_bold (sheet, r0, c0);
+      g_free (title);
+    }
 
-    /* Header rows: the row-field names on the last header row, the
-     * column keys field by field above the value columns. */
-    for (int i = 0; i < n_row; i++)
+    /* Header rows: the row levels' labels on the last header row, the
+     * column keys level by level above the value columns, and the data
+     * fields' names under them when they go across. */
+    for (int i = 0; i < n_rl; i++)
       {
-        set_input_internal (sheet, r0 + header_rows, c0 + i, p->row_fields[i]);
+        set_input_internal (sheet, r0 + header_rows, c0 + i, g_array_index (row_levels, Level, i).label);
         pivot_put_bold (sheet, r0 + header_rows, c0 + i);
+      }
+    if (data_down)
+      {
+        set_input_internal (sheet, r0 + header_rows, c0 + n_rl, "Data");
+        pivot_put_bold (sheet, r0 + header_rows, c0 + n_rl);
       }
     if (by_col)
       {
-        for (int j = 0; j < ncols; j++)
+        for (guint j = 0; j < clines->len; j++)
           {
-            char **parts = g_strsplit (g_ptr_array_index (col_keys, j), "\002", -1);
-            for (int k = 0; k < n_col && parts[k] != NULL; k++)
+            const AxisLine *line = &g_array_index (clines, AxisLine, j);
+            char **parts = g_strsplit (line->key, "\002", -1);
+            int c = data_c0 + (int) j * per_col;
+
+            for (int k = 0; k < line->depth && parts[k] != NULL; k++)
               {
-                /* A repeated upper-level key is written once. */
-                gboolean same = j > 0;
+                gboolean same = j > 0 && !line->total;
                 if (same)
                   {
-                    char **prev = g_strsplit (g_ptr_array_index (col_keys, j - 1), "\002", -1);
+                    const AxisLine *prev = &g_array_index (clines, AxisLine, j - 1);
+                    char **pp = g_strsplit (prev->key, "\002", -1);
                     for (int m = 0; m <= k && same; m++)
-                      same = prev[m] != NULL && strcmp (prev[m], parts[m]) == 0;
-                    g_strfreev (prev);
+                      same = pp[m] != NULL && strcmp (pp[m], parts[m]) == 0;
+                    g_strfreev (pp);
+                    if (prev->total) same = FALSE;
                   }
                 if (!same)
                   {
-                    set_input_internal (sheet, r0 + 1 + k, data_c0 + j, parts[k]);
-                    pivot_put_bold (sheet, r0 + 1 + k, data_c0 + j);
+                    char *label = line->total && k == line->depth - 1
+                                  ? g_strdup_printf ("%s Total", part_shown (parts[k])) : g_strdup (part_shown (parts[k]));
+                    pivot_put_label (sheet, r0 + 1 + k, c, label);
+                    pivot_put_bold (sheet, r0 + 1 + k, c);
+                    g_free (label);
                   }
               }
             g_strfreev (parts);
+            if (data_across)
+              for (int d = 0; d < n_data; d++)
+                {
+                  const DataField *df = &g_array_index (data, DataField, d);
+                  char *name = g_strdup_printf ("%s of %s", AGG_NAMES[df->agg], df->field[0] == '=' ? df->field + 1 : df->field);
+                  set_input_internal (sheet, r0 + header_rows, c + d, name);
+                  pivot_put_bold (sheet, r0 + header_rows, c + d);
+                  g_free (name);
+                }
           }
-        set_input_internal (sheet, r0 + header_rows, total_c, "Grand Total");
       }
-    else
-      set_input_internal (sheet, r0 + header_rows, total_c, "Total");
-    pivot_put_bold (sheet, r0 + header_rows, total_c);
-
-    col_totals = g_new0 (Bucket, ncols + 1);
-    for (int j = 0; j <= ncols; j++) bucket_init (&col_totals[j]);
-
-    for (guint i = 0; i < row_keys->len; i++)
+    for (int t = 0; t < n_total_cols; t++)
       {
-        const char *rk = g_ptr_array_index (row_keys, i);
-        Bucket row_total;
-        int r = r0 + 1 + header_rows + (int) i;
-        char **parts = g_strsplit (rk, "\002", -1);
-
-        bucket_init (&row_total);
-        for (int k = 0; k < n_row && parts[k] != NULL; k++)
-          {
-            gboolean same = i > 0;
-            if (same)
-              {
-                char **prev = g_strsplit (g_ptr_array_index (row_keys, i - 1), "\002", -1);
-                for (int m = 0; m <= k && same; m++)
-                  same = prev[m] != NULL && strcmp (prev[m], parts[m]) == 0;
-                g_strfreev (prev);
-              }
-            if (!same)
-              {
-                set_input_internal (sheet, r, c0 + k, parts[k]);
-                pivot_put_bold (sheet, r, c0 + k);
-              }
-          }
-        g_strfreev (parts);
-        for (int j = 0; j < ncols; j++)
-          {
-            const char *ck = g_ptr_array_index (col_keys, j);
-            char *key = g_strdup_printf ("%s\001%s", rk, ck);
-            Bucket *b = g_hash_table_lookup (buckets, key);
-            g_free (key);
-            if (b != NULL && b->count > 0)
-              {
-                if (by_col)
-                  pivot_put_number (sheet, r, data_c0 + j, bucket_value (b, p->agg));
-                bucket_add (&row_total, b);
-                bucket_add (&col_totals[j], b);
-              }
-          }
-        if (row_total.count > 0)
-          pivot_put_number (sheet, r, total_c, bucket_value (&row_total, p->agg));
-        bucket_add (&col_totals[ncols], &row_total);
+        const DataField *df = &g_array_index (data, DataField, t);
+        char *name = data_across ? g_strdup_printf ("%s%s of %s", by_col ? "Total " : "", AGG_NAMES[df->agg],
+                                                    df->field[0] == '=' ? df->field + 1 : df->field)
+                                 : g_strdup (by_col ? "Grand Total" : "Total");
+        set_input_internal (sheet, r0 + header_rows, total_c + t, name);
+        pivot_put_bold (sheet, r0 + header_rows, total_c + t);
+        g_free (name);
       }
+
+    /* The body.  A cell's bucket is the sum of the leaf buckets whose
+     * keys begin with the line's parts. */
+    r = r0 + 1 + header_rows;
     {
-      int r = r0 + 1 + header_rows + (int) row_keys->len;
-      set_input_internal (sheet, r, c0, "Grand Total");
-      pivot_put_bold (sheet, r, c0);
-      for (int j = 0; j <= ncols; j++)
+      /* A column total per value column and per data field: the data
+       * fields have their own columns when across, and their own set
+       * of totals when down. */
+      int stride = n_value_cols + per_col;
+      Bucket *col_totals = g_new0 (Bucket, stride * (data_down ? n_data : 1));
+      for (int j = 0; j < stride * (data_down ? n_data : 1); j++) bucket_init (&col_totals[j]);
+#define CT(d, j) col_totals[(data_down ? (d) : 0) * stride + (j)]
+
+      for (guint i = 0; i < rlines->len; i++)
         {
-          Bucket *b = &col_totals[j];
-          int c = j < ncols ? data_c0 + j : total_c;
-          if (!by_col && j < ncols) continue;
-          if (b->count > 0)
+          const AxisLine *rl = &g_array_index (rlines, AxisLine, i);
+          char **parts = g_strsplit (rl->key, "\002", -1);
+
+          /* The row's labels. */
+          for (int k = 0; k < rl->depth && parts[k] != NULL; k++)
             {
-              pivot_put_number (sheet, r, c, bucket_value (b, p->agg));
-              pivot_put_bold (sheet, r, c);
+              gboolean same = i > 0 && !rl->total;
+              if (same)
+                {
+                  const AxisLine *prev = &g_array_index (rlines, AxisLine, i - 1);
+                  char **pp = g_strsplit (prev->key, "\002", -1);
+                  for (int m = 0; m <= k && same; m++)
+                    same = pp[m] != NULL && strcmp (pp[m], parts[m]) == 0;
+                  g_strfreev (pp);
+                  if (prev->total) same = FALSE;
+                }
+              if (!same)
+                {
+                  char *label = rl->total && k == rl->depth - 1
+                                ? g_strdup_printf ("%s Total", part_shown (parts[k])) : g_strdup (part_shown (parts[k]));
+                  pivot_put_label (sheet, r, c0 + k, label);
+                  pivot_put_bold (sheet, r, c0 + k);
+                  g_free (label);
+                }
+            }
+          g_strfreev (parts);
+
+          for (int d = 0; d < n_data; d++)
+            {
+              const DataField *df = &g_array_index (data, DataField, d);
+              int rr = data_down ? r + d : r;
+              int dcol = data_across ? d : 0;
+              Bucket row_total;
+
+              bucket_init (&row_total);
+              if (data_down)
+                {
+                  char *name = g_strdup_printf ("%s of %s", AGG_NAMES[df->agg], df->field[0] == '=' ? df->field + 1 : df->field);
+                  set_input_internal (sheet, rr, c0 + n_rl, name);
+                  g_free (name);
+                }
+              else if (!data_across && d > 0)
+                continue;
+
+              for (guint j = 0; j < (by_col ? clines->len : 1); j++)
+                {
+                  const AxisLine *cl = by_col ? &g_array_index (clines, AxisLine, j) : NULL;
+                  Bucket cell;
+                  GHashTableIter iter;
+                  gpointer key, val;
+
+                  bucket_init (&cell);
+                  g_hash_table_iter_init (&iter, buckets);
+                  while (g_hash_table_iter_next (&iter, &key, &val))
+                    {
+                      const char *k = key;
+                      const char *rk, *ck;
+                      char *rk_own;
+
+                      if (atoi (k) != d) continue;
+                      rk = strchr (k, '\001') + 1;
+                      ck = strchr (rk, '\001');
+                      rk_own = g_strndup (rk, ck - rk);
+                      ck++;
+                      if (key_has_prefix (rk_own, rl->key, rl->depth) &&
+                          (cl == NULL || key_has_prefix (ck, cl->key, cl->depth)))
+                        bucket_add (&cell, val);
+                      g_free (rk_own);
+                    }
+                  if (by_col)
+                    {
+                      int c = data_c0 + (int) j * per_col + dcol;
+                      if (cell.count > 0)
+                        {
+                          pivot_put_number (sheet, rr, c, bucket_value (&cell, df->agg));
+                          if (rl->total || cl->total) pivot_put_bold (sheet, rr, c);
+                        }
+                      /* Only leaf rows feed the column totals; subtotal
+                       * rows would count twice. */
+                      if (!rl->total && !cl->total)
+                        bucket_add (&CT (d, (int) j * per_col + dcol), &cell);
+                      if (!cl->total)
+                        bucket_add (&row_total, &cell);
+                    }
+                  else
+                    {
+                      row_total = cell;
+                      if (!rl->total)
+                        bucket_add (&CT (d, n_value_cols + dcol), &cell);
+                    }
+                }
+              if (n_total_cols > 0 && row_total.count > 0)
+                {
+                  pivot_put_number (sheet, rr, total_c + dcol, bucket_value (&row_total, df->agg));
+                  if (rl->total) pivot_put_bold (sheet, rr, total_c + dcol);
+                }
+              if (by_col && !rl->total)
+                bucket_add (&CT (d, n_value_cols + dcol), &row_total);
+            }
+          r += rows_per_line;
+        }
+
+      if (grand_rows > 0)
+        {
+          set_input_internal (sheet, r, c0, "Grand Total");
+          pivot_put_bold (sheet, r, c0);
+          for (int d = 0; d < n_data; d++)
+            {
+              const DataField *df = &g_array_index (data, DataField, d);
+              int rr = data_down ? r + d : r;
+              int dcol = data_across ? d : 0;
+
+              if (!data_across && !data_down && d > 0) continue;
+              if (data_down)
+                {
+                  char *name = g_strdup_printf ("%s of %s", AGG_NAMES[df->agg], df->field[0] == '=' ? df->field + 1 : df->field);
+                  set_input_internal (sheet, rr, c0 + n_rl, name);
+                  pivot_put_bold (sheet, rr, c0 + n_rl);
+                  g_free (name);
+                }
+              for (int j = 0; by_col && j < (int) clines->len; j++)
+                {
+                  const AxisLine *cl = &g_array_index (clines, AxisLine, j);
+                  int c = data_c0 + j * per_col + dcol;
+                  Bucket *b = &CT (d, j * per_col + dcol);
+                  if (cl->total)
+                    {
+                      /* A subtotal column's grand total: the leaves under it. */
+                      Bucket sum;
+                      bucket_init (&sum);
+                      for (int m = 0; m < (int) clines->len; m++)
+                        {
+                          const AxisLine *leaf = &g_array_index (clines, AxisLine, m);
+                          if (!leaf->total && key_has_prefix (leaf->key, cl->key, cl->depth))
+                            bucket_add (&sum, &CT (d, m * per_col + dcol));
+                        }
+                      b = &sum;
+                      if (b->count > 0) pivot_put_number (sheet, rr, c, bucket_value (b, df->agg));
+                    }
+                  else if (b->count > 0)
+                    pivot_put_number (sheet, rr, c, bucket_value (b, df->agg));
+                  pivot_put_bold (sheet, rr, c);
+                }
+              if (n_total_cols > 0)
+                {
+                  Bucket *b = &CT (d, n_value_cols + dcol);
+                  if (b->count > 0)
+                    pivot_put_number (sheet, rr, total_c + dcol, bucket_value (b, df->agg));
+                  pivot_put_bold (sheet, rr, total_c + dcol);
+                }
             }
         }
+      g_free (col_totals);
+#undef CT
     }
-    g_free (col_totals);
     p->rows = out_rows + filter_rows;
     p->cols = out_cols;
   }
 
 out:
+  for (guint i = 0; i < row_levels->len; i++)
+    if (g_array_index (row_levels, Level, i).manual != NULL)
+      g_hash_table_unref (g_array_index (row_levels, Level, i).manual);
+  for (guint i = 0; i < col_levels->len; i++)
+    if (g_array_index (col_levels, Level, i).manual != NULL)
+      g_hash_table_unref (g_array_index (col_levels, Level, i).manual);
+  for (guint i = 1; i < data->len; i++)
+    g_free (g_array_index (data, DataField, i).field);
+  g_array_free (row_levels, TRUE);
+  g_array_free (col_levels, TRUE);
+  g_array_free (data, TRUE);
+  if (rlines != NULL) axis_lines_free (rlines);
+  if (clines != NULL) axis_lines_free (clines);
   g_ptr_array_unref (row_keys);
   g_ptr_array_unref (col_keys);
+  g_hash_table_unref (row_seen);
+  g_hash_table_unref (col_seen);
   g_hash_table_unref (buckets);
   sheet->modified = TRUE;
+}
+
+/* ---- The further parts as text, for the files ---- */
+
+char *
+o42_pivot_options_to_string (const O42Pivot *pivot)
+{
+  GString *out = g_string_new (NULL);
+
+  g_return_val_if_fail (pivot != NULL, g_strdup (""));
+  if (pivot->data_fields != NULL && pivot->data_fields[0] != NULL)
+    {
+      char *joined = g_strjoinv ("|", pivot->data_fields);
+      g_string_append_printf (out, "data=%s;", joined);
+      g_free (joined);
+    }
+  if (pivot->groups != NULL && *pivot->groups != '\0')
+    {
+      /* The fields' ';' become '/' inside the one text. */
+      char *g = g_strdup (pivot->groups);
+      for (char *q = g; *q != '\0'; q++)
+        if (*q == ';') *q = '/';
+      g_string_append_printf (out, "groups=%s;", g);
+      g_free (g);
+    }
+  if (pivot->subtotals) g_string_append (out, "sub=1;");
+  if (pivot->no_grand_rows || pivot->no_grand_cols)
+    g_string_append_printf (out, "grand=%s%s;", pivot->no_grand_rows ? "" : "r", pivot->no_grand_cols ? "" : "c");
+  if (pivot->data_on_rows) g_string_append (out, "dataon=rows;");
+  if (out->len > 0) g_string_truncate (out, out->len - 1);
+  return g_string_free (out, FALSE);
+}
+
+void
+o42_pivot_options_apply (O42Pivot *pivot, const char *text)
+{
+  char **parts;
+
+  g_return_if_fail (pivot != NULL);
+  g_strfreev (pivot->data_fields);
+  g_free (pivot->groups);
+  pivot->data_fields = NULL;
+  pivot->groups = NULL;
+  pivot->subtotals = FALSE;
+  pivot->no_grand_rows = pivot->no_grand_cols = FALSE;
+  pivot->data_on_rows = FALSE;
+  if (text == NULL || *text == '\0')
+    return;
+  parts = g_strsplit (text, ";", -1);
+  for (int i = 0; parts[i] != NULL; i++)
+    {
+      const char *eq = strchr (parts[i], '=');
+      if (eq == NULL) continue;
+      if (g_str_has_prefix (parts[i], "data="))
+        pivot->data_fields = g_strsplit (eq + 1, "|", -1);
+      else if (g_str_has_prefix (parts[i], "groups="))
+        {
+          pivot->groups = g_strdup (eq + 1);
+          for (char *q = pivot->groups; *q != '\0'; q++)
+            if (*q == '/') *q = ';';
+        }
+      else if (g_str_has_prefix (parts[i], "sub="))
+        pivot->subtotals = atoi (eq + 1) != 0;
+      else if (g_str_has_prefix (parts[i], "grand="))
+        {
+          pivot->no_grand_rows = strchr (eq + 1, 'r') == NULL;
+          pivot->no_grand_cols = strchr (eq + 1, 'c') == NULL;
+        }
+      else if (g_str_has_prefix (parts[i], "dataon="))
+        pivot->data_on_rows = strcmp (eq + 1, "rows") == 0;
+    }
+  g_strfreev (parts);
 }
 
 void
