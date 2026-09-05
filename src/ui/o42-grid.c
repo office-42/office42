@@ -5134,7 +5134,7 @@ draw_cell_text (O42Grid      *self,
       gboolean fits = FALSE;
 
       o42_sheet_get_value (self->sheet, row, col, &v);
-      if (v.type == O42_VALUE_NUMBER && fmt->number == O42_NUM_GENERAL)
+      if (v.type == O42_VALUE_NUMBER && fmt->number == O42_NUM_GENERAL && fmt->custom == NULL)
         {
           for (int digits = 9; digits >= 1 && !fits; digits--)
             {

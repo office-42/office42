@@ -134,6 +134,97 @@ accounting_code (const char *symbol, int decimals)
   return code;
 }
 
+static char *format_skeleton (const char *text, gboolean *money, char **symbol);
+
+char *
+o42_number_format_code (O42NumberFormat format, int decimals,
+                        const char *symbol, O42NegativeStyle negative)
+{
+  GString *sym = g_string_new (NULL);
+  GString *pos = g_string_new (NULL);
+  char *code;
+
+  decimals = CLAMP (decimals, 0, 20);
+  if (format == O42_NUM_ACCOUNTING)
+    return accounting_code (symbol, decimals);
+
+  if (symbol != NULL && *symbol != '\0')
+    {
+      if (strcmp (symbol, "$") == 0)
+        g_string_append_c (sym, '$');
+      else
+        g_string_append_printf (sym, "[$%s%s]", symbol, currency_lcid (symbol));
+    }
+  g_string_append (pos, sym->str);
+  g_string_append (pos, format == O42_NUM_FIXED ? "0" : "#,##0");
+  if (decimals > 0)
+    {
+      g_string_append_c (pos, '.');
+      for (int i = 0; i < decimals; i++)
+        g_string_append_c (pos, '0');
+    }
+
+  switch (negative)
+    {
+    case O42_NEG_RED:
+      code = g_strdup_printf ("%s;[Red]-%s", pos->str, pos->str);
+      break;
+    case O42_NEG_PARENS:
+      code = g_strdup_printf ("%s_);(%s)", pos->str, pos->str);
+      break;
+    case O42_NEG_RED_PARENS:
+      code = g_strdup_printf ("%s_);[Red](%s)", pos->str, pos->str);
+      break;
+    default:
+      code = g_string_free (pos, FALSE);
+      pos = NULL;
+      break;
+    }
+  if (pos != NULL)
+    g_string_free (pos, TRUE);
+  g_string_free (sym, TRUE);
+  return code;
+}
+
+void
+o42_number_format_details (const char *code, char **symbol, O42NegativeStyle *negative)
+{
+  gboolean money = FALSE;
+  char *lower, *named = NULL;
+  const char *second;
+
+  if (symbol != NULL) *symbol = NULL;
+  if (negative != NULL) *negative = O42_NEG_MINUS;
+  if (code == NULL)
+    return;
+
+  lower = format_skeleton (code, &money, &named);
+  if (symbol != NULL)
+    {
+      if (named != NULL)
+        *symbol = g_strdup (named);
+      else if (strchr (lower, '$') != NULL)
+        *symbol = g_strdup ("$");
+      else if (*code == '"' && strchr (code + 1, '"') != NULL)
+        *symbol = g_strndup (code + 1, (gsize) (strchr (code + 1, '"') - (code + 1)));
+      else if (strncmp (code, "_(\"", 3) == 0 && strchr (code + 3, '"') != NULL)
+        *symbol = g_strndup (code + 3, (gsize) (strchr (code + 3, '"') - (code + 3)));
+    }
+  g_free (lower);
+  g_free (named);
+
+  /* The second section says how a negative looks. */
+  second = strchr (code, ';');
+  if (second != NULL && negative != NULL)
+    {
+      gboolean red = g_ascii_strncasecmp (second + 1, "[Red]", 5) == 0;
+      gboolean parens = strchr (second + 1, '(') != NULL;
+
+      *negative = red ? (parens ? O42_NEG_RED_PARENS : O42_NEG_RED)
+                      : (parens ? O42_NEG_PARENS : O42_NEG_MINUS);
+    }
+}
+
 /* The shape of a format code, with everything that is not the number
  * taken out: the bracketed sections ([Red], [$kr-414], [>100]), the
  * quoted text, the backslash escapes, and every section after the

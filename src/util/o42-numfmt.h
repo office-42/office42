@@ -78,6 +78,26 @@ char    *o42_number_format_to_string (O42NumberFormat format, int decimals);
 gboolean o42_number_format_parse     (const char *text,
                                       O42NumberFormat *format, int *decimals);
 
+/* How a negative is shown, as Format Cells offers it. */
+typedef enum {
+  O42_NEG_MINUS = 0,      /* -1,234.10 */
+  O42_NEG_RED,            /* 1,234.10 in red */
+  O42_NEG_PARENS,         /* (1,234.10) */
+  O42_NEG_RED_PARENS      /* (1,234.10) in red */
+} O42NegativeStyle;
+
+/* A Fixed, Comma, Currency or Accounting code with a symbol of the
+ * caller's choosing (NULL or "" for none) and a way of showing
+ * negatives; the same as o42_number_format_to_string when the symbol
+ * is the machine's and negatives are plain.  Caller frees. */
+char *o42_number_format_code (O42NumberFormat format, int decimals,
+                              const char *symbol, O42NegativeStyle negative);
+
+/* What a code says about its symbol and its negatives, for a dialog
+ * showing the code's settings: `symbol` (caller frees) is what the
+ * code names in [$...] or in quotes before the digits, or NULL. */
+void  o42_number_format_details (const char *code, char **symbol, O42NegativeStyle *negative);
+
 /* The format language itself: "#,##0.00;[Red](#,##0.00)", "yyyy-mm-dd",
  * "0.0%", "0.00E+00", "\"$\"#,##0" and the rest, applied to a number --
  * or to text, when `text` is not NULL and the format has a fourth

@@ -15,4 +15,11 @@ G_DECLARE_FINAL_TYPE (O42Application, o42_application, O42, APPLICATION, GtkAppl
 
 O42Application *o42_application_new (void);
 
+/* The few settings that are the program's rather than a book's, kept
+ * in options.ini under the user's configuration directory: read at
+ * start-up, and written back whenever Options is told something new.
+ * `key` is "currency" or "fixed_decimals"; a missing key reads NULL. */
+char *o42_prefs_get (const char *key);
+void  o42_prefs_set (const char *key, const char *value);   /* NULL removes it */
+
 G_END_DECLS
