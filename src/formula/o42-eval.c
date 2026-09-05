@@ -5262,6 +5262,45 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       base = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
       if (!base.is_range)
         { operand_clear (&base); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      {
+        /* OFFSET(A1,{0,1,2},0): an array of offsets gives the cells at
+         * each, one by one -- values, as Excel's lifting has it; what
+         * SUM(N(OFFSET(A1,ROW(A1:A3)-1,0))) counts on. */
+        O42Operand rows_op = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
+        O42Operand cols_op = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 2));
+
+        if (operand_is_multi (&rows_op) || operand_is_multi (&cols_op))
+          {
+            int r1, c1, r2, c2, nr, nc;
+            ArrayConst *a;
+
+            operand_dims (&rows_op, &r1, &c1);
+            operand_dims (&cols_op, &r2, &c2);
+            nr = MAX (r1, r2); nc = MAX (c1, c2);
+            a = array_const_new (nr, nc);
+            for (int i = 0; i < nr; i++)
+              for (int j = 0; j < nc; j++)
+                {
+                  O42Value rv = operand_cell (ctx, &rows_op, i, j), cv = operand_cell (ctx, &cols_op, i, j);
+                  double dr = 0, dc = 0;
+                  O42ErrorCode err = O42_ERR_VALUE;
+                  gboolean ok = o42_value_to_number (&rv, &dr, &err) && o42_value_to_number (&cv, &dc, &err);
+                  int row = base.range.row0 + (int) dr, col = base.range.col0 + (int) dc;
+
+                  o42_value_clear (&rv); o42_value_clear (&cv);
+                  if (!ok)
+                    a->cells[i * nc + j] = o42_value_error (err);
+                  else if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+                    a->cells[i * nc + j] = o42_value_error (O42_ERR_REF);
+                  else
+                    ctx->get_cell (ctx, base.sheet, row, col, &a->cells[i * nc + j]);
+                }
+            operand_clear (&rows_op); operand_clear (&cols_op); operand_clear (&base);
+            *out = array_operand (a);
+            return TRUE;
+          }
+        operand_clear (&rows_op); operand_clear (&cols_op);
+      }
       v = eval_node (ctx, g_ptr_array_index (node->as.call.args, 1));
       if (!o42_value_to_number (&v, &rows, &e)) { o42_value_clear (&v); out->value = o42_value_error (e); return TRUE; }
       o42_value_clear (&v);
@@ -7823,6 +7862,37 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
             { o42_value_clear (&style); out->value = o42_value_error (e); return TRUE; }
           o42_value_clear (&style);
         }
+      {
+        /* INDIRECT({"A1","B2"}): an array of texts gives the cells they
+         * name, one value each. */
+        O42Operand texts = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+
+        if (operand_is_multi (&texts))
+          {
+            int rows, cols;
+            ArrayConst *a;
+
+            operand_dims (&texts, &rows, &cols);
+            a = array_const_new (rows, cols);
+            for (int i = 0; i < rows; i++)
+              for (int j = 0; j < cols; j++)
+                {
+                  O42Value t = operand_cell (ctx, &texts, i, j);
+                  O42Node *one = t.type == O42_VALUE_TEXT ? o42_formula_parse (t.as.text) : NULL;
+
+                  if (one != NULL && one->type == O42_NODE_REF)
+                    ctx->get_cell (ctx, one->sheet, one->as.ref.row, one->as.ref.col, &a->cells[i * cols + j]);
+                  else
+                    a->cells[i * cols + j] = o42_value_error (O42_ERR_REF);
+                  if (one != NULL) o42_node_free (one);
+                  o42_value_clear (&t);
+                }
+            operand_clear (&texts);
+            *out = array_operand (a);
+            return TRUE;
+          }
+        operand_clear (&texts);
+      }
       v = eval_node (ctx, g_ptr_array_index (node->as.call.args, 0));
       if (v.type != O42_VALUE_TEXT)
         { o42_value_clear (&v); out->value = o42_value_error (O42_ERR_REF); return TRUE; }
@@ -11073,8 +11143,35 @@ static const LiftEntry LIFTS[] = {
   { "ROW", 0x1 }, { "COLUMN", 0x1 },
   /* lookups: the value looked for, the positions asked for */
   { "VLOOKUP", 0x1 }, { "HLOOKUP", 0x1 }, { "XLOOKUP", 0x1 }, { "MATCH", 0x1 }, { "XMATCH", 0x1 },
-  { "INDEX", 0x6 }, { "CHOOSE", 0x1 },
+  { "INDEX", 0x6 }, { "CHOOSE", 0x1 }, { "INDIRECT", 0x1 },
   { "SUMIF", 0x2 }, { "COUNTIF", 0x2 }, { "AVERAGEIF", 0x2 },
+  /* the criteria of the -IFS: every other argument */
+  { "SUMIFS", 0x55555554u }, { "AVERAGEIFS", 0x55555554u }, { "MAXIFS", 0x55555554u },
+  { "MINIFS", 0x55555554u }, { "COUNTIFS", 0xAAAAAAAAu },
+  /* the k of the order statistics, the number ranked */
+  { "LARGE", 0x2 }, { "SMALL", 0x2 }, { "PERCENTILE", 0x2 }, { "PERCENTILE.INC", 0x2 },
+  { "PERCENTILE.EXC", 0x2 }, { "QUARTILE", 0x2 }, { "QUARTILE.INC", 0x2 }, { "QUARTILE.EXC", 0x2 },
+  { "RANK", 0x1 }, { "RANK.EQ", 0x1 }, { "RANK.AVG", 0x1 }, { "PERCENTRANK", 0x2 },
+  { "PERCENTRANK.INC", 0x2 }, { "PERCENTRANK.EXC", 0x2 },
+  /* and the rest of the one-value families */
+  { "PMT", LIFT_ALL }, { "FV", LIFT_ALL }, { "PV", LIFT_ALL }, { "NPER", LIFT_ALL }, { "RATE", LIFT_ALL },
+  { "IPMT", LIFT_ALL }, { "PPMT", LIFT_ALL }, { "SLN", LIFT_ALL }, { "SYD", LIFT_ALL }, { "DB", LIFT_ALL },
+  { "DDB", LIFT_ALL }, { "EFFECT", LIFT_ALL }, { "NOMINAL", LIFT_ALL },
+  { "NORM.DIST", LIFT_ALL }, { "NORM.S.DIST", LIFT_ALL }, { "NORM.INV", LIFT_ALL }, { "NORM.S.INV", LIFT_ALL },
+  { "NORMDIST", LIFT_ALL }, { "NORMSDIST", LIFT_ALL }, { "NORMINV", LIFT_ALL }, { "NORMSINV", LIFT_ALL },
+  { "STANDARDIZE", LIFT_ALL }, { "EXP.DIST", LIFT_ALL }, { "POISSON.DIST", LIFT_ALL }, { "BINOM.DIST", LIFT_ALL },
+  { "GAMMALN", LIFT_ALL }, { "FISHER", LIFT_ALL }, { "FISHERINV", LIFT_ALL },
+  { "CONVERT", LIFT_ALL }, { "DEC2BIN", LIFT_ALL }, { "DEC2HEX", LIFT_ALL }, { "DEC2OCT", LIFT_ALL },
+  { "BIN2DEC", LIFT_ALL }, { "HEX2DEC", LIFT_ALL }, { "OCT2DEC", LIFT_ALL }, { "BITAND", LIFT_ALL },
+  { "BITOR", LIFT_ALL }, { "BITXOR", LIFT_ALL }, { "DELTA", LIFT_ALL }, { "GESTEP", LIFT_ALL },
+  { "SINH", LIFT_ALL }, { "COSH", LIFT_ALL }, { "TANH", LIFT_ALL }, { "ASINH", LIFT_ALL },
+  { "ACOSH", LIFT_ALL }, { "ATANH", LIFT_ALL }, { "SEC", LIFT_ALL }, { "CSC", LIFT_ALL }, { "COT", LIFT_ALL },
+  { "SQRTPI", LIFT_ALL }, { "ISO.CEILING", LIFT_ALL }, { "CEILING.PRECISE", LIFT_ALL },
+  { "FLOOR.PRECISE", LIFT_ALL }, { "FACTDOUBLE", LIFT_ALL },
+  { "REGEXTEST", LIFT_ALL }, { "REGEXREPLACE", LIFT_ALL }, { "ENCODEURL", LIFT_ALL },
+  { "JIS", LIFT_ALL }, { "ASC", LIFT_ALL }, { "DBCS", LIFT_ALL }, { "LEFTB", LIFT_ALL }, { "RIGHTB", LIFT_ALL },
+  { "MIDB", LIFT_ALL }, { "FINDB", LIFT_ALL }, { "SEARCHB", LIFT_ALL }, { "REPLACEB", LIFT_ALL },
+  { "TEXTBEFORE", 0x1 }, { "TEXTAFTER", 0x1 },
 };
 
 static guint32
