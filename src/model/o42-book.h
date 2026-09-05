@@ -24,6 +24,7 @@ void      o42_book_free (O42Book *book);
  * holds a reference; the last one to let go frees it. */
 O42Book  *o42_book_ref   (O42Book *book);
 void      o42_book_unref (O42Book *book);
+int       o42_book_ref_count (O42Book *book);
 
 /* Whoever shows the book asks to be told when another viewer changed
  * it: the sheets, their cells, or their names.  `what` is a hint. */
@@ -123,9 +124,10 @@ gboolean        o42_book_remove_watch (O42Book *book, int index);
 
 /* Excel records a macro by writing down what you do; office42 writes
  * Python, the language it runs.  What is recorded is what the Python
- * API can put back: the text typed into cells and the formats applied
- * to them, wherever they came from -- so an insert of rows is recorded
- * as the cells it moved, which replays to the same sheet. */
+ * API can put back: the text typed into cells, the formats applied to
+ * them, and the operations on whole ranges, rows, columns and sheets
+ * -- an insert of rows is one line, sheet.insert_rows(at, count), and
+ * the cells it moves are not written down one by one. */
 void      o42_book_record_start (O42Book *book);
 gboolean  o42_book_recording    (O42Book *book);
 /* The script recorded so far, and an end to the recording.  The caller
@@ -138,6 +140,34 @@ void      o42_book_record_line  (O42Book *book, const char *line);
 /* The sheet a recorded line is about, so that "sheet = book[...]" is
  * written when it changes.  Returns FALSE when nothing is recording. */
 gboolean  o42_book_record_sheet (O42Book *book, const char *sheet_name);
+
+/* An operation the API has one call for: the line is written (when
+ * recording) and everything the model does until the matching end --
+ * the cells an insert moves, the formats a paste carries -- is not.
+ * The pair nests, and is balanced whether recording or not. */
+void      o42_book_record_op_begin (O42Book *book, const char *sheet_name, const char *line);
+void      o42_book_record_op_end   (O42Book *book);
+
+/* The window's selection changed while recording: written down as
+ * sheet["B2:C5"].select() -- but only when something is then done, so
+ * that wandering about the sheet does not fill the macro. */
+void      o42_book_record_selection (O42Book *book, const char *sheet_name,
+                                     const O42Range *range, int active_row, int active_col);
+
+/* Excel's "Relative References": cells are written down relative to
+ * the active cell -- office42.active_cell.offset(1, 0) -- so that the
+ * macro replays wherever it is run, rather than at the cells it was
+ * recorded on.  The base is the active cell now; each recorded
+ * selection moves it.  The setting outlives a recording. */
+void      o42_book_record_set_relative (O42Book *book, gboolean relative, int row, int col);
+gboolean  o42_book_record_relative     (O42Book *book);
+
+/* sheet["A1:B2"] or, recording relatively, office42.active_cell.offset
+ * (r, c).resize(n, m); caller frees. */
+char     *o42_book_record_range_text   (O42Book *book, const O42Range *range);
+
+/* Moves the sheet at `from` so that it sits at `to`; one undo step. */
+gboolean  o42_book_move_sheet (O42Book *book, int from, int to);
 
 /* Scripts kept in the book, and so in its file: Python source under a
  * name, as Excel keeps macros.  The book only stores them; running is
@@ -154,6 +184,16 @@ const char *o42_book_script_name   (O42Book *book, int index);
 const char *o42_book_script_code   (O42Book *book, const char *name);   /* NULL if none */
 void        o42_book_set_script    (O42Book *book, const char *name, const char *code);
 gboolean    o42_book_remove_script (O42Book *book, const char *name);
+
+/* What Excel's Macro Options keeps: a shortcut key, Ctrl+Shift and a
+ * letter ('\0' for none), and a line about the macro.  Both are saved
+ * with the script. */
+void        o42_book_set_script_options (O42Book *book, const char *name,
+                                         char shortcut, const char *description);
+char        o42_book_script_shortcut    (O42Book *book, const char *name);
+const char *o42_book_script_description (O42Book *book, const char *name);   /* "" if none */
+/* The script bound to Ctrl+Shift+letter, or NULL. */
+const char *o42_book_script_for_shortcut (O42Book *book, char shortcut);
 
 /* ---- The book's database --------------------------------------------- */
 

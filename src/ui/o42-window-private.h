@@ -26,6 +26,7 @@ struct _O42Window {
   O42Book    *book;
   O42Sheet   *sheet;           /* the sheet on show, one of the book's */
   gpointer    python_console;  /* the PyConsole while its window is open */
+  GtkEventController *macro_keys;  /* Ctrl+Shift+letter for the book's macros */
   GtkWidget  *scripts_bar;     /* "this book has scripts", shown on opening one */
   O42Grid    *grid;
   GtkWidget  *tabs;
@@ -42,6 +43,7 @@ struct _O42Window {
   GtkWidget  *formula_entry;
   O42Db      *db;              /* the book's database, opened when first wanted */
   GtkWidget  *status_label;
+  char       *status_text;     /* what a script set the status bar to, or NULL */
   GtkWidget  *status_sum;
 
   GtkWidget  *font_drop;
@@ -100,6 +102,8 @@ void o42_window_show_sheet (O42Window *self, int index);
 /* Runs one of the book's scripts, and takes away the bar that offers
  * to run them. */
 gboolean o42_window_run_script (O42Window *self, const char *name, const char *code);
+/* Opens Scripts in this Book on the script of that name (NULL for the first). */
+void     o42_window_edit_script (O42Window *self, const char *which);
 void o42_scripts_bar_hide  (O42Window *self);
 gboolean window_book_calls (O42Window *self, const char *name);
 
@@ -152,7 +156,15 @@ void action_protect (GSimpleAction *a, GVariant *p, gpointer data);
 void action_python_console (GSimpleAction *a, GVariant *p, gpointer data);
 void action_python_run (GSimpleAction *a, GVariant *p, gpointer data);
 void action_record_macro (GSimpleAction *a, GVariant *p, gpointer data);
+void action_stop_recording (GSimpleAction *a, GVariant *p, gpointer data);
+void action_relative_refs (GSimpleAction *a, GVariant *p, gpointer data);
+void action_macros (GSimpleAction *a, GVariant *p, gpointer data);
+void action_run_macro (GSimpleAction *a, GVariant *p, gpointer data);
 void action_scripts (GSimpleAction *a, GVariant *p, gpointer data);
+
+/* Binds Ctrl+Shift+letter to the book's macros that ask for one; called
+ * whenever the scripts change. */
+void o42_window_bind_macro_keys (O42Window *self);
 void action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data);
 void action_solver (GSimpleAction *a, GVariant *p, gpointer data);
 void action_spelling (GSimpleAction *a, GVariant *p, gpointer data);

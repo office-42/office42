@@ -10,6 +10,7 @@
 #include "o42-types.h"
 #include "o42-numfmt.h"
 #include "o42-entry.h"
+#include "o42-python.h"
 
 #include <glib/gi18n.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@ struct _O42Application {
   GtkApplication parent_instance;
 
   char *screenshot;      /* --screenshot FILE: render the window and exit */
+  char *py_code;         /* --py CODE: Python run against the window's book */
   char *activate;        /* --activate ACTION: fire a window action first */
   char *select;          /* --select B3: make a cell active first */
   char *type_text;       /* --type "=SUM(": start typing into the cell */
@@ -74,6 +76,7 @@ static const struct {
   { "win.number::percent",    { "<Control><Shift>5", "<Control>percent", NULL } },
   { "win.number::scientific", { "<Control><Shift>6", "<Control>asciicircum", NULL } },
   { "win.full-screen", { "F11", NULL } },
+  { "win.macros",     { "<Alt>F8", NULL } },
   { "app.quit",       { "<Control>q", NULL } },
 };
 
@@ -192,6 +195,9 @@ o42_application_startup (GApplication *app)
   load_css ();
   load_icons ();
   apply_prefs ();
+  /* The user's personal scripts define functions every book may use;
+   * they are run now so that a file's formulas find them. */
+  o42_python_start ();
 
   for (guint i = 0; i < G_N_ELEMENTS (ACCELS); i++)
     gtk_application_set_accels_for_action (GTK_APPLICATION (app),
@@ -468,6 +474,12 @@ fire_activate (gpointer data)
         o42_window_select_cell (O42_WINDOW (windows->data), row, col);
     }
 
+  /* --py "print(office42.selection)" runs in the window, as the console
+   * would, and prints what it printed: how the window's side of the
+   * Python API is checked from a script. */
+  if (windows != NULL && self->py_code != NULL)
+    o42_window_run_python (O42_WINDOW (windows->data), self->py_code);
+
   return G_SOURCE_REMOVE;
 }
 
@@ -478,7 +490,7 @@ arm_screenshot (O42Application *self)
    * and half of one for a dialog to follow. */
   if (self->activate != NULL || self->select != NULL ||
       self->type_text != NULL || self->point != NULL || self->keys != NULL ||
-      self->bar_text != NULL)
+      self->bar_text != NULL || self->py_code != NULL)
     g_timeout_add (500, fire_activate, self);
   if (self->screenshot != NULL)
     g_timeout_add (1000, take_screenshot, self);
@@ -611,6 +623,14 @@ o42_application_handle_local_options (GApplication *app, GVariantDict *options)
       self->select = g_strdup (path);
     }
 
+  if (g_variant_dict_lookup (options, "py", "&s", &path))
+    {
+      g_free (self->py_code);
+      self->py_code = g_strdup (path);
+      g_application_set_flags (app, g_application_get_flags (app) |
+                                    G_APPLICATION_NON_UNIQUE);
+    }
+
   return -1;
 }
 
@@ -624,6 +644,7 @@ o42_application_finalize (GObject *object)
   g_free (O42_APPLICATION (object)->point);
   g_free (O42_APPLICATION (object)->bar_text);
   g_free (O42_APPLICATION (object)->keys);
+  g_free (O42_APPLICATION (object)->py_code);
   G_OBJECT_CLASS (o42_application_parent_class)->finalize (object);
 }
 
@@ -667,6 +688,9 @@ o42_application_init (O42Application *self)
   g_application_add_main_option (G_APPLICATION (self), "select", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Make a cell active (e.g. B3) before the screenshot", "CELL");
+  g_application_add_main_option (G_APPLICATION (self), "py", 0,
+                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+                                 "Run Python in the window and print what it prints", "CODE");
 }
 
 O42Application *

@@ -225,14 +225,24 @@
         </submenu>
       </section>
       <section>
-        <item><attribute name="label" translatable="yes">_Python Console...</attribute><attribute name="action">win.python-console</attribute></item>
-        <item><attribute name="label" translatable="yes">_Run Python Script...</attribute><attribute name="action">win.python-run</attribute></item>
-        <item><attribute name="label" translatable="yes">_Scripts in this Book...</attribute><attribute name="action">win.scripts</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Macro</attribute>
+          <section>
+            <item><attribute name="label" translatable="yes">_Macros...</attribute><attribute name="action">win.macros</attribute></item>
+            <item><attribute name="label" translatable="yes">_Record Macro</attribute><attribute name="action">win.record-macro</attribute></item>
+            <item><attribute name="label" translatable="yes">_Stop Recording</attribute><attribute name="action">win.stop-recording</attribute></item>
+            <item><attribute name="label" translatable="yes">Use Re_lative References</attribute><attribute name="action">win.relative-refs</attribute></item>
+          </section>
+          <section>
+            <item><attribute name="label" translatable="yes">_Scripts in this Book...</attribute><attribute name="action">win.scripts</attribute></item>
+            <item><attribute name="label" translatable="yes">_Python Console...</attribute><attribute name="action">win.python-console</attribute></item>
+            <item><attribute name="label" translatable="yes">Run Python Script _File...</attribute><attribute name="action">win.python-run</attribute></item>
+          </section>
+        </submenu>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">Statistical _Analysis...</attribute><attribute name="action">win.analysis</attribute></item>
         <item><attribute name="label" translatable="yes">_Spelling...</attribute><attribute name="action">win.spelling</attribute></item>
-        <item><attribute name="label" translatable="yes">_Record Macro</attribute><attribute name="action">win.record-macro</attribute></item>
         <item><attribute name="label" translatable="yes">Custom _Lists...</attribute><attribute name="action">win.custom-lists</attribute></item>
         <item><attribute name="label" translatable="yes">_Options...</attribute><attribute name="action">win.options</attribute></item>
       </section>

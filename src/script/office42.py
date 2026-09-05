@@ -78,6 +78,14 @@ def _to_input(value):
     return str(value)
 
 
+def _shift_is_vertical(shift, vertical, horizontal):
+    if shift == vertical:
+        return True
+    if shift == horizontal:
+        return False
+    raise ValueError("shift is %r or %r" % (vertical, horizontal))
+
+
 class Range:
     """A rectangle of cells on a sheet."""
 
@@ -209,8 +217,144 @@ class Range:
         finally:
             _c.end(i)
 
+    def formula_from(self, text, origin):
+        """Puts a formula in as if copied from `origin` (a cell address
+        or Range): its relative references move by the distance.  What
+        a macro recorded with relative references writes."""
+        row, col = self._cell_of(origin)
+        self.formula = _c.relocate_formula(str(text), self.row0 - row, self.col0 - col)
+
     def clear(self):
-        self.value = None
+        """Empties the cells, keeping their formats."""
+        _c.clear_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1, False)
+
+    def clear_formats(self):
+        _c.clear_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1, True)
+
+    # -- copying, moving, filling --------------------------------------
+    def _cell_of(self, to):
+        """The top-left cell a target names: a Range, "D1", or (row, col)."""
+        if isinstance(to, Range):
+            return to.row0, to.col0
+        if isinstance(to, str):
+            parsed = _c.ref_parse(to.strip().split(":")[0])
+            if parsed is None:
+                raise ValueError("not a cell: %r" % to)
+            return parsed[0], parsed[1]
+        return to[0], to[1]
+
+    def copy(self, to, mode="all", transpose=False):
+        """Copies the range so that its corner lands on `to`: everything,
+        or only "values", "formats" or "formulas" (Paste Special)."""
+        row, col = self._cell_of(to)
+        _c.copy_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                      row, col, mode, transpose)
+
+    paste_special = copy
+
+    def cut(self, to):
+        """Moves the range to `to`, formulas elsewhere following it."""
+        row, col = self._cell_of(to)
+        _c.move_range(self.sheet.index, self.row0, self.col0, self.row1, self.col1, row, col)
+
+    def fill_down(self):
+        """The first row copied into every other row of the range."""
+        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, True)
+
+    def fill_right(self):
+        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, False)
+
+    def autofill(self, target):
+        """Continues the range's series over `target`, which contains it."""
+        t = target if isinstance(target, Range) else self.sheet.range(target)
+        _c.autofill(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                    t.row0, t.col0, t.row1, t.col1)
+
+    # -- sorting, finding, filtering -----------------------------------
+    def sort(self, keys=0, ascending=True, header=False):
+        """Sorts the rows by up to three key columns, counted from the
+        range's left; `ascending` is one bool or one per key."""
+        _c.sort(self.sheet.index, self.row0, self.col0, self.row1, self.col1, keys, ascending, header)
+
+    def replace(self, old, new, match_case=False):
+        """Replaces text in the cells' inputs; how many cells changed."""
+        return _c.replace(self.sheet.index, self.row0, self.col0, self.row1, self.col1, old, new, match_case)
+
+    def find(self, text, match_case=False, whole_cell=False):
+        """The first cell of the range holding the text, or None."""
+        row, col = self.row0, self.col0 - 1
+        if col < 0:
+            row, col = row - 1, _c.ref_parse("XFD1")[1]
+        first = None
+        while True:
+            # The search wraps round the sheet; seeing the first hit again
+            # means nothing inside the range matched.
+            hit = _c.find(self.sheet.index, text, match_case, whole_cell, row, col)
+            if hit is None or hit == first:
+                return None
+            if first is None:
+                first = hit
+            row, col = hit
+            if self.row0 <= row <= self.row1 and self.col0 <= col <= self.col1:
+                return Range(self.sheet, row, col)
+
+    def remove_duplicates(self, cols=None, header=False):
+        """Removes rows equal in the given columns (counted from the
+        range's left; all of them by default); how many went."""
+        return _c.remove_duplicates(self.sheet.index, self.row0, self.col0, self.row1, self.col1, cols, header)
+
+    def autofilter(self):
+        """Puts the sheet's AutoFilter on this range, its first row headings."""
+        _c.set_autofilter(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
+
+    # -- the window ----------------------------------------------------
+    def select(self, active=None):
+        """Selects the range in the window, with `active` (a cell address
+        or Range inside it, the top-left by default) as the active cell."""
+        row, col = (self.row0, self.col0) if active is None else self._cell_of(active)
+        _c.select(self.sheet.index, self.row0, self.col0, self.row1, self.col1, row, col)
+        return self
+
+    def activate(self):
+        """Makes the top-left cell the active cell, keeping the selection
+        if it is inside it."""
+        try:
+            sel = _selection()
+        except RuntimeError:
+            sel = None
+        if (sel is not None and sel.sheet == self.sheet and
+                sel.row0 <= self.row0 <= sel.row1 and sel.col0 <= self.col0 <= sel.col1):
+            _c.select(self.sheet.index, sel.row0, sel.col0, sel.row1, sel.col1, self.row0, self.col0)
+        else:
+            self.select()
+        return self
+
+    # -- the cells themselves ------------------------------------------
+    def merge(self):
+        """Makes the range one cell, keeping the top-left cell's content."""
+        _c.merge(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
+        return self
+
+    def unmerge(self):
+        """Takes apart every merge the range touches."""
+        _c.unmerge(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
+        return self
+
+    @property
+    def merged(self):
+        """The merged range the top-left cell is in, or None."""
+        r = _c.merged_at(self.sheet.index, self.row0, self.col0)
+        return None if r is None else Range(self.sheet, *r)
+
+    def insert_cells(self, shift="down"):
+        """Insert > Cells: empty cells here, the rest moved down or right."""
+        _c.shift_cells(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                       _shift_is_vertical(shift, "down", "right"), True)
+
+    def delete_cells(self, shift="up"):
+        """Edit > Delete: the cells go, and the rest move up or left."""
+        _c.shift_cells(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                       _shift_is_vertical(shift, "up", "left"), False)
 
     def __iter__(self):
         """The values, row by row."""
@@ -229,12 +373,19 @@ class Range:
     # -- formats -------------------------------------------------------
     def format(self, **properties):
         """Formats the range: bold, italic, underline, strikeout, wrap,
-        borders, size (points), family, colour, fill (None for none),
-        halign ('general', 'left', 'centre', 'right'), valign
-        ('bottom', 'middle', 'top'), number ('general', 'fixed',
-        'comma', 'currency', 'percent', 'scientific', 'text', 'date',
-        'time', 'datetime', or a format code like '#,##0.00'),
-        decimals."""
+        borders (True, False or a style: 'thin', 'medium', 'thick',
+        'double', 'dashed', 'dotted') with border_colour, or one side at
+        a time as border_top / border_bottom / border_left /
+        border_right and border_top_colour and so on; size (points),
+        family, colour, fill (None for none), pattern (Excel's names:
+        'solid', 'darkGray', 'mediumGray', 'lightGray', 'gray125',
+        'gray0625', 'darkHorizontal' ... 'lightTrellis'; None for none)
+        and pattern_colour, halign ('general',
+        'left', 'centre', 'right'), valign ('bottom', 'middle', 'top'),
+        number ('general', 'fixed', 'comma', 'currency', 'percent',
+        'scientific', 'text', 'date', 'time', 'datetime', or a format
+        code like '#,##0.00'), decimals, locked and hidden (for a
+        protected sheet)."""
         _c.set_format(self.sheet.index, self.row0, self.col0, self.row1, self.col1, **properties)
         return self
 
@@ -313,8 +464,91 @@ class Sheet:
 
     def evaluate(self, formula):
         """The value of a formula on this sheet, without putting it in a cell."""
-        saved = _c.current()
-        return _c.evaluate(formula)
+        return _c.evaluate(formula, self.index)
+
+    # -- rows and columns ----------------------------------------------
+    def insert_rows(self, at, count=1):
+        """Inserts count empty rows before row `at` (0-based)."""
+        _c.insert_rows(self.index, at, count)
+
+    def delete_rows(self, at, count=1):
+        _c.delete_rows(self.index, at, count)
+
+    def insert_cols(self, at, count=1):
+        """Inserts count empty columns before column `at` (0-based)."""
+        _c.insert_cols(self.index, at, count)
+
+    def delete_cols(self, at, count=1):
+        _c.delete_cols(self.index, at, count)
+
+    def row_height(self, row, height=None):
+        """A row's height in pixels; with `height`, sets it."""
+        return _c.row_height(self.index, row) if height is None else _c.row_height(self.index, row, int(height))
+
+    def col_width(self, col, width=None):
+        """A column's width in pixels; with `width`, sets it."""
+        return _c.col_width(self.index, col) if width is None else _c.col_width(self.index, col, int(width))
+
+    def hide_rows(self, first, last=None):
+        _c.set_hidden(self.index, True, first, first if last is None else last, True)
+
+    def unhide_rows(self, first, last=None):
+        _c.set_hidden(self.index, True, first, first if last is None else last, False)
+
+    def hide_cols(self, first, last=None):
+        _c.set_hidden(self.index, False, first, first if last is None else last, True)
+
+    def unhide_cols(self, first, last=None):
+        _c.set_hidden(self.index, False, first, first if last is None else last, False)
+
+    def row_hidden(self, row):
+        return _c.hidden(self.index, True, row)
+
+    def col_hidden(self, col):
+        return _c.hidden(self.index, False, col)
+
+    def freeze(self, rows=0, cols=0):
+        """Freezes so many rows at the top and columns at the left; (0, 0) unfreezes."""
+        return _c.frozen(self.index, rows, cols)
+
+    @property
+    def frozen(self):
+        """(rows, cols) frozen at the top and left."""
+        return _c.frozen(self.index)
+
+    # -- finding and filtering -----------------------------------------
+    def replace(self, old, new, match_case=False):
+        """Replaces text in every cell of the sheet; how many changed."""
+        return _c.replace(self.index, -1, -1, -1, -1, old, new, match_case)
+
+    def find(self, text, match_case=False, whole_cell=False, after=None):
+        """The next cell holding the text, in reading order from just
+        after `after` (a Range or address; the sheet's start by default),
+        wrapping round; None if there is none."""
+        if after is None:
+            row, col = -1, _c.ref_parse("XFD1")[1]
+        else:
+            r = after if isinstance(after, Range) else self.range(after)
+            row, col = r.row0, r.col0
+        hit = _c.find(self.index, text, match_case, whole_cell, row, col)
+        return None if hit is None else Range(self, *hit)
+
+    @property
+    def autofilter(self):
+        """The range the AutoFilter is on, or None."""
+        r = _c.get_autofilter(self.index)
+        return None if r is None else Range(self, *r)
+
+    def clear_autofilter(self):
+        _c.set_autofilter(self.index, -1, -1, -1, -1)
+
+    def autofilter_choose(self, col, value):
+        """Shows only the rows whose cell in column `col` (an absolute
+        index) reads `value`; None for all of them again."""
+        _c.autofilter_choose(self.index, col, value)
+
+    def autofilter_choice(self, col):
+        return _c.autofilter_choose(self.index, col)
 
 
 class Book:
@@ -350,8 +584,18 @@ class Book:
     def add_sheet(self, name, index=-1):
         return Sheet(_c.add_sheet(name, index))
 
+    def _sheet(self, which):
+        return which if isinstance(which, Sheet) else self[which]
+
     def remove_sheet(self, which):
-        _c.remove_sheet(which.index if isinstance(which, Sheet) else self[which].index)
+        _c.remove_sheet(self._sheet(which).index)
+
+    def rename_sheet(self, which, name):
+        self._sheet(which).name = name
+
+    def move_sheet(self, which, to):
+        """Moves a sheet so that it is the `to`th tab (0-based)."""
+        _c.move_sheet(self._sheet(which).index, to)
 
     @property
     def names(self):
@@ -367,9 +611,18 @@ class Book:
         """The code of a stored script."""
         return _c.get_script(name)
 
-    def set_script(self, name, code):
-        """Stores code in the book under a name; saved with the file."""
+    def set_script(self, name, code, shortcut=None, description=None):
+        """Stores code in the book under a name; saved with the file.
+        `shortcut` is a letter for Ctrl+Shift+letter, "" for none."""
         _c.set_script(name, code)
+        if shortcut is not None or description is not None:
+            key, about = _c.script_info(name)
+            _c.script_options(name, key if shortcut is None else shortcut,
+                              about if description is None else description)
+
+    def script_info(self, name):
+        """A stored script's (shortcut letter or "", description)."""
+        return _c.script_info(name)
 
     def remove_script(self, name):
         return _c.remove_script(name)
@@ -379,9 +632,115 @@ class Book:
         _bind()
         exec(compile(_c.get_script(name), name, "exec"), _namespace)
 
+    # -- the file ------------------------------------------------------
+    @property
+    def path(self):
+        """The file the book was opened from or saved to, or None."""
+        return _c.path()
+
+    def save(self):
+        """Saves the book to its file; a book without one asks for it."""
+        _c.save(None)
+
+    def save_as(self, path):
+        """Saves the book to `path`; the extension picks the format."""
+        _c.save(str(path))
+
+    def close(self):
+        """Closes the book's window, asking about unsaved work first."""
+        _c.close()
+
 
 book = Book()
 sheet = None      # bound before each run
+
+
+class Application:
+    """What Excel calls Application: the program around the book."""
+
+    screen_updating = True      # kept for scripts that set it; nothing waits on it
+    display_alerts = True
+
+    def __repr__(self):
+        return "<Application office42 %s>" % __version__
+
+    @property
+    def selection(self):
+        return _selection()
+
+    @property
+    def active_cell(self):
+        return _active_cell()
+
+    @property
+    def active_sheet(self):
+        return book.active
+
+    def calculate(self):
+        """Works out every formula in the book now: F9."""
+        _c.calculate()
+
+    calculate_full = calculate
+
+    @property
+    def status(self):
+        return None
+
+    @status.setter
+    def status(self, text):
+        """The status bar's text; None or "" for the usual one."""
+        _c.status("" if text is None else str(text))
+
+    status_bar = status
+
+    def msgbox(self, text):
+        return msgbox(text)
+
+    def inputbox(self, prompt, default=""):
+        return inputbox(prompt, default)
+
+
+app = Application()
+
+
+def msgbox(text):
+    """A message box, waited for."""
+    _c.message(str(text))
+
+
+def inputbox(prompt, default=""):
+    """Asks the user for a line of text; None if they cancel."""
+    return _c.input(str(prompt), str(default))
+
+
+def open(path):
+    """Opens a file in a window of its own."""
+    _c.open(str(path))
+
+
+def personal_folder():
+    """The folder whose .py files run when Python starts, for every book."""
+    return _c.personal_folder()
+
+
+def _selection():
+    i, r0, c0, r1, c1, _, _ = _c.selection()
+    return Range(Sheet(i), r0, c0, r1, c1)
+
+
+def _active_cell():
+    i, _, _, _, _, row, col = _c.selection()
+    return Range(Sheet(i), row, col)
+
+
+def __getattr__(name):
+    """office42.selection and office42.active_cell are asked of the
+    window each time, which is why they are not plain names."""
+    if name == "selection":
+        return _selection()
+    if name == "active_cell":
+        return _active_cell()
+    raise AttributeError("module 'office42' has no attribute %r" % name)
 
 
 def evaluate(formula):
@@ -396,7 +755,12 @@ def functions():
 
 # ---- Functions for cells -----------------------------------------------
 
-_functions = {}
+# A book's scripts define functions for that book; the personal scripts
+# define them for every book.  The evaluator knows a name once; which
+# function answers it is decided here, by the book on show.
+_functions = {}             # name -> fn, the personal ones and PY
+_book_functions = {}        # book id -> {name: fn}
+_loading_personal = False
 
 
 def function(f=None, *, name=None, min_args=None, max_args=None, summary=None):
@@ -419,15 +783,29 @@ def function(f=None, *, name=None, min_args=None, max_args=None, summary=None):
         hi = -1 if any(p.kind == p.VAR_POSITIONAL for p in params) else len(params)
         signature = "%s(%s)" % (fname, ", ".join(p.name for p in params))
         doc = summary or (fn.__doc__ or "").strip().split("\n")[0] or "A function from a script."
-        _functions[fname] = fn
+        owner = _c.book_id()
+        if owner == 0 or _loading_personal:
+            _functions[fname] = fn
+        else:
+            _book_functions.setdefault(owner, {})[fname] = fn
         _c.define(fname, lo if min_args is None else min_args, hi if max_args is None else max_args, signature, doc)
         return fn
     return register(f) if f is not None else register
 
 
+def _lookup(name):
+    """The function answering NAME for the book on show, if any."""
+    fn = _book_functions.get(_c.book_id(), {}).get(name)
+    return _functions.get(name) if fn is None else fn
+
+
+def _defined_elsewhere(name, owner):
+    return name in _functions or any(name in fns for who, fns in _book_functions.items() if who != owner)
+
+
 def _call(name, args):
     """Called from C for =NAME(...) in a cell."""
-    fn = _functions.get(name)
+    fn = _lookup(name)
     if fn is None:
         return Error("#NAME?")
     try:
@@ -507,10 +885,43 @@ def _run(code, filename="<console>"):
     return ok, out.getvalue()
 
 
-def _reset():
-    for name in list(_functions):
-        if name != "PY":
+def _forget_book(owner):
+    """The book is going, or its scripts are being forgotten."""
+    for name in _book_functions.pop(owner, {}):
+        if not _defined_elsewhere(name, owner):
             _c.undefine(name)
-            del _functions[name]
+
+
+def _reset(owner):
+    _forget_book(owner)
     _namespace.clear()
     del _errors[:]
+
+
+# ---- Personal scripts --------------------------------------------------
+
+personal_scripts = []      # (path, error or None), as loaded at start
+
+
+def _load_personal(paths):
+    """Runs each personal script once, each in a namespace of its own,
+    so that what they define with @office42.function is there in every
+    book.  A script that fails is noted, not fatal."""
+    global _loading_personal
+    del personal_scripts[:]
+    _loading_personal = True
+    try:
+        for path in paths:
+            try:
+                with io.open(path, encoding="utf-8") as f:
+                    code = f.read()
+                space = {"__name__": "__personal__", "__file__": path,
+                         "office42": sys.modules[__name__]}
+                exec(compile(code, path, "exec"), space)
+                personal_scripts.append((path, None))
+            except Exception:
+                trace = traceback.format_exc().strip().split("\n")[-1]
+                personal_scripts.append((path, trace))
+                _errors.append("%s: %s" % (path, trace))
+    finally:
+        _loading_personal = False
