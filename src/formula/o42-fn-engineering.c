@@ -59,11 +59,13 @@ number_to_base (double v, int base, int places, gboolean have_places)
   u = (gint64) trunc (v);
   if (u < 0) u += (gint64) 1 << bits;
   do { buf[len++] = digits[u % base]; u /= base; } while (u > 0);
-  if (have_places)
+  /* A negative number fills the ten places whatever was asked, as
+   * Excel's does; for a positive one places is a minimum, and too few
+   * or more than ten is #NUM!. */
+  if (have_places && v >= 0)
     {
       if (places < len || places > 10) return o42_value_error (O42_ERR_NUM);
-      if (v >= 0)
-        while (len < places) buf[len++] = '0';
+      while (len < places) buf[len++] = '0';
     }
   {
     char *out = g_new (char, len + 1);
@@ -263,8 +265,8 @@ o42_complex_format (double re, double im, char suffix)
 {
   char rbuf[G_ASCII_DTOSTR_BUF_SIZE], ibuf[G_ASCII_DTOSTR_BUF_SIZE];
 
-  g_ascii_formatd (rbuf, sizeof rbuf, "%.15g", re);
-  g_ascii_formatd (ibuf, sizeof ibuf, "%.15g", fabs (im));
+  g_ascii_formatd (rbuf, sizeof rbuf, "%.15G", re);
+  g_ascii_formatd (ibuf, sizeof ibuf, "%.15G", fabs (im));
   if (im == 0)
     return g_strdup (rbuf);
   if (re == 0)
@@ -346,7 +348,12 @@ fn_imsum (O42EvalContext *ctx, O42Operand *args, int n)
   for (int i = 0; i < n; i++)
     {
       double re, im;
-      ARG_COMPLEX (i, re, im, sfx);
+      char one;
+      ARG_COMPLEX (i, re, im, one);
+      /* i and j in one sum do not mix, as Excel has it. */
+      if (i > 0 && one != sfx && im != 0)
+        return o42_value_error (O42_ERR_VALUE);
+      if (i == 0 || im != 0) sfx = one;
       sre += re; sim += im;
     }
   return o42_value_take (complex_format (sre, sim, sfx));

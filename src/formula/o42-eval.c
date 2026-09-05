@@ -1015,6 +1015,21 @@ fn_power (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, base);
   ARG_NUMBER (1, exponent);
 
+  /* Excel's edges: 0^0 is #NUM!, 0 to a negative power #DIV/0!, and a
+   * negative base to 1/3 (or any odd root) is the real root, -2. */
+  if (base == 0 && exponent == 0)
+    return o42_value_error (O42_ERR_NUM);
+  if (base == 0 && exponent < 0)
+    return o42_value_error (O42_ERR_DIV0);
+  if (base < 0 && exponent != floor (exponent))
+    {
+      double inverse = 1 / exponent;
+      double odd = round (inverse);
+
+      if (fabs (inverse - odd) < 1e-9 && fmod (fabs (odd), 2) == 1)
+        return o42_value_number (-pow (-base, exponent));
+      return o42_value_error (O42_ERR_NUM);
+    }
   result = pow (base, exponent);
   if (isnan (result) || isinf (result))
     return o42_value_error (O42_ERR_NUM);
@@ -1033,6 +1048,9 @@ fn_mod (O42EvalContext *ctx, O42Operand *args, int n)
 
   if (b == 0.0)
     return o42_value_error (O42_ERR_DIV0);
+  /* Excel's MOD gives up when the quotient would be 2^27 or more. */
+  if (fabs (a) >= fabs (b) * 134217728.0)
+    return o42_value_error (O42_ERR_NUM);
 
   /* A spreadsheet's MOD takes the sign of the divisor, so MOD(-1,3) is 2
    * and not -1 the way C's fmod would have it. */
@@ -2313,6 +2331,32 @@ fn_sumproduct (O42EvalContext *ctx, O42Operand *args, int n)
   int rows, cols;
   double total = 0;
 
+  /* Plain numbers multiply out: SUMPRODUCT(2,3) is 6, and a product too
+   * large for a double is #NUM!. */
+  {
+    gboolean all_values = TRUE;
+    double product = 1;
+
+    for (int i = 0; i < n && all_values; i++)
+      all_values = !args[i].is_range;
+    if (all_values)
+      {
+        for (int i = 0; i < n; i++)
+          {
+            O42Value v = operand_value (ctx, &args[i]);
+            double d = 0;
+            O42ErrorCode e = O42_ERR_VALUE;
+
+            if (v.type == O42_VALUE_ERROR)
+              return v;
+            if (!o42_value_to_number (&v, &d, &e))
+              d = 0;
+            o42_value_clear (&v);
+            product *= d;
+          }
+        return isinf (product) || isnan (product) ? o42_value_error (O42_ERR_NUM) : o42_value_number (product);
+      }
+  }
   for (int i = 0; i < n; i++)
     if (!args[i].is_range)
       return o42_value_error (O42_ERR_VALUE);
@@ -2348,6 +2392,8 @@ fn_sumproduct (O42EvalContext *ctx, O42Operand *args, int n)
         total += product;
       }
 
+  if (isinf (total) || isnan (total))
+    return o42_value_error (O42_ERR_NUM);   /* too large a product */
   return o42_value_number (total);
 }
 
@@ -8392,8 +8438,13 @@ fn_mdeterm (O42EvalContext *ctx, O42Operand *args, int n)
   (void) n;
 
   if (!args[0].is_range)
-    return args[0].value.type == O42_VALUE_ERROR ? o42_value_copy (&args[0].value)
-                                                  : o42_value_error (O42_ERR_VALUE);
+    {
+      /* A number is a one-by-one matrix, its own determinant. */
+      if (args[0].value.type == O42_VALUE_NUMBER)
+        return o42_value_number (args[0].value.as.number);
+      return args[0].value.type == O42_VALUE_ERROR ? o42_value_copy (&args[0].value)
+                                                    : o42_value_error (O42_ERR_VALUE);
+    }
   r = &args[0].range;
   size = r->row1 - r->row0 + 1;
   if (size != r->col1 - r->col0 + 1) return o42_value_error (O42_ERR_VALUE);
@@ -8566,6 +8617,10 @@ fn_t_inv (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, p);
   ARG_NUMBER (1, df);
   if (p <= 0 || p >= 1 || df < 1) return o42_value_error (O42_ERR_NUM);
+  /* The t is symmetric: the middle is 0 exactly, and the lower half is
+   * the upper half's mirror, which the bisection alone does not know. */
+  if (p == 0.5) return o42_value_number (0);
+  if (p < 0.5) return o42_value_number (-invert_cdf (t_cdf, 1 - p, floor (df), 0, -1e6, 1e6));
   return o42_value_number (invert_cdf (t_cdf, p, floor (df), 0, -1e6, 1e6));
 }
 
@@ -8600,6 +8655,7 @@ fn_chisq_inv (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, p);
   ARG_NUMBER (1, df);
   if (p < 0 || p >= 1 || df < 1) return o42_value_error (O42_ERR_NUM);
+  if (p == 0) return o42_value_number (0);
   return o42_value_number (invert_cdf (chi_cdf, p, floor (df), 0, 0, 1e6));
 }
 
@@ -9536,6 +9592,8 @@ static const Unit UNITS[] = {
   { "mph", 11, 0.44704, FALSE }, { "kn", 11, 0.514444444444444, FALSE }, { "admkn", 11, 0.514773333333333, FALSE },
   { "bit", 12, 1, TRUE }, { "byte", 12, 8, TRUE },
   { "C", 13, 0, FALSE }, { "cel", 13, 0, FALSE }, { "F", 13, 0, FALSE }, { "fah", 13, 0, FALSE }, { "K", 13, 0, TRUE }, { "kel", 13, 0, TRUE },
+  { "Rank", 13, 0, FALSE }, { "Reau", 13, 0, FALSE },
+  { "Pica", 2, 0.0254 / 72, FALSE }, { "pica", 2, 0.0254 / 6, FALSE },
 };
 
 static const struct { const char *prefix; double factor; } PREFIXES[] = {
@@ -9584,9 +9642,13 @@ fn_convert (O42EvalContext *ctx, O42Operand *args, int n)
       double k;
       if (uf->unit[0] == 'C' || uf->unit[0] == 'c') k = x + 273.15;
       else if (uf->unit[0] == 'F' || uf->unit[0] == 'f') k = (x - 32) * 5 / 9 + 273.15;
+      else if (strcmp (uf->unit, "Rank") == 0) k = x * 5 / 9;
+      else if (strcmp (uf->unit, "Reau") == 0) k = x * 5 / 4 + 273.15;
       else k = x * ff;
       if (ut->unit[0] == 'C' || ut->unit[0] == 'c') return o42_value_number (k - 273.15);
       if (ut->unit[0] == 'F' || ut->unit[0] == 'f') return o42_value_number ((k - 273.15) * 9 / 5 + 32);
+      if (strcmp (ut->unit, "Rank") == 0) return o42_value_number (k * 9 / 5);
+      if (strcmp (ut->unit, "Reau") == 0) return o42_value_number ((k - 273.15) * 4 / 5);
       return o42_value_number (k / tf);
     }
   return o42_value_number (x * uf->factor * ff / (ut->factor * tf));
@@ -9731,7 +9793,8 @@ fn_confidence_t (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (1, sd);
   ARG_NUMBER (2, size);
   size = floor (size);
-  if (alpha <= 0 || alpha >= 1 || sd <= 0 || size < 2) return o42_value_error (O42_ERR_NUM);
+  if (alpha <= 0 || alpha >= 1 || sd <= 0 || size < 1) return o42_value_error (O42_ERR_NUM);
+  if (size == 1) return o42_value_error (O42_ERR_DIV0);   /* no degrees of freedom */
   return o42_value_number (invert_cdf (t_cdf, 1 - alpha / 2, size - 1, 0, 0, 1e6) * sd / sqrt (size));
 }
 
@@ -9824,7 +9887,7 @@ fn_factdouble (O42EvalContext *ctx, O42Operand *args, int n)
   (void) n;
   ARG_NUMBER (0, x);
   x = floor (x);
-  if (x < -1 || x > 300) return o42_value_error (O42_ERR_NUM);
+  if (x < 0 || x > 300) return o42_value_error (O42_ERR_NUM);
   for (double k = x; k > 1; k -= 2) r *= k;
   return o42_value_number (r);
 }
@@ -11161,7 +11224,19 @@ binary_values (O42Op op, O42Value a, O42Value b)
 
     case O42_OP_POW:
       {
-        double p = pow (x, y);
+        /* The same edges as POWER: 0^0 #NUM!, 0^-1 #DIV/0!, (-8)^(1/3) -2. */
+        double p;
+        if (x == 0 && y == 0) { result = o42_value_error (O42_ERR_NUM); break; }
+        if (x == 0 && y < 0) { result = o42_value_error (O42_ERR_DIV0); break; }
+        if (x < 0 && y != floor (y))
+          {
+            double inverse = 1 / y, odd = round (inverse);
+            if (fabs (inverse - odd) < 1e-9 && fmod (fabs (odd), 2) == 1)
+              { result = o42_value_number (-pow (-x, y)); break; }
+            result = o42_value_error (O42_ERR_NUM);
+            break;
+          }
+        p = pow (x, y);
         result = (isnan (p) || isinf (p)) ? o42_value_error (O42_ERR_NUM)
                                           : o42_value_number (p);
         break;

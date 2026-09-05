@@ -347,6 +347,8 @@ fn_poisson (O42EvalContext *ctx, O42Operand *args, int n)
   x = floor (x);
   if (x < 0 || mean < 0)
     return o42_value_error (O42_ERR_NUM);
+  if (mean == 0)
+    return o42_value_number (1);   /* every outcome is 0 */
   if (!cumulative)
     return o42_value_number (exp (x * log (mean) - mean - lgamma (x + 1)));
   /* The cumulative Poisson is the complement of an incomplete gamma. */
