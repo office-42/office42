@@ -522,7 +522,16 @@ section_is_date (const Section *s)
       if (*p == '"') { quoted = !quoted; continue; }
       if (quoted) continue;
       if (*p == '\\') { p++; continue; }
-      if (*p == '[') { bracket = TRUE; continue; }
+      if (*p == '[')
+        {
+          /* [h], [mm], [s]: elapsed time, which is a date section too. */
+          const char *q = p + 1;
+          while (q < s->end && strchr ("hHmMsS", *q) != NULL) q++;
+          if (q > p + 1 && q < s->end && *q == ']')
+            return TRUE;
+          bracket = TRUE;
+          continue;
+        }
       if (*p == ']') { bracket = FALSE; continue; }
       if (bracket) continue;
       if (strchr ("yYdDhHsS", *p) != NULL)
@@ -711,6 +720,14 @@ format_date_section (GString *out, const Section *s, double n)
 
   o42_date_from_serial (n, &y, &mo, &d);
   o42_time_from_serial (n, &h, &mi, &sec);
+  if (n >= 0 && n < 1)
+    {
+      /* Serial 0 is the day before the epoch, which Excel calls
+       * January 0, 1900. */
+      y = 1900;
+      mo = 1;
+      d = 0;
+    }
 
   /* Twelve-hour clock if AM/PM appears anywhere in the section. */
   for (p = s->start; p < s->end; p++)
@@ -738,28 +755,38 @@ format_date_section (GString *out, const Section *s, double n)
         }
       if (c == '[')
         {
-          /* [h], [m], [s]: elapsed time; colours are skipped. */
+          /* [h], [mm], [s]: elapsed time, the whole of it in that
+           * unit, with as many figures at least as letters; colours
+           * and the like are skipped. */
           const char *close = memchr (p, ']', (gsize) (s->end - p));
+          int letters = close != NULL ? (int) (close - p - 1) : 0;
+          char unit = letters > 0 ? g_ascii_tolower (p[1]) : '\0';
+          gboolean same = TRUE;
+
           if (close == NULL) { p++; continue; }
-          if (close - p == 2 && (p[1] == 'h' || p[1] == 'H'))
-            g_string_append_printf (out, "%d", (int) floor (n * 24));
-          else if (close - p == 2 && (p[1] == 'm' || p[1] == 'M'))
-            g_string_append_printf (out, "%d", (int) floor (n * 24 * 60));
-          else if (close - p == 2 && (p[1] == 's' || p[1] == 'S'))
-            g_string_append_printf (out, "%d", (int) floor (n * 24 * 3600));
-          last_was_hour = (close - p == 2 && (p[1] == 'h' || p[1] == 'H'));
+          for (int i = 1; i <= letters; i++)
+            if (g_ascii_tolower (p[i]) != unit)
+              same = FALSE;
+          if (same && unit == 'h')
+            g_string_append_printf (out, "%0*.0f", letters, floor (n * 24 + 1e-9));
+          else if (same && unit == 'm')
+            g_string_append_printf (out, "%0*.0f", letters, floor (n * 24 * 60 + 1e-9));
+          else if (same && unit == 's')
+            g_string_append_printf (out, "%0*.0f", letters, floor (n * 24 * 3600 + 1e-9));
+          last_was_hour = same && unit == 'h';
           p = close + 1;
           continue;
         }
       if (g_ascii_strncasecmp (p, "AM/PM", 5) == 0)
         {
-          g_string_append (out, h < 12 ? "AM" : "PM");
+          /* In the case the code was written: am/pm gives am. */
+          g_string_append (out, h < 12 ? (p[0] == 'a' ? "am" : "AM") : (p[3] == 'p' ? "pm" : "PM"));
           p += 5;
           continue;
         }
       if (g_ascii_strncasecmp (p, "A/P", 3) == 0)
         {
-          g_string_append (out, h < 12 ? "A" : "P");
+          g_string_append (out, h < 12 ? (p[0] == 'a' ? "a" : "A") : (p[2] == 'p' ? "p" : "P"));
           p += 3;
           continue;
         }
@@ -788,6 +815,13 @@ format_date_section (GString *out, const Section *s, double n)
 
             if (minutes)
               g_string_append_printf (out, run >= 2 ? "%02d" : "%d", mi);
+            else if (run >= 5)
+              {
+                /* The month's initial, mmmmm: M for March, and for May. */
+                char initial[8] = { 0 };
+                g_unichar_to_utf8 (g_utf8_get_char (months[mo - 1]), initial);
+                g_string_append (out, initial);
+              }
             else if (run >= 4)
               g_string_append (out, months[mo - 1]);
             else if (run == 3)
@@ -873,20 +907,23 @@ format_number_section (GString *out, const Section *s, double n)
                 int_zero_place = TRUE;
             }
           seen_digit = TRUE;
-          scale_commas = 0;
         }
       else if (*p == '.' && !exponent)
         seen_point = TRUE;
-      else if (*p == ',' && seen_digit && !seen_point && !exponent)
+      else if (*p == ',' && seen_digit && !exponent)
         {
           /* A comma between digits groups; commas after the last digit
-           * before the point each divide by a thousand. */
+           * -- before the point, or after the decimals -- each divide
+           * by a thousand. */
           const char *q = p + 1;
           while (q < s->end && *q == ',') q++;
           if (q < s->end && (*q == '0' || *q == '#' || *q == '?'))
-            grouping = TRUE;
-          else
-            scale_commas++;
+            {
+              if (!seen_point)
+                grouping = TRUE;
+            }
+          else if (q >= s->end || *q != '.')
+            scale_commas += (int) (q - p);
           p = q - 1;
         }
       else if (*p == '%')
@@ -910,8 +947,10 @@ format_number_section (GString *out, const Section *s, double n)
        * point, as in Excel's 0.00E+00 versus ##0.0E+0. */
       if (n != 0)
         {
+          /* ##0.0E+0 keeps the exponent a multiple of three and up to
+           * three figures before the point: 1234 is 1.2E+3, 12345 is
+           * 12.3E+3, which is the engineers' form. */
           exp10 = (int) floor (log10 (fabs (n)));
-          exp10 -= MAX (int_places, 1) - 1;
           if (int_places > 1)
             exp10 = (int) floor ((double) exp10 / int_places) * int_places;
           n /= pow (10, exp10);
@@ -1124,6 +1163,11 @@ o42_format_string (const char *format, double n, const char *text)
             return o42_number_format (negative && count >= 2 ? -n : n, O42_NUM_GENERAL, 0);
         }
     }
+
+  /* A date before the epoch or after 9999 has no picture: Excel's
+   * TEXT says #VALUE!, and its cell fills with hashes. */
+  if (section_is_date (use) && (negative || n >= 2958466.0))
+    return g_strdup ("#VALUE!");
 
   out = g_string_new (NULL);
 
