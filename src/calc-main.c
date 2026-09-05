@@ -44,6 +44,7 @@
 #include "o42-spell.h"
 #include "o42-book.h"
 #include "o42-eval.h"
+#include "o42-eval-steps.h"
 #include "o42-csv.h"
 #include "o42-text-formats.h"
 #include "o42-lotus.h"
@@ -180,6 +181,7 @@ main (int argc, char *argv[])
               "Python    py pyfile script scripts runscript delscript record\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
+              "          evaluate\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
               "section 19 says what each does; --functions lists every function.\n");
@@ -262,6 +264,42 @@ main (int argc, char *argv[])
             o42_sheet_set_tab_colour (sheet, O42_TAB_NO_COLOUR);
           else
             o42_sheet_set_tab_colour (sheet, (guint32) g_ascii_strtoull (arg, NULL, 16) & 0xFFFFFF);
+          continue;
+        }
+
+      /* "evaluate A1" works the cell's formula out a step at a time,
+       * printing each stage with the part that goes next in [brackets]:
+       * what Tools > Formula Auditing > Evaluate Formula shows. */
+      if (g_str_has_prefix (text, "evaluate "))
+        {
+          int r, c;
+
+          if (o42_ref_parse (text + 9, &r, &c, NULL) && o42_sheet_has_formula (sheet, r, c))
+            {
+              char *input = o42_sheet_get_input (sheet, r, c);
+              O42Node *tree = o42_formula_parse (input[0] == '=' ? input + 1 : input);
+              O42Stepper *stepper = o42_stepper_new (o42_sheet_eval_context (sheet), tree, r, c);
+
+              for (int guard = 0; guard < 1000; guard++)
+                {
+                  int start = -1, length = 0;
+                  char *s = o42_stepper_text (stepper, &start, &length);
+
+                  if (start >= 0)
+                    printf ("=%.*s[%.*s]%s\n", start, s, length, s + start, s + start + length);
+                  else
+                    printf ("=%s\n", s);
+                  g_free (s);
+                  if (o42_stepper_done (stepper))
+                    break;
+                  o42_stepper_step (stepper);
+                }
+              o42_stepper_free (stepper);
+              o42_node_free (tree);
+              g_free (input);
+            }
+          else
+            fprintf (stderr, "usage: evaluate A1 (a cell holding a formula)\n");
           continue;
         }
 

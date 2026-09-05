@@ -6880,6 +6880,13 @@ o42_sheet_evaluate_formula (O42Sheet *sheet, const char *text)
   return result;
 }
 
+O42EvalContext *
+o42_sheet_eval_context (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  return &sheet->eval;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Data > Remove Duplicates, Data > Subtotals                              */
 /* ---------------------------------------------------------------------- */

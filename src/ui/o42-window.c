@@ -4599,6 +4599,7 @@ static const GActionEntry ACTIONS[] = {
   { "trace-precedents", action_trace_precedents, NULL, NULL, NULL, { 0 } },
   { "trace-dependents", action_trace_dependents, NULL, NULL, NULL, { 0 } },
   { "clear-arrows",     action_clear_arrows,     NULL, NULL, NULL, { 0 } },
+  { "evaluate-formula", action_evaluate_formula, NULL, NULL, NULL, { 0 } },
   { "tab-colour-none",  action_tab_colour_none,  NULL, NULL, NULL, { 0 } },
   { "move-sheet-right", action_move_sheet_right, NULL, NULL, NULL, { 0 } },
   { "insert-chart",   action_insert_chart,   NULL, NULL, NULL, { 0 } },

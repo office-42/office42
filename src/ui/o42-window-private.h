@@ -135,6 +135,7 @@ void action_ungroup_cols (GSimpleAction *a, GVariant *p, gpointer data);
 /* The actions dialogs-tools.c answers. */
 void action_analysis (GSimpleAction *a, GVariant *p, gpointer data);
 void action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data);
+void action_evaluate_formula (GSimpleAction *a, GVariant *p, gpointer data);
 void action_custom_lists (GSimpleAction *a, GVariant *p, gpointer data);
 void action_custom_views (GSimpleAction *a, GVariant *p, gpointer data);
 void action_goal_seek (GSimpleAction *a, GVariant *p, gpointer data);

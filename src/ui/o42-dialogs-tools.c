@@ -9,6 +9,7 @@
 #include "o42-analysis.h"
 #include "o42-book.h"
 #include "o42-eval.h"
+#include "o42-eval-steps.h"
 #include "o42-formula.h"
 #include "o42-python.h"
 #include "o42-spell.h"
@@ -1186,6 +1187,248 @@ action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data)
 {
   (void) a; (void) p;
   o42_grid_clear_arrows (O42_WINDOW (data)->grid);
+}
+
+/* ---- Tools > Auditing > Evaluate Formula ------------------------------- */
+
+/* Excel's Evaluate Formula: the formula with the part that goes next
+ * underlined, and a button that works that part out.  Step In opens the
+ * formula of the cell about to be read, in the same box, and Step Out
+ * comes back with what it came to.  The levels are a stack of steppers,
+ * the top one on show. */
+typedef struct {
+  O42Stepper *stepper;
+  O42Sheet   *sheet;
+  int         row, col;
+  O42Node    *tree;
+} EvalLevel;
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *where;          /* "Sheet1!B4" */
+  GtkWidget *view;
+  GtkWidget *evaluate, *step_in, *step_out, *restart;
+  GPtrArray *levels;         /* EvalLevel*, the innermost last */
+} EvalPrompt;
+
+static void
+eval_level_free (gpointer data)
+{
+  EvalLevel *level = data;
+
+  o42_stepper_free (level->stepper);
+  o42_node_free (level->tree);
+  g_free (level);
+}
+
+static EvalLevel *
+eval_level_new (O42Sheet *sheet, int row, int col)
+{
+  EvalLevel *level = g_new0 (EvalLevel, 1);
+  char *input = o42_sheet_get_input (sheet, row, col);
+
+  level->sheet = sheet;
+  level->row = row;
+  level->col = col;
+  level->tree = o42_formula_parse (input != NULL && input[0] == '=' ? input + 1 : input != NULL ? input : "");
+  level->stepper = o42_stepper_new (o42_sheet_eval_context (sheet), level->tree, row, col);
+  g_free (input);
+  return level;
+}
+
+static void
+eval_show (EvalPrompt *prompt)
+{
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  int start = -1, length = 0;
+  char *text = o42_stepper_text (level->stepper, &start, &length);
+  char *shown = g_strconcat ("= ", text, NULL);
+  gboolean done = o42_stepper_done (level->stepper);
+  const char *sheet = NULL;
+  int row, col;
+  gboolean can_step_in = FALSE;
+
+  gtk_text_buffer_set_text (buffer, shown, -1);
+  if (start >= 0)
+    {
+      GtkTextIter a, b;
+
+      gtk_text_buffer_get_iter_at_offset (buffer, &a, g_utf8_strlen (shown, start + 2));
+      gtk_text_buffer_get_iter_at_offset (buffer, &b, g_utf8_strlen (shown, start + 2 + length));
+      gtk_text_buffer_apply_tag_by_name (buffer, "next", &a, &b);
+    }
+
+  {
+    char *name = o42_ref_name (level->row, level->col);
+    char *quoted = o42_sheet_name_quote (o42_sheet_get_name (level->sheet));
+    char *where = g_strdup_printf ("%s!%s", quoted, name);
+
+    gtk_label_set_text (GTK_LABEL (prompt->where), where);
+    g_free (where);
+    g_free (quoted);
+    g_free (name);
+  }
+
+  if (!done && o42_stepper_next_is_cell (level->stepper, &sheet, &row, &col))
+    {
+      O42Sheet *target = sheet != NULL ? o42_book_find_sheet (prompt->window->book, sheet) : level->sheet;
+
+      can_step_in = target != NULL && o42_sheet_has_formula (target, row, col);
+    }
+
+  gtk_widget_set_sensitive (prompt->evaluate, !done);
+  gtk_widget_set_sensitive (prompt->step_in, can_step_in);
+  gtk_widget_set_sensitive (prompt->step_out, prompt->levels->len > 1);
+  {
+    char *original = o42_node_to_string (level->tree);
+
+    gtk_widget_set_sensitive (prompt->restart, done || prompt->levels->len > 1 ||
+                              strcmp (text, original) != 0);
+    g_free (original);
+  }
+  g_free (shown);
+  g_free (text);
+}
+
+static void
+on_eval_evaluate (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+
+  (void) w;
+  o42_stepper_step (level->stepper);
+  eval_show (prompt);
+}
+
+static void
+on_eval_step_in (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  const char *sheet = NULL;
+  int row, col;
+  O42Sheet *target;
+
+  (void) w;
+  if (!o42_stepper_next_is_cell (level->stepper, &sheet, &row, &col))
+    return;
+  target = sheet != NULL ? o42_book_find_sheet (prompt->window->book, sheet) : level->sheet;
+  if (target == NULL || !o42_sheet_has_formula (target, row, col))
+    return;
+  g_ptr_array_add (prompt->levels, eval_level_new (target, row, col));
+  eval_show (prompt);
+}
+
+/* Back out with the inner formula's answer: the cell's value, which is
+ * what the steps would have come to. */
+static void
+on_eval_step_out (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *inner, *outer;
+  O42Value value;
+
+  (void) w;
+  if (prompt->levels->len < 2)
+    return;
+  inner = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  o42_sheet_get_value (inner->sheet, inner->row, inner->col, &value);
+  g_ptr_array_remove_index (prompt->levels, prompt->levels->len - 1);
+  outer = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  o42_stepper_substitute (outer->stepper, &value);
+  o42_value_clear (&value);
+  eval_show (prompt);
+}
+
+static void
+on_eval_restart (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level;
+
+  (void) w;
+  while (prompt->levels->len > 1)
+    g_ptr_array_remove_index (prompt->levels, prompt->levels->len - 1);
+  level = g_ptr_array_index (prompt->levels, 0);
+  o42_stepper_restart (level->stepper);
+  eval_show (prompt);
+}
+
+static void
+on_eval_destroy (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+
+  (void) w;
+  g_ptr_array_unref (prompt->levels);
+  g_free (prompt);
+}
+
+void
+action_evaluate_formula (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  EvalPrompt *prompt;
+  GtkWidget *content, *buttons, *scroller;
+  GtkTextBuffer *buffer;
+  int row, col;
+
+  (void) a; (void) p;
+
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  o42_grid_get_active (self->grid, &row, &col);
+  if (!o42_sheet_has_formula (self->sheet, row, col))
+    {
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("Evaluate Formula wants a cell that holds a formula."));
+      return;
+    }
+
+  prompt = g_new0 (EvalPrompt, 1);
+  prompt->window = self;
+  prompt->levels = g_ptr_array_new_with_free_func (eval_level_free);
+  g_ptr_array_add (prompt->levels, eval_level_new (self->sheet, row, col));
+  prompt->dialog = dialog_frame (self, _("Evaluate Formula"), FALSE, &content, &buttons);
+  gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 560, 260);
+
+  prompt->where = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->where), 0.0);
+  gtk_widget_add_css_class (prompt->where, "dim-label");
+  gtk_box_append (GTK_BOX (content), prompt->where);
+
+  prompt->view = gtk_text_view_new ();
+  gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->view), FALSE);
+  gtk_text_view_set_cursor_visible (GTK_TEXT_VIEW (prompt->view), FALSE);
+  gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->view), TRUE);
+  gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (prompt->view), GTK_WRAP_WORD_CHAR);
+  gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->view), 6);
+  gtk_text_view_set_top_margin (GTK_TEXT_VIEW (prompt->view), 6);
+  buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  gtk_text_buffer_create_tag (buffer, "next", "underline", PANGO_UNDERLINE_SINGLE,
+                              "weight", PANGO_WEIGHT_BOLD, NULL);
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->view);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_widget_set_hexpand (scroller, TRUE);
+  gtk_scrolled_window_set_has_frame (GTK_SCROLLED_WINDOW (scroller), TRUE);
+  gtk_box_append (GTK_BOX (content), scroller);
+
+  prompt->evaluate = dialog_button (buttons, _("_Evaluate"), G_CALLBACK (on_eval_evaluate), prompt);
+  prompt->step_in = dialog_button (buttons, _("Step _In"), G_CALLBACK (on_eval_step_in), prompt);
+  prompt->step_out = dialog_button (buttons, _("Step _Out"), G_CALLBACK (on_eval_step_out), prompt);
+  prompt->restart = dialog_button (buttons, _("_Restart"), G_CALLBACK (on_eval_restart), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), prompt->evaluate);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_eval_destroy), prompt);
+
+  eval_show (prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
 void

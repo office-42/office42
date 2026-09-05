@@ -19,6 +19,7 @@
 
 #include "o42-fmt.h"
 #include "o42-formula.h"
+#include "o42-eval.h"
 #include "o42-picture.h"
 #include "o42-chart.h"
 #include "o42-shape.h"
@@ -754,6 +755,11 @@ void o42_sheet_used_range (O42Sheet *sheet, O42Range *out);
  * sheet, as if it stood in A1, without putting it anywhere.  Clear the
  * result.  #NAME? for a formula that does not parse. */
 O42Value o42_sheet_evaluate_formula (O42Sheet *sheet, const char *text);
+
+/* The context the sheet's formulas are worked out in, for working one
+ * out a step at a time (o42-eval-steps.h).  Borrowed; whoever uses it
+ * puts its row and column back as they were. */
+O42EvalContext *o42_sheet_eval_context (O42Sheet *sheet);
 
 /* Every stored cell -- one with content or a format -- in no particular
  * order.  The sheet is sparse, and this is how a writer visits what is
