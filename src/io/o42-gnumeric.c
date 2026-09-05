@@ -863,7 +863,21 @@ write_sheet (GString *out, O42Sheet *sheet)
           "        <gnm:Style o42-conditional=\"1\">\n"
           "          <gnm:Condition Operator=\"%d\" Value0=\"%s\" Value1=\"%s\" o42-mask=\"%u\">\n",
           c->range.col0, c->range.row0, c->range.col1, c->range.row1,
-          (int) c->op, v0, v1, (unsigned) c->mask);
+          c->is_formula ? 8 : (int) c->op, v0, v1, (unsigned) c->mask);
+        /* The operands as Gnumeric writes them, without the '=': a
+         * formula, or the number itself. */
+        for (int k = 0; k < 2; k++)
+          {
+            const char *expr = k == 0 ? c->expr1 : c->expr2;
+            gboolean wanted = k == 0 ? TRUE : (c->op == O42_COND_BETWEEN || c->op == O42_COND_NOT_BETWEEN) && !c->is_formula;
+            char *escaped;
+
+            if (!wanted)
+              continue;
+            escaped = g_markup_escape_text (expr != NULL ? expr + (expr[0] == '=') : (k == 0 ? v0 : v1), -1);
+            g_string_append_printf (w.out, "            <gnm:Expression%d>%s</gnm:Expression%d>\n", k, escaped, k);
+            g_free (escaped);
+          }
         {
           /* The style inside is written the ordinary way, indented a
            * little wrongly, which XML does not mind. */
@@ -1548,6 +1562,7 @@ typedef struct {
 
   /* A gnm:Condition inside it: the style that follows is the rule's. */
   gboolean    in_condition;
+  gboolean    condition_has_value;   /* Value0 was given: a number, ours */
   O42Condition condition;
   gboolean    region_is_conditional;   /* a region we wrote for a rule only */
   GString    *font_name;
@@ -2089,6 +2104,13 @@ start_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (r->in_condition && (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
+    {
+      r->expr_index = name[10] - '0';
+      g_string_truncate (r->expr, 0);
+      return;
+    }
+
   if (r->in_validation && (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
     {
       r->expr_index = name[10] - '0';
@@ -2101,9 +2123,12 @@ start_element (GMarkupParseContext *context, const char *element,
       r->in_condition = TRUE;
       memset (&r->condition, 0, sizeof r->condition);
       r->condition.range = r->region;
-      r->condition.op = (O42CondOp) attr_int (names, values, "Operator", 0);
+      r->condition.op = (O42CondOp) MIN (attr_int (names, values, "Operator", 0), 7);
+      r->condition.is_formula = attr_int (names, values, "Operator", 0) == 8;
       r->condition.value = attr_double (names, values, "Value0", 0);
       r->condition.value2 = attr_double (names, values, "Value1", 0);
+      r->condition.expr1 = r->condition.expr2 = NULL;
+      r->condition_has_value = attr (names, values, "Value0") != NULL;
       r->condition.mask = (O42FmtMask) attr_int (names, values, "o42-mask", 0);
       o42_fmt_init_default (&r->condition.fmt);
       /* The nested style is read into fmt/mask like any other; it is
@@ -3052,6 +3077,30 @@ end_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (r->in_condition && r->expr_index >= 0 &&
+      (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
+    {
+      /* A number stands as itself; anything else is a formula operand,
+       * Gnumeric's or ours.  Our own Value0 already gave the number. */
+      const char *text = r->expr->str;
+      char *end_ptr = NULL;
+      double v = g_ascii_strtod (text, &end_ptr);
+
+      if (*text != '\0' && end_ptr != NULL && *end_ptr == '\0' && !r->condition.is_formula)
+        {
+          if (r->expr_index == 0) r->condition.value = v; else r->condition.value2 = v;
+        }
+      else if (*text != '\0')
+        {
+          char *eq = g_strconcat (text[0] == '=' ? "" : "=", text, NULL);
+          if (r->expr_index == 0) r->condition.expr1 = g_intern_string (eq);
+          else r->condition.expr2 = g_intern_string (eq);
+          g_free (eq);
+        }
+      r->expr_index = -1;
+      return;
+    }
+
   if (r->in_validation && (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
     {
       char *text = g_strdup (r->expr->str);
@@ -3371,7 +3420,7 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     g_string_append_len (r->cell_text, text, (gssize) length);
   else if (r->in_merge)
     g_string_append_len (r->merge, text, (gssize) length);
-  else if (r->in_validation && r->expr_index >= 0)
+  else if ((r->in_validation || r->in_condition) && r->expr_index >= 0)
     g_string_append_len (r->expr, text, (gssize) length);
   else if (r->in_dimension)
     g_string_append_len (r->dimension, text, (gssize) length);

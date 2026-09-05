@@ -3043,10 +3043,18 @@ main (int argc, char *argv[])
               c.op = O42_COND_GREATER;
               for (int i = 0; i < 8; i++)
                 if (strcmp (words[1], ops[i]) == 0) c.op = (O42CondOp) i;
-              c.value = g_ascii_strtod (words[2], NULL);
+              /* An operand starting with = is a formula; "formula" as the
+               * operator makes the rule a formula of its own. */
+              if (strcmp (words[1], "formula") == 0)
+                { c.is_formula = TRUE; c.expr1 = g_intern_string (words[2]); }
+              else if (words[2][0] == '=')
+                c.expr1 = g_intern_string (words[2]);
+              else
+                c.value = g_ascii_strtod (words[2], NULL);
               o42_fmt_init_default (&c.fmt);
               for (int i = 3; i < n; i++)
                 {
+                  if (words[i][0] == '=' && i == 3) { c.expr2 = g_intern_string (words[i]); continue; }
                   if (strcmp (words[i], "bold") == 0)   { c.fmt.bold = 1; c.mask |= O42_FMT_BOLD; }
                   if (strcmp (words[i], "italic") == 0) { c.fmt.italic = 1; c.mask |= O42_FMT_ITALIC; }
                   if (strcmp (words[i], "red") == 0)    { c.fmt.colour = 0xC00000; c.mask |= O42_FMT_COLOUR; }
@@ -3080,8 +3088,13 @@ main (int argc, char *argv[])
             {
               const O42Condition *c = &g_array_index (conds, O42Condition, i);
               char *a = o42_ref_name (c->range.row0, c->range.col0), *b = o42_ref_name (c->range.row1, c->range.col1);
-              printf ("%s:%s op %d value %g mask %u bold %d colour %06X fill %08X\n", a, b, (int) c->op,
+              printf ("%s:%s op %d value %g mask %u bold %d colour %06X fill %08X", a, b, (int) c->op,
                       c->value, (unsigned) c->mask, c->fmt.bold, c->fmt.colour, c->fmt.fill);
+              if (c->is_formula) printf (" formula %s", c->expr1 != NULL ? c->expr1 : "");
+              else if (c->expr1 != NULL) printf (" expr1 %s", c->expr1);
+              if (c->expr2 != NULL) printf (" expr2 %s", c->expr2);
+              if (c->mask & O42_FMT_NUMBER) printf (" number %d/%s", (int) c->fmt.number, c->fmt.custom != NULL ? c->fmt.custom : "-");
+              printf ("\n");
               g_free (a); g_free (b);
             }
           continue;

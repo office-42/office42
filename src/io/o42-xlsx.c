@@ -640,12 +640,26 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
         g_array_append_vals (w->dxfs, c, 1);
         g_ascii_dtostr (v, sizeof v, c->value);
         g_ascii_dtostr (v2, sizeof v2, c->value2);
-        g_string_append_printf (out,
-          "<conditionalFormatting sqref=\"%s:%s\"><cfRule type=\"cellIs\" dxfId=\"%u\" priority=\"%u\" operator=\"%s\">"
-          "<formula>%s</formula>", a, b, w->dxfs->len - 1, i + 1, ops[c->op], v);
-        if (c->op == O42_COND_BETWEEN || c->op == O42_COND_NOT_BETWEEN)
-          g_string_append_printf (out, "<formula>%s</formula>", v2);
-        g_string_append (out, "</cfRule></conditionalFormatting>");
+        if (c->is_formula)
+          {
+            char *e = g_markup_escape_text (c->expr1 != NULL ? c->expr1 + (c->expr1[0] == '=') : "FALSE", -1);
+            g_string_append_printf (out,
+              "<conditionalFormatting sqref=\"%s:%s\"><cfRule type=\"expression\" dxfId=\"%u\" priority=\"%u\">"
+              "<formula>%s</formula></cfRule></conditionalFormatting>", a, b, w->dxfs->len - 1, i + 1, e);
+            g_free (e);
+          }
+        else
+          {
+            char *e1 = c->expr1 != NULL ? g_markup_escape_text (c->expr1 + (c->expr1[0] == '='), -1) : NULL;
+            char *e2 = c->expr2 != NULL ? g_markup_escape_text (c->expr2 + (c->expr2[0] == '='), -1) : NULL;
+            g_string_append_printf (out,
+              "<conditionalFormatting sqref=\"%s:%s\"><cfRule type=\"cellIs\" dxfId=\"%u\" priority=\"%u\" operator=\"%s\">"
+              "<formula>%s</formula>", a, b, w->dxfs->len - 1, i + 1, ops[c->op], e1 != NULL ? e1 : v);
+            if (c->op == O42_COND_BETWEEN || c->op == O42_COND_NOT_BETWEEN)
+              g_string_append_printf (out, "<formula>%s</formula>", e2 != NULL ? e2 : v2);
+            g_string_append (out, "</cfRule></conditionalFormatting>");
+            g_free (e1); g_free (e2);
+          }
         g_free (a);
         g_free (b);
       }
@@ -2159,6 +2173,8 @@ typedef struct
   int         cf_dxf, cf_n_formulas;
   O42CondOp   cf_op;
   double      cf_values[2];
+  char       *cf_exprs[2];      /* formula operands, "=..." or NULL */
+  gboolean    cf_is_expression;
   GString    *cf_formula;
 
   /* A dataValidation being read */
@@ -3159,6 +3175,9 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
                                    "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual" };
       r->in_cf_rule = TRUE;
       r->cf_is_cellis = type != NULL && strcmp (type, "cellIs") == 0 && op != NULL;
+      r->cf_is_expression = type != NULL && strcmp (type, "expression") == 0;
+      g_clear_pointer (&r->cf_exprs[0], g_free);
+      g_clear_pointer (&r->cf_exprs[1], g_free);
       r->cf_dxf = attr_int (names, values, "dxfId", -1);
       r->cf_n_formulas = 0;
       r->cf_op = O42_COND_EQUAL;
@@ -3377,8 +3396,8 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
       r->in_cf_formula = FALSE;
       if (end_ptr != NULL && *end_ptr == '\0' && r->cf_formula->len > 0 && r->cf_n_formulas < 2)
         r->cf_values[r->cf_n_formulas] = v;
-      else
-        r->cf_is_cellis = FALSE;   /* a formula, not a number: not a rule we keep */
+      else if (r->cf_n_formulas < 2 && r->cf_formula->len > 0)
+        r->cf_exprs[r->cf_n_formulas] = g_strconcat ("=", r->cf_formula->str, NULL);   /* a formula operand */
       r->cf_n_formulas++;
     }
   else if ((strcmp (n, "formula1") == 0 || strcmp (n, "formula2") == 0) && r->in_dv_formula)
@@ -3403,14 +3422,17 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
   else if (strcmp (n, "cfRule") == 0)
     {
       r->in_cf_rule = FALSE;
-      if (r->cf_is_cellis && r->cf_have_range && r->cf_n_formulas >= 1 &&
+      if ((r->cf_is_cellis || r->cf_is_expression) && r->cf_have_range && r->cf_n_formulas >= 1 &&
           r->cf_dxf >= 0 && (guint) r->cf_dxf < r->dxfs->len)
         {
           O42Condition c = g_array_index (r->dxfs, O42Condition, r->cf_dxf);
           c.range = r->cf_range;
-          c.op = r->cf_op;
+          c.op = r->cf_is_expression ? O42_COND_EQUAL : r->cf_op;
+          c.is_formula = r->cf_is_expression;
           c.value = r->cf_values[0];
           c.value2 = r->cf_n_formulas >= 2 ? r->cf_values[1] : c.value;
+          c.expr1 = r->cf_exprs[0] != NULL ? g_intern_string (r->cf_exprs[0]) : NULL;
+          c.expr2 = r->cf_exprs[1] != NULL ? g_intern_string (r->cf_exprs[1]) : NULL;
           o42_sheet_add_condition (r->sheet, &c);
         }
     }

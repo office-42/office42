@@ -416,6 +416,7 @@ typedef struct
 
   /* Conditional formats: a CONDFMT's range, then its CF rules. */
   O42Range    cf_range;
+  GArray     *cf_rects;         /* O42Range: the rectangles a CONDFMT covers */
   gboolean    cf_have_range;
 
   /* Drawings: the group's images, and the sheet's Escher bytes. */
@@ -1861,15 +1862,16 @@ read_cf (Reader *r, const guchar *p, gsize len)
   O42Condition c;
   double v1 = 0, v2 = 0;
 
-  if (type != 1 || op < 1 || op > 8)
+  if ((type != 1 && type != 2) || (type == 1 && (op < 1 || op > 8)))
     return;
   memset (&c, 0, sizeof c);
   o42_fmt_init_default (&c.fmt);
   c.range = r->cf_range;
+  c.is_formula = type == 2;
   {
     static const O42CondOp ops[] = { O42_COND_BETWEEN, O42_COND_NOT_BETWEEN, O42_COND_EQUAL, O42_COND_NOT_EQUAL,
                                      O42_COND_GREATER, O42_COND_LESS, O42_COND_GREATER_EQUAL, O42_COND_LESS_EQUAL };
-    c.op = ops[op - 1];
+    c.op = type == 1 ? ops[op - 1] : O42_COND_EQUAL;
   }
   {
     /* The number format block, when there is one, is a format index
@@ -1879,8 +1881,39 @@ read_cf (Reader *r, const guchar *p, gsize len)
     p += 12;   /* the header, and the second flags word */
     if (flags & (1u << 25))
       {
-        if (flags2 & 0x0001) { if (p >= end) return; p += MAX (p[0], 1); }
-        else p += 2;
+        if (flags2 & 0x0001)
+          {
+            /* A format code of the user's: the block's byte count,
+             * then a counted unicode string. */
+            const guchar *q = p + 1;
+            char *code;
+
+            if (p + 4 > end) return;
+            code = read_str (r, &q, MIN (end, p + MAX (p[0], 1)), TRUE);
+            if (code != NULL && *code != '\0')
+              {
+                c.fmt.custom = g_intern_string (code);
+                c.fmt.number = O42_NUM_GENERAL;
+                c.mask |= O42_FMT_NUMBER;
+              }
+            g_free (code);
+            p += MAX (p[0], 1);
+          }
+        else
+          {
+            const char *code = p + 2 <= end ? g_hash_table_lookup (r->formats, GINT_TO_POINTER ((int) rd16 (p))) : NULL;
+            if (code == NULL && p + 2 <= end)
+              code = o42_xlsx_builtin_number_format (rd16 (p));
+            if (code != NULL)
+              {
+                O42Fmt f;
+                o42_fmt_init_default (&f);
+                o42_xlsx_apply_format_code (&f, code);
+                c.fmt.number = f.number; c.fmt.decimals = f.decimals; c.fmt.custom = f.custom;
+                c.mask |= O42_FMT_NUMBER;
+              }
+            p += 2;
+          }
       }
   }
   if (flags & (1u << 26))   /* font block, 118 bytes */
@@ -1930,13 +1963,33 @@ read_cf (Reader *r, const guchar *p, gsize len)
 
   if (p + cce1 + cce2 > end)
     return;
-  if (!cf_number (p, cce1, &v1))
-    return;
+  /* The operands: a number, or any formula, read as if it stood in
+   * the range's top-left cell. */
+  if (cce1 > 0 && !cf_number (p, cce1, &v1))
+    {
+      O42Node *tree = decode_formula (r, p, cce1, r->cf_range.row0, r->cf_range.col0, TRUE, p + cce1, end);
+      char *text = tree != NULL ? o42_node_to_string (tree) : NULL;
+      if (text != NULL) { char *eq = g_strconcat ("=", text, NULL); c.expr1 = g_intern_string (eq); g_free (eq); }
+      o42_node_free (tree);
+      g_free (text);
+    }
   if (cce2 > 0 && !cf_number (p + cce1, cce2, &v2))
-    return;
+    {
+      O42Node *tree = decode_formula (r, p + cce1, cce2, r->cf_range.row0, r->cf_range.col0, TRUE, p + cce1 + cce2, end);
+      char *text = tree != NULL ? o42_node_to_string (tree) : NULL;
+      if (text != NULL) { char *eq = g_strconcat ("=", text, NULL); c.expr2 = g_intern_string (eq); g_free (eq); }
+      o42_node_free (tree);
+      g_free (text);
+    }
   c.value = v1;
   c.value2 = cce2 > 0 ? v2 : v1;
-  o42_sheet_add_condition (r->sheet, &c);
+  /* The rule applies to every rectangle the CONDFMT listed; a rule per
+   * rectangle keeps the formulas' relative reading right. */
+  for (guint k = 0; k < r->cf_rects->len; k++)
+    {
+      c.range = g_array_index (r->cf_rects, O42Range, k);
+      o42_sheet_add_condition (r->sheet, &c);
+    }
 }
 
 /* A DV record: one validation rule and the ranges it covers. */
@@ -2574,8 +2627,21 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
     case R_CONDFMT:
       if (len >= 12)
         {
+          guint n = rd16 (p + 12);
+
           r->cf_range = o42_range_normalise (rd16 (p + 4), rd16 (p + 8), rd16 (p + 6), rd16 (p + 10));
           r->cf_have_range = r->cf_range.row1 < O42_MAX_ROWS && r->cf_range.col1 < O42_MAX_COLS;
+          /* The rectangles the rules cover, after the bounding one. */
+          g_array_set_size (r->cf_rects, 0);
+          for (guint i = 0; i < n && 14 + (i + 1) * 8 <= len; i++)
+            {
+              const guchar *q = p + 14 + i * 8;
+              O42Range rect = o42_range_normalise (rd16 (q), rd16 (q + 4), rd16 (q + 2), rd16 (q + 6));
+              if (rect.row1 < O42_MAX_ROWS && rect.col1 < O42_MAX_COLS)
+                g_array_append_val (r->cf_rects, rect);
+            }
+          if (r->cf_rects->len == 0 && r->cf_have_range)
+            g_array_append_val (r->cf_rects, r->cf_range);
         }
       break;
     case R_CF:
@@ -3239,6 +3305,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.sheet_names = g_ptr_array_new_with_free_func (g_free);
   r.sheet_offsets = g_array_new (FALSE, FALSE, sizeof (guint32));
   r.sheet_hidden = g_array_new (FALSE, FALSE, sizeof (guint));
+  r.cf_rects = g_array_new (FALSE, FALSE, sizeof (O42Range));
   r.xti = g_array_new (FALSE, FALSE, sizeof (guint16));
   r.supbook_names = g_ptr_array_new_with_free_func ((GDestroyNotify) g_ptr_array_unref);
   r.supbook_self = g_ptr_array_new ();
@@ -3367,6 +3434,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   g_ptr_array_unref (r.sheet_names);
   g_array_unref (r.sheet_offsets);
   g_array_unref (r.sheet_hidden);
+  g_array_unref (r.cf_rects);
   g_array_unref (r.xti);
   g_ptr_array_unref (r.supbook_names);
   g_ptr_array_unref (r.supbook_self);
@@ -5064,16 +5132,44 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         gboolean pattern = (c->mask & O42_FMT_FILL) != 0 && c->fmt.fill != O42_FILL_NONE;
         guint32 flags = 0x003FFFFFu;   /* everything "not changed" to start */
         GByteArray *f1 = g_byte_array_new (), *f2 = g_byte_array_new ();
+        gboolean numfmt = (c->mask & O42_FMT_NUMBER) != 0;
+        const char *numcode = NULL;
         O42Node num;
 
         memset (&num, 0, sizeof num);
         num.type = O42_NODE_NUMBER;
-        num.as.number = c->value;
-        compile (w, &num, f1, FALSE, index, NULL);
-        if (two)
+        /* The operands: a formula as the cell in the range's top-left
+         * corner reads it, or a number. */
+        if (c->expr1 != NULL)
+          {
+            O42Node *tree = o42_formula_parse (c->expr1 + (c->expr1[0] == '=' ? 1 : 0));
+            if (tree != NULL) compile (w, tree, f1, FALSE, index, NULL);
+            o42_node_free (tree);
+          }
+        else if (!c->is_formula)
+          {
+            num.as.number = c->value;
+            compile (w, &num, f1, FALSE, index, NULL);
+          }
+        if (two && c->expr2 != NULL)
+          {
+            O42Node *tree = o42_formula_parse (c->expr2 + (c->expr2[0] == '=' ? 1 : 0));
+            if (tree != NULL) compile (w, tree, f2, FALSE, index, NULL);
+            o42_node_free (tree);
+          }
+        else if (two)
           {
             num.as.number = c->value2;
             compile (w, &num, f2, FALSE, index, NULL);
+          }
+        char *numcode_owned = NULL;
+        if (numfmt)
+          {
+            /* The rule's number format as its code, which is what the
+             * DXF's user-format block carries. */
+            numcode_owned = o42_fmt_format_string (&c->fmt);
+            numcode = numcode_owned;
+            if (numcode == NULL || *numcode == '\0') numfmt = FALSE;
           }
 
         begin_record (w, R_CONDFMT);
@@ -5100,13 +5196,24 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             flags &= ~((1u << 16) | (1u << 17) | (1u << 18));
           }
 
+        if (numfmt) flags |= 1u << 25;
         begin_record (w, R_CF);
-        put8 (w->out, 1);
-        put8 (w->out, ops[c->op]);
+        put8 (w->out, c->is_formula ? 2 : 1);
+        put8 (w->out, c->is_formula ? 0 : ops[c->op]);
         put16 (w->out, f1->len);
-        put16 (w->out, two ? f2->len : 0);
+        put16 (w->out, two && !c->is_formula ? f2->len : 0);
         put32 (w->out, flags);
-        put16 (w->out, 0);
+        put16 (w->out, numfmt ? 0x0001 : 0);   /* the number format is given as its code */
+        if (numfmt)
+          {
+            /* The user-format block: its byte count, then the code as a
+             * counted unicode string. */
+            GByteArray *code = g_byte_array_new ();
+            put_ustr16 (code, numcode);
+            put8 (w->out, MIN (code->len + 1, 255));
+            g_byte_array_append (w->out, code->data, MIN (code->len, 254));
+            g_byte_array_unref (code);
+          }
         if (font)
           {
             gsize start = w->out->len;
@@ -5142,11 +5249,12 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             put16 (w->out, palette_index (w, c->fmt.fill) | (0x41 << 7));
           }
         g_byte_array_append (w->out, f1->data, f1->len);
-        if (two)
+        if (two && !c->is_formula)
           g_byte_array_append (w->out, f2->data, f2->len);
         end_record (w);
         g_byte_array_unref (f1);
         g_byte_array_unref (f2);
+        g_free (numcode_owned);
       }
   }
 

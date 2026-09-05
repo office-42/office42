@@ -5116,34 +5116,93 @@ condition_holds (const O42Condition *c, double x)
     }
 }
 
-gboolean
-o42_sheet_conditional_fmt (O42Sheet *sheet, int row, int col, O42Fmt *out)
+/* A rule's formula, as it reads at a cell: written for the range's
+ * top-left cell, moved to this one, and worked out. */
+static O42Value
+condition_expr_value (O42Sheet *sheet, const O42Condition *c, const char *expr, int row, int col)
 {
-  gboolean any = FALSE;
+  char *moved = o42_sheet_relocate_formula (expr, row - c->range.row0, col - c->range.col0);
+  O42Value v = o42_sheet_evaluate_formula (sheet, moved);
+
+  g_free (moved);
+  return v;
+}
+
+gboolean
+o42_sheet_condition_holds (O42Sheet *sheet, const O42Condition *c, int row, int col)
+{
   O42Value v;
-  double x;
+  O42Condition with = *c;
+  gboolean holds;
 
-  g_return_val_if_fail (sheet != NULL, FALSE);
+  g_return_val_if_fail (sheet != NULL && c != NULL, FALSE);
 
-  if (sheet->conditions->len == 0)
-    return FALSE;
+  if (c->is_formula)
+    {
+      /* "Formula is": true, or a number that is not zero. */
+      gboolean truth = FALSE;
+      O42ErrorCode e = O42_ERR_VALUE;
 
-  /* Only numbers are judged; the first rule that holds wins, as in Excel,
-   * though a later rule's other fields still apply. */
+      if (c->expr1 == NULL)
+        return FALSE;
+      v = condition_expr_value (sheet, c, c->expr1, row, col);
+      holds = v.type != O42_VALUE_ERROR && o42_value_to_bool (&v, &truth, &e) && truth;
+      o42_value_clear (&v);
+      return holds;
+    }
+
+  /* Only numbers are judged against the operands. */
   o42_sheet_get_value (sheet, row, col, &v);
   if (v.type != O42_VALUE_NUMBER)
     {
       o42_value_clear (&v);
       return FALSE;
     }
-  x = v.as.number;
-  o42_value_clear (&v);
+  {
+    double x = v.as.number;
+    o42_value_clear (&v);
+    for (int k = 0; k < 2; k++)
+      {
+        const char *expr = k == 0 ? c->expr1 : c->expr2;
+        O42Value operand;
+        double number;
+        O42ErrorCode e = O42_ERR_VALUE;
 
+        if (expr == NULL)
+          continue;
+        operand = condition_expr_value (sheet, c, expr, row, col);
+        if (operand.type == O42_VALUE_ERROR || !o42_value_to_number (&operand, &number, &e))
+          {
+            o42_value_clear (&operand);
+            return FALSE;
+          }
+        o42_value_clear (&operand);
+        if (k == 0) with.value = number; else with.value2 = number;
+      }
+    if (c->expr2 == NULL && c->expr1 != NULL &&
+        c->op != O42_COND_BETWEEN && c->op != O42_COND_NOT_BETWEEN)
+      with.value2 = with.value;
+    return condition_holds (&with, x);
+  }
+}
+
+gboolean
+o42_sheet_conditional_fmt (O42Sheet *sheet, int row, int col, O42Fmt *out)
+{
+  gboolean any = FALSE;
+
+  g_return_val_if_fail (sheet != NULL, FALSE);
+
+  if (sheet->conditions->len == 0)
+    return FALSE;
+
+  /* The first rule that holds wins, as in Excel, though a later rule's
+   * other fields still apply. */
   for (guint i = 0; i < sheet->conditions->len; i++)
     {
       const O42Condition *c = &g_array_index (sheet->conditions, O42Condition, i);
 
-      if (!o42_range_contains (&c->range, row, col) || !condition_holds (c, x))
+      if (!o42_range_contains (&c->range, row, col) || !o42_sheet_condition_holds (sheet, c, row, col))
         continue;
       if (!any)
         *out = *o42_sheet_get_fmt (sheet, row, col);

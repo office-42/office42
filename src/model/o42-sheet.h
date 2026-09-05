@@ -378,6 +378,14 @@ typedef struct {
   double      value2;
   O42FmtMask  mask;
   O42Fmt      fmt;
+  /* Excel's other forms: an operand that is a formula rather than a
+   * number ("=$B$1" or "=A1*2", interned, NULL for the number), read
+   * as standing in the range's top-left cell and moved with each cell
+   * as a copied formula would be; and a rule that is a formula of its
+   * own, true or false, in expr1. */
+  const char *expr1;
+  const char *expr2;
+  gboolean    is_formula;
 } O42Condition;
 
 void       o42_sheet_add_condition    (O42Sheet *sheet, const O42Condition *cond);
@@ -387,6 +395,10 @@ GArray    *o42_sheet_conditions       (O42Sheet *sheet);   /* O42Condition, owne
 /* The format a cell shows with its conditions applied, in `out`; FALSE
  * (and `out` untouched) when no rule applies. */
 gboolean   o42_sheet_conditional_fmt  (O42Sheet *sheet, int row, int col, O42Fmt *out);
+
+/* Whether a rule holds for a cell: what o42_sheet_conditional_fmt asks
+ * of each rule, for anything else that wants to know. */
+gboolean   o42_sheet_condition_holds  (O42Sheet *sheet, const O42Condition *cond, int row, int col);
 
 /* ---- Outline groups ------------------------------------------------------ */
 
