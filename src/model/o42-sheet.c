@@ -758,6 +758,9 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
         O42Value *values;
 
         o42_eval_array (&sheet->eval, cell->ast, &rows, &cols, &values);
+        for (int k = 0; k < rows * cols; k++)
+          if (values[k].type == O42_VALUE_EMPTY)
+            values[k] = o42_value_number (0);
         result = o42_value_copy (&values[0]);
         for (int r = block.row0; r <= block.row1; r++)
           for (int c = block.col0; c <= block.col1; c++)
@@ -785,6 +788,11 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
         O42Value *values;
 
         o42_eval_array (&sheet->eval, cell->ast, &rows, &cols, &values);
+        /* A formula that comes to an empty cell -- =Z99, IF(TRUE,Z99,1),
+         * INDIRECT("A12") -- shows 0, as Excel's does; only "" is text. */
+        for (int k = 0; k < rows * cols; k++)
+          if (values[k].type == O42_VALUE_EMPTY)
+            values[k] = o42_value_number (0);
         if (rows * cols <= 1)
           {
             result = o42_value_copy (&values[0]);

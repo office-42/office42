@@ -208,7 +208,8 @@ fn_rept (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_TEXT (0, s);
   ARG_NUMBER (1, count);
 
-  if (count < 0 || count > 10000)
+  /* Excel's cell holds 32,767 characters; more than that is #VALUE!. */
+  if (count < 0 || (double) g_utf8_strlen (s, -1) * floor (count) > 32767)
     { g_free (s); return o42_value_error (O42_ERR_VALUE); }
 
   out = g_string_new (NULL);
@@ -325,7 +326,12 @@ fn_rows_cols (O42EvalContext *ctx, O42Operand *args, int n, gboolean rows)
   (void) ctx; (void) n;
 
   if (!args[0].is_range)
-    return o42_value_number (1);
+    {
+      /* An error in place of the range is the answer; a value is one by one. */
+      if (args[0].value.type == O42_VALUE_ERROR)
+        return o42_value_copy (&args[0].value);
+      return o42_value_number (1);
+    }
 
   return o42_value_number (rows
     ? args[0].range.row1 - args[0].range.row0 + 1

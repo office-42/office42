@@ -5526,6 +5526,35 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       return TRUE;
     }
 
+  /* ROWS(A:A) is 1,048,576 and COLUMNS(1:1) 16,384 whatever the sheet
+   * holds; ROW(B1:B1048576) every row.  The range is taken as written,
+   * before the walk of a whole column is cut to the used part. */
+  if ((strcmp (node->as.call.name, "ROWS") == 0 || strcmp (node->as.call.name, "COLUMNS") == 0 ||
+       strcmp (node->as.call.name, "ROW") == 0 || strcmp (node->as.call.name, "COLUMN") == 0) &&
+      n_args == 1)
+    {
+      const O42Node *arg = g_ptr_array_index (node->as.call.args, 0);
+
+      if (arg->type == O42_NODE_RANGE && (arg->abs & (O42_WHOLE_COLS | O42_WHOLE_ROWS)))
+        {
+          const O42Range *r = &arg->as.range;
+          gboolean rows = node->as.call.name[0] == 'R';
+
+          memset (out, 0, sizeof *out);
+          if (g_str_has_suffix (node->as.call.name, "S"))
+            out->value = o42_value_number (rows ? r->row1 - r->row0 + 1 : r->col1 - r->col0 + 1);
+          else
+            {
+              int n = rows ? r->row1 - r->row0 + 1 : r->col1 - r->col0 + 1;
+              ArrayConst *a = rows ? array_const_new (n, 1) : array_const_new (1, n);
+              for (int i = 0; i < n; i++)
+                a->cells[i] = o42_value_number ((rows ? r->row0 : r->col0) + i + 1);
+              *out = array_operand (a);
+            }
+          return TRUE;
+        }
+    }
+
   if (strcmp (node->as.call.name, "ANCHORARRAY") == 0 && n_args == 1)
     {
       /* A1#: the block the formula at A1 spilled into, or #REF! when
