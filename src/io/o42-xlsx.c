@@ -960,7 +960,7 @@ write_styles (Writer *w)
     {
       const O42Fmt *f = &g_array_index (w->fmts, O42Fmt, i);
       const char *h = xlsx_halign (f->halign), *v = xlsx_valign (f->valign);
-      gboolean align = h != NULL || v != NULL || f->wrap || f->indent > 0 || f->rotation != 0;
+      gboolean align = h != NULL || v != NULL || f->wrap || f->shrink || f->indent > 0 || f->rotation != 0;
 
       g_string_append_printf (out, "<xf numFmtId=\"%d\" fontId=\"%u\" fillId=\"%u\" borderId=\"%u\" xfId=\"%u\""
                               " applyNumberFormat=\"1\" applyFont=\"1\" applyFill=\"1\" applyBorder=\"1\"",
@@ -979,6 +979,7 @@ write_styles (Writer *w)
           if (h) g_string_append_printf (out, " horizontal=\"%s\"", h);
           if (v) g_string_append_printf (out, " vertical=\"%s\"", v);
           if (f->wrap) g_string_append (out, " wrapText=\"1\"");
+          if (f->shrink) g_string_append (out, " shrinkToFit=\"1\"");
           if (f->indent > 0) g_string_append_printf (out, " indent=\"%d\"", f->indent);
           if (f->rotation != 0) g_string_append_printf (out, " textRotation=\"%d\"", f->rotation >= 0 ? f->rotation : 90 - f->rotation);
           g_string_append (out, "/>");
@@ -2686,6 +2687,7 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
               else if (strcmp (v, "center") == 0) fmt->valign = O42_VALIGN_MIDDLE;
             }
           fmt->wrap = attr_flag (names, values, "wrapText");
+          fmt->shrink = attr_flag (names, values, "shrinkToFit");
           fmt->indent = (guint8) CLAMP (attr_int (names, values, "indent", 0), 0, 15);
           {
             int rot = attr_int (names, values, "textRotation", 0);

@@ -1162,6 +1162,7 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
       else if (strcmp (k, "underline") == 0) { fmt.underline = PyObject_IsTrue (value); mask |= O42_FMT_UNDERLINE; }
       else if (strcmp (k, "strikeout") == 0) { fmt.strikeout = PyObject_IsTrue (value); mask |= O42_FMT_STRIKEOUT; }
       else if (strcmp (k, "wrap") == 0)      { fmt.wrap = PyObject_IsTrue (value); mask |= O42_FMT_WRAP; }
+      else if (strcmp (k, "shrink") == 0)    { fmt.shrink = PyObject_IsTrue (value); mask |= O42_FMT_WRAP; }
       else if (strcmp (k, "borders") == 0)
         {
           /* True, False, or a style name for all four sides. */
@@ -1380,7 +1381,7 @@ m_get_format (PyObject *self, PyObject *args)
   fill = f->fill == O42_FILL_NONE ? Py_None : PyLong_FromUnsignedLong (f->fill);
   if (fill == Py_None)
     Py_INCREF (fill);
-  return Py_BuildValue ("{s:s,s:d,s:O,s:O,s:O,s:O,s:O,s:O,s:I,s:N,s:s,s:s,s:s,s:i,"
+  return Py_BuildValue ("{s:s,s:d,s:O,s:O,s:O,s:O,s:O,s:O,s:O,s:I,s:N,s:s,s:s,s:s,s:i,"
                         "s:s,s:s,s:s,s:s,s:I,s:I,s:I,s:I,s:s,s:I,s:O,s:O}",
                         "family", f->family, "size", f->size / 2.0,
                         "bold", f->bold ? Py_True : Py_False,
@@ -1388,6 +1389,7 @@ m_get_format (PyObject *self, PyObject *args)
                         "underline", f->underline ? Py_True : Py_False,
                         "strikeout", f->strikeout ? Py_True : Py_False,
                         "wrap", f->wrap ? Py_True : Py_False,
+                        "shrink", f->shrink ? Py_True : Py_False,
                         "borders", (f->border_top && f->border_bottom && f->border_left && f->border_right) ? Py_True : Py_False,
                         "colour", (unsigned int) f->colour,
                         "fill", fill,

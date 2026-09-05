@@ -890,6 +890,8 @@ cell_style (Styles *s, const O42Fmt *fmt)
     g_string_append_printf (s->styles, " style:rotation-angle=\"%d\"", fmt->rotation < 0 ? 360 + fmt->rotation : fmt->rotation);
   if (fmt->wrap)
     g_string_append (s->styles, " fo:wrap-option=\"wrap\"");
+  if (fmt->shrink)
+    g_string_append (s->styles, " style:shrink-to-fit=\"true\"");
   g_string_append_printf (s->styles, " style:vertical-align=\"%s\"",
                           fmt->valign == O42_VALIGN_TOP ? "top" : fmt->valign == O42_VALIGN_MIDDLE ? "middle" : "bottom");
   g_string_append (s->styles, "/>");
@@ -3374,11 +3376,13 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         {
           const char *bg = attr (names, values, "background-color");
           const char *wrap = attr (names, values, "wrap-option");
+          const char *shrink = attr (names, values, "shrink-to-fit");
           const char *va = attr (names, values, "vertical-align");
           const char *border = attr (names, values, "border");
           st->has_fmt = TRUE;
           if (bg != NULL && strcmp (bg, "transparent") != 0) st->fmt.fill = colour_of (bg, O42_FILL_NONE);
           if (wrap != NULL && strcmp (wrap, "wrap") == 0) st->fmt.wrap = 1;
+          if (shrink != NULL && strcmp (shrink, "true") == 0) st->fmt.shrink = 1;
           if (va != NULL) st->fmt.valign = strcmp (va, "top") == 0 ? O42_VALIGN_TOP : strcmp (va, "middle") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
           {
             const char *sides[4] = { "border-top", "border-bottom", "border-left", "border-right" };

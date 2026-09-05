@@ -608,6 +608,7 @@ main (int argc, char *argv[])
                       else if (strcmp (a, "underline") == 0) { want.underline = 1; mask |= O42_FMT_UNDERLINE; }
                       else if (strcmp (a, "strike") == 0) { want.strikeout = 1; mask |= O42_FMT_STRIKEOUT; }
                       else if (strcmp (a, "wrap") == 0) { want.wrap = 1; mask |= O42_FMT_WRAP; }
+                      else if (strcmp (a, "shrink") == 0) { want.shrink = 1; mask |= O42_FMT_WRAP; }
                       else if (g_str_has_prefix (a, "size=")) { want.size = (guint8) (g_ascii_strtod (a + 5, NULL) * 2); mask |= O42_FMT_SIZE; }
                       else if (g_str_has_prefix (a, "family=")) { want.family = g_intern_string (a + 7); mask |= O42_FMT_FAMILY; }
                       else if (g_str_has_prefix (a, "colour=")) { want.colour = (guint32) g_ascii_strtoull (a + 7, NULL, 16); mask |= O42_FMT_COLOUR; }

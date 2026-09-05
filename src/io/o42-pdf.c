@@ -359,6 +359,19 @@ draw_page (cairo_t      *cr,
           }
           pango_layout_get_pixel_size (layout, &tw, &th);
 
+          /* Shrink to fit, as the grid does it. */
+          if (fmt->shrink && !fmt->wrap && tw + 6 > w && tw > 0)
+            {
+              double scale = MAX (w - 6, 1.0) / tw;
+              int points = MAX ((int) floor (fmt->size / 2 * scale), 1);
+              PangoFontDescription *smaller = pango_font_description_copy (pango_layout_get_font_description (layout));
+
+              pango_font_description_set_size (smaller, points * PANGO_SCALE);
+              pango_layout_set_font_description (layout, smaller);
+              pango_font_description_free (smaller);
+              pango_layout_get_pixel_size (layout, &tw, &th);
+            }
+
           /* The grid's rules for what does not fit: a General number is
            * shown with fewer digits, any other number as hashes, and a
            * label runs on over the empty cells beside it. */

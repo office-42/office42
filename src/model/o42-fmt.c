@@ -48,7 +48,7 @@ o42_fmt_apply_mask (O42Fmt *fmt, O42FmtMask mask, const O42Fmt *value)
   if (mask & O42_FMT_VALIGN)    fmt->valign    = value->valign;
   if (mask & O42_FMT_NUMBER)    { fmt->number = value->number; fmt->custom = value->custom; }
   if (mask & O42_FMT_DECIMALS)  fmt->decimals  = value->decimals;
-  if (mask & O42_FMT_WRAP)      fmt->wrap      = value->wrap;
+  if (mask & O42_FMT_WRAP)      { fmt->wrap = value->wrap; fmt->shrink = value->shrink; }
 
   if (mask & O42_FMT_BORDERS)
     {

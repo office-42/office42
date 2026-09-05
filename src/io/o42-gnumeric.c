@@ -69,9 +69,9 @@ append_style (GString *out, const O42Fmt *fmt, const O42Range *r)
     "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n",
     r->col0, r->row0, r->col1, r->row1);
   g_string_append_printf (out,
-    "        <gnm:Style HAlign=\"%d\" VAlign=\"%d\" WrapText=\"%d\" ShrinkToFit=\"0\" "
+    "        <gnm:Style HAlign=\"%d\" VAlign=\"%d\" WrapText=\"%d\" ShrinkToFit=\"%d\" "
     "Rotation=\"%d\" Shade=\"%d\" Indent=\"%d\" Locked=\"%d\" Hidden=\"%d\" Fore=\"",
-    gnm_halign (fmt->halign), gnm_valign (fmt->valign), fmt->wrap ? 1 : 0,
+    gnm_halign (fmt->halign), gnm_valign (fmt->valign), fmt->wrap ? 1 : 0, fmt->shrink ? 1 : 0,
     fmt->rotation < 0 ? 360 + fmt->rotation : fmt->rotation,
     fmt->pattern != O42_PATTERN_NONE ? o42_pattern_to_shade ((O42Pattern) fmt->pattern)
                                      : (fmt->fill != O42_FILL_NONE ? 1 : 0),
@@ -2063,6 +2063,7 @@ start_element (GMarkupParseContext *context, const char *element,
         default: r->fmt.valign = O42_VALIGN_BOTTOM; break;
         }
       r->fmt.wrap = attr_int (names, values, "WrapText", 0) != 0;
+      r->fmt.shrink = attr_int (names, values, "ShrinkToFit", 0) != 0;
       r->fmt.indent = (guint8) CLAMP (attr_int (names, values, "Indent", 0), 0, 15);
       r->fmt.locked = attr_int (names, values, "Locked", 1) != 0;
       r->fmt.hidden = attr_int (names, values, "Hidden", 0) != 0;

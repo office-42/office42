@@ -41,7 +41,7 @@ typedef struct {
   GtkWidget *dialog;
   GtkWidget *number, *decimals, *custom, *symbol, *negative;
   GPtrArray *symbols;      /* what the symbol list offers, "" for none */
-  GtkWidget *halign, *valign, *wrap;
+  GtkWidget *halign, *valign, *wrap, *shrink;
   GtkWidget *family, *size, *bold, *italic, *underline, *strikeout, *colour;
   GtkWidget *border[4];
   GtkWidget *border_style[4], *border_colour;
@@ -199,6 +199,7 @@ on_format_ok (GtkWidget *w, gpointer data)
     default: fmt.valign = O42_VALIGN_BOTTOM; break;
     }
   fmt.wrap = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->wrap));
+  fmt.shrink = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->shrink));
 
   item = gtk_drop_down_get_selected_item (GTK_DROP_DOWN (prompt->family));
   if (item != NULL)
@@ -362,9 +363,12 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->wrap = gtk_check_button_new_with_mnemonic ( _("_Wrap text"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->wrap), fmt->wrap);
   gtk_grid_attach (GTK_GRID (page), prompt->wrap, 0, 2, 2, 1);
-  prompt->indent = labelled (page, 3, _("Indent:"), gtk_spin_button_new_with_range (0, 15, 1));
+  prompt->shrink = gtk_check_button_new_with_mnemonic ( _("Shrin_k to fit"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->shrink), fmt->shrink);
+  gtk_grid_attach (GTK_GRID (page), prompt->shrink, 0, 3, 2, 1);
+  prompt->indent = labelled (page, 4, _("Indent:"), gtk_spin_button_new_with_range (0, 15, 1));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->indent), fmt->indent);
-  prompt->rotation = labelled (page, 4, _("Orientation (degrees):"), gtk_spin_button_new_with_range (-90, 90, 5));
+  prompt->rotation = labelled (page, 5, _("Orientation (degrees):"), gtk_spin_button_new_with_range (-90, 90, 5));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->rotation), fmt->rotation);
 
   /* Font */

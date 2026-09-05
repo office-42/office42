@@ -55,6 +55,8 @@ typedef struct {
   guint            underline : 1;
   guint            strikeout : 1;
   guint            wrap      : 1;
+  guint            shrink    : 1;       /* shrink to fit: the text set smaller
+                                         * until it fits the cell's width */
   guint            border_top : 1;      /* these four say whether a side is
                                           * drawn; border_style says how */
   guint            border_bottom : 1;
@@ -121,7 +123,7 @@ typedef enum {
   O42_FMT_VALIGN     = 1 << 9,
   O42_FMT_NUMBER     = 1 << 10,
   O42_FMT_DECIMALS   = 1 << 11,
-  O42_FMT_WRAP       = 1 << 12,
+  O42_FMT_WRAP       = 1 << 12,      /* wrap and shrink to fit: the text's fit */
   O42_FMT_BORDERS    = 1 << 13,      /* the four sides: drawn, style and colour */
   O42_FMT_INDENT     = 1 << 14,
   O42_FMT_ROTATION   = 1 << 15,

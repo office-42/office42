@@ -5368,6 +5368,20 @@ draw_cell_text (O42Grid      *self,
   }
   pango_layout_get_pixel_size (self->layout, &tw, &th);
 
+  /* Shrink to fit: the font made smaller, in proportion, until the text
+   * fits the cell's width; never below a point size of 1. */
+  if (fmt->shrink && !fmt->wrap && tw + 2 * CELL_PAD > w && tw > 0)
+    {
+      double scale = MAX (w - 2 * CELL_PAD, 1.0) / tw;
+      int points = MAX ((int) floor (fmt->size / 2 * scale), 1);
+      PangoFontDescription *smaller = pango_font_description_copy (pango_layout_get_font_description (self->layout));
+
+      pango_font_description_set_size (smaller, points * PANGO_SCALE);
+      pango_layout_set_font_description (self->layout, smaller);
+      pango_font_description_free (smaller);
+      pango_layout_get_pixel_size (self->layout, &tw, &th);
+    }
+
   /* A number that does not fit must not be shown clipped: 1234 with its
    * first digit cut off reads as 234.  A General-format number is shown
    * with fewer digits while that helps; anything else becomes a row of
