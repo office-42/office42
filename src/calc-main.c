@@ -140,7 +140,7 @@ main (int argc, char *argv[])
   O42Book *book = o42_book_new ();
   O42Sheet *sheet = o42_book_sheet (book, 0);
   O42Db *db = NULL;
-  char line[4096];
+  static char line[65536];   /* a cell holds 32767 characters, and a note more */
 
   /* SQLVALUE() asks the book's database; it answers #N/A while there
    * is none. */

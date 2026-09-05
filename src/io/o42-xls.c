@@ -2661,6 +2661,49 @@ end_record (Writer *w)
   w->out->data[w->record_start + 3] = (len >> 8) & 0xff;
 }
 
+/* A record can hold 8224 bytes.  A string that needs more goes on into
+ * CONTINUE records, each of which begins with its own flags byte saying
+ * whether the characters that follow are bytes or UTF-16 units; that
+ * is the rule for the SST and for a TXO's text alike.  The caller has
+ * written the length; `n_chars` is how many characters to send. */
+#define RECORD_MAX 8224
+
+static gsize
+record_len (Writer *w)
+{
+  return w->out->len - w->record_start - 4;
+}
+
+static void
+put_ustr_body_continued (Writer *w, const char *text, glong n_chars)
+{
+  gboolean latin1 = is_latin1 (text);
+  glong n = 0;
+  gunichar2 *u = latin1 ? NULL : g_utf8_to_utf16 (text, -1, NULL, &n, NULL);
+  const char *p = text;
+
+  put8 (w->out, latin1 ? 0 : 1);
+  for (glong i = 0; i < n_chars; i++)
+    {
+      if (latin1 ? *p == '\0' : i >= n)
+        break;
+      if (record_len (w) + (latin1 ? 1 : 2) > RECORD_MAX)
+        {
+          end_record (w);
+          begin_record (w, R_CONTINUE);
+          put8 (w->out, latin1 ? 0 : 1);
+        }
+      if (latin1)
+        {
+          put8 (w->out, g_utf8_get_char (p));
+          p = g_utf8_next_char (p);
+        }
+      else
+        put16 (w->out, u[i]);
+    }
+  g_free (u);
+}
+
 static guint palette_index (Writer *w, guint32 colour);
 
 static guint
@@ -3518,7 +3561,7 @@ write_control_text (Writer *w, const O42Shape *shape)
   put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
   end_record (w);
   begin_record (w, R_CONTINUE);
-  put_ustr_body (w->out, shape->text);
+  put_ustr_body_continued (w, shape->text, n);
   end_record (w);
   begin_record (w, R_CONTINUE);
   put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
@@ -3928,7 +3971,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
                 put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
                 end_record (w);
                 begin_record (w, R_CONTINUE);
-                put_ustr_body (w->out, s->note);
+                put_ustr_body_continued (w, s->note, n);
                 end_record (w);
                 begin_record (w, R_CONTINUE);
                 put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
@@ -3982,17 +4025,39 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     }
 
   {
+    /* A MERGECELLS holds 1027 ranges; the rest go in another.  A merge
+     * past the .xls grid is left out, as its cells are. */
     GArray *merges = o42_sheet_merges (sheet);
-    if (merges->len > 0)
+    guint in_record = 0;
+    gsize count_at = 0;
+
+    for (guint i = 0; i < merges->len; i++)
       {
-        begin_record (w, R_MERGECELLS);
-        put16 (w->out, merges->len);
-        for (guint i = 0; i < merges->len; i++)
+        const O42Range *m = &g_array_index (merges, O42Range, i);
+
+        if (m->row1 >= O42_XLS_MAX_ROWS || m->col1 >= O42_XLS_MAX_COLS)
+          continue;
+        if (in_record == 0)
           {
-            const O42Range *m = &g_array_index (merges, O42Range, i);
-            put16 (w->out, m->row0); put16 (w->out, m->row1);
-            put16 (w->out, m->col0); put16 (w->out, m->col1);
+            begin_record (w, R_MERGECELLS);
+            count_at = w->out->len;
+            put16 (w->out, 0);
           }
+        put16 (w->out, m->row0); put16 (w->out, m->row1);
+        put16 (w->out, m->col0); put16 (w->out, m->col1);
+        in_record++;
+        if (in_record == 1027 || i + 1 == merges->len)
+          {
+            w->out->data[count_at] = in_record & 0xff;
+            w->out->data[count_at + 1] = (in_record >> 8) & 0xff;
+            end_record (w);
+            in_record = 0;
+          }
+      }
+    if (in_record > 0)
+      {
+        w->out->data[count_at] = in_record & 0xff;
+        w->out->data[count_at + 1] = (in_record >> 8) & 0xff;
         end_record (w);
       }
   }
@@ -4492,17 +4557,17 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   }
 
   /* The shared strings, continued into fresh records when one fills.
-   * A string longer than a record is cut, which loses text past 8000
-   * characters -- rare enough in a spreadsheet. */
+   * A string's length and flags stay together with at least one of its
+   * characters; the rest may go on into the next record, which begins
+   * with the flags again.  Excel holds a cell to 32767 characters. */
   begin_record (&w, R_SST);
   put32 (w.out, w.sst->len);
   put32 (w.out, w.sst->len);
   for (guint i = 0; i < w.sst->len; i++)
     {
       const char *text = g_ptr_array_index (w.sst, i);
-      glong n = MIN (char_count (text), 8000);
-      gsize need = 3 + (is_latin1 (text) ? n : n * 2);
-      if (w.out->len - w.record_start - 4 + need > 8224)
+      glong n = MIN (char_count (text), 32767);
+      if (record_len (&w) + 5 > RECORD_MAX)
         {
           end_record (&w);
           begin_record (&w, R_CONTINUE);
@@ -4513,14 +4578,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         g_array_append_val (w.sst_offsets, rec);
       }
       put16 (w.out, n);
-      if (n == char_count (text))
-        put_ustr_body (w.out, text);
-      else
-        {
-          char *cut = g_utf8_substring (text, 0, n);
-          put_ustr_body (w.out, cut);
-          g_free (cut);
-        }
+      put_ustr_body_continued (&w, text, n);
     }
   end_record (&w);
 
