@@ -770,11 +770,12 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
     sheet->eval.row = saved_row;
     sheet->eval.col = saved_col;
   }
-  cell->visiting = 0;
 
   /* The cell may have been dropped while evaluating -- it cannot be, today,
    * but re-finding it costs nothing and would catch that changing. */
   cell = sheet_find_key (sheet, key);
+  if (cell != NULL)
+    cell->visiting = 0;
   if (cell == NULL)
     {
       o42_value_clear (&result);
@@ -2397,17 +2398,15 @@ record_range_text (O42Sheet *sheet, const O42Range *range)
 static void
 record_clear (O42Sheet *sheet, const O42Range *range)
 {
-  char *first, *last, *line;
+  char *first, *line;
 
   if (!o42_book_record_sheet (sheet->book, sheet->name))
     return;
   first = record_range_text (sheet, range);
-  last = NULL;
   line = g_strdup_printf ("%s.clear()", first);
   o42_book_record_line (sheet->book, line);
   g_free (line);
   g_free (first);
-  g_free (last);
 }
 
 /* A cell that has been given a format wholesale -- pasted, filled, or
@@ -2566,7 +2565,11 @@ record_format (O42Sheet *sheet, const O42Range *range, O42FmtMask mask, const O4
 static void
 set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
 {
-  if (o42_book_recording (sheet->book))
+  if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+    return;
+  /* The recorder hears of a cell once; the block-preserving path below
+   * calls back in with `shifting` set. */
+  if (!sheet->shifting && o42_book_recording (sheet->book))
     record_input (sheet, row, col, text);
   /* Emptying a cell that a block's head fills is no change to the
    * block -- undo lands such cells empty, and their head fills them
@@ -2599,9 +2602,6 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
   }
   guint64 key = o42_key (row, col);
   O42Cell *cell;
-
-  if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
-    return;
 
   cell = sheet_ensure (sheet, row, col);
   cell_clear_content (sheet, key, cell);
@@ -4660,10 +4660,10 @@ o42_sheet_apply_fmt (O42Sheet   *sheet,
 {
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (range != NULL);
+  g_return_if_fail (value != NULL);
 
   if (o42_book_recording (sheet->book))
     record_format (sheet, range, mask, value);
-  g_return_if_fail (value != NULL);
 
   op_begin (sheet);
 

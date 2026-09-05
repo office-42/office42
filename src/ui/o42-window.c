@@ -2537,13 +2537,6 @@ action_page_setup (GSimpleAction *a, GVariant *p, gpointer data)
   action_page_setup_tab (data, 0, NULL);
 }
 
-static void
-action_sheet_setup (GSimpleAction *a, GVariant *p, gpointer data)
-{
-  (void) a; (void) p;
-  action_page_setup_tab (data, 3, NULL);
-}
-
 /* View > Header and Footer, as Excel has it: Page Setup on that tab. */
 static void
 action_header_footer (GSimpleAction *a, GVariant *p, gpointer data)
@@ -5585,7 +5578,6 @@ static const GActionEntry ACTIONS[] = {
   { "db-refresh",     action_db_refresh,     NULL, NULL, NULL, { 0 } },
   { "db-send",        action_db_send,        NULL, NULL, NULL, { 0 } },
   { "style",          action_style,          NULL, NULL, NULL, { 0 } },
-  { "sheet-setup",    action_sheet_setup,    NULL, NULL, NULL, { 0 } },
   { "set-print-area", action_set_print_area, NULL, NULL, NULL, { 0 } },
   { "page-break",     action_page_break,     NULL, NULL, NULL, { 0 } },
   { "clear-print-area", action_clear_print_area, NULL, NULL, NULL, { 0 } },
@@ -6219,7 +6211,8 @@ o42_window_bind_macro_keys (O42Window *self)
       char *accel;
       GtkShortcutTrigger *trigger;
 
-      if (letter == 0)
+      /* Save As, Paste Special and Redo keep their keys. */
+      if (letter == 0 || strchr ("SVZsvz", letter) != NULL)
         continue;
       accel = g_strdup_printf ("<Control><Shift>%c", g_ascii_tolower (letter));
       trigger = gtk_shortcut_trigger_parse_string (accel);

@@ -1675,7 +1675,7 @@ read_name (Reader *r, const guchar *p, gsize len)
       const guchar *q = p;
       int kind = name[9] - '0';
 
-      while (q < end && q + cce > p ? q < p + cce : FALSE)
+      while (q < end && q < p + cce)
         {
           guint ptg = *q >= 0x20 ? (0x20 | (*q & 0x1F)) : *q;   /* any class */
 
@@ -4634,7 +4634,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
   put16 (w->out, (guint) ((default_width - 5) / 7.0 + 0.5));
   end_record (w);
 
-  for (int col = 0; col < O42_MAX_COLS - 1; col++)
+  for (int col = 0; col < O42_XLS_MAX_COLS; col++)
     {
       int width = o42_sheet_col_width (sheet, col);
       gboolean hidden = o42_sheet_col_hidden (sheet, col);
@@ -4651,8 +4651,8 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     }
 
   begin_record (w, R_DIMENSIONS);
-  put32 (w->out, used.row0); put32 (w->out, used.row1 + 1);
-  put16 (w->out, used.col0); put16 (w->out, used.col1 + 1); put16 (w->out, 0);
+  put32 (w->out, MIN (used.row0, O42_XLS_MAX_ROWS - 1)); put32 (w->out, MIN (used.row1 + 1, O42_XLS_MAX_ROWS));
+  put16 (w->out, MIN (used.col0, O42_XLS_MAX_COLS - 1)); put16 (w->out, MIN (used.col1 + 1, O42_XLS_MAX_COLS)); put16 (w->out, 0);
   end_record (w);
 
   {

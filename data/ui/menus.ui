@@ -120,7 +120,7 @@
           <item><attribute name="label" translatable="yes">_Text Box</attribute><attribute name="action">win.shape</attribute><attribute name="target">textbox</attribute></item>
           <section>
             <item><attribute name="label" translatable="yes">Rounded Rectan_gle</attribute><attribute name="action">win.shape</attribute><attribute name="target">roundrect</attribute></item>
-            <item><attribute name="label" translatable="yes">Trian_gle</attribute><attribute name="action">win.shape</attribute><attribute name="target">triangle</attribute></item>
+            <item><attribute name="label" translatable="yes">Tr_iangle</attribute><attribute name="action">win.shape</attribute><attribute name="target">triangle</attribute></item>
             <item><attribute name="label" translatable="yes">Right Triangle</attribute><attribute name="action">win.shape</attribute><attribute name="target">rttriangle</attribute></item>
             <item><attribute name="label" translatable="yes">_Diamond</attribute><attribute name="action">win.shape</attribute><attribute name="target">diamond</attribute></item>
             <item><attribute name="label" translatable="yes">_Pentagon</attribute><attribute name="action">win.shape</attribute><attribute name="target">pentagon</attribute></item>
@@ -132,18 +132,18 @@
             <item><attribute name="label" translatable="yes">_8-Point Star</attribute><attribute name="action">win.shape</attribute><attribute name="target">star8</attribute></item>
           </section>
           <section>
-            <item><attribute name="label" translatable="yes">_Right Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">rightarrow</attribute></item>
-            <item><attribute name="label" translatable="yes">_Left Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">leftarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">Right Arro_w</attribute><attribute name="action">win.shape</attribute><attribute name="target">rightarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">Le_ft Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">leftarrow</attribute></item>
             <item><attribute name="label" translatable="yes">_Up Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">uparrow</attribute></item>
-            <item><attribute name="label" translatable="yes">_Down Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">downarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">Down Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">downarrow</attribute></item>
             <item><attribute name="label" translatable="yes">Left-Right Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">leftrightarrow</attribute></item>
           </section>
           <section>
             <item><attribute name="label" translatable="yes">Rectangular _Callout</attribute><attribute name="action">win.shape</attribute><attribute name="target">rectcallout</attribute></item>
-            <item><attribute name="label" translatable="yes">Oval Call_out</attribute><attribute name="action">win.shape</attribute><attribute name="target">ellipsecallout</attribute></item>
-            <item><attribute name="label" translatable="yes">Flowchart: _Process</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowprocess</attribute></item>
-            <item><attribute name="label" translatable="yes">Flowchart: _Decision</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowdecision</attribute></item>
-            <item><attribute name="label" translatable="yes">Flowchart: _Terminator</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowterminator</attribute></item>
+            <item><attribute name="label" translatable="yes">Oval Callout</attribute><attribute name="action">win.shape</attribute><attribute name="target">ellipsecallout</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: Proc_ess</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowprocess</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: Decisio_n</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowdecision</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: Ter_minator</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowterminator</attribute></item>
           </section>
         </submenu>
         <submenu>
@@ -266,7 +266,7 @@
           <section>
             <item><attribute name="label" translatable="yes">_Macros...</attribute><attribute name="action">win.macros</attribute></item>
             <item><attribute name="label" translatable="yes">_Record Macro</attribute><attribute name="action">win.record-macro</attribute></item>
-            <item><attribute name="label" translatable="yes">_Stop Recording</attribute><attribute name="action">win.stop-recording</attribute></item>
+            <item><attribute name="label" translatable="yes">S_top Recording</attribute><attribute name="action">win.stop-recording</attribute></item>
             <item><attribute name="label" translatable="yes">Use Re_lative References</attribute><attribute name="action">win.relative-refs</attribute></item>
           </section>
           <section>

@@ -127,9 +127,9 @@ has. The last column says what is missing, not what is there.
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 6 | 97% | 5.8 | arranging windows, which GTK 4 gives a program no way to do |
 | Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice; the recorder writes one line per operation, Alt+F8 and Ctrl+Shift+letter run them |
-| **Total** | 100 | | **99.4** | |
+| **Total** | 110 | | **109.6** | |
 
-**About 98% of Excel 2003.** Against **Excel 365** the number is nearer
+**About 99.6% of Excel 2003** (109.6 of a weight of 110). Against **Excel 365** the number is nearer
 45%: dynamic arrays and tables are here, but Power Query, the modern
 pivot engine, co-authoring, LAMBDA's whole environment, threaded
 comments, sparklines, slicers and the ribbon are not.

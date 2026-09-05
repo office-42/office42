@@ -247,23 +247,24 @@ main (int argc, char *argv[])
               "  A1                 shows a cell's value and formula\n"
               "  dump               prints the used range\n"
               "\n"
-              "Cells     copy paste filldown fillright autofill moverange merge merges\n"
-              "          insertrows deleterows insertcols deletecols insertcells deletecells\n"
+              "Cells     copy paste filldown fillright autofill moverange merge unmerge merges\n"
+              "          insertrows deleterows insertcols deletecols insertcells deletecells array\n"
               "Formats   format font fontinfo border pattern rich runs indent rotate fmtinfo\n"
-              "          style defstyle styleat autoformat cond conds uncond\n"
-              "Sheets    sheet rename delsheet freeze split hiderows levels group protect\n"
-              "          lock hide editable chartsheet autooutline clearoutline detail\n"
-              "          outlinelevel\n"
-              "Data      sort find replace filter advfilter subtotal dedupe consolidate\n"
-              "          table pivot refresh validate validations goalseek solve scenario summary\n"
-              "          analyse whatif split splitfixed\n"
+              "          style defstyle styleat styles autoformat cond conds uncond\n"
+              "Sheets    sheet rename delsheet freeze split hiderows unhiderows hidecols unhidecols\n"
+              "          levels group ungroup protect lock hide editable chartsheet tabcolour\n"
+              "          autooutline clearoutline detail outlinelevel\n"
+              "Data      sort find replace filter autofilter advfilter subtotal unsubtotal dedupe\n"
+              "          consolidate table untable tables pivot refresh validate unvalidate validations\n"
+              "          goalseek solve scenario scenarios showscenario delscenario summary\n"
+              "          analyse whatif split splitfixed customlist customlists\n"
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
-              "          picture pictures objects order objgroup objungroup note link links\n"
+              "          picture pictures pictureset objects order objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
-              "          pagebreak margin pageopt header footer titlerows\n"
+              "          pagebreak margin pageopt header footer titlerows titlecols\n"
               "Python    py pyfile script scripts runscript delscript record select\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
-              "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
+              "Other     undo redo name names unname spell view views shown calcmode iterate recalc\n"
               "          evaluate watch watches unwatch check date1904 precision fixeddecimals\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
@@ -3305,18 +3306,6 @@ main (int argc, char *argv[])
             for (guint i = 0; i < cb->len; i++) printf (" %d", g_array_index (cb, int, i) + 1);
             printf ("\n");
           }
-          continue;
-        }
-      if (g_str_has_prefix (text, "pdf "))
-        {
-          GFile *file = g_file_new_for_path (text + 4);
-          GError *error = NULL;
-          if (!o42_pdf_export (sheet, file, &error))
-            {
-              fprintf (stderr, "%s\n", error ? error->message : "failed");
-              g_clear_error (&error);
-            }
-          g_object_unref (file);
           continue;
         }
 

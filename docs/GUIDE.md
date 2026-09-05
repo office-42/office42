@@ -598,9 +598,14 @@ of its own.
 - **Insert ▸ Picture ▸ From Scanner or Camera** asks the scanner --
   through Windows' own acquire dialog, or SANE's `scanimage` elsewhere
   -- and puts what it gives where a picture from a file would go.
-- **Insert ▸ Shape** puts a rectangle, an oval, a line, an arrow or a
-  text box over the grid. Format ▸ Shape sets its text, fill, line
-  colour and line width.
+- **Insert ▸ Shape** puts a rectangle, an oval, a line, an arrow, a
+  text box or any of Excel's AutoShapes -- rounded rectangle, triangles,
+  diamond, pentagon, hexagon, octagon, cross, stars, block arrows,
+  callouts, flowchart symbols -- over the grid. Format ▸ Shape sets its
+  text, fill, line colour, line width, dash, the heads at either end of
+  a line, its rotation and flips. Format ▸ Order brings an object to the
+  front or sends it back, a step at a time or all the way. Format ▸
+  Picture crops a picture and turns it.
 - **Insert ▸ Control** puts a form control on the sheet: a button, a
   check box, an option button, a spinner, a scroll bar, a list box, a
   combo box, a label or a group box. See the next section.
@@ -849,12 +854,12 @@ prints the used range. The commands, by family:
 | Cells | `dump`, `copy`, `paste`, `filldown`, `fillright`, `autofill`, `moverange`, `merge`, `unmerge`, `merges`, `insertrows`, `deleterows`, `insertcols`, `deletecols`, `insertcells`, `deletecells`, `array` |
 | Formats | `format`, `font`, `fontinfo`, `border`, `pattern`, `rich`, `runs`, `indent`, `rotate`, `fmtinfo`, `style`, `styles`, `defstyle`, `styleat`, `autoformat`, `cond`, `conds`, `uncond`, `customlist`, `customlists` |
 | Sheets | `sheet`, `rename`, `delsheet`, `tabcolour`, `freeze`, `split`, `hiderows`, `unhiderows`, `hidecols`, `unhidecols`, `levels`, `group`, `ungroup`, `autooutline`, `clearoutline`, `detail`, `outlinelevel`, `protect`, `lock`, `hide`, `editable`, `chartsheet` |
-| Data | `sort`, `find`, `replace`, `filter`, `advfilter`, `subtotal`, `unsubtotal`, `dedupe`, `consolidate`, `table`, `tables`, `untable`, `pivot`, `refresh`, `validate`, `validations`, `unvalidate`, `goalseek`, `solve`, `scenario`, `scenarios`, `showscenario`, `delscenario`, `summary`, `analyse`, `whatif`, `split`, `splitfixed` |
-| Objects | `chart`, `charts`, `chartset`, `chartinfo`, `shape`, `shapes`, `controlset`, `click`, `picture`, `pictures`, `objgroup`, `objungroup`, `note`, `link`, `links` |
-| Files | `load`, `save`, `pdf`, `pdfbook`, `printarea`, `printscale`, `printsetup`, `printopt`, `pagebreak`, `margin`, `header`, `footer`, `titlerows` |
-| Python | `py`, `pyfile`, `script`, `scripts`, `runscript`, `delscript`, `record` |
+| Data | `sort`, `find`, `replace`, `filter`, `advfilter`, `subtotal`, `unsubtotal`, `dedupe`, `consolidate`, `table`, `tables`, `untable`, `pivot`, `refresh`, `validate`, `validations`, `unvalidate`, `goalseek`, `solve`, `scenario`, `scenarios`, `showscenario`, `delscenario`, `summary`, `analyse`, `whatif`, `split`, `splitfixed`, `autofilter` |
+| Objects | `chart`, `charts`, `chartset`, `chartinfo`, `shape`, `shapes`, `controlset`, `click`, `picture`, `pictures`, `objgroup`, `objungroup`, `note`, `link`, `links`, `pictureset`, `objects`, `order` |
+| Files | `load`, `save`, `pdf`, `pdfbook`, `printarea`, `printscale`, `printsetup`, `printopt`, `pagebreak`, `margin`, `header`, `footer`, `titlerows`, `pageopt`, `titlecols` |
+| Python | `py`, `pyfile`, `script`, `scripts`, `runscript`, `delscript`, `record`, `select` |
 | Database | `db`, `dbembed`, `dbtables`, `dbcols`, `dbexec`, `sql`, `sqlprint`, `dbput`, `dbrefresh`, `queries` |
-| Other | `undo`, `redo`, `name`, `names`, `unname`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc`, `evaluate`, `watch`, `watches`, `unwatch`, `check` |
+| Other | `undo`, `redo`, `name`, `names`, `unname`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc`, `evaluate`, `watch`, `watches`, `unwatch`, `check`, `date1904`, `precision`, `fixeddecimals` |
 
 `office42-calc --functions` prints every function with its signature
 and a line about what it does; `--help` prints the commands by family
@@ -888,6 +893,9 @@ and `--version` the version.
 | F9 | work everything out again |
 | F11 | full screen |
 | Ctrl+Shift+Enter | enter a formula over the whole selection |
+| Ctrl+Shift+~ 1 2 3 4 5 6 | General, Comma, Time, Date, Currency, Percent, Scientific formats |
+| Alt+F8 | the Macros dialog |
+| Ctrl+Shift+letter | run the macro given that letter in Macro Options |
 | Escape | cancel the edit |
 
 ---

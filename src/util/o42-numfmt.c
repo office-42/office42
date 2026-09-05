@@ -480,12 +480,10 @@ format_general (double n)
      * rounds to a whole one loses its point. */
     int whole = (int) floor (log10 (a)) + 1;
     int decimals = a < 1 ? 9 : MAX (10 - whole, 0);
-    char spec[16];
     double shown = show_round (a, decimals);
 
     if (shown >= pow (10, whole) && whole >= 1)
       decimals = MAX (decimals - 1, 0);
-    (void) spec;
     fixed_digits (buffer, sizeof buffer, a, decimals);
     trim_zeroes (buffer);
     if (strcmp (buffer, "0") == 0)

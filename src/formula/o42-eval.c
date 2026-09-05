@@ -150,25 +150,6 @@ array_get_cell (O42EvalContext *ctx, const char *sheet, int row, int col, O42Val
   (void) ctx;
 }
 
-static gboolean
-tree_has_array (const O42Node *node)
-{
-  if (node == NULL) return FALSE;
-  switch (node->type)
-    {
-    case O42_NODE_ARRAY: return TRUE;
-    case O42_NODE_UNARY:
-    case O42_NODE_BINARY: return tree_has_array (node->as.op.a) || tree_has_array (node->as.op.b);
-    case O42_NODE_CALL:
-      if (node->as.call.args != NULL)
-        for (guint i = 0; i < node->as.call.args->len; i++)
-          if (tree_has_array (g_ptr_array_index (node->as.call.args, i)))
-            return TRUE;
-      return FALSE;
-    default: return FALSE;
-    }
-}
-
 /* Registers an array in the current frame and hands it out as a range. */
 static O42Operand
 array_operand (ArrayConst *a)
@@ -10913,7 +10894,6 @@ o42_eval (O42EvalContext *ctx, const O42Node *node)
 
   /* Every evaluation runs under a context that serves array constants
    * and array results as ranges. */
-  (void) tree_has_array;
   wrapper = *ctx;
   wrapper.get_cell = array_get_cell;
   frame.original = ctx;

@@ -386,11 +386,11 @@ draw_page (cairo_t      *cr,
           /* The grid's rules for what does not fit: a General number is
            * shown with fewer digits, any other number as hashes, and a
            * label runs on over the empty cells beside it. */
-          if (value.type == O42_VALUE_NUMBER && tw + 6 > w)
+          if (!is_text && tw + 6 > w)
             {
               gboolean fits = FALSE;
 
-              if (fmt->number == O42_NUM_GENERAL && fmt->custom == NULL)
+              if (value.type == O42_VALUE_NUMBER && fmt->number == O42_NUM_GENERAL && fmt->custom == NULL)
                 for (int digits = 9; digits >= 1 && !fits; digits--)
                   {
                     char spec[8], buffer[G_ASCII_DTOSTR_BUF_SIZE];
