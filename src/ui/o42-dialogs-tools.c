@@ -128,6 +128,108 @@ action_goal_seek (GSimpleAction *a, GVariant *p, gpointer data)
 }
 
 
+/* ---- Tools > Euro Conversion ------------------------------------------ */
+
+/* Excel's Euro Currency Tools: a range of sums in one member currency
+ * written out in another, as values or as EUROCONVERT formulas. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *source, *dest, *from, *to, *formulas, *full, *tri, *status;
+} EuroPrompt;
+
+static void
+on_euro_ok (GtkWidget *w, gpointer data)
+{
+  EuroPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const char *st = gtk_editable_get_text (GTK_EDITABLE (prompt->source));
+  const char *dt = gtk_editable_get_text (GTK_EDITABLE (prompt->dest));
+  const char **codes;
+  O42Range r;
+  int drow, dcol, n;
+  gsize len = 0;
+
+  (void) w;
+  o42_euro_members (&codes);
+  if (!(o42_ref_parse (st, &r.row0, &r.col0, &len) &&
+        (st[len] == '\0' || (st[len] == ':' && o42_ref_parse (st + len + 1, &r.row1, &r.col1, NULL)))) ||
+      !o42_ref_parse (dt, &drow, &dcol, NULL))
+    {
+      gtk_label_set_text (GTK_LABEL (prompt->status), _("Give a source range and a destination cell."));
+      return;
+    }
+  if (st[len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
+  n = o42_sheet_euro_convert (self->sheet, &r, drow, dcol,
+                              codes[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->from))],
+                              codes[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->to))],
+                              gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->formulas)),
+                              gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->full)),
+                              gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->tri)));
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  {
+    char *msg = g_strdup_printf (n == 1 ? _("%d cell converted.") : _("%d cells converted."), n);
+    gtk_label_set_text (GTK_LABEL (prompt->status), msg);
+    g_free (msg);
+  }
+}
+
+void
+action_euro_convert (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  EuroPrompt *prompt = g_new0 (EuroPrompt, 1);
+  GtkWidget *content, *buttons, *grid, *ok;
+  const char **codes;
+  O42Range sel;
+  char *x, *y, *text;
+
+  (void) a; (void) p;
+  o42_euro_members (&codes);
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Euro Conversion"), FALSE, &content, &buttons);
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->source = labelled (grid, 0, _("Source range:"), gtk_entry_new ());
+  prompt->dest = labelled (grid, 1, _("Destination range:"), gtk_entry_new ());
+  prompt->from = labelled (grid, 2, _("From:"), gtk_drop_down_new_from_strings (codes));
+  prompt->to = labelled (grid, 3, _("To:"), gtk_drop_down_new_from_strings (codes));
+  prompt->tri = labelled (grid, 4, _("Triangulation precision:"), gtk_spin_button_new_with_range (0, 15, 1));
+  gtk_box_append (GTK_BOX (content), grid);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->from), 3);   /* DEM */
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->to), 0);     /* EUR */
+
+  o42_grid_get_selection (self->grid, &sel);
+  x = o42_ref_name (sel.row0, sel.col0);
+  y = o42_ref_name (sel.row1, sel.col1);
+  text = g_strdup_printf ("%s:%s", x, y);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->source), text);
+  g_free (text); g_free (y);
+  y = o42_ref_name (sel.row0, MIN (sel.col1 + 2, O42_MAX_COLS - 1));
+  gtk_editable_set_text (GTK_EDITABLE (prompt->dest), y);
+  g_free (x); g_free (y);
+
+  prompt->formulas = gtk_check_button_new_with_mnemonic (_("Write EUROCONVERT _formulas rather than values"));
+  gtk_box_append (GTK_BOX (content), prompt->formulas);
+  prompt->full = gtk_check_button_new_with_mnemonic (_("Full _precision (no rounding to the currency's decimals)"));
+  gtk_box_append (GTK_BOX (content), prompt->full);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Triangulation 0 leaves the euro amount unrounded; 3 to 15 round it on the way.")));
+
+  prompt->status = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->status), 0.0);
+  gtk_box_append (GTK_BOX (content), prompt->status);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_euro_ok), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
 /* ---- Tools > Python Console ------------------------------------------- */
 
 /* A transcript and a line to type into, as the interpreter's own

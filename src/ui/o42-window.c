@@ -5312,6 +5312,7 @@ static const GActionEntry ACTIONS[] = {
   { "circle-invalid", action_circle_invalid, NULL, NULL, NULL, { 0 } },
   { "clear-circles",  action_clear_circles,  NULL, NULL, NULL, { 0 } },
   { "outline-settings", action_outline_settings, NULL, NULL, NULL, { 0 } },
+  { "euro-convert",   action_euro_convert,   NULL, NULL, NULL, { 0 } },
   { "pivot",          action_pivot,          NULL, NULL, NULL, { 0 } },
   { "refresh-pivot",  action_refresh_pivot,  NULL, NULL, NULL, { 0 } },
   { "group-rows",     action_group_rows,     NULL, NULL, NULL, { 0 } },

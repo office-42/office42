@@ -2738,6 +2738,34 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* euroconvert A1:A5 C1 DEM EUR [formulas] [full] [tri N] */
+      if (g_str_has_prefix (text, "euroconvert "))
+        {
+          char **w = g_strsplit (text + 12, " ", -1);
+          int n = (int) g_strv_length (w);
+          O42Range r;
+          int drow, dcol;
+          gsize len = 0;
+
+          if (n >= 4 && o42_ref_parse (w[0], &r.row0, &r.col0, &len) && w[0][len] == ':' &&
+              o42_ref_parse (w[0] + len + 1, &r.row1, &r.col1, NULL) && o42_ref_parse (w[1], &drow, &dcol, NULL))
+            {
+              gboolean formulas = FALSE, full = FALSE;
+              int tri = 0;
+              for (int i = 4; i < n; i++)
+                {
+                  if (strcmp (w[i], "formulas") == 0) formulas = TRUE;
+                  else if (strcmp (w[i], "full") == 0) full = TRUE;
+                  else if (strcmp (w[i], "tri") == 0 && i + 1 < n) tri = atoi (w[++i]);
+                }
+              printf ("%d cells converted\n", o42_sheet_euro_convert (sheet, &r, drow, dcol, w[2], w[3], formulas, full, tri));
+            }
+          else
+            fprintf (stderr, "usage: euroconvert A1:A5 C1 DEM EUR [formulas] [full] [tri N]\n");
+          g_strfreev (w);
+          continue;
+        }
+
       /* outlinesettings above|below left|right: where the summaries stand. */
       if (g_str_has_prefix (text, "outlinesettings"))
         {

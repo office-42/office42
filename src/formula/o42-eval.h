@@ -128,4 +128,9 @@ const char * const *o42_function_names (guint *n_names);
 gboolean o42_function_help (const char *name, const char **signature,
                             const char **summary);
 
+/* The euro's members, ISO codes with EUR first, for Tools > Euro
+ * Conversion; and how many decimals a member's sums are kept to. */
+int o42_euro_members  (const char ***codes);
+int o42_euro_decimals (const char *code);
+
 G_END_DECLS

@@ -11302,6 +11302,72 @@ o42_sheet_data_table (O42Sheet *sheet, const O42Range *range,
 }
 
 /* ---------------------------------------------------------------------- */
+/* Euro Conversion                                                         */
+/* ---------------------------------------------------------------------- */
+
+int
+o42_sheet_euro_convert (O42Sheet *sheet, const O42Range *source, int row, int col,
+                        const char *from, const char *to, gboolean as_formulas,
+                        gboolean full_precision, int triangulation)
+{
+  O42Range r;
+  int written = 0;
+  char *code;
+
+  g_return_val_if_fail (sheet != NULL && source != NULL && from != NULL && to != NULL, 0);
+  r = o42_range_normalise (source->row0, source->col0, source->row1, source->col1);
+  if (row < 0 || col < 0 || row + (r.row1 - r.row0) >= O42_MAX_ROWS || col + (r.col1 - r.col0) >= O42_MAX_COLS)
+    return 0;
+  /* The target's currency format: its decimals, and its code after. */
+  code = g_strdup_printf (o42_euro_decimals (to) == 0 ? "#,##0 \"%s\"" : "#,##0.00 \"%s\"", to);
+
+  op_begin (sheet);
+  for (int sr = r.row0; sr <= r.row1; sr++)
+    for (int sc = r.col0; sc <= r.col1; sc++)
+      {
+        O42Value v;
+        int dr = row + (sr - r.row0), dc = col + (sc - r.col0);
+        char *ref, *formula;
+
+        o42_sheet_get_value (sheet, sr, sc, &v);
+        if (v.type != O42_VALUE_NUMBER)
+          { o42_value_clear (&v); continue; }
+        o42_value_clear (&v);
+        ref = o42_ref_name (sr, sc);
+        formula = triangulation >= 3
+                  ? g_strdup_printf ("=EUROCONVERT(%s,\"%s\",\"%s\",%s,%d)", ref, from, to,
+                                     full_precision ? "TRUE" : "FALSE", triangulation)
+                  : g_strdup_printf ("=EUROCONVERT(%s,\"%s\",\"%s\",%s)", ref, from, to,
+                                     full_precision ? "TRUE" : "FALSE");
+        op_capture (sheet, dr, dc);
+        if (as_formulas)
+          set_input_internal (sheet, dr, dc, formula);
+        else
+          {
+            O42Value result = o42_sheet_evaluate_formula (sheet, formula + 1);
+            char *text = value_input_text (&result);
+            set_input_internal (sheet, dr, dc, result.type == O42_VALUE_NUMBER ? text : "");
+            g_free (text);
+            o42_value_clear (&result);
+          }
+        {
+          O42Range one = { dr, dc, dr, dc };
+          O42Fmt f;
+          o42_fmt_init_default (&f);
+          f.custom = g_intern_string (code);
+          o42_sheet_apply_fmt (sheet, &one, O42_FMT_NUMBER, &f);
+        }
+        written++;
+        g_free (formula);
+        g_free (ref);
+      }
+  op_end (sheet);
+  g_free (code);
+  sheet->modified = TRUE;
+  return written;
+}
+
+/* ---------------------------------------------------------------------- */
 /* Database queries                                                        */
 /* ---------------------------------------------------------------------- */
 

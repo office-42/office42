@@ -762,6 +762,18 @@ GArray             *o42_sheet_data_tables      (O42Sheet *sheet);   /* O42DataTa
 void                o42_sheet_remove_data_table (O42Sheet *sheet, const O42Range *range);
 void                o42_sheet_refresh_data_tables (O42Sheet *sheet);
 
+/* ---- Euro Conversion ----------------------------------------------------- */
+
+/* Excel's Euro Currency Tools: every number in `source` converted from
+ * one member currency to another, written at `row`,`col` and on, as
+ * EUROCONVERT formulas or as the values they give, in the target's
+ * currency format.  `triangulation` is the decimals the euro amount is
+ * rounded to on the way (0 for none); `full_precision` keeps the
+ * result's.  Returns how many cells were written; one undo step. */
+int o42_sheet_euro_convert (O42Sheet *sheet, const O42Range *source, int row, int col,
+                            const char *from, const char *to, gboolean as_formulas,
+                            gboolean full_precision, int triangulation);
+
 /* ---- Database queries --------------------------------------------------- */
 
 /* A query put into the sheet: the SQL, and where its answer was laid

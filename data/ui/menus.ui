@@ -245,6 +245,7 @@
       <attribute name="label" translatable="yes">_Tools</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_Goal Seek...</attribute><attribute name="action">win.goal-seek</attribute></item>
+        <item><attribute name="label" translatable="yes">_Euro Conversion...</attribute><attribute name="action">win.euro-convert</attribute></item>
         <item><attribute name="label" translatable="yes">Sol_ver...</attribute><attribute name="action">win.solver</attribute></item>
         <item><attribute name="label" translatable="yes">_Protect Sheet</attribute><attribute name="action">win.protect</attribute></item>
       </section>

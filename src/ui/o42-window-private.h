@@ -132,6 +132,7 @@ void action_text_to_columns (GSimpleAction *a, GVariant *p, gpointer data);
 void action_validation (GSimpleAction *a, GVariant *p, gpointer data);
 void action_circle_invalid (GSimpleAction *a, GVariant *p, gpointer data);
 void action_outline_settings (GSimpleAction *a, GVariant *p, gpointer data);
+void action_euro_convert (GSimpleAction *a, GVariant *p, gpointer data);
 void action_clear_circles (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_rows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_cols (GSimpleAction *a, GVariant *p, gpointer data);
