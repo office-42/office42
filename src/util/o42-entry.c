@@ -159,6 +159,47 @@ text:
   return FALSE;
 }
 
+/* "1 1/2", "-2 3/4", "0 1/8": a whole number, a space and a fraction,
+ * which is how a fraction is typed so that it is not read as a date. */
+static gboolean
+read_fraction (const char *text, O42Entry *out)
+{
+  const char *p = text;
+  gboolean negative = FALSE;
+  double whole, num, den;
+  char *end;
+
+  while (g_ascii_isspace (*p)) p++;
+  if (*p == '-' || *p == '+')
+    negative = *p++ == '-';
+  if (!g_ascii_isdigit (*p))
+    return FALSE;
+  whole = g_ascii_strtod (p, &end);
+  if (end == p || *end != ' ')
+    return FALSE;
+  p = end;
+  while (*p == ' ') p++;
+  if (!g_ascii_isdigit (*p))
+    return FALSE;
+  num = g_ascii_strtod (p, &end);
+  if (end == p || *end != '/')
+    return FALSE;
+  p = end + 1;
+  if (!g_ascii_isdigit (*p))
+    return FALSE;
+  den = g_ascii_strtod (p, &end);
+  if (end == p || den == 0)
+    return FALSE;
+  p = end;
+  while (g_ascii_isspace (*p)) p++;
+  if (*p != '\0')
+    return FALSE;
+  out->number = (whole + num / den) * (negative ? -1 : 1);
+  out->format = O42_NUM_GENERAL;
+  out->decimals = 0;
+  return TRUE;
+}
+
 gboolean
 o42_entry_parse (const char *text, O42Entry *out)
 {
@@ -171,6 +212,12 @@ o42_entry_parse (const char *text, O42Entry *out)
     return FALSE;
 
   if (read_plain_number (text, &entry))
+    {
+      *out = entry;
+      return TRUE;
+    }
+
+  if (read_fraction (text, &entry))
     {
       *out = entry;
       return TRUE;

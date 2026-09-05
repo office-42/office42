@@ -1043,7 +1043,8 @@ fn_round (O42EvalContext *ctx, O42Operand *args, int n)
   if (n >= 2)
     ARG_NUMBER (1, digits);
 
-  return o42_value_number (round_half_away (x, (int) digits));
+  /* Past three hundred places there is nothing left to round. */
+  return o42_value_number (round_half_away (x, (int) CLAMP (digits, -400, 400)));
 }
 
 static O42Value
@@ -1782,7 +1783,7 @@ fn_ceiling_floor (O42EvalContext *ctx, O42Operand *args, int n, gboolean up)
     ARG_NUMBER (1, sig);
 
   if (sig == 0)
-    return o42_value_number (0);
+    return up ? o42_value_number (0) : o42_value_error (O42_ERR_DIV0);
   if ((x > 0 && sig < 0))
     return o42_value_error (O42_ERR_NUM);
 
@@ -1795,6 +1796,29 @@ fn_ceiling_floor (O42EvalContext *ctx, O42Operand *args, int n, gboolean up)
 
 static O42Value fn_ceiling (O42EvalContext *c, O42Operand *a, int n) { return fn_ceiling_floor (c, a, n, TRUE); }
 static O42Value fn_floor   (O42EvalContext *c, O42Operand *a, int n) { return fn_ceiling_floor (c, a, n, FALSE); }
+
+/* CEILING.MATH and FLOOR.MATH: the significance's sign is ignored, a
+ * negative number goes toward zero for CEILING and away for FLOOR, and
+ * a mode of anything but zero turns it the other way. */
+static O42Value
+fn_ceiling_floor_math (O42EvalContext *ctx, O42Operand *args, int n, gboolean up)
+{
+  double x, sig = 1, mode = 0, q;
+  gboolean away;
+
+  ARG_NUMBER (0, x);
+  if (n >= 2) ARG_NUMBER (1, sig);
+  if (n >= 3) ARG_NUMBER (2, mode);
+  sig = fabs (sig);
+  if (sig == 0)
+    return o42_value_number (0);
+  q = round_half_away (x / sig, 10);
+  if (x >= 0)
+    return o42_value_number ((up ? ceil (q) : floor (q)) * sig);
+  /* Away from zero: FLOOR's way, and CEILING's when a mode is given. */
+  away = up ? mode != 0 : mode == 0;
+  return o42_value_number ((away ? floor (q) : ceil (q)) * sig);
+}
 
 static O42Value
 fn_mround (O42EvalContext *ctx, O42Operand *args, int n)
@@ -3830,6 +3854,12 @@ fn_textjoin (O42EvalContext *ctx, O42Operand *args, int n)
     }
 
   g_free (delim);
+  if (g_utf8_strlen (out->str, -1) > 32767)
+    {
+      /* A cell holds 32,767 characters and no more. */
+      g_string_free (out, TRUE);
+      return o42_value_error (O42_ERR_VALUE);
+    }
   return o42_value_take (g_string_free (out, FALSE));
 }
 
@@ -3841,23 +3871,79 @@ fn_roman (O42EvalContext *ctx, O42Operand *args, int n)
     { 90, "XC" }, { 50, "L" }, { 40, "XL" }, { 10, "X" }, { 9, "IX" },
     { 5, "V" }, { 4, "IV" }, { 1, "I" }
   };
-  double x;
+  double x, form = 0;
   int v;
   GString *out;
 
-  (void) n;
   ARG_NUMBER (0, x);
+  if (n >= 2)
+    {
+      O42Value f = operand_value (ctx, &args[1]);
+      O42ErrorCode e = O42_ERR_VALUE;
+
+      /* TRUE is the classic form and FALSE the most concise. */
+      if (f.type == O42_VALUE_BOOL)
+        form = f.as.boolean ? 0 : 4;
+      else if (f.type != O42_VALUE_EMPTY && !o42_value_to_number (&f, &form, &e))
+        { o42_value_clear (&f); return o42_value_error (e); }
+      o42_value_clear (&f);
+    }
   v = (int) floor (x);
-  if (v < 0 || v > 3999)
+  if (v < 0 || v > 3999 || form < 0 || form > 4)
     return o42_value_error (O42_ERR_VALUE);
 
   out = g_string_new (NULL);
-  for (guint i = 0; i < G_N_ELEMENTS (TABLE); i++)
-    while (v >= TABLE[i].value)
+  if (form == 0)
+    {
+      for (guint i = 0; i < G_N_ELEMENTS (TABLE); i++)
+        while (v >= TABLE[i].value)
+          {
+            g_string_append (out, TABLE[i].numeral);
+            v -= TABLE[i].value;
+          }
+      return o42_value_take (g_string_free (out, FALSE));
+    }
+
+  /* The concise forms 1 to 4, each allowed to subtract from one step
+   * further: 499 is CDXCIX, LDVLIV, XDIX, VDIV, ID. */
+  {
+    static const char chars[] = { 'M', 'D', 'C', 'L', 'X', 'V', 'I' };
+    static const int values[] = { 1000, 500, 100, 50, 10, 5, 1 };
+    const int last = 6;
+    int mode = (int) form;
+
+    for (int i = 0; i <= last / 2; i++)
       {
-        g_string_append (out, TABLE[i].numeral);
-        v -= TABLE[i].value;
+        int index = 2 * i;
+        int digit = v / values[index];
+
+        if (digit % 5 == 4)
+          {
+            int index2 = (digit == 4) ? index - 1 : index - 2;
+            int steps = 0;
+
+            while (steps < mode && index < last)
+              {
+                steps++;
+                if (values[index2] - values[index + 1] <= v)
+                  index++;
+                else
+                  steps = mode;
+              }
+            g_string_append_c (out, chars[index]);
+            g_string_append_c (out, chars[index2]);
+            v = v + values[index] - values[index2];
+          }
+        else
+          {
+            if (digit > 4)
+              g_string_append_c (out, chars[index - 1]);
+            for (int k = 0; k < digit % 5; k++)
+              g_string_append_c (out, chars[index]);
+            v %= values[index];
+          }
       }
+  }
   return o42_value_take (g_string_free (out, FALSE));
 }
 
@@ -6489,12 +6575,19 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
             }
           m[i * 2 * rows + rows + i] = 1;
         }
-      for (int k = 0; k < rows && !singular; k++)
-        {
-          int pivot = k;
-          for (int i = k + 1; i < rows; i++)
-            if (fabs (m[i * 2 * rows + k]) > fabs (m[pivot * 2 * rows + k])) pivot = i;
-          if (fabs (m[pivot * 2 * rows + k]) < 1e-300) { singular = TRUE; break; }
+      {
+        /* A pivot that is nothing but rounding error, next to the
+         * matrix's own size, marks a singular matrix: SEQUENCE(3,3)
+         * leaves 1e-16 where Excel says #NUM!. */
+        double largest = 0;
+        for (int i = 0; i < rows * rows; i++)
+          largest = MAX (largest, fabs (m[(i / rows) * 2 * rows + i % rows]));
+        for (int k = 0; k < rows && !singular; k++)
+          {
+            int pivot = k;
+            for (int i = k + 1; i < rows; i++)
+              if (fabs (m[i * 2 * rows + k]) > fabs (m[pivot * 2 * rows + k])) pivot = i;
+            if (fabs (m[pivot * 2 * rows + k]) <= largest * 1e-13) { singular = TRUE; break; }
           if (pivot != k)
             for (int j = 0; j < 2 * rows; j++)
               { double t = m[k * 2 * rows + j]; m[k * 2 * rows + j] = m[pivot * 2 * rows + j]; m[pivot * 2 * rows + j] = t; }
@@ -6508,7 +6601,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
                 double f = m[i * 2 * rows + k];
                 for (int j = 0; j < 2 * rows; j++) m[i * 2 * rows + j] -= f * m[k * 2 * rows + j];
               }
-        }
+          }
+      }
       operand_clear (&src);
       if (singular)
         { g_free (m); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
@@ -6900,7 +6994,13 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       int rows, cols;
 
       if (!src.is_range)
-        { operand_clear (&src); return FALSE; }
+        {
+          /* An error where the array was meant is the answer. */
+          if (src.value.type == O42_VALUE_ERROR)
+            { *out = src; return TRUE; }
+          operand_clear (&src);
+          return FALSE;
+        }
       for (int k = 1; k < n_args; k++)
         {
           O42Value v;
@@ -7750,8 +7850,8 @@ fn_covariance_s (O42EvalContext *ctx, O42Operand *args, int n)
 /* CEILING.MATH and FLOOR.MATH take a third "mode" argument this
  * evaluator does not need for positive numbers; the first two go to
  * the old functions. */
-static O42Value fn_ceiling_math (O42EvalContext *c, O42Operand *a, int n) { return fn_ceiling (c, a, MIN (n, 2)); }
-static O42Value fn_floor_math   (O42EvalContext *c, O42Operand *a, int n) { return fn_floor (c, a, MIN (n, 2)); }
+static O42Value fn_ceiling_math (O42EvalContext *c, O42Operand *a, int n) { return fn_ceiling_floor_math (c, a, n, TRUE); }
+static O42Value fn_floor_math   (O42EvalContext *c, O42Operand *a, int n) { return fn_ceiling_floor_math (c, a, n, FALSE); }
 
 static O42Value
 fn_numbervalue (O42EvalContext *ctx, O42Operand *args, int n)
@@ -7764,12 +7864,15 @@ fn_numbervalue (O42EvalContext *ctx, O42Operand *args, int n)
   if (n >= 2) ARG_TEXT (1, decimal);
   if (n >= 3) ARG_TEXT (2, group);
   /* Spaces and the group separator are dropped; the decimal separator
-   * becomes a point. */
+   * becomes a point.  An empty text is 0, and each % at the end
+   * divides by a hundred. */
   cleaned = g_new (char, strlen (text) + 1);
   {
     char *q = cleaned;
     char dec = decimal && decimal[0] ? decimal[0] : '.';
-    char grp = group && group[0] ? group[0] : ',';
+    char grp = group && group[0] ? group[0] : (dec == ',' ? '.' : ',');
+    if (decimal && decimal[0] && group && group[0] && dec == grp)
+      { g_free (cleaned); g_free (text); g_free (decimal); g_free (group); return o42_value_error (O42_ERR_VALUE); }
     for (const char *p = text; *p; p++)
       {
         if (*p == ' ' || *p == grp) continue;
@@ -7780,10 +7883,13 @@ fn_numbervalue (O42EvalContext *ctx, O42Operand *args, int n)
   g_free (text);
   g_free (decimal);
   g_free (group);
+  if (*cleaned == '\0')
+    { g_free (cleaned); return o42_value_number (0); }
   v = g_ascii_strtod (cleaned, &end_ptr);
-  if (end_ptr == cleaned || (*end_ptr != '\0' && strcmp (end_ptr, "%") != 0))
+  if (end_ptr == cleaned || strspn (end_ptr, "%") != strlen (end_ptr))
     { g_free (cleaned); return o42_value_error (O42_ERR_VALUE); }
-  if (*end_ptr == '%') v /= 100;
+  for (; *end_ptr == '%'; end_ptr++)
+    v /= 100;
   g_free (cleaned);
   return o42_value_number (v);
 }
@@ -8835,8 +8941,8 @@ fn_base (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (1, radix);
   if (n >= 3) ARG_NUMBER (2, min_len);
   number = floor (number); radix = floor (radix); min_len = floor (min_len);
-  if (number < 0 || radix < 2 || radix > 36 || min_len < 0 || min_len > 255)
-    return o42_value_error (O42_ERR_NUM);
+  if (number < 0 || number >= 9007199254740992.0 || radix < 2 || radix > 36 || min_len < 0 || min_len > 255)
+    return o42_value_error (O42_ERR_NUM);   /* 2^53: past it a double has no whole numbers */
   v = (guint64) number;
   do { buf[len++] = digits[v % (guint64) radix]; v /= (guint64) radix; } while (v > 0 && len < 70);
   while (len < min_len && len < 70) buf[len++] = '0';
