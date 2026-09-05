@@ -6,6 +6,7 @@
 
 #include "o42-escher.h"
 
+#include <math.h>
 #include <string.h>
 
 /* Record types */
@@ -133,6 +134,109 @@ o42_escher_group (GPtrArray *images, GPtrArray *formats, GArray *shapes_per_draw
   return g_byte_array_free_to_bytes (a);
 }
 
+/* Escher turns a shape and then mirrors it, where office42 (and Office
+ * Open XML) mirror first: with one flip on, the angle changes sign
+ * between the two.  The angle goes in and out as 16.16 degrees. */
+static guint32
+escher_rotation (double degrees, gboolean flip_h, gboolean flip_v)
+{
+  if (flip_h != flip_v)
+    degrees = -degrees;
+  return (guint32) (gint32) (fmod (fmod (degrees, 360) + 360, 360) * 65536);
+}
+
+static double
+rotation_from_escher (guint32 v, gboolean flip_h, gboolean flip_v)
+{
+  double degrees = (gint32) v / 65536.0;
+
+  if (flip_h != flip_v)
+    degrees = -degrees;
+  return fmod (fmod (degrees, 360) + 360, 360);
+}
+
+/* Escher keeps a colour as 0x00BBGGRR. */
+static guint32
+escher_colour (guint32 rgb)
+{
+  return ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | ((rgb >> 16) & 0xFF);
+}
+
+/* The dash and head numbers Escher uses, from office42's. */
+static const guint32 DASH_TO_ESCHER[O42_N_DASHES] = { 0, 6, 5, 8, 7, 1, 2 };
+
+static O42Dash
+dash_from_escher (guint32 v)
+{
+  switch (v)
+    {
+    case 1: return O42_DASH_SYS_DASH;
+    case 2: return O42_DASH_SYS_DOT;
+    case 3: case 4: return O42_DASH_DASH_DOT;
+    case 5: return O42_DASH_DOT;
+    case 6: return O42_DASH_DASH;
+    case 7: return O42_DASH_LONG_DASH;
+    case 8: case 9: case 10: return O42_DASH_DASH_DOT;
+    default: return O42_DASH_SOLID;
+    }
+}
+
+/* Escher numbers the heads as office42 does: none, triangle, stealth,
+ * diamond, oval, open. */
+static O42Head
+head_from_escher (guint32 v)
+{
+  return v < O42_N_HEADS ? (O42Head) v : O42_HEAD_TRIANGLE;
+}
+
+/* The Opt record of a drawn shape: the properties in ascending order,
+ * as the format wants them.  `txid` numbers the text, when there is
+ * any, for the TXO that follows the OBJ. */
+static void
+put_drawing_opt (GByteArray *a, const O42Shape *sh, guint txid)
+{
+  gsize opt_at = a->len;
+  guint n = 0;
+  gboolean line_kind = sh->kind == O42_SHAPE_LINE || sh->kind == O42_SHAPE_ARROW;
+  gboolean has_text = !line_kind && sh->text != NULL && *sh->text != '\0';
+
+  header (a, 3, 0, ESC_OPT, 0);
+  if (sh->rotation != 0)
+    { put16 (a, 0x0004); put32 (a, escher_rotation (sh->rotation, sh->flip_h, sh->flip_v)); n++; }
+  if (has_text)
+    {
+      put16 (a, 0x0080); put32 (a, txid << 16); n++;                      /* lTxid */
+      put16 (a, 0x00BF); put32 (a, 0x00080008); n++;                      /* fFitTextToShape off, text on */
+    }
+  if (!line_kind && sh->fill != O42_FILL_NONE)
+    { put16 (a, 0x0181); put32 (a, escher_colour (sh->fill)); n++; }     /* fillColor */
+  put16 (a, 0x01BF); put32 (a, (!line_kind && sh->fill != O42_FILL_NONE) ? 0x00100010 : 0x00100000); n++;  /* fFilled */
+  put16 (a, 0x01C0); put32 (a, escher_colour (sh->line)); n++;           /* lineColor */
+  put16 (a, 0x01CB); put32 (a, (guint32) (sh->line_width * 9525)); n++;  /* lineWidth, EMU */
+  if (sh->dash != O42_DASH_SOLID)
+    { put16 (a, 0x01CE); put32 (a, DASH_TO_ESCHER[sh->dash]); n++; }     /* lineDashing */
+  if (line_kind && sh->head_start != O42_HEAD_NONE)
+    { put16 (a, 0x01D0); put32 (a, sh->head_start); n++; }                /* lineStartArrowhead */
+  if (line_kind && sh->head_end != O42_HEAD_NONE)
+    { put16 (a, 0x01D1); put32 (a, sh->head_end); n++; }                  /* lineEndArrowhead */
+  if (line_kind && sh->head_start != O42_HEAD_NONE)
+    {
+      put16 (a, 0x01D2); put32 (a, sh->head_start_size); n++;             /* width: narrow, medium, wide */
+      put16 (a, 0x01D3); put32 (a, sh->head_start_size); n++;             /* length: short, medium, long */
+    }
+  if (line_kind && sh->head_end != O42_HEAD_NONE)
+    {
+      put16 (a, 0x01D4); put32 (a, sh->head_end_size); n++;
+      put16 (a, 0x01D5); put32 (a, sh->head_end_size); n++;
+    }
+  put16 (a, 0x01FF); put32 (a, 0x00080008); n++;                         /* fLine on */
+  put16 (a, 0x03BF); put32 (a, 0x00080000); n++;                         /* not hidden, printable */
+  /* The header's instance is the property count. */
+  a->data[opt_at] = (3 & 0x0F) | ((n & 0x0F) << 4);
+  a->data[opt_at + 1] = (n >> 4) & 0xFF;
+  fix_length (a, opt_at);
+}
+
 /* Cell anchors count fractions in 1024ths of a column and 256ths of a
  * row. */
 static void
@@ -180,10 +284,15 @@ o42_escher_drawing (int drawing_id, GArray *shapes)
 
       sp_at = a->len;
       header (a, 15, 0, ESC_SP_CONTAINER, 0);
-      header (a, 2, s->is_note ? 202 : s->is_chart || s->is_control ? 201 : 75, ESC_SP, 8);   /* text box, host control, picture frame */
+      header (a, 2, s->drawing != NULL ? o42_shape_spt (s->drawing)
+                    : s->is_note ? 202 : s->is_chart || s->is_control ? 201 : 75, ESC_SP, 8);   /* text box, host control, picture frame */
       put32 (a, base + 1 + i);
-      put32 (a, 0x0A00);                  /* has anchor, has shape type */
-      if (s->is_control)
+      put32 (a, 0x0A00 |                  /* has anchor, has shape type */
+              ((s->drawing != NULL ? s->drawing->flip_h : s->flip_h) ? 0x40 : 0) |
+              ((s->drawing != NULL ? s->drawing->flip_v : s->flip_v) ? 0x80 : 0));
+      if (s->drawing != NULL)
+        put_drawing_opt (a, s->drawing, i + 1);
+      else if (s->is_control)
         {
           /* What Excel puts on a form control: no fill of its own, no
            * line, and the text laid out inside the shape. */
@@ -222,7 +331,11 @@ o42_escher_drawing (int drawing_id, GArray *shapes)
         }
       else
         {
-          header (a, 3, 3, ESC_OPT, 3 * 6);
+          gboolean turned = s->rotation != 0;
+
+          header (a, 3, turned ? 4 : 3, ESC_OPT, (turned ? 4 : 3) * 6);
+          if (turned)
+            { put16 (a, 0x0004); put32 (a, escher_rotation (s->rotation, s->flip_h, s->flip_v)); }
           put16 (a, 0x007F); put32 (a, 0x01000100);            /* lock aspect ratio */
           put16 (a, 0x4104); put32 (a, s->blip);               /* the picture */
           put16 (a, 0x01BF); put32 (a, 0x00110000);            /* no fill hit test */
@@ -343,6 +456,13 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
                 g_array_append_val (found, cur);
               memset (&cur, 0, sizeof cur);
               cur.col2 = -1;
+              /* What a shape has unless its Opt says otherwise. */
+              cur.filled = TRUE;
+              cur.fill = 0xFFFFFF;
+              cur.lined = TRUE;
+              cur.line = 0x000000;
+              cur.line_width = 1;
+              cur.head_start_size = cur.head_end_size = O42_HEAD_MEDIUM;
               in_shape = TRUE;
             }
           p = body;
@@ -350,16 +470,42 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
         }
       if (type == ESC_SP && rlen >= 8)
         {
+          guint32 flags = rd32 (body + 4);
+
+          cur.spt = inst;
           cur.is_picture = inst == 75;
           cur.is_chart = inst == 201;
+          cur.flip_h = (flags & 0x40) != 0;
+          cur.flip_v = (flags & 0x80) != 0;
         }
       else if (type == ESC_OPT)
         {
-          for (guint i = 0; i + 6 <= rlen; i += 6)
+          /* The instance counts the properties; a complex one's bytes
+           * follow the table and are not properties themselves. */
+          for (guint i = 0, n = 0; i + 6 <= rlen && n < inst; i += 6, n++)
             {
               guint id = rd16 (body + i) & 0x3FFF;
-              if (id == 0x0104)
-                cur.blip = rd32 (body + i + 2);
+              guint32 v = rd32 (body + i + 2);
+
+              switch (id)
+                {
+                case 0x0004: cur.rotation = (gint32) v / 65536.0; break;   /* the flips are known by the end: see below */
+                case 0x0080: cur.has_text = TRUE; break;
+                case 0x0104: cur.blip = v; break;
+                /* A high byte marks a palette or system colour, which is left
+                 * at the default rather than misread as an RGB. */
+                case 0x0181: if ((v >> 24) == 0) cur.fill = escher_colour (v); break;
+                case 0x01BF: if (v & 0x00100000) cur.filled = (v & 0x10) != 0; break;
+                case 0x01C0: if ((v >> 24) == 0) cur.line = escher_colour (v); break;
+                case 0x01CB: cur.line_width = floor (v / 95.25 + 0.5) / 100; break;   /* EMU, to the hundredth */
+                case 0x01CE: cur.dash = dash_from_escher (v); break;
+                case 0x01D0: cur.head_start = head_from_escher (v); break;
+                case 0x01D1: cur.head_end = head_from_escher (v); break;
+                case 0x01D3: cur.head_start_size = (O42HeadSize) MIN (v, 2); break;
+                case 0x01D5: cur.head_end_size = (O42HeadSize) MIN (v, 2); break;
+                case 0x01FF: if (v & 0x00080000) cur.lined = (v & 0x08) != 0; break;
+                default: break;
+                }
             }
         }
       else if (type == ESC_CLIENT_ANCHOR && rlen >= 18)
@@ -373,4 +519,14 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
     }
   if (in_shape && cur.col2 >= 0)
     g_array_append_val (found, cur);
+
+  /* The angle's sign depends on the flips, which the Sp record gave
+   * before the Opt: settle it now that both are known. */
+  for (guint i = 0; i < found->len; i++)
+    {
+      O42EscherFound *f = &g_array_index (found, O42EscherFound, i);
+
+      if (f->rotation != 0)
+        f->rotation = rotation_from_escher ((guint32) (gint32) (f->rotation * 65536), f->flip_h, f->flip_v);
+    }
 }

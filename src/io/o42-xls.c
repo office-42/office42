@@ -1691,13 +1691,38 @@ sheet_row_y (O42Sheet *sheet, int row)
 
 /* ---- Reading a form control's OBJ record ------------------------------- */
 
-/* Whether the OBJ record last read was a form control, and so whether
- * the TXO that follows is its caption. */
+static gboolean is_drawing_ot (guint16 ot);
+
+/* Whether the OBJ record last read was a form control or a drawn
+ * shape, and so whether the TXO that follows is its text. */
 static gboolean
 last_obj_is_control (Reader *r)
 {
   return r->objs->len > 0 &&
-    g_array_index (r->objs, ObjInfo, r->objs->len - 1).kind >= 0;
+    (g_array_index (r->objs, ObjInfo, r->objs->len - 1).kind >= 0 ||
+     is_drawing_ot (g_array_index (r->objs, ObjInfo, r->objs->len - 1).ot));
+}
+
+/* The OBJ type of a drawn shape: line, rectangle, oval, text, or
+ * Excel's "Office drawing" for the AutoShapes. */
+static guint16
+drawing_ot (const O42Shape *shape)
+{
+  switch (shape->kind)
+    {
+    case O42_SHAPE_LINE:
+    case O42_SHAPE_ARROW: return 0x01;
+    case O42_SHAPE_OVAL:  return 0x03;
+    case O42_SHAPE_TEXT:  return shape->geom == O42_GEOM_RECT ? 0x06 : 0x1E;
+    default:              return shape->geom == O42_GEOM_RECT ? 0x02 : 0x1E;
+    }
+}
+
+/* Whether an OBJ type is a drawn shape, whose text comes in a TXO. */
+static gboolean
+is_drawing_ot (guint16 ot)
+{
+  return ot == 0x01 || ot == 0x02 || ot == 0x03 || ot == 0x04 || ot == 0x06 || ot == 0x09 || ot == 0x1E;
 }
 
 /* The kind an ot names, or -1 for an OBJ that is not a form control. */
@@ -1921,6 +1946,54 @@ read_drawing (Reader *r)
             }
           continue;
         }
+      /* A drawn shape: its Sp names the outline, its Opt the fill and
+       * line, the TXO after its OBJ the text. */
+      if (!f->is_picture && f->spt != 0 && f->spt != 201 &&
+          f->col1 < O42_MAX_COLS && f->row1 < O42_MAX_ROWS &&
+          (info == NULL || info->ot != 0x19))
+        {
+          O42Shape *shape = o42_sheet_add_shape (r->sheet, O42_SHAPE_RECT, f->row1, f->col1);
+
+          /* An outline office42 has no drawing for -- LibreOffice
+           * writes every AutoShape as a freeform path, type 4095 --
+           * comes in as a rectangle with the shape's fill, line and
+           * text, which is more of it than nothing. */
+          if (shape != NULL)
+            {
+              if (!o42_shape_apply_spt (shape, f->spt))
+                shape->kind = O42_SHAPE_RECT;
+              double sx0 = sheet_col_x (r->sheet, f->col1) + f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
+              double sy0 = sheet_row_y (r->sheet, f->row1) + f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
+              int c2 = MIN (f->col2, O42_MAX_COLS - 1), r2 = MIN (f->row2, O42_MAX_ROWS - 1);
+              double sx1 = sheet_col_x (r->sheet, c2) + f->dx2 * o42_sheet_col_width (r->sheet, c2);
+              double sy1 = sheet_row_y (r->sheet, r2) + f->dy2 * o42_sheet_row_height (r->sheet, r2);
+              gboolean line_kind = shape->kind == O42_SHAPE_LINE;
+
+              shape->dx = f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
+              shape->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
+              shape->width = line_kind ? sx1 - sx0 : MAX (sx1 - sx0, 4);
+              shape->height = line_kind ? sy1 - sy0 : MAX (sy1 - sy0, 4);
+              shape->fill = (!line_kind && f->filled) ? f->fill : O42_FILL_NONE;
+              shape->line = f->line;
+              shape->line_width = f->lined ? MAX (f->line_width, 0.5) : 0.5;
+              shape->dash = f->dash;
+              shape->rotation = f->rotation;
+              shape->flip_h = f->flip_h;
+              shape->flip_v = f->flip_v;
+              if (line_kind)
+                {
+                  shape->head_start = f->head_start;
+                  shape->head_end = f->head_end;
+                  shape->head_start_size = f->head_start_size;
+                  shape->head_end_size = f->head_end_size;
+                  if (f->head_end != O42_HEAD_NONE)
+                    shape->kind = O42_SHAPE_ARROW;
+                }
+              if (info != NULL && info->text != NULL)
+                { g_free (shape->text); shape->text = g_strdup (info->text); }
+            }
+          continue;
+        }
       if (!f->is_picture || f->blip < 1 || (guint) f->blip > r->images->len)
         continue;
       data = g_ptr_array_index (r->images, f->blip - 1);
@@ -1939,6 +2012,9 @@ read_drawing (Reader *r)
           pic->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
           pic->width = MAX (x1 - x0, 8);
           pic->height = MAX (y1 - y0, 8);
+          pic->rotation = f->rotation;
+          pic->flip_h = f->flip_h;
+          pic->flip_v = f->flip_v;
         }
     }
   g_array_unref (found);
@@ -3631,6 +3707,27 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
   begin_record (w, R_EOF); end_record (w);
 }
 
+/* Anchors an object's box to the cells it covers, in Escher's
+ * fractions of a cell. */
+static void
+anchor_object (O42Sheet *sheet, int row, int col, double dx, double dy,
+               double width, double height, O42EscherShape *s)
+{
+  double x1 = sheet_col_x (sheet, col) + dx + width;
+  double y1 = sheet_row_y (sheet, row) + dy + height;
+  int c = col, rr = row;
+  double x = sheet_col_x (sheet, c), y = sheet_row_y (sheet, rr);
+
+  s->col1 = col; s->row1 = row;
+  s->dx1 = dx / MAX (o42_sheet_col_width (sheet, col), 1);
+  s->dy1 = dy / MAX (o42_sheet_row_height (sheet, row), 1);
+  while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
+  while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
+  s->col2 = c; s->row2 = rr;
+  s->dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
+  s->dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
+}
+
 static void
 write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
 {
@@ -3724,86 +3821,60 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         before += o42_sheet_pictures (o42_book_sheet (w->book, i))->len;
       first_blip = before;
     }
-    for (guint i = 0; i < pictures->len; i++)
-      {
-        const O42Picture *pic = g_ptr_array_index (pictures, i);
-        O42EscherShape s;
-        double x1 = sheet_col_x (sheet, pic->col) + pic->dx + pic->width;
-        double y1 = sheet_row_y (sheet, pic->row) + pic->dy + pic->height;
-        int c = pic->col, rr = pic->row;
-        double x = sheet_col_x (sheet, c), y = sheet_row_y (sheet, rr);
-
-        memset (&s, 0, sizeof s);
-        s.blip = first_blip + (int) i + 1;
-        s.col1 = pic->col; s.row1 = pic->row;
-        s.dx1 = pic->dx / MAX (o42_sheet_col_width (sheet, pic->col), 1);
-        s.dy1 = pic->dy / MAX (o42_sheet_row_height (sheet, pic->row), 1);
-        while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
-        while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
-        s.col2 = c; s.row2 = rr;
-        s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
-        s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
-        g_array_append_val (shapes, s);
-        g_ptr_array_add (controls, NULL);
-      }
+    /* Every object in its painting order, so that Excel, which paints
+     * a drawing in file order, shows them as office42 does. */
     {
-      GPtrArray *charts = o42_sheet_charts (sheet);
-      for (guint i = 0; i < charts->len; i++)
+      GArray *objects = o42_sheet_objects (sheet);
+
+      for (guint k = 0; k < objects->len; k++)
         {
-          const O42Chart *chart = g_ptr_array_index (charts, i);
+          const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, k);
           O42EscherShape s;
-          double x1 = sheet_col_x (sheet, chart->col) + chart->dx + chart->width;
-          double y1 = sheet_row_y (sheet, chart->row) + chart->dy + chart->height;
-          int c = chart->col, rr = chart->row;
-          double x = sheet_col_x (sheet, c), y = sheet_row_y (sheet, rr);
 
           memset (&s, 0, sizeof s);
-          s.is_chart = TRUE;
-          s.blip = (int) i;   /* which chart, for the substream */
-          s.col1 = chart->col; s.row1 = chart->row;
-          s.dx1 = chart->dx / MAX (o42_sheet_col_width (sheet, chart->col), 1);
-          s.dy1 = chart->dy / MAX (o42_sheet_row_height (sheet, chart->row), 1);
-          while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
-          while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
-          s.col2 = c; s.row2 = rr;
-          s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
-          s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
+          if (ref->type == O42_OBJECT_PICTURE)
+            {
+              const O42Picture *pic = ref->object;
+              guint i = 0;
+
+              while (i < pictures->len && g_ptr_array_index (pictures, i) != pic)
+                i++;
+              s.blip = first_blip + (int) i + 1;
+              s.rotation = pic->rotation;
+              s.flip_h = pic->flip_h;
+              s.flip_v = pic->flip_v;
+              anchor_object (sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, &s);
+              g_ptr_array_add (controls, NULL);
+            }
+          else if (ref->type == O42_OBJECT_CHART)
+            {
+              const O42Chart *chart = ref->object;
+              GPtrArray *charts = o42_sheet_charts (sheet);
+              guint i = 0;
+
+              while (i < charts->len && g_ptr_array_index (charts, i) != chart)
+                i++;
+              s.is_chart = TRUE;
+              s.blip = (int) i;   /* which chart, for the substream */
+              anchor_object (sheet, chart->row, chart->col, chart->dx, chart->dy, chart->width, chart->height, &s);
+              g_ptr_array_add (controls, NULL);
+            }
+          else
+            {
+              /* A form control's OBJ says what it is; a drawn shape's
+               * Escher records carry its outline, fill and line. */
+              const O42Shape *shape = ref->object;
+
+              if (o42_shape_is_control (shape->kind))
+                s.is_control = TRUE;
+              else
+                s.drawing = shape;
+              anchor_object (sheet, shape->row, shape->col, shape->dx, shape->dy, shape->width, shape->height, &s);
+              g_ptr_array_add (controls, s.is_control ? (gpointer) shape : NULL);
+            }
           g_array_append_val (shapes, s);
-          g_ptr_array_add (controls, NULL);
         }
-    }
-
-    /* The form controls, anchored the way a picture is. */
-    {
-      GPtrArray *sheet_shapes = o42_sheet_shapes (sheet);
-
-      for (guint i = 0; i < sheet_shapes->len; i++)
-        {
-          const O42Shape *shape = g_ptr_array_index (sheet_shapes, i);
-          O42EscherShape s;
-          double x1, y1, x, y;
-          int c, rr;
-
-          if (!o42_shape_is_control (shape->kind))
-            continue;
-          x1 = sheet_col_x (sheet, shape->col) + shape->dx + shape->width;
-          y1 = sheet_row_y (sheet, shape->row) + shape->dy + shape->height;
-          c = shape->col; rr = shape->row;
-          x = sheet_col_x (sheet, c); y = sheet_row_y (sheet, rr);
-
-          memset (&s, 0, sizeof s);
-          s.is_control = TRUE;
-          s.col1 = shape->col; s.row1 = shape->row;
-          s.dx1 = shape->dx / MAX (o42_sheet_col_width (sheet, shape->col), 1);
-          s.dy1 = shape->dy / MAX (o42_sheet_row_height (sheet, shape->row), 1);
-          while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
-          while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
-          s.col2 = c; s.row2 = rr;
-          s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
-          s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
-          g_array_append_val (shapes, s);
-          g_ptr_array_add (controls, (gpointer) shape);
-        }
+      g_array_free (objects, TRUE);
     }
 
     g_hash_table_iter_init (&iter, notes);
@@ -3841,9 +3912,10 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             begin_record (w, R_OBJ);
             put16 (w->out, 0x15); put16 (w->out, 0x12);
             put16 (w->out, ctl != NULL ? control_ot (ctl->kind)
+                           : s->drawing != NULL ? drawing_ot (s->drawing)
                            : s->is_note ? 0x19 : s->is_chart ? 0x05 : 0x08);
             put16 (w->out, i + 1);
-            put16 (w->out, ctl != NULL ? 0x0011 : s->is_note ? 0x4011 : 0x6011);
+            put16 (w->out, ctl != NULL || s->drawing != NULL ? 0x0011 : s->is_note ? 0x4011 : 0x6011);
             for (int k = 0; k < 12; k++) put8 (w->out, 0);
             if (ctl != NULL)
               put_control_records (w, sheet, ctl);
@@ -3860,22 +3932,31 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               write_control_text (w, ctl);
             if (s->is_chart)
               write_chart_substream (w, sheet, index, g_ptr_array_index (o42_sheet_charts (sheet), s->blip));
-            if (s->is_note)
-              {
-                glong n = MIN (char_count (s->note), 32000);
-                begin_record (w, R_TXO);
-                put16 (w->out, 0x0212); put16 (w->out, 0);
-                for (int k = 0; k < 6; k++) put8 (w->out, 0);
-                put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
-                end_record (w);
-                begin_record (w, R_CONTINUE);
-                put_ustr_body (w->out, s->note);
-                end_record (w);
-                begin_record (w, R_CONTINUE);
-                put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
-                put16 (w->out, n); put16 (w->out, 0); put32 (w->out, 0);
-                end_record (w);
-              }
+            {
+              /* A note's text, or what is written in a drawn shape,
+               * centred: a TXO and two CONTINUEs, the text and the
+               * one run. */
+              const char *text = s->is_note ? s->note
+                               : (s->drawing != NULL && s->drawing->kind != O42_SHAPE_LINE &&
+                                  s->drawing->kind != O42_SHAPE_ARROW) ? s->drawing->text : NULL;
+
+              if (text != NULL && *text != '\0')
+                {
+                  glong n = MIN (char_count (text), 32000);
+                  begin_record (w, R_TXO);
+                  put16 (w->out, s->is_note ? 0x0212 : 0x0224); put16 (w->out, 0);
+                  for (int k = 0; k < 6; k++) put8 (w->out, 0);
+                  put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
+                  end_record (w);
+                  begin_record (w, R_CONTINUE);
+                  put_ustr_body (w->out, text);
+                  end_record (w);
+                  begin_record (w, R_CONTINUE);
+                  put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
+                  put16 (w->out, n); put16 (w->out, 0); put32 (w->out, 0);
+                  end_record (w);
+                }
+            }
           }
         for (guint i = 0; i < shapes->len; i++)
           {
