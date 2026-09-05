@@ -1165,6 +1165,84 @@ fn_weeknum (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (floor ((floor (serial) - jan1 + offset) / 7) + 1);
 }
 
+/* EUROCONVERT: the fixed rates at which the euro's members gave up
+ * their currencies, one euro being so many of each; a conversion
+ * between two of them goes through the euro (the "triangulation"),
+ * and the intermediate euro amount may be rounded to a number of
+ * decimals, as the regulation allowed.  The result is rounded to the
+ * target's decimals -- none for the lira, the drachma, the peseta and
+ * the francs of Belgium and Luxembourg, two for the rest -- unless
+ * full precision is asked for. */
+static const struct {
+  const char *code;
+  double      per_euro;
+  int         decimals;
+} EURO_RATES[] = {
+  { "EUR", 1.0,      2 },
+  { "ATS", 13.7603,  2 }, { "BEF", 40.3399,  0 }, { "DEM", 1.95583,  2 },
+  { "ESP", 166.386,  0 }, { "FIM", 5.94573,  2 }, { "FRF", 6.55957,  2 },
+  { "IEP", 0.787564, 2 }, { "ITL", 1936.27,  0 }, { "LUF", 40.3399,  0 },
+  { "NLG", 2.20371,  2 }, { "PTE", 200.482,  0 }, { "GRD", 340.750,  0 },
+  { "SIT", 239.640,  2 }, { "CYP", 0.585274, 2 }, { "MTL", 0.429300, 2 },
+  { "SKK", 30.1260,  2 }, { "EEK", 15.6466,  2 }, { "LVL", 0.702804, 2 },
+  { "LTL", 3.45280,  2 }, { "HRK", 7.53450,  2 },
+};
+
+static int
+euro_member (const char *code)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (EURO_RATES); i++)
+    if (g_ascii_strcasecmp (code, EURO_RATES[i].code) == 0)
+      return (int) i;
+  return -1;
+}
+
+static double
+round_places (double x, int places)
+{
+  double scale = pow (10, places);
+  return copysign (floor (fabs (x) * scale + 0.5), x) / scale;
+}
+
+static O42Value
+fn_euroconvert (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double amount, full = 0, precision = 0;
+  char *from = NULL, *to = NULL;
+  int source, target;
+  double euros, result;
+
+  ARG_NUMBER (0, amount);
+  ARG_TEXT (1, from);
+  ARG_TEXT (2, to);
+  source = euro_member (from);
+  target = euro_member (to);
+  g_free (from);
+  g_free (to);
+  if (source < 0 || target < 0)
+    return o42_value_error (O42_ERR_VALUE);
+  if (n >= 4)
+    ARG_NUMBER (3, full);
+  if (n >= 5)
+    {
+      ARG_NUMBER (4, precision);
+      precision = floor (precision);
+      if (precision < 3)
+        return o42_value_error (O42_ERR_VALUE);
+    }
+
+  euros = amount / EURO_RATES[source].per_euro;
+  /* The euro amount between two national currencies is rounded to
+   * the precision asked for; to or from the euro itself there is no
+   * intermediate to round. */
+  if (n >= 5 && source != 0 && target != 0)
+    euros = round_places (euros, (int) precision);
+  result = euros * EURO_RATES[target].per_euro;
+  if (full == 0)
+    result = round_places (result, EURO_RATES[target].decimals);
+  return o42_value_number (result);
+}
+
 static O42Value
 fn_isoweeknum (O42EvalContext *ctx, O42Operand *args, int n)
 {
@@ -1202,6 +1280,7 @@ const O42Function O42_FUNCS_FINANCE[] = {
   { "DATEDIF", 3, 3, fn_datedif },
   { "DISC", 4, 5, fn_disc },
   { "DURATION", 5, 6, fn_duration },
+  { "EUROCONVERT", 3, 5, fn_euroconvert },
   { "FVSCHEDULE", 2, -1, fn_fvschedule },
   { "INTRATE", 4, 5, fn_intrate },
   { "ISOWEEKNUM", 1, 1, fn_isoweeknum },
@@ -1242,6 +1321,7 @@ const O42FunctionHelp O42_HELP_FINANCE[] = {
   { "DATEDIF", "DATEDIF(start_date, end_date, unit)", "The time between two dates in years, months or days: \"Y\", \"M\", \"D\", \"YM\", \"YD\", \"MD\"." },
   { "DISC", "DISC(settlement, maturity, pr, redemption, basis)", "The discount rate of a security." },
   { "DURATION", "DURATION(settlement, maturity, coupon, yld, frequency, basis)", "A bond's Macaulay duration in years." },
+  { "EUROCONVERT", "EUROCONVERT(number, source, target, full_precision, triangulation_precision)", "A sum in one of the euro's member currencies (ISO code) as another, at the fixed rates." },
   { "FVSCHEDULE", "FVSCHEDULE(principal, schedule)", "A principal grown by a series of interest rates." },
   { "INTRATE", "INTRATE(settlement, maturity, investment, redemption, basis)", "The interest rate of a fully invested security." },
   { "ISOWEEKNUM", "ISOWEEKNUM(serial)", "The ISO week number of a date." },
