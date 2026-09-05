@@ -683,9 +683,14 @@ setup, which is kept in the file whatever the format:
   count, `&D` the date, `&T` the time, `&F` the file, `&A` the sheet;
   `&B`, `&I`, `&U`, `&S` turn bold, italic, underline and strikeout on
   and off, `&14` sets a size, `&"Arial,Bold"` a font, `&K00FF00` a
-  colour, `&&` is an ampersand.
-- **Sheet**: the print area (the used range when there is none); rows
-  to repeat at the top and columns to repeat at the left of every page;
+  colour, `&&` is an ampersand. Custom Header and Custom Footer open
+  Excel's dialog: the three sections as boxes, and buttons that put the
+  font, page number, page count, date, time, file name or sheet name at
+  the caret. View ▸ Header and Footer opens this tab.
+- **Sheet**: the print area (the used range when there is none) --
+  several ranges a comma apart, `A1:C8,E1:F3`, each printed on pages of
+  its own; rows to repeat at the top (`$5:$6`) and columns to repeat at
+  the left (`$B:$C`) of every page;
   gridlines; row and column headings; black and white; draft quality
   (no fills, gridlines or graphics); how notes print -- not at all, on
   pages of their own after the sheet, or beside their cells; what cell
@@ -694,11 +699,15 @@ setup, which is kept in the file whatever the format:
 
 File ▸ Set Print Area limits printing to the selection; Clear Print
 Area gives it back. Insert ▸ Page Break puts a break above and left of
-the active cell.
+the active cell, or only the one when a whole row or column is
+selected. View ▸ Page Breaks is Excel's Page Break Preview: what is not
+printed is greyed, each print area edged in blue, the pages divided by
+dashed lines that can be dragged, and "Page N" written across each.
 
 File ▸ Print Preview shows the pages one at a time, fitted to the
 window or at life size (Zoom), with the margins as dotted lines when
-asked, and Setup opens Page Setup from it; Print Preview: Book pages
+asked -- drag one and the margin moves -- and Setup opens Page Setup
+from it; Print Preview: Book pages
 through every sheet. File ▸ Print goes through the system's print
 dialog, which offers the selection as well as the sheet; File ▸ Print
 Book does every sheet of the book, one after another, each on its own
