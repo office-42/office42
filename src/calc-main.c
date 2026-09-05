@@ -206,7 +206,7 @@ static void
 calc_install_host (O42Book *book)
 {
   O42PythonHost host = { NULL, calc_get_selection, calc_set_selection, calc_message,
-                         calc_input, calc_status, NULL, NULL, NULL };
+                         calc_input, calc_status, NULL, NULL, NULL, NULL };
   calc_selection.sheet = o42_book_sheet (book, 0);
   calc_selection.range = o42_range_normalise (0, 0, 0, 0);
   o42_python_set_host (&host);

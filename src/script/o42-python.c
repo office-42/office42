@@ -923,6 +923,16 @@ m_personal_folder (PyObject *self, PyObject *args)
 }
 
 static PyObject *
+m_close (PyObject *self, PyObject *args)
+{
+  (void) self; (void) args;
+  if (host.close == NULL || current_book == NULL)
+    return no_window ("close");
+  host.close (host.user, current_book);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
 m_calculate (PyObject *self, PyObject *args)
 {
   (void) self; (void) args;
@@ -1658,6 +1668,7 @@ static PyMethodDef METHODS[] = {
   { "path",           m_path,           METH_NOARGS,  "The book's file, or None." },
   { "save",           m_save,           METH_VARARGS, "Saves the book, to a path if given." },
   { "open",           m_open,           METH_VARARGS, "Opens a file in a window of its own." },
+  { "close",          m_close,          METH_NOARGS,  "Closes the window showing the book." },
   { "calculate",      m_calculate,      METH_NOARGS,  "Recalculates every sheet." },
   { "personal_folder", m_personal_folder, METH_NOARGS, "The personal scripts folder." },
   { "get_input",      m_get_input,      METH_VARARGS, "What was typed into a cell." },

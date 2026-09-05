@@ -646,6 +646,10 @@ class Book:
         """Saves the book to `path`; the extension picks the format."""
         _c.save(str(path))
 
+    def close(self):
+        """Closes the book's window, asking about unsaved work first."""
+        _c.close()
+
 
 book = Book()
 sheet = None      # bound before each run

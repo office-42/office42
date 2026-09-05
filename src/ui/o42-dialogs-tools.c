@@ -407,9 +407,14 @@ action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data)
   /* This is the user saying the book's Python may run: the scripts
    * now, and the =PY() cells, which are worked out again. */
   o42_book_set_scripts_trusted (self->book, TRUE);
-  /* The names first: a script may add or remove scripts. */
-  for (int i = 0; i < n; i++)
-    g_ptr_array_add (names, g_strdup (o42_book_script_name (self->book, i)));
+  /* A book with an Auto_Open runs that and nothing else, as Excel
+   * does; otherwise every script, in the order they are kept.  The
+   * names first: a script may add or remove scripts. */
+  if (o42_book_script_code (self->book, "Auto_Open") != NULL)
+    g_ptr_array_add (names, g_strdup ("Auto_Open"));
+  else
+    for (int i = 0; i < n; i++)
+      g_ptr_array_add (names, g_strdup (o42_book_script_name (self->book, i)));
   for (guint i = 0; i < names->len; i++)
     {
       const char *code = o42_book_script_code (self->book, g_ptr_array_index (names, i));

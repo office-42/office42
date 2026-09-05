@@ -88,6 +88,9 @@ typedef struct {
   gboolean (*save)          (gpointer user, O42Book *book, const char *path, char **message);
   /* Opens a file in a window of its own. */
   gboolean (*open)          (gpointer user, const char *path, char **message);
+  /* Closes the window showing the book, asking about unsaved work as
+   * the close button would. */
+  void     (*close)         (gpointer user, O42Book *book);
 } O42PythonHost;
 
 void o42_python_set_host (const O42PythonHost *host);

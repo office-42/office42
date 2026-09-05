@@ -4379,9 +4379,6 @@ o42_window_close_request (GtkWindow *window)
   if (o42_grid_is_editing (self->grid))
     o42_grid_commit_edit (self->grid);
 
-  if (!o42_book_is_modified (self->book))
-    return GDK_EVENT_PROPAGATE;      /* close */
-
   /* Another window still shows the book, so nothing is lost by closing
    * this one. */
   {
@@ -4393,6 +4390,18 @@ o42_window_close_request (GtkWindow *window)
           return GDK_EVENT_PROPAGATE;
       }
   }
+
+  /* The book's Auto_Close, if the user let its scripts run: Excel's
+   * last word before a workbook closes. */
+  if (o42_book_scripts_trusted (self->book) && o42_python_available ())
+    {
+      const char *code = o42_book_script_code (self->book, "Auto_Close");
+      if (code != NULL)
+        o42_window_run_script (self, "Auto_Close", code);
+    }
+
+  if (!o42_book_is_modified (self->book))
+    return GDK_EVENT_PROPAGATE;      /* close */
 
   name = (self->file != NULL) ? g_file_get_basename (self->file) : g_strdup ("Book1");
   message = g_strdup_printf ("Save changes to %s?", name);
@@ -5568,12 +5577,30 @@ host_open (gpointer user, const char *path, char **message)
   return ok;
 }
 
+static gboolean
+host_close_later (gpointer data)
+{
+  gtk_window_close (GTK_WINDOW (data));
+  return G_SOURCE_REMOVE;
+}
+
+static void
+host_close (gpointer user, O42Book *book)
+{
+  O42Window *self = host_window (user, book);
+
+  /* After the script has finished, not from inside it. */
+  if (self != NULL)
+    g_idle_add (host_close_later, self);
+}
+
 static void
 window_install_python_host (O42Window *self)
 {
   static gboolean installed = FALSE;
   O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
-                         host_input, host_status, host_path, host_save, host_open };
+                         host_input, host_status, host_path, host_save, host_open,
+                         host_close };
 
   if (installed)
     return;
