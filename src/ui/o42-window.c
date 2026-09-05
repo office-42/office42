@@ -80,6 +80,7 @@ static const int FONT_SIZES[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 22,
 G_DEFINE_FINAL_TYPE (O42Window, o42_window, GTK_TYPE_APPLICATION_WINDOW)
 
 static void window_rebuild_tabs (O42Window *self);
+static void window_install_python_host (O42Window *self);
 static void action_new_window (GSimpleAction *a, GVariant *p, gpointer data);
 
 /* ---------------------------------------------------------------------- */
@@ -1275,6 +1276,22 @@ o42_window_select_cell (O42Window *self, int row, int col)
 {
   g_return_if_fail (O42_IS_WINDOW (self));
   o42_grid_set_active (self->grid, row, col);
+}
+
+void
+o42_window_run_python (O42Window *self, const char *code)
+{
+  char *output = NULL;
+
+  g_return_if_fail (O42_IS_WINDOW (self) && code != NULL);
+  window_install_python_host (self);
+  o42_python_run (self->book, self->sheet, code, "<--py>", &output);
+  if (output != NULL && *output != '\0')
+    g_print ("%s", output);
+  g_free (output);
+  o42_grid_refresh (self->grid);
+  window_rebuild_tabs (self);
+  window_sync (self);
 }
 
 /* ---- View > Zoom ------------------------------------------------------ */
@@ -5222,14 +5239,17 @@ o42_window_sync (O42Window *self)
 
   window_update_title (self);
 
-  {
-    double zoom = o42_grid_get_zoom (self->grid);
-    char *text = (zoom == 1.0) ? g_strdup (_("Ready"))
-                               : g_strdup_printf ("%s    %d%%", _("Ready"),
-                                                  (int) (zoom * 100 + 0.5));
-    gtk_label_set_text (GTK_LABEL (self->status_label), text);
-    g_free (text);
-  }
+  if (self->status_text != NULL)
+    gtk_label_set_text (GTK_LABEL (self->status_label), self->status_text);
+  else
+    {
+      double zoom = o42_grid_get_zoom (self->grid);
+      char *text = (zoom == 1.0) ? g_strdup (_("Ready"))
+                                 : g_strdup_printf ("%s    %d%%", _("Ready"),
+                                                    (int) (zoom * 100 + 0.5));
+      gtk_label_set_text (GTK_LABEL (self->status_label), text);
+      g_free (text);
+    }
 
   {
     GAction *act;
@@ -5251,6 +5271,266 @@ on_grid_changed (O42Grid *grid, gpointer data)
   window_tell_book (O42_WINDOW (data), "cells");
 }
 
+/* The selection moved: a macro being recorded is told, and writes it
+ * down if something is then done with it. */
+static void
+on_grid_selection_changed (O42Grid *grid, gpointer data)
+{
+  O42Window *self = data;
+
+  if (o42_book_recording (self->book) && self->sheet != NULL)
+    {
+      O42Range sel;
+      int row, col;
+
+      o42_grid_get_selection (grid, &sel);
+      o42_grid_get_active (grid, &row, &col);
+      o42_book_record_selection (self->book, o42_sheet_get_name (self->sheet), &sel, row, col);
+    }
+  on_grid_changed (grid, data);
+}
+
+/* ---------------------------------------------------------------------- */
+/* What the window does for a Python script                                */
+/* ---------------------------------------------------------------------- */
+
+/* The script layer never sees GTK; it asks through a table of calls
+ * that the first window fills in.  Each call finds the window showing
+ * the book -- the most recently focused of them, if several do. */
+static O42Window *
+host_window (gpointer user, O42Book *book)
+{
+  GtkApplication *app = user;
+  GList *windows = gtk_application_get_windows (app);
+
+  for (GList *l = windows; l != NULL; l = l->next)
+    if (O42_IS_WINDOW (l->data) && (book == NULL || O42_WINDOW (l->data)->book == book))
+      return O42_WINDOW (l->data);
+  return NULL;
+}
+
+static gboolean
+host_get_selection (gpointer user, O42Book *book, O42Sheet **sheet,
+                    O42Range *range, int *active_row, int *active_col)
+{
+  O42Window *self = host_window (user, book);
+
+  if (self == NULL || self->sheet == NULL)
+    return FALSE;
+  *sheet = self->sheet;
+  o42_grid_get_selection (self->grid, range);
+  o42_grid_get_active (self->grid, active_row, active_col);
+  return TRUE;
+}
+
+static void
+host_set_selection (gpointer user, O42Book *book, O42Sheet *sheet,
+                    const O42Range *range, int active_row, int active_col)
+{
+  O42Window *self = host_window (user, book);
+
+  if (self == NULL)
+    return;
+  if (sheet != NULL && sheet != self->sheet && o42_book_sheet_index (book, sheet) >= 0)
+    {
+      if (o42_grid_is_editing (self->grid))
+        o42_grid_commit_edit (self->grid);
+      self->sheet = sheet;
+      o42_grid_set_sheet (self->grid, sheet);
+      window_rebuild_tabs (self);
+    }
+  {
+    /* The grid keeps an anchor and an active corner; an active cell at
+     * a corner of the range is honoured by anchoring the opposite one,
+     * and one in the middle, which the grid cannot hold, becomes the
+     * far corner. */
+    O42Range span = *range;
+    gboolean at_row = active_row == range->row0 || active_row == range->row1;
+    gboolean at_col = active_col == range->col0 || active_col == range->col1;
+
+    if (at_row && at_col)
+      {
+        span.row0 = active_row == range->row0 ? range->row1 : range->row0;
+        span.col0 = active_col == range->col0 ? range->col1 : range->col0;
+        span.row1 = active_row;
+        span.col1 = active_col;
+      }
+    if (o42_grid_is_editing (self->grid))
+      o42_grid_commit_edit (self->grid);
+    o42_grid_select_range (self->grid, &span);
+  }
+  window_sync (self);
+}
+
+/* A dialog waited for: the script is in the middle of running, so the
+ * answer has to come back before it goes on. */
+static void
+on_host_alert_done (GObject *source, GAsyncResult *result, gpointer data)
+{
+  GMainLoop *loop = data;
+  gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result, NULL);
+  g_main_loop_quit (loop);
+}
+
+static void
+host_message (gpointer user, O42Book *book, const char *text)
+{
+  O42Window *self = host_window (user, book);
+  GtkAlertDialog *dialog = gtk_alert_dialog_new ("%s", text);
+  GMainLoop *loop = g_main_loop_new (NULL, FALSE);
+  const char *buttons[] = { "OK", NULL };
+
+  gtk_alert_dialog_set_buttons (dialog, buttons);
+  gtk_alert_dialog_set_modal (dialog, TRUE);
+  gtk_alert_dialog_choose (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL,
+                           on_host_alert_done, loop);
+  g_main_loop_run (loop);
+  g_main_loop_unref (loop);
+  g_object_unref (dialog);
+}
+
+typedef struct {
+  GtkWidget *dialog;
+  GtkWidget *entry;
+  GMainLoop *loop;
+  char      *answer;
+} HostInput;
+
+static void
+on_host_input_ok (GtkWidget *w, gpointer data)
+{
+  HostInput *prompt = data;
+  (void) w;
+  prompt->answer = g_strdup (gtk_editable_get_text (GTK_EDITABLE (prompt->entry)));
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_host_input_destroy (GtkWidget *w, gpointer data)
+{
+  HostInput *prompt = data;
+  (void) w;
+  g_main_loop_quit (prompt->loop);
+}
+
+static char *
+host_input (gpointer user, O42Book *book, const char *text, const char *initial)
+{
+  O42Window *self = host_window (user, book);
+  HostInput prompt = { NULL, NULL, NULL, NULL };
+  GtkWidget *content, *buttons, *label, *ok;
+
+  if (self == NULL)
+    return NULL;
+  prompt.dialog = o42_dialog_frame (self, _("Office42 Spreadsheet"), TRUE, &content, &buttons);
+  label = gtk_label_new (text);
+  gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+  gtk_box_append (GTK_BOX (content), label);
+  prompt.entry = gtk_entry_new ();
+  gtk_editable_set_text (GTK_EDITABLE (prompt.entry), initial != NULL ? initial : "");
+  gtk_widget_set_size_request (prompt.entry, 320, -1);
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt.entry), TRUE);
+  gtk_box_append (GTK_BOX (content), prompt.entry);
+  ok = o42_dialog_button (buttons, _("_OK"), G_CALLBACK (on_host_input_ok), &prompt);
+  o42_dialog_button (buttons, _("_Cancel"), G_CALLBACK (o42_dialog_close_clicked), prompt.dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt.dialog), ok);
+  g_signal_connect (prompt.dialog, "destroy", G_CALLBACK (on_host_input_destroy), &prompt);
+  prompt.loop = g_main_loop_new (NULL, FALSE);
+  gtk_window_present (GTK_WINDOW (prompt.dialog));
+  gtk_widget_grab_focus (prompt.entry);
+  g_main_loop_run (prompt.loop);
+  g_main_loop_unref (prompt.loop);
+  return prompt.answer;
+}
+
+static void
+host_status (gpointer user, O42Book *book, const char *text)
+{
+  O42Window *self = host_window (user, book);
+
+  if (self == NULL)
+    return;
+  /* Kept until the script sets it back, so that the window's own
+   * syncing does not put "Ready" over it. */
+  g_free (self->status_text);
+  self->status_text = (text != NULL && *text != '\0') ? g_strdup (text) : NULL;
+  window_sync (self);
+}
+
+static char *
+host_path (gpointer user, O42Book *book)
+{
+  O42Window *self = host_window (user, book);
+
+  return self != NULL && self->file != NULL ? g_file_get_path (self->file) : NULL;
+}
+
+static gboolean
+host_save (gpointer user, O42Book *book, const char *path, char **message)
+{
+  O42Window *self = host_window (user, book);
+  GFile *file;
+  gboolean ok;
+
+  if (self == NULL)
+    {
+      *message = g_strdup ("no window shows the book");
+      return FALSE;
+    }
+  if (path == NULL && self->file == NULL)
+    {
+      *message = g_strdup ("the book has no file yet: use save_as(path)");
+      return FALSE;
+    }
+  file = path != NULL ? g_file_new_for_path (path) : g_object_ref (self->file);
+  ok = window_save_to (self, file);
+  if (!ok)
+    *message = g_strdup_printf ("the book could not be saved to %s", path != NULL ? path : "its file");
+  g_object_unref (file);
+  return ok;
+}
+
+static gboolean
+host_open (gpointer user, const char *path, char **message)
+{
+  GtkApplication *app = user;
+  O42Window *self = host_window (user, NULL);
+  O42Window *target;
+  GFile *file;
+  gboolean ok;
+
+  if (!g_file_test (path, G_FILE_TEST_EXISTS))
+    {
+      *message = g_strdup_printf ("there is no file %s", path);
+      return FALSE;
+    }
+  file = g_file_new_for_path (path);
+  target = self != NULL && o42_window_is_blank (self) ? self : O42_WINDOW (o42_window_new (app));
+  gtk_window_present (GTK_WINDOW (target));
+  ok = o42_window_open_file (target, file);
+  if (!ok)
+    *message = g_strdup_printf ("%s could not be opened", path);
+  g_object_unref (file);
+  return ok;
+}
+
+static void
+window_install_python_host (O42Window *self)
+{
+  static gboolean installed = FALSE;
+  O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
+                         host_input, host_status, host_path, host_save, host_open };
+
+  if (installed)
+    return;
+  host.user = gtk_window_get_application (GTK_WINDOW (self));
+  if (host.user == NULL)
+    return;
+  o42_python_set_host (&host);
+  installed = TRUE;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Construction                                                            */
 /* ---------------------------------------------------------------------- */
@@ -5261,6 +5541,7 @@ o42_window_dispose (GObject *object)
   O42Window *self = O42_WINDOW (object);
 
   g_clear_pointer (&self->family_index, g_hash_table_destroy);
+  g_clear_pointer (&self->status_text, g_free);
   g_clear_object (&self->families);
 
   if (self->grid != NULL)
@@ -5293,7 +5574,7 @@ o42_window_class_init (O42WindowClass *klass)
 static void
 on_grid_mapped (GtkWidget *widget, gpointer data)
 {
-  (void) data;
+  window_install_python_host (O42_WINDOW (data));
   gtk_widget_grab_focus (widget);
 }
 
@@ -5403,7 +5684,7 @@ o42_window_init (O42Window *self)
   /* The formula bar is the same edit as the cell, seen from up here. */
   o42_grid_set_mirror (self->grid, self->formula_entry);
 
-  g_signal_connect (self->grid, "selection-changed", G_CALLBACK (on_grid_changed), self);
+  g_signal_connect (self->grid, "selection-changed", G_CALLBACK (on_grid_selection_changed), self);
   g_signal_connect (self->grid, "sheet-changed",     G_CALLBACK (on_grid_changed), self);
   g_signal_connect (self->grid, "run-script",        G_CALLBACK (on_grid_run_script), self);
   g_signal_connect (self->grid, "map", G_CALLBACK (on_grid_mapped), self);

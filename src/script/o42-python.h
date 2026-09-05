@@ -35,4 +35,41 @@ gboolean o42_python_run_file (O42Book *book, O42Sheet *sheet, GFile *file,
 /* Forgets the console's variables and the functions scripts defined. */
 void o42_python_reset (void);
 
+/* ---- What the window does for a script ------------------------------- */
+
+/* Excel's macros see the selection, put up message boxes and save
+ * files: things that belong to the window, which this layer never
+ * sees.  The window fills in this table of calls and the script layer
+ * asks through it -- office42.selection, msgbox(), book.save().  Any
+ * of them may be NULL, and a script that asks for one then gets an
+ * error saying there is no window.  The book is passed so that the
+ * window showing it can answer; `user` is whatever was given with the
+ * table. */
+typedef struct {
+  gpointer user;
+
+  /* The selection on the sheet on show for `book`, and the active
+   * cell; FALSE if no window shows the book. */
+  gboolean (*get_selection) (gpointer user, O42Book *book, O42Sheet **sheet,
+                             O42Range *range, int *active_row, int *active_col);
+  /* Selects a range and makes a cell of it active, showing the sheet. */
+  void     (*set_selection) (gpointer user, O42Book *book, O42Sheet *sheet,
+                             const O42Range *range, int active_row, int active_col);
+  /* A message box, waited for; and a line asked of the user, NULL if
+   * they cancelled (the caller frees it). */
+  void     (*message)       (gpointer user, O42Book *book, const char *text);
+  char    *(*input)         (gpointer user, O42Book *book, const char *prompt,
+                             const char *initial);
+  /* The status bar's text. */
+  void     (*status)        (gpointer user, O42Book *book, const char *text);
+  /* The file the book came from, or NULL (caller frees). */
+  char    *(*path)          (gpointer user, O42Book *book);
+  /* Saves the book: as it is, or to `path`.  FALSE with a message. */
+  gboolean (*save)          (gpointer user, O42Book *book, const char *path, char **message);
+  /* Opens a file in a window of its own. */
+  gboolean (*open)          (gpointer user, const char *path, char **message);
+} O42PythonHost;
+
+void o42_python_set_host (const O42PythonHost *host);
+
 G_END_DECLS

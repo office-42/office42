@@ -43,6 +43,7 @@ struct _O42Window {
   GtkWidget  *formula_entry;
   O42Db      *db;              /* the book's database, opened when first wanted */
   GtkWidget  *status_label;
+  char       *status_text;     /* what a script set the status bar to, or NULL */
   GtkWidget  *status_sum;
 
   GtkWidget  *font_drop;

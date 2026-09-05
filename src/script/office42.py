@@ -300,6 +300,28 @@ class Range:
         """Puts the sheet's AutoFilter on this range, its first row headings."""
         _c.set_autofilter(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
 
+    # -- the window ----------------------------------------------------
+    def select(self, active=None):
+        """Selects the range in the window, with `active` (a cell address
+        or Range inside it, the top-left by default) as the active cell."""
+        row, col = (self.row0, self.col0) if active is None else self._cell_of(active)
+        _c.select(self.sheet.index, self.row0, self.col0, self.row1, self.col1, row, col)
+        return self
+
+    def activate(self):
+        """Makes the top-left cell the active cell, keeping the selection
+        if it is inside it."""
+        try:
+            sel = _selection()
+        except RuntimeError:
+            sel = None
+        if (sel is not None and sel.sheet == self.sheet and
+                sel.row0 <= self.row0 <= sel.row1 and sel.col0 <= self.col0 <= sel.col1):
+            _c.select(self.sheet.index, sel.row0, sel.col0, sel.row1, sel.col1, self.row0, self.col0)
+        else:
+            self.select()
+        return self
+
     # -- the cells themselves ------------------------------------------
     def merge(self):
         """Makes the range one cell, keeping the top-left cell's content."""
@@ -587,9 +609,106 @@ class Book:
         _bind()
         exec(compile(_c.get_script(name), name, "exec"), _namespace)
 
+    # -- the file ------------------------------------------------------
+    @property
+    def path(self):
+        """The file the book was opened from or saved to, or None."""
+        return _c.path()
+
+    def save(self):
+        """Saves the book to its file; a book without one asks for it."""
+        _c.save(None)
+
+    def save_as(self, path):
+        """Saves the book to `path`; the extension picks the format."""
+        _c.save(str(path))
+
 
 book = Book()
 sheet = None      # bound before each run
+
+
+class Application:
+    """What Excel calls Application: the program around the book."""
+
+    screen_updating = True      # kept for scripts that set it; nothing waits on it
+    display_alerts = True
+
+    def __repr__(self):
+        return "<Application office42 %s>" % __version__
+
+    @property
+    def selection(self):
+        return _selection()
+
+    @property
+    def active_cell(self):
+        return _active_cell()
+
+    @property
+    def active_sheet(self):
+        return book.active
+
+    def calculate(self):
+        """Works out every formula in the book now: F9."""
+        _c.calculate()
+
+    calculate_full = calculate
+
+    @property
+    def status(self):
+        return None
+
+    @status.setter
+    def status(self, text):
+        """The status bar's text; None or "" for the usual one."""
+        _c.status("" if text is None else str(text))
+
+    status_bar = status
+
+    def msgbox(self, text):
+        return msgbox(text)
+
+    def inputbox(self, prompt, default=""):
+        return inputbox(prompt, default)
+
+
+app = Application()
+
+
+def msgbox(text):
+    """A message box, waited for."""
+    _c.message(str(text))
+
+
+def inputbox(prompt, default=""):
+    """Asks the user for a line of text; None if they cancel."""
+    return _c.input(str(prompt), str(default))
+
+
+def open(path):
+    """Opens a file in a window of its own."""
+    _c.open(str(path))
+
+
+def _selection():
+    i, r0, c0, r1, c1, _, _ = _c.selection()
+    return Range(Sheet(i), r0, c0, r1, c1)
+
+
+def _active_cell():
+    i, _, _, _, _, row, col = _c.selection()
+    return Range(Sheet(i), row, col)
+
+
+def __getattr__(name):
+    """office42.selection and office42.active_cell are asked of the
+    window each time, which is why they are not plain names."""
+    if name == "selection":
+        return _selection()
+    if name == "active_cell":
+        return _active_cell()
+    raise AttributeError("module 'office42' has no attribute %r" % name)
 
 
 def evaluate(formula):

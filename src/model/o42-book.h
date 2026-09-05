@@ -132,6 +132,12 @@ gboolean  o42_book_record_sheet (O42Book *book, const char *sheet_name);
 void      o42_book_record_op_begin (O42Book *book, const char *sheet_name, const char *line);
 void      o42_book_record_op_end   (O42Book *book);
 
+/* The window's selection changed while recording: written down as
+ * sheet["B2:C5"].select() -- but only when something is then done, so
+ * that wandering about the sheet does not fill the macro. */
+void      o42_book_record_selection (O42Book *book, const char *sheet_name,
+                                     const O42Range *range, int active_row, int active_col);
+
 /* Moves the sheet at `from` so that it sits at `to`; one undo step. */
 gboolean  o42_book_move_sheet (O42Book *book, int from, int to);
 

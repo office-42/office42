@@ -134,6 +134,84 @@ spell_word (const char *word, gsize offset, gsize length, gpointer user)
   g_free (where);
 }
 
+/* ---- What the terminal does for a script ------------------------------ */
+
+/* A script's office42.selection, msgbox() and the rest are the window's
+ * to answer; here the terminal answers instead: the selection is what
+ * "select A1:B2" last said, a message is printed, a question is
+ * answered by the next line of input. */
+static struct {
+  O42Sheet *sheet;
+  O42Range  range;
+  int       row, col;
+} calc_selection;
+
+static gboolean
+calc_get_selection (gpointer user, O42Book *book, O42Sheet **sheet,
+                    O42Range *range, int *row, int *col)
+{
+  (void) user;
+  if (calc_selection.sheet == NULL || o42_book_sheet_index (book, calc_selection.sheet) < 0)
+    return FALSE;
+  *sheet = calc_selection.sheet;
+  *range = calc_selection.range;
+  *row = calc_selection.row;
+  *col = calc_selection.col;
+  return TRUE;
+}
+
+static void
+calc_set_selection (gpointer user, O42Book *book, O42Sheet *sheet,
+                    const O42Range *range, int row, int col)
+{
+  char *a = o42_ref_name (range->row0, range->col0);
+  char *b = o42_ref_name (range->row1, range->col1);
+  (void) user; (void) book;
+  calc_selection.sheet = sheet;
+  calc_selection.range = *range;
+  calc_selection.row = row;
+  calc_selection.col = col;
+  printf ("selected %s!%s:%s\n", o42_sheet_get_name (sheet), a, b);
+  g_free (a);
+  g_free (b);
+}
+
+static void
+calc_message (gpointer user, O42Book *book, const char *text)
+{
+  (void) user; (void) book;
+  printf ("message: %s\n", text);
+}
+
+static char *
+calc_input (gpointer user, O42Book *book, const char *prompt, const char *initial)
+{
+  char answer[1024];
+  (void) user; (void) book; (void) initial;
+  printf ("input: %s\n", prompt);
+  fflush (stdout);
+  if (fgets (answer, sizeof answer, stdin) == NULL)
+    return NULL;
+  return g_strdup (g_strstrip (answer));
+}
+
+static void
+calc_status (gpointer user, O42Book *book, const char *text)
+{
+  (void) user; (void) book;
+  printf ("status: %s\n", text);
+}
+
+static void
+calc_install_host (O42Book *book)
+{
+  O42PythonHost host = { NULL, calc_get_selection, calc_set_selection, calc_message,
+                         calc_input, calc_status, NULL, NULL, NULL };
+  calc_selection.sheet = o42_book_sheet (book, 0);
+  calc_selection.range = o42_range_normalise (0, 0, 0, 0);
+  o42_python_set_host (&host);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -145,6 +223,7 @@ main (int argc, char *argv[])
   /* SQLVALUE() asks the book's database; it answers #N/A while there
    * is none. */
   o42_db_register_function (book);
+  calc_install_host (book);
 
   (void) argc; (void) argv;
 
@@ -177,7 +256,7 @@ main (int argc, char *argv[])
               "          picture pictures objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
               "          pagebreak margin\n"
-              "Python    py pyfile script scripts runscript delscript record\n"
+              "Python    py pyfile script scripts runscript delscript record select\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
               "\n"
@@ -787,6 +866,36 @@ main (int argc, char *argv[])
             }
           else
             fprintf (stderr, "usage: view add|show|del NAME; views\n");
+          continue;
+        }
+
+      /* select A1:B2 [C2] -- what office42.selection answers, and what a
+       * macro being recorded writes down before its next line */
+      if (g_str_has_prefix (text, "select "))
+        {
+          char **words = g_strsplit (text + 7, " ", -1);
+          O42Range r;
+          gsize len = 0;
+          int arow, acol;
+
+          if (words[0] != NULL && o42_ref_parse (words[0], &r.row0, &r.col0, &len))
+            {
+              if (words[0][len] == ':' && o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))
+                r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              else
+                { r.row1 = r.row0; r.col1 = r.col0; }
+              arow = r.row0; acol = r.col0;
+              if (words[1] != NULL)
+                o42_ref_parse (words[1], &arow, &acol, NULL);
+              calc_selection.sheet = sheet;
+              calc_selection.range = r;
+              calc_selection.row = arow;
+              calc_selection.col = acol;
+              o42_book_record_selection (book, o42_sheet_get_name (sheet), &r, arow, acol);
+            }
+          else
+            fprintf (stderr, "usage: select A1:B2 [ACTIVE]\n");
+          g_strfreev (words);
           continue;
         }
 

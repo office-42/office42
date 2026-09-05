@@ -19,6 +19,18 @@
 
 #include <string.h>
 
+/* What the window does for a script; every call NULL until it says. */
+static O42PythonHost host;
+
+void
+o42_python_set_host (const O42PythonHost *table)
+{
+  if (table != NULL)
+    host = *table;
+  else
+    memset (&host, 0, sizeof host);
+}
+
 #ifndef HAVE_PYTHON
 
 gboolean    o42_python_available (void) { return FALSE; }
@@ -721,6 +733,158 @@ m_autofilter_choose (PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* ---- The window: selection, message boxes, files ------------------- */
+
+static PyObject *
+no_window (const char *what)
+{
+  return PyErr_Format (PyExc_RuntimeError, "no window to %s: the script is not running in one", what);
+}
+
+/* selection() -> (sheet index, row0, col0, row1, col1, active row, active col) */
+static PyObject *
+m_selection (PyObject *self, PyObject *args)
+{
+  O42Sheet *sheet = NULL;
+  O42Range r;
+  int arow = 0, acol = 0;
+  (void) self; (void) args;
+  if (host.get_selection == NULL || current_book == NULL)
+    return no_window ("ask the selection of");
+  if (!host.get_selection (host.user, current_book, &sheet, &r, &arow, &acol) || sheet == NULL)
+    return no_window ("ask the selection of");
+  return Py_BuildValue ("(iiiiiii)", o42_book_sheet_index (current_book, sheet),
+                        r.row0, r.col0, r.row1, r.col1, arow, acol);
+}
+
+/* select(i, row0, col0, row1, col1, active row, active col) */
+static PyObject *
+m_select (PyObject *self, PyObject *args)
+{
+  int index, arow, acol;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1, &arow, &acol) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL || !cell_ok (arow, acol))
+    return NULL;
+  if (host.set_selection == NULL)
+    return no_window ("select in");
+  host.set_selection (host.user, current_book, sheet, &r, arow, acol);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_message (PyObject *self, PyObject *args)
+{
+  const char *text;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &text))
+    return NULL;
+  if (host.message == NULL)
+    return no_window ("show a message in");
+  host.message (host.user, current_book, text);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_input (PyObject *self, PyObject *args)
+{
+  const char *prompt, *initial = "";
+  char *answer;
+  PyObject *result;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s|s", &prompt, &initial))
+    return NULL;
+  if (host.input == NULL)
+    return no_window ("ask a question in");
+  answer = host.input (host.user, current_book, prompt, initial);
+  if (answer == NULL)
+    Py_RETURN_NONE;
+  result = PyUnicode_FromString (answer);
+  g_free (answer);
+  return result;
+}
+
+static PyObject *
+m_status (PyObject *self, PyObject *args)
+{
+  const char *text;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &text))
+    return NULL;
+  if (host.status != NULL)
+    host.status (host.user, current_book, text);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_path (PyObject *self, PyObject *args)
+{
+  char *path;
+  PyObject *result;
+  (void) self; (void) args;
+  if (host.path == NULL || current_book == NULL)
+    Py_RETURN_NONE;
+  path = host.path (host.user, current_book);
+  if (path == NULL)
+    Py_RETURN_NONE;
+  result = PyUnicode_FromString (path);
+  g_free (path);
+  return result;
+}
+
+static PyObject *
+m_save (PyObject *self, PyObject *args)
+{
+  const char *path = NULL;
+  char *message = NULL;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "|z", &path))
+    return NULL;
+  if (host.save == NULL || current_book == NULL)
+    return no_window ("save from");
+  if (!host.save (host.user, current_book, path, &message))
+    {
+      PyErr_SetString (PyExc_OSError, message != NULL ? message : "the book could not be saved");
+      g_free (message);
+      return NULL;
+    }
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_open (PyObject *self, PyObject *args)
+{
+  const char *path;
+  char *message = NULL;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &path))
+    return NULL;
+  if (host.open == NULL)
+    return no_window ("open a file beside");
+  if (!host.open (host.user, path, &message))
+    {
+      PyErr_SetString (PyExc_OSError, message != NULL ? message : "the file could not be opened");
+      g_free (message);
+      return NULL;
+    }
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_calculate (PyObject *self, PyObject *args)
+{
+  (void) self; (void) args;
+  if (current_book != NULL)
+    {
+      for (int i = 0; i < o42_book_n_sheets (current_book); i++)
+        o42_sheet_recalculate (o42_book_sheet (current_book, i));
+      book_touched = TRUE;
+    }
+  Py_RETURN_NONE;
+}
+
 static PyObject *
 m_get_input (PyObject *self, PyObject *args)
 {
@@ -1290,6 +1454,15 @@ static PyMethodDef METHODS[] = {
   { "set_autofilter", m_set_autofilter, METH_VARARGS, "Puts an AutoFilter on a range, or takes it off." },
   { "get_autofilter", m_get_autofilter, METH_VARARGS, "The AutoFilter's range, or None." },
   { "autofilter_choose", m_autofilter_choose, METH_VARARGS, "A filter column's choice; sets it with a value or None." },
+  { "selection",      m_selection,      METH_NOARGS,  "The window's selection: (sheet, r0, c0, r1, c1, row, col)." },
+  { "select",         m_select,         METH_VARARGS, "Selects a range in the window and makes a cell active." },
+  { "message",        m_message,        METH_VARARGS, "A message box, waited for." },
+  { "input",          m_input,          METH_VARARGS, "Asks the user for a line; None if cancelled." },
+  { "status",         m_status,         METH_VARARGS, "Sets the status bar's text." },
+  { "path",           m_path,           METH_NOARGS,  "The book's file, or None." },
+  { "save",           m_save,           METH_VARARGS, "Saves the book, to a path if given." },
+  { "open",           m_open,           METH_VARARGS, "Opens a file in a window of its own." },
+  { "calculate",      m_calculate,      METH_NOARGS,  "Recalculates every sheet." },
   { "get_input",      m_get_input,      METH_VARARGS, "What was typed into a cell." },
   { "set_input",      m_set_input,      METH_VARARGS, "Types into a cell." },
   { "get_value",      m_get_value,      METH_VARARGS, "A cell's value." },

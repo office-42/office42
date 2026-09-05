@@ -29,6 +29,9 @@ struct _O42Book {
   GString *recording;      /* the macro being recorded, or NULL */
   char    *recorded_sheet; /* the sheet its last line was about */
   int      record_quiet;   /* inside an operation recorded as one line */
+  char    *pending_sheet;  /* a selection made and not yet written down */
+  O42Range pending_range;
+  int      pending_row, pending_col;
   GPtrArray    *sheets;   /* O42Sheet*, owned, in tab order */
   O42UndoStack *stack;    /* shared by every sheet */
   GHashTable   *names;    /* upper-case name -> NamedRange*, owned */
@@ -228,6 +231,7 @@ o42_book_free (O42Book *book)
   if (book->recording != NULL)
     g_string_free (book->recording, TRUE);
   g_free (book->recorded_sheet);
+  g_free (book->pending_sheet);
   /* An embedded database lives in a temporary file while the book is
    * open; the book going is the end of it. */
   if (book->db_embedded && book->db_path != NULL)
@@ -1016,6 +1020,7 @@ o42_book_record_start (O42Book *book)
   if (book->recording != NULL)
     g_string_free (book->recording, TRUE);
   g_clear_pointer (&book->recorded_sheet, g_free);
+  g_clear_pointer (&book->pending_sheet, g_free);
   book->recording = g_string_new ("# Recorded by office42.\n"
                                   "import office42\n"
                                   "book = office42.book\n");
@@ -1038,6 +1043,7 @@ o42_book_record_stop (O42Book *book)
   text = g_string_free (book->recording, FALSE);
   book->recording = NULL;
   g_clear_pointer (&book->recorded_sheet, g_free);
+  g_clear_pointer (&book->pending_sheet, g_free);
   return text;
 }
 
@@ -1064,7 +1070,46 @@ o42_book_record_sheet (O42Book *book, const char *sheet_name)
       g_free (book->recorded_sheet);
       book->recorded_sheet = g_strdup (sheet_name);
     }
+  /* A selection made since the last line is written now that something
+   * is done with it, as Excel writes Range("B2:C5").Select before the
+   * line that acts on it; one on another sheet is let go. */
+  if (book->pending_sheet != NULL)
+    {
+      if (g_strcmp0 (book->pending_sheet, sheet_name) == 0)
+        {
+          const O42Range *r = &book->pending_range;
+          char *a = o42_ref_name (r->row0, r->col0);
+          char *b = o42_ref_name (r->row1, r->col1);
+          char *active = o42_ref_name (book->pending_row, book->pending_col);
+          gboolean one = r->row0 == r->row1 && r->col0 == r->col1;
+          gboolean corner = book->pending_row == r->row0 && book->pending_col == r->col0;
+
+          if (one)
+            g_string_append_printf (book->recording, "sheet[\"%s\"].select()\n", a);
+          else if (corner)
+            g_string_append_printf (book->recording, "sheet[\"%s:%s\"].select()\n", a, b);
+          else
+            g_string_append_printf (book->recording, "sheet[\"%s:%s\"].select(\"%s\")\n", a, b, active);
+          g_free (a);
+          g_free (b);
+          g_free (active);
+        }
+      g_clear_pointer (&book->pending_sheet, g_free);
+    }
   return TRUE;
+}
+
+void
+o42_book_record_selection (O42Book *book, const char *sheet_name,
+                           const O42Range *range, int active_row, int active_col)
+{
+  if (!o42_book_recording (book) || sheet_name == NULL || range == NULL)
+    return;
+  g_free (book->pending_sheet);
+  book->pending_sheet = g_strdup (sheet_name);
+  book->pending_range = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
+  book->pending_row = active_row;
+  book->pending_col = active_col;
 }
 
 void
