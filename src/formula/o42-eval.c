@@ -4471,6 +4471,36 @@ logfit_line (const double *x, const double *y, int n, double sign, double c,
   return isfinite (*a) && isfinite (*b) && isfinite (*ssr);
 }
 
+/* The keys SORT and SORTBY order by, read once, and a stable merge
+ * sort of positions over them. */
+typedef struct {
+  O42Value *keys;
+  gboolean  descending;
+} SortKeys;
+
+static int
+sort_keys_compare (const SortKeys *k, int a, int b)
+{
+  int cmp = o42_value_compare (&k->keys[a], &k->keys[b]);
+  return k->descending ? -cmp : cmp;
+}
+
+static void
+merge_sort_positions (int *pos, int *tmp, int n, const SortKeys *keys)
+{
+  int half = n / 2, i = 0, j = half, at = 0;
+
+  if (n < 2)
+    return;
+  merge_sort_positions (pos, tmp, half, keys);
+  merge_sort_positions (pos + half, tmp, n - half, keys);
+  while (i < half && j < n)
+    tmp[at++] = sort_keys_compare (keys, pos[j], pos[i]) < 0 ? pos[j++] : pos[i++];
+  while (i < half) tmp[at++] = pos[i++];
+  while (j < n) tmp[at++] = pos[j++];
+  memcpy (pos, tmp, (gsize) n * sizeof (int));
+}
+
 /* TRUE if `node` is a call to a reference-returning function; then
  * `out` holds its result, a range or an error value. */
 static gboolean
@@ -4856,23 +4886,32 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       keys = g_ptr_array_new_with_free_func (g_free);
       counts = g_array_new (FALSE, FALSE, sizeof (int));
       first = g_array_new (FALSE, FALSE, sizeof (int));
-      for (int i = 0; i < n_items; i++)
-        {
-          char *key = operand_line_key (ctx, &src, i, by_col);
-          gboolean seen = FALSE;
-          for (guint k = 0; k < keys->len && !seen; k++)
-            if (strcmp (g_ptr_array_index (keys, k), key) == 0)
-              { g_array_index (counts, int, k)++; seen = TRUE; }
-          if (!seen)
-            {
-              int one = 1;
-              g_ptr_array_add (keys, key);
-              g_array_append_val (counts, one);
-              g_array_append_val (first, i);
-            }
-          else
-            g_free (key);
-        }
+      {
+        /* Each line's key looked up in a table rather than in every
+         * earlier line, so a long column is n rather than n squared. */
+        GHashTable *where = g_hash_table_new (g_str_hash, g_str_equal);
+
+        for (int i = 0; i < n_items; i++)
+          {
+            char *key = operand_line_key (ctx, &src, i, by_col);
+            gpointer found;
+
+            if (g_hash_table_lookup_extended (where, key, NULL, &found))
+              {
+                g_array_index (counts, int, GPOINTER_TO_INT (found))++;
+                g_free (key);
+              }
+            else
+              {
+                int one = 1;
+                g_hash_table_insert (where, key, GINT_TO_POINTER (keys->len));
+                g_ptr_array_add (keys, key);
+                g_array_append_val (counts, one);
+                g_array_append_val (first, i);
+              }
+          }
+        g_hash_table_unref (where);
+      }
       for (guint k = 0; k < keys->len; k++)
         if (!once || g_array_index (counts, int, k) == 1) n_keep++;
       if (n_keep == 0)
@@ -4934,27 +4973,26 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       idx = g_array_new (FALSE, FALSE, sizeof (int));
       for (int i = 0; i < n_items; i++) g_array_append_val (idx, i);
       {
-        /* Insertion sort on the key column: stable, and the sets here
-         * are small. */
-        for (int i = 1; i < n_items; i++)
-          for (int j = i; j > 0; j--)
-            {
-              int p1 = g_array_index (idx, int, j - 1), p2 = g_array_index (idx, int, j);
-              O42Value k1, k2;
-              int cmp;
-              if (sortby)
-                { k1 = operand_cell (ctx, &by, by_col ? 0 : p1, by_col ? p1 : 0); k2 = operand_cell (ctx, &by, by_col ? 0 : p2, by_col ? p2 : 0); }
-              else
-                { k1 = by_col ? operand_cell (ctx, &src, (int) index - 1, p1) : operand_cell (ctx, &src, p1, (int) index - 1);
-                  k2 = by_col ? operand_cell (ctx, &src, (int) index - 1, p2) : operand_cell (ctx, &src, p2, (int) index - 1); }
-              cmp = o42_value_compare (&k1, &k2);
-              o42_value_clear (&k1);
-              o42_value_clear (&k2);
-              if (order < 0) cmp = -cmp;
-              if (cmp <= 0) break;
-              g_array_index (idx, int, j) = p1;
-              g_array_index (idx, int, j - 1) = p2;
-            }
+        /* The keys are read once each, then the positions are merge
+         * sorted on them: stable, and n log n where an insertion sort
+         * took a minute over forty thousand rows. */
+        SortKeys keys;
+
+        keys.keys = g_new0 (O42Value, MAX (n_items, 1));
+        keys.descending = order < 0;
+        for (int i = 0; i < n_items; i++)
+          keys.keys[i] = sortby ? operand_cell (ctx, &by, by_col ? 0 : i, by_col ? i : 0)
+                       : by_col ? operand_cell (ctx, &src, (int) index - 1, i)
+                                : operand_cell (ctx, &src, i, (int) index - 1);
+        if (n_items > 1)
+          {
+            int *tmp = g_new (int, n_items);
+            merge_sort_positions ((int *) idx->data, tmp, n_items, &keys);
+            g_free (tmp);
+          }
+        for (int i = 0; i < n_items; i++)
+          o42_value_clear (&keys.keys[i]);
+        g_free (keys.keys);
       }
       a = array_const_new (rows, cols);
       for (int i = 0; i < n_items; i++)
