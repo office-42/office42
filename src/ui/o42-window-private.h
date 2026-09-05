@@ -26,6 +26,7 @@ struct _O42Window {
   O42Book    *book;
   O42Sheet   *sheet;           /* the sheet on show, one of the book's */
   gpointer    python_console;  /* the PyConsole while its window is open */
+  gpointer    scripts_prompt;  /* the Scripts dialog while it is open, for the debugger */
   GtkEventController *macro_keys;  /* Ctrl+Shift+letter for the book's macros */
   GtkWidget  *scripts_bar;     /* "this book has scripts", shown on opening one */
   O42Grid    *grid;
@@ -103,6 +104,10 @@ void o42_window_show_sheet (O42Window *self, int index);
  * to run them. */
 gboolean o42_window_run_script (O42Window *self, const char *name, const char *code);
 void     o42_window_fire_event (O42Window *self, const char *event, const O42Range *range);
+
+/* The Scripts dialog's half of the step debugger: shows the line and
+ * the variables, waits for Step, Continue or Stop; 0, 1 or 2. */
+int      o42_window_debug_pause (O42Window *self, const char *filename, int line, const char *variables);
 /* Opens Scripts in this Book on the script of that name (NULL for the first). */
 void     o42_window_edit_script (O42Window *self, const char *which);
 void o42_scripts_bar_hide  (O42Window *self);
@@ -162,6 +167,9 @@ void action_relative_refs (GSimpleAction *a, GVariant *p, gpointer data);
 void action_macros (GSimpleAction *a, GVariant *p, gpointer data);
 void action_run_macro (GSimpleAction *a, GVariant *p, gpointer data);
 void action_scripts (GSimpleAction *a, GVariant *p, gpointer data);
+void action_script_step (GSimpleAction *a, GVariant *p, gpointer data);
+void action_script_continue (GSimpleAction *a, GVariant *p, gpointer data);
+void action_script_stop (GSimpleAction *a, GVariant *p, gpointer data);
 
 /* Binds Ctrl+Shift+letter to the book's macros that ask for one; called
  * whenever the scripts change. */

@@ -5325,6 +5325,9 @@ static const GActionEntry ACTIONS[] = {
   { "python-console", action_python_console, NULL, NULL, NULL, { 0 } },
   { "python-run",     action_python_run,     NULL, NULL, NULL, { 0 } },
   { "scripts",        action_scripts,        NULL, NULL, NULL, { 0 } },
+  { "script-step",    action_script_step,    NULL, NULL, NULL, { 0 } },
+  { "script-continue", action_script_continue, NULL, NULL, NULL, { 0 } },
+  { "script-stop",    action_script_stop,    NULL, NULL, NULL, { 0 } },
   { "scripts-run-all", action_scripts_run_all, NULL, NULL, NULL, { 0 } },
   { "text-to-columns", action_text_to_columns, NULL, NULL, NULL, { 0 } },
   { "conditional",    action_conditional,    NULL, NULL, NULL, { 0 } },
@@ -6290,13 +6293,21 @@ host_close (gpointer user, O42Book *book)
     g_idle_add (host_close_later, self);
 }
 
+static int
+host_debug_pause (gpointer user, O42Book *book, const char *filename, int line, const char *variables)
+{
+  O42Window *self = host_window (user, book);
+
+  return self != NULL ? o42_window_debug_pause (self, filename, line, variables) : 0;
+}
+
 static void
 window_install_python_host (O42Window *self)
 {
   static gboolean installed = FALSE;
   O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
                          host_input, host_status, host_path, host_save, host_open,
-                         host_close };
+                         host_close, host_debug_pause };
 
   if (installed)
     return;

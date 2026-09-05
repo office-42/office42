@@ -1312,6 +1312,73 @@ def _run(code, filename="<console>"):
     return ok, out.getvalue()
 
 
+# ---- Stepping through a script ------------------------------------------
+
+class DebugStop(BaseException):
+    """Raised in the script when the user presses Stop."""
+
+
+def _locals_text(frame):
+    """The frame's variables, one a line, for the debugger's pane."""
+    lines = []
+    for name, value in sorted(frame.f_locals.items()):
+        if name.startswith("__") or type(value).__name__ == "module" or callable(value) and not isinstance(value, type):
+            continue
+        try:
+            shown = repr(value)
+        except BaseException:
+            shown = "<unrepresentable>"
+        if len(shown) > 70:
+            shown = shown[:67] + "..."
+        lines.append("%s = %s" % (name, shown))
+    return "\n".join(lines)
+
+
+def _debug(code, filename, breakpoints, step_first):
+    """Runs code as _run does, pausing -- through _c.debug_pause, which
+    waits on the window -- at every line when stepping and at the lines
+    in breakpoints otherwise.  debug_pause answers 0 to go on, 1 to step
+    to the next line, 2 to stop."""
+    import sys
+    _bind()
+    state = {"step": bool(step_first)}
+    stops = set(breakpoints)
+
+    def local_trace(frame, event, arg):
+        if event == "line" and frame.f_code.co_filename == filename:
+            line = frame.f_lineno
+            if state["step"] or line in stops:
+                command = _c.debug_pause(line, _locals_text(frame))
+                if command == 2:
+                    raise DebugStop()
+                state["step"] = command == 1
+        return local_trace
+
+    def global_trace(frame, event, arg):
+        return local_trace if frame.f_code.co_filename == filename else None
+
+    out = io.StringIO()
+    ok = True
+    with redirect_stdout(out), redirect_stderr(out):
+        try:
+            compiled = compile(code, filename, "exec")
+            sys.settrace(global_trace)
+            try:
+                exec(compiled, _namespace)
+            finally:
+                sys.settrace(None)
+            _register_named_handlers()
+        except DebugStop:
+            print("Stopped.")
+        except SystemExit:
+            pass
+        except BaseException:
+            ok = False
+            lines = traceback.format_exc().splitlines()
+            print("\n".join(l for l in lines if "office42.py" not in l))
+    return ok, out.getvalue()
+
+
 def _forget_book(owner):
     """The book is going, or its scripts are being forgotten."""
     _forget_handlers(owner)

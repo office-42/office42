@@ -77,6 +77,8 @@ static const struct {
   { "win.number::scientific", { "<Control><Shift>6", "<Control>asciicircum", NULL } },
   { "win.full-screen", { "F11", NULL } },
   { "win.macros",     { "<Alt>F8", NULL } },
+  { "win.script-step",     { "F8", NULL } },
+  { "win.script-continue", { "<Shift>F8", NULL } },
   { "app.quit",       { "<Control>q", NULL } },
 };
 
@@ -316,6 +318,34 @@ render_all (O42Application *self)
   g_array_free (sizes, TRUE);
   g_list_free (toplevels);
 
+  /* The windows go first, as they do when the user quits: a dialog
+   * waiting in a loop of its own -- a script paused in the debugger --
+   * sees its window destroyed and lets go. */
+  {
+    GListModel *tops = gtk_window_get_toplevels ();
+    GList *open = NULL;
+
+    /* Dialogs before the windows they belong to, so that none is left
+     * pointing at a grid that has gone. */
+    for (guint i = 0; i < g_list_model_get_n_items (tops); i++)
+      {
+        GtkWindow *top = g_list_model_get_item (tops, i);
+        if (!GTK_IS_APPLICATION_WINDOW (top))
+          open = g_list_prepend (open, top);
+        else
+          g_object_unref (top);
+      }
+    for (GList *l = open; l != NULL; l = l->next)
+      {
+        gtk_window_destroy (GTK_WINDOW (l->data));
+        g_object_unref (l->data);
+      }
+    g_list_free (open);
+    open = g_list_copy (gtk_application_get_windows (GTK_APPLICATION (self)));
+    for (GList *l = open; l != NULL; l = l->next)
+      gtk_window_destroy (GTK_WINDOW (l->data));
+    g_list_free (open);
+  }
   g_application_quit (G_APPLICATION (self));
 }
 
@@ -375,6 +405,49 @@ take_screenshot (gpointer data)
   return G_SOURCE_REMOVE;
 }
 
+/* One action by name, with its parameter, on the first window. */
+static void
+fire_one_action (O42Application *self, const char *spec)
+{
+  GList *windows = gtk_application_get_windows (GTK_APPLICATION (self));
+  char *name = g_strdup (spec);
+  char *paren;
+  GVariant *param = NULL;
+
+  g_strstrip (name);
+  paren = strchr (name, '(');
+  if (*name == '\0' || windows == NULL)
+    { g_free (name); return; }
+  if (paren != NULL)
+    {
+      char *end;
+      char *inside;
+
+      *paren = '\0';
+      inside = g_strdup (paren + 1);
+      end = strchr (inside, ')');
+      if (end != NULL)
+        *end = '\0';
+      if (inside[0] != '\0' && strspn (inside, "-0123456789") == strlen (inside))
+        param = g_variant_new_int32 (atoi (inside));
+      else
+        param = g_variant_new_string (inside);
+      g_free (inside);
+    }
+  g_action_group_activate_action (G_ACTION_GROUP (windows->data), name, param);
+  g_free (name);
+}
+
+static gboolean
+fire_one_action_later (gpointer data)
+{
+  GApplication *app = g_application_get_default ();
+
+  if (O42_IS_APPLICATION (app))
+    fire_one_action (O42_APPLICATION (app), data);
+  return G_SOURCE_REMOVE;
+}
+
 static gboolean
 fire_activate (gpointer data)
 {
@@ -406,42 +479,20 @@ fire_activate (gpointer data)
       /* "zoom(150)" carries an integer parameter and "shape(checkbox)" a
        * string one; a bare name has none.  Several actions may be given
        * with semicolons between them, in the order they are to fire:
-       * "record-macro;shape(star5);record-macro". */
+       * "record-macro;shape(star5);record-macro".  The first fires now
+       * and the rest from timers a little apart, so that an action which
+       * waits in a loop of its own -- a script paused in the debugger --
+       * still lets the next one reach it. */
       char **actions = g_strsplit (self->activate, ";", -1);
 
       o42_window_set_dialogs_modal (FALSE);
-      for (int i = 0; actions[i] != NULL && windows != NULL; i++)
-        {
-          char *name = g_strdup (g_strstrip (actions[i]));
-          char *paren = strchr (name, '(');
-          GVariant *param = NULL;
-
-          if (*name == '\0')
-            { g_free (name); continue; }
-          if (paren != NULL)
-            {
-              char *end = strchr (paren, ')');
-              char *inside;
-
-              *paren = '\0';
-              inside = g_strdup (paren + 1);
-              end = strchr (inside, ')');
-              if (end != NULL)
-                *end = '\0';
-              if (inside[0] != '\0' && strspn (inside, "-0123456789") == strlen (inside))
-                param = g_variant_new_int32 (atoi (inside));
-              else
-                param = g_variant_new_string (inside);
-              g_free (inside);
-            }
-
-          g_action_group_activate_action (G_ACTION_GROUP (windows->data), name, param);
-          g_free (name);
-          /* The action may have closed the window: the list is asked for
-           * again rather than read after the fact. */
-          windows = gtk_application_get_windows (GTK_APPLICATION (self));
-        }
+      for (int i = 1; actions[i] != NULL; i++)
+        g_timeout_add_full (G_PRIORITY_DEFAULT, 150 * i, fire_one_action_later,
+                            g_strdup (actions[i]), g_free);
+      if (actions[0] != NULL)
+        fire_one_action (self, actions[0]);   /* last: it may not return for a while */
       g_strfreev (actions);
+      windows = gtk_application_get_windows (GTK_APPLICATION (self));
     }
 
   /* --type "=SUM(" opens the editor with that in it, and --point B2 or

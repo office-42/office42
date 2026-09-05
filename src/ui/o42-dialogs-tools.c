@@ -466,8 +466,24 @@ typedef struct {
   GtkWidget *list;      /* GtkListBox of names */
   GtkWidget *name;      /* GtkEntry */
   GtkWidget *view;      /* GtkTextView with the code */
+  GtkWidget *output;    /* GtkTextView: what the script printed */
+  GtkWidget *variables; /* GtkTextView: the paused frame's locals */
+  GtkWidget *step, *go, *stop, *run;
+  GtkTextTag *current_tag, *breakpoint_tag;
+  GArray    *breakpoints;   /* int, line numbers from 1, of the script on show */
   gboolean   filling;
+
+  /* The debugger: a script is running under the tracer, and may be
+   * paused waiting for a button. */
+  gboolean   running;
+  gboolean   paused;
+  int        command;       /* 0 none yet; 1 go on, 2 step, 3 stop */
+  gboolean   closed;        /* the dialog went while the script ran */
 } ScriptsPrompt;
+
+static void scripts_show_output (ScriptsPrompt *prompt, const char *text, gboolean ok);
+static void scripts_mark_breakpoints (ScriptsPrompt *prompt);
+static gboolean scripts_save (ScriptsPrompt *prompt);
 
 static char *
 scripts_view_text (ScriptsPrompt *prompt)
@@ -509,22 +525,285 @@ on_scripts_row_selected (GtkListBox *list, GtkListBoxRow *row, gpointer data)
   const char *sname, *code;
   (void) list;
 
-  if (prompt->filling || row == NULL)
+  if (prompt->filling || row == NULL || prompt->running)
     return;
   sname = o42_book_script_name (prompt->window->book, gtk_list_box_row_get_index (row));
   code = sname != NULL ? o42_book_script_code (prompt->window->book, sname) : NULL;
   gtk_editable_set_text (GTK_EDITABLE (prompt->name), sname != NULL ? sname : "");
   gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view)), code != NULL ? code : "", -1);
+  g_array_set_size (prompt->breakpoints, 0);
+  scripts_show_output (prompt, "", TRUE);
+}
+
+/* ---- The step debugger ---- */
+
+static void
+scripts_show_output (ScriptsPrompt *prompt, const char *text, gboolean ok)
+{
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->output));
+
+  gtk_text_buffer_set_text (buffer, text != NULL ? text : "", -1);
+  if (ok)
+    gtk_widget_remove_css_class (prompt->output, "error");
+  else
+    gtk_widget_add_css_class (prompt->output, "error");
+}
+
+/* The breakpoints' lines tinted, and the paused line (0 for none)
+ * highlighted. */
+static void
+scripts_mark_lines (ScriptsPrompt *prompt, int current)
+{
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  GtkTextIter a, b;
+
+  gtk_text_buffer_get_bounds (buffer, &a, &b);
+  gtk_text_buffer_remove_tag (buffer, prompt->current_tag, &a, &b);
+  gtk_text_buffer_remove_tag (buffer, prompt->breakpoint_tag, &a, &b);
+  for (guint i = 0; i < prompt->breakpoints->len; i++)
+    {
+      int line = g_array_index (prompt->breakpoints, int, i);
+
+      if (gtk_text_buffer_get_iter_at_line (buffer, &a, line - 1))
+        {
+          b = a;
+          if (!gtk_text_iter_ends_line (&b))
+            gtk_text_iter_forward_to_line_end (&b);
+          gtk_text_buffer_apply_tag (buffer, prompt->breakpoint_tag, &a, &b);
+        }
+    }
+  if (current > 0 && gtk_text_buffer_get_iter_at_line (buffer, &a, current - 1))
+    {
+      b = a;
+      if (!gtk_text_iter_ends_line (&b))
+        gtk_text_iter_forward_to_line_end (&b);
+      gtk_text_buffer_apply_tag (buffer, prompt->current_tag, &a, &b);
+      gtk_text_view_scroll_to_iter (GTK_TEXT_VIEW (prompt->view), &a, 0.2, FALSE, 0, 0);
+    }
+}
+
+static void
+scripts_mark_breakpoints (ScriptsPrompt *prompt)
+{
+  scripts_mark_lines (prompt, 0);
+}
+
+/* Ctrl+B: a breakpoint on the caret's line, or off again. */
+static void
+scripts_toggle_breakpoint (ScriptsPrompt *prompt)
+{
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  GtkTextIter at;
+  int line;
+
+  gtk_text_buffer_get_iter_at_mark (buffer, &at, gtk_text_buffer_get_insert (buffer));
+  line = gtk_text_iter_get_line (&at) + 1;
+  for (guint i = 0; i < prompt->breakpoints->len; i++)
+    if (g_array_index (prompt->breakpoints, int, i) == line)
+      {
+        g_array_remove_index (prompt->breakpoints, i);
+        scripts_mark_breakpoints (prompt);
+        return;
+      }
+  g_array_append_val (prompt->breakpoints, line);
+  scripts_mark_breakpoints (prompt);
+}
+
+static gboolean
+on_scripts_key (GtkEventControllerKey *controller, guint keyval, guint keycode,
+                GdkModifierType state, gpointer data)
+{
+  (void) controller; (void) keycode;
+  if ((state & GDK_CONTROL_MASK) && (keyval == GDK_KEY_b || keyval == GDK_KEY_B))
+    {
+      scripts_toggle_breakpoint (data);
+      return TRUE;
+    }
+  return FALSE;
+}
+
+static void
+scripts_set_debug_buttons (ScriptsPrompt *prompt)
+{
+  gboolean python = o42_python_available ();
+
+  gtk_widget_set_sensitive (prompt->run, python && !prompt->running);
+  gtk_widget_set_sensitive (prompt->step, python && (!prompt->running || prompt->paused));
+  gtk_widget_set_sensitive (prompt->go, python && (!prompt->running || prompt->paused));
+  gtk_widget_set_sensitive (prompt->stop, prompt->running);
+  gtk_widget_set_sensitive (prompt->list, !prompt->running);
+  gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->view), !prompt->running);
+}
+
+/* The script is on a line and waits: the window's side of the seam. */
+int
+o42_window_debug_pause (O42Window *self, const char *filename, int line, const char *variables)
+{
+  ScriptsPrompt *prompt = self->scripts_prompt;
+  int command;
+
+  (void) filename;
+  if (prompt == NULL || !prompt->running)
+    return 0;
+  prompt->paused = TRUE;
+  prompt->command = 0;
+  scripts_mark_lines (prompt, line);
+  gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->variables)),
+                            variables != NULL ? variables : "", -1);
+  scripts_set_debug_buttons (prompt);
+  o42_grid_refresh (self->grid);
+  /* The dialog's loop, run from here until a button says: the grid
+   * shows what the script has done so far. */
+  while (prompt->command == 0 && !prompt->closed)
+    g_main_context_iteration (NULL, TRUE);
+  command = prompt->closed ? 3 : prompt->command;
+  prompt->paused = FALSE;
+  if (!prompt->closed)
+    {
+      scripts_mark_lines (prompt, 0);
+      scripts_set_debug_buttons (prompt);
+    }
+  return command == 1 ? 0 : command == 2 ? 1 : 2;
+}
+
+/* Runs the script on show under the tracer: stepping from its first
+ * line, or running to the first breakpoint. */
+static void
+scripts_debug (ScriptsPrompt *prompt, gboolean step_first)
+{
+  O42Window *self = prompt->window;
+  char *code, *output = NULL, *sname;
+  gboolean ok;
+
+  if (prompt->running || !scripts_save (prompt))
+    return;
+  code = scripts_view_text (prompt);
+  /* A copy: the entry's own text moves when the list is refilled. */
+  sname = g_strdup (gtk_editable_get_text (GTK_EDITABLE (prompt->name)));
+  prompt->running = TRUE;
+  prompt->closed = FALSE;
+  scripts_set_debug_buttons (prompt);
+  scripts_show_output (prompt, "", TRUE);
+  ok = o42_python_debug (self->book, self->sheet, code, sname,
+                         (const int *) prompt->breakpoints->data, (int) prompt->breakpoints->len,
+                         step_first, &output);
+  if (prompt->closed)
+    {
+      /* The dialog went while the script ran; it waited for this. */
+      g_free (output);
+      g_free (code);
+      g_free (sname);
+      g_array_unref (prompt->breakpoints);
+      g_free (prompt);
+      return;
+    }
+  g_free (sname);
+  prompt->running = FALSE;
+  scripts_mark_lines (prompt, 0);
+  scripts_set_debug_buttons (prompt);
+  scripts_show_output (prompt, output, ok);
+  gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->variables)), "", -1);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  g_free (output);
+  g_free (code);
+}
+
+static void
+on_scripts_step (GtkWidget *w, gpointer data)
+{
+  ScriptsPrompt *prompt = data;
+  (void) w;
+  if (prompt->paused)
+    prompt->command = 2;
+  else
+    scripts_debug (prompt, TRUE);
+}
+
+static void
+on_scripts_go (GtkWidget *w, gpointer data)
+{
+  ScriptsPrompt *prompt = data;
+  (void) w;
+  if (prompt->paused)
+    prompt->command = 1;
+  else
+    scripts_debug (prompt, FALSE);
+}
+
+static void
+on_scripts_stop (GtkWidget *w, gpointer data)
+{
+  ScriptsPrompt *prompt = data;
+  (void) w;
+  if (prompt->paused)
+    prompt->command = 3;
+}
+
+/* Step, Continue and Stop as window actions, so F8 and Shift+F8 work
+ * as they do in Excel's editor, and a script can be driven from the
+ * command line; they open the dialog when it is not. */
+void
+action_script_step (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  if (self->scripts_prompt == NULL)
+    o42_window_edit_script (self, NULL);
+  if (self->scripts_prompt != NULL)
+    on_scripts_step (NULL, self->scripts_prompt);
+}
+
+void
+action_script_continue (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  if (self->scripts_prompt == NULL)
+    o42_window_edit_script (self, NULL);
+  if (self->scripts_prompt != NULL)
+    on_scripts_go (NULL, self->scripts_prompt);
+}
+
+void
+action_script_stop (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  if (self->scripts_prompt != NULL)
+    on_scripts_stop (NULL, self->scripts_prompt);
+}
+
+static void
+on_scripts_destroy (GtkWidget *w, gpointer data)
+{
+  ScriptsPrompt *prompt = data;
+
+  (void) w;
+  prompt->window->scripts_prompt = NULL;
+  if (prompt->running)
+    {
+      /* A stepped script is still on its line: it is told to stop, and
+       * frees the prompt when it has. */
+      prompt->closed = TRUE;
+      return;
+    }
+  g_array_unref (prompt->breakpoints);
+  g_free (prompt);
 }
 
 static gboolean
 scripts_save (ScriptsPrompt *prompt)
 {
-  const char *sname = gtk_editable_get_text (GTK_EDITABLE (prompt->name));
+  /* A copy of the name: refilling the list selects a row, and that
+   * sets the entry's text, which must not come from the entry's own
+   * buffer. */
+  char *sname = g_strdup (gtk_editable_get_text (GTK_EDITABLE (prompt->name)));
   char *code;
 
   if (*sname == '\0')
     {
+      g_free (sname);
       gtk_widget_grab_focus (prompt->name);
       return FALSE;
     }
@@ -533,6 +812,7 @@ scripts_save (ScriptsPrompt *prompt)
   g_free (code);
   scripts_fill_list (prompt, sname);
   window_sync (prompt->window);
+  g_free (sname);
   return TRUE;
 }
 
@@ -547,12 +827,21 @@ static void
 on_scripts_run (GtkWidget *w, gpointer data)
 {
   ScriptsPrompt *prompt = data;
-  char *code;
+  char *code, *output = NULL;
+  gboolean ok;
   (void) w;
-  if (!scripts_save (prompt))
+  if (prompt->running || !scripts_save (prompt))
     return;
   code = scripts_view_text (prompt);
-  window_run_script (prompt->window, gtk_editable_get_text (GTK_EDITABLE (prompt->name)), code);
+  {
+    char *sname = g_strdup (gtk_editable_get_text (GTK_EDITABLE (prompt->name)));
+    ok = o42_python_run (prompt->window->book, prompt->window->sheet, code, sname, &output);
+    g_free (sname);
+  }
+  o42_grid_refresh (prompt->window->grid);
+  window_sync (prompt->window);
+  scripts_show_output (prompt, output, ok);
+  g_free (output);
   g_free (code);
 }
 
@@ -562,10 +851,13 @@ on_scripts_new (GtkWidget *w, gpointer data)
   ScriptsPrompt *prompt = data;
   char *sname = g_strdup_printf ("Script%d", o42_book_n_scripts (prompt->window->book) + 1);
   (void) w;
+  if (prompt->running)
+    { g_free (sname); return; }
   gtk_list_box_unselect_all (GTK_LIST_BOX (prompt->list));
   gtk_editable_set_text (GTK_EDITABLE (prompt->name), sname);
   gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view)),
                             "import office42\n\n", -1);
+  g_array_set_size (prompt->breakpoints, 0);
   gtk_widget_grab_focus (prompt->view);
   g_free (sname);
 }
@@ -575,6 +867,8 @@ on_scripts_delete (GtkWidget *w, gpointer data)
 {
   ScriptsPrompt *prompt = data;
   (void) w;
+  if (prompt->running)
+    return;
   if (o42_book_remove_script (prompt->window->book, gtk_editable_get_text (GTK_EDITABLE (prompt->name))))
     {
       gtk_editable_set_text (GTK_EDITABLE (prompt->name), "");
@@ -595,14 +889,24 @@ action_scripts (GSimpleAction *a, GVariant *p, gpointer data)
 void
 o42_window_edit_script (O42Window *self, const char *which)
 {
-  ScriptsPrompt *prompt = g_new0 (ScriptsPrompt, 1);
-  GtkWidget *content, *buttons, *columns, *left, *scroller, *row, *new_button, *run;
+  ScriptsPrompt *prompt;
+  GtkWidget *content, *buttons, *columns, *left, *scroller, *row, *new_button;
   int index = 0;
 
+  if (self->scripts_prompt != NULL)
+    {
+      /* One at a time: the open one comes forward. */
+      prompt = self->scripts_prompt;
+      gtk_window_present (GTK_WINDOW (prompt->dialog));
+      return;
+    }
+  prompt = g_new0 (ScriptsPrompt, 1);
+  prompt->breakpoints = g_array_new (FALSE, FALSE, sizeof (int));
+  self->scripts_prompt = prompt;
   prompt->window = self;
   prompt->dialog = dialog_frame (self, _("Scripts in this Book"), FALSE, &content, &buttons);
   gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
-  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 720, 460);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 860, 560);
 
   columns = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_widget_set_vexpand (columns, TRUE);
@@ -638,18 +942,74 @@ o42_window_edit_script (O42Window *self, const char *which)
     gtk_widget_set_vexpand (code_scroller, TRUE);
     gtk_widget_set_hexpand (code_scroller, TRUE);
     gtk_widget_add_css_class (code_scroller, "frame");
-    gtk_box_append (GTK_BOX (right), code_scroller);
+    {
+      /* The code with the variables beside it, the output under both:
+       * the debugger's three panes. */
+      GtkWidget *panes = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+      GtkWidget *vars_scroller = gtk_scrolled_window_new ();
+      GtkWidget *out_scroller = gtk_scrolled_window_new ();
+      GtkWidget *upper = gtk_paned_new (GTK_ORIENTATION_VERTICAL);
+      GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+      GtkEventController *keys = gtk_event_controller_key_new ();
+
+      prompt->variables = gtk_text_view_new ();
+      gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->variables), TRUE);
+      gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->variables), FALSE);
+      gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->variables), 6);
+      gtk_text_view_set_top_margin (GTK_TEXT_VIEW (prompt->variables), 4);
+      gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (vars_scroller), prompt->variables);
+      gtk_widget_add_css_class (vars_scroller, "frame");
+      gtk_widget_set_size_request (vars_scroller, 200, -1);
+      gtk_paned_set_start_child (GTK_PANED (panes), code_scroller);
+      gtk_paned_set_end_child (GTK_PANED (panes), vars_scroller);
+      gtk_paned_set_resize_start_child (GTK_PANED (panes), TRUE);
+      gtk_paned_set_resize_end_child (GTK_PANED (panes), FALSE);
+      gtk_paned_set_position (GTK_PANED (panes), 440);
+
+      prompt->output = gtk_text_view_new ();
+      gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->output), TRUE);
+      gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->output), FALSE);
+      gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->output), 6);
+      gtk_text_view_set_top_margin (GTK_TEXT_VIEW (prompt->output), 4);
+      gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (out_scroller), prompt->output);
+      gtk_widget_add_css_class (out_scroller, "frame");
+      gtk_widget_set_size_request (out_scroller, -1, 80);
+      gtk_paned_set_start_child (GTK_PANED (upper), panes);
+      gtk_paned_set_end_child (GTK_PANED (upper), out_scroller);
+      gtk_paned_set_resize_start_child (GTK_PANED (upper), TRUE);
+      gtk_paned_set_resize_end_child (GTK_PANED (upper), FALSE);
+      gtk_paned_set_position (GTK_PANED (upper), 340);
+      gtk_widget_set_vexpand (upper, TRUE);
+      gtk_box_append (GTK_BOX (right), upper);
+
+      prompt->current_tag = gtk_text_buffer_create_tag (buffer, "current", "background", "#FFF3A0",
+                                                        "paragraph-background", "#FFF3A0", NULL);
+      prompt->breakpoint_tag = gtk_text_buffer_create_tag (buffer, "breakpoint", "paragraph-background", "#FFD6D6", NULL);
+      g_signal_connect (keys, "key-pressed", G_CALLBACK (on_scripts_key), prompt);
+      gtk_widget_add_controller (prompt->view, keys);
+    }
+    {
+      GtkWidget *hint = gtk_label_new (_("Ctrl+B sets a breakpoint on the caret's line. Step runs to the next line, "
+                                         "Continue to the next breakpoint; the variables show while the script waits."));
+      gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
+      gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
+      gtk_widget_add_css_class (hint, "dim-label");
+      gtk_box_append (GTK_BOX (right), hint);
+    }
     gtk_box_append (GTK_BOX (columns), right);
   }
   gtk_box_append (GTK_BOX (content), columns);
 
   dialog_button (buttons, _("_Save"), G_CALLBACK (on_scripts_save), prompt);
-  run = dialog_button (buttons, _("_Run"), G_CALLBACK (on_scripts_run), prompt);
-  gtk_widget_set_sensitive (run, o42_python_available ());
+  prompt->run = dialog_button (buttons, _("_Run"), G_CALLBACK (on_scripts_run), prompt);
+  prompt->step = dialog_button (buttons, _("S_tep"), G_CALLBACK (on_scripts_step), prompt);
+  prompt->go = dialog_button (buttons, _("_Continue"), G_CALLBACK (on_scripts_go), prompt);
+  prompt->stop = dialog_button (buttons, _("St_op"), G_CALLBACK (on_scripts_stop), prompt);
+  scripts_set_debug_buttons (prompt);
   dialog_button (buttons, _("_Delete"), G_CALLBACK (on_scripts_delete), prompt);
   dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
-  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_scripts_destroy), prompt);
 
   for (int i = 0; which != NULL && i < o42_book_n_scripts (self->book); i++)
     if (strcmp (o42_book_script_name (self->book, i), which) == 0)

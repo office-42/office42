@@ -89,6 +89,14 @@ o42_python_run_file (O42Book *book, O42Sheet *sheet, GFile *file, char **output)
   return o42_python_run (book, sheet, "", NULL, output);
 }
 
+gboolean
+o42_python_debug (O42Book *book, O42Sheet *sheet, const char *code, const char *filename,
+                  const int *breakpoints, int n_breakpoints, gboolean step_first, char **output)
+{
+  (void) breakpoints; (void) n_breakpoints; (void) step_first;
+  return o42_python_run (book, sheet, code, filename, output);
+}
+
 #else /* HAVE_PYTHON */
 
 #define PY_SSIZE_T_CLEAN
@@ -107,6 +115,7 @@ static char     *init_failure  = NULL;
 static gboolean  book_touched  = FALSE;  /* cells changed since the run began */
 static gboolean  sheets_touched = FALSE; /* sheets added, removed or renamed */
 static int       handler_count = 0;      /* event handlers registered, all books */
+static const char *debug_filename = NULL; /* the script being stepped, while it is */
 static int       firing        = 0;      /* inside a handler: no handlers fire */
 
 /* ---- Between the two value systems --------------------------------- */
@@ -1437,6 +1446,25 @@ m_get_format (PyObject *self, PyObject *args)
   return fmt_to_dict (o42_sheet_get_fmt (sheet, row, col));
 }
 
+/* debug_pause(line, variables): the stepped script has stopped on a
+ * line; the window shows it and says what to do next. */
+static PyObject *
+m_debug_pause (PyObject *self, PyObject *args)
+{
+  int line;
+  const char *variables;
+  int command = 0;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "is", &line, &variables))
+    return NULL;
+  /* The window runs its own loop while the script waits; anything that
+   * calls back into Python from it does so from this same thread, as a
+   * callback would, so the interpreter is left as it is. */
+  if (host.debug_pause != NULL)
+    command = host.debug_pause (host.user, current_book, debug_filename, line, variables);
+  return PyLong_FromLong (command);
+}
+
 /* events_count(n): how many handlers office42.on has registered, so
  * that firing costs nothing while there are none. */
 static PyObject *
@@ -2419,6 +2447,7 @@ static PyMethodDef METHODS[] = {
   { "function_names", m_function_names, METH_NOARGS,  "Every function the evaluator knows." },
   { "evaluate",       m_evaluate,       METH_VARARGS, "Evaluates a formula on the current sheet." },
   { "events_count",   m_events_count,   METH_VARARGS, "How many event handlers are registered." },
+  { "debug_pause",    m_debug_pause,    METH_VARARGS, "Stops a stepped script on a line until the user says." },
   { "objects",        m_objects,        METH_VARARGS, "The sheet's objects, back to front: (type, id)." },
   { "add_chart",      m_add_chart,      METH_VARARGS, "Adds a chart over a range at a cell; its id." },
   { "add_shape",      m_add_shape,      METH_VARARGS, "Adds a shape at a cell; its id." },
@@ -2584,21 +2613,24 @@ o42_python_version (void)
   return PY_VERSION;
 }
 
-gboolean
-o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *filename, char **output)
+/* Runs one of the module's runners -- _run or _debug -- with `args`
+ * (a new reference, taken over) against the book: what o42_python_run
+ * and o42_python_debug share. */
+static gboolean
+run_method (O42Book *book, O42Sheet *sheet, const char *method, PyObject *args, char **output)
 {
   O42Sheet *saved_sheet = current_sheet;
   O42Book *saved_book = current_book;
   gboolean saved_touched = book_touched, saved_sheets = sheets_touched;
   gboolean was_trusted;
-  PyObject *result;
+  PyObject *result, *callable;
   gboolean ok = FALSE;
   const char *text = "";
 
-  g_return_val_if_fail (book != NULL && code != NULL, FALSE);
   was_trusted = o42_book_scripts_trusted (book);
   if (!ensure_interpreter ())
     {
+      Py_XDECREF (args);
       if (output != NULL)
         *output = g_strdup_printf ("%s\n", init_failure);
       return FALSE;
@@ -2612,7 +2644,10 @@ o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *fi
   o42_book_set_scripts_trusted (book, TRUE);
   if (current_sheet != NULL)
     o42_sheet_begin_group (current_sheet);
-  result = PyObject_CallMethod (module, "_run", "ss", code, filename != NULL ? filename : "<console>");
+  callable = PyObject_GetAttrString (module, method);
+  result = callable != NULL ? PyObject_CallObject (callable, args) : NULL;
+  Py_XDECREF (callable);
+  Py_XDECREF (args);
   /* The group is the book's, so it is ended on whichever sheet is still
    * there: a script that removed its own sheet once left it open, and
    * every edit after that fell into it. */
@@ -2652,6 +2687,46 @@ o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *fi
   current_book = saved_book;
   book_touched = saved_touched;
   sheets_touched = saved_sheets;
+  return ok;
+}
+
+gboolean
+o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *filename, char **output)
+{
+  g_return_val_if_fail (book != NULL && code != NULL, FALSE);
+  if (!ensure_interpreter ())
+    {
+      if (output != NULL)
+        *output = g_strdup_printf ("%s\n", init_failure);
+      return FALSE;
+    }
+  return run_method (book, sheet, "_run",
+                     Py_BuildValue ("(ss)", code, filename != NULL ? filename : "<console>"), output);
+}
+
+gboolean
+o42_python_debug (O42Book *book, O42Sheet *sheet, const char *code, const char *filename,
+                  const int *breakpoints, int n_breakpoints, gboolean step_first, char **output)
+{
+  PyObject *lines, *args;
+  const char *saved = debug_filename;
+  gboolean ok;
+
+  g_return_val_if_fail (book != NULL && code != NULL, FALSE);
+  if (!ensure_interpreter ())
+    {
+      if (output != NULL)
+        *output = g_strdup_printf ("%s\n", init_failure);
+      return FALSE;
+    }
+  lines = PyList_New (n_breakpoints);
+  for (int i = 0; i < n_breakpoints; i++)
+    PyList_SetItem (lines, i, PyLong_FromLong (breakpoints[i]));
+  args = Py_BuildValue ("(ssNO)", code, filename != NULL ? filename : "<script>", lines,
+                        step_first ? Py_True : Py_False);
+  debug_filename = filename != NULL ? filename : "<script>";
+  ok = run_method (book, sheet, "_debug", args, output);
+  debug_filename = saved;
   return ok;
 }
 
