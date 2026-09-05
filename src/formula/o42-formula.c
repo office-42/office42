@@ -38,6 +38,8 @@ typedef struct {
   char         *sheet_last;  /* owned: the second sheet of Sheet1:Sheet3!A1 */
   O42ErrorCode  error;
   char          op[3];
+  gboolean      space_before;   /* whitespace was skipped to reach it: the
+                                 * intersection operator is a space */
 } Token;
 
 typedef struct {
@@ -89,7 +91,10 @@ next_token (Parser *ps)
   memset (&ps->tok, 0, sizeof ps->tok);
 
   while (g_ascii_isspace (*p))
-    p++;
+    {
+      ps->tok.space_before = TRUE;
+      p++;
+    }
 
   if (*p == '\0')
     {
@@ -539,6 +544,14 @@ parse_primary (Parser *ps)
         next_token (ps);
         inner = parse_expr (ps);
 
+        /* (A1:A2,C1:C2): commas inside parentheses join references
+         * into one operand of several areas. */
+        while (ps->tok.type == TOK_COMMA)
+          {
+            next_token (ps);
+            inner = make_binary (O42_OP_UNION, inner, parse_expr (ps));
+          }
+
         if (ps->tok.type == TOK_RPAREN)
           next_token (ps);
 
@@ -806,10 +819,27 @@ parse_whole_range (Parser *ps, gboolean cols, int first, gboolean first_abs,
 /* Trailing % divides by a hundred, and binds tighter than anything
  * else; a "(" after a call or a name calls what it came to, which is
  * how LAMBDA(x,x+1)(4) and a LET-bound function are written. */
+/* A1:B5 B2:C9: a space between two references is the intersection
+ * operator, which binds tightest of all. */
+static O42Node *
+parse_intersection (Parser *ps)
+{
+  O42Node *n = parse_primary (ps);
+
+  while (ps->tok.space_before &&
+         (ps->tok.type == TOK_IDENT || ps->tok.type == TOK_LPAREN) &&
+         (n->type == O42_NODE_REF || n->type == O42_NODE_RANGE || n->type == O42_NODE_NAME ||
+          n->type == O42_NODE_CALL || (n->type == O42_NODE_BINARY &&
+                                       (n->as.op.op == O42_OP_UNION || n->as.op.op == O42_OP_ISECT))))
+    n = make_binary (O42_OP_ISECT, n, parse_primary (ps));
+
+  return n;
+}
+
 static O42Node *
 parse_postfix (Parser *ps)
 {
-  O42Node *n = parse_primary (ps);
+  O42Node *n = parse_intersection (ps);
 
   for (;;)
     {
@@ -869,6 +899,13 @@ parse_unary (Parser *ps)
     {
       next_token (ps);
       return make_unary (O42_OP_POS, parse_unary (ps));
+    }
+
+  /* @A1:A3 asks for the one cell that lines up with the formula. */
+  if (op_is (ps, "@"))
+    {
+      next_token (ps);
+      return make_unary (O42_OP_IMPLICIT, parse_unary (ps));
     }
 
   return parse_postfix (ps);
@@ -1484,6 +1521,9 @@ op_text (O42Op op)
     case O42_OP_NEG:    return "-";
     case O42_OP_POS:    return "+";
     case O42_OP_PERCENT: return "%";
+    case O42_OP_UNION:  return ",";
+    case O42_OP_ISECT:  return " ";
+    case O42_OP_IMPLICIT: return "@";
     default:            return "?";
     }
 }
@@ -1594,6 +1634,8 @@ op_precedence (const O42Node *node)
 
   switch (node->as.op.op)
     {
+    case O42_OP_ISECT:  return 9;
+    case O42_OP_UNION:  return 8;   /* always written in its parentheses */
     case O42_OP_POW:    return 5;
     case O42_OP_MUL:
     case O42_OP_DIV:    return 4;
@@ -1763,6 +1805,25 @@ node_write (const O42Node *node, GString *out)
       break;
 
     case O42_NODE_BINARY:
+      if (node->as.op.op == O42_OP_UNION)
+        {
+          /* A union is read only inside parentheses, so it is written
+           * inside them; a union within a union shares the pair. */
+          g_string_append_c (out, '(');
+          if (node->as.op.a->type == O42_NODE_BINARY && node->as.op.a->as.op.op == O42_OP_UNION)
+            {
+              GString *inner = g_string_new (NULL);
+              node_write (node->as.op.a, inner);
+              g_string_append_len (out, inner->str + 1, (gssize) inner->len - 2);
+              g_string_free (inner, TRUE);
+            }
+          else
+            node_write (node->as.op.a, out);
+          g_string_append_c (out, ',');
+          node_write (node->as.op.b, out);
+          g_string_append_c (out, ')');
+          break;
+        }
       node_write_child (node->as.op.a, node, FALSE, out);
       g_string_append (out, op_text (node->as.op.op));
       node_write_child (node->as.op.b, node, TRUE, out);

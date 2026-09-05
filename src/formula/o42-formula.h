@@ -37,7 +37,11 @@ typedef enum {
   O42_OP_ADD, O42_OP_SUB, O42_OP_MUL, O42_OP_DIV, O42_OP_POW,
   O42_OP_CONCAT,
   O42_OP_EQ, O42_OP_NE, O42_OP_LT, O42_OP_GT, O42_OP_LE, O42_OP_GE,
-  O42_OP_NEG, O42_OP_POS, O42_OP_PERCENT
+  O42_OP_NEG, O42_OP_POS, O42_OP_PERCENT,
+  /* The reference operators: (A1:A3,C1:C3) is both ranges, A1:B5 B2:C9
+   * the cells they share, and @A1:A3 the one cell of the range that
+   * lines up with the formula. */
+  O42_OP_UNION, O42_OP_ISECT, O42_OP_IMPLICIT
 } O42Op;
 
 typedef struct _O42Node O42Node;
