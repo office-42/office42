@@ -40,6 +40,7 @@
 #include "o42-grid.h"
 #include "o42-image.h"
 #include "o42-pdf.h"
+#include "o42-scan.h"
 #include "o42-sql.h"
 #include "o42-csv.h"
 #include "o42-text-formats.h"
@@ -479,6 +480,33 @@ action_insert_picture (GSimpleAction *a, GVariant *p, gpointer data)
 
   g_object_unref (filters);
   g_object_unref (dialog);
+}
+
+/* Insert > Picture > From Scanner or Camera: the system's acquire
+ * dialog, and the picture it gives lands like any other. */
+static void
+action_insert_scan (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GError *error = NULL;
+  char *format = NULL;
+  int width = 0, height = 0;
+  GBytes *bytes;
+
+  (void) a; (void) p;
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  bytes = o42_scan_acquire (&format, &width, &height, &error);
+  if (bytes != NULL)
+    {
+      o42_grid_insert_picture (self->grid, bytes, format, width, height);
+      g_bytes_unref (bytes);
+    }
+  else if (error != NULL)
+    show_error (self, "office42 could not get a picture from the scanner or camera.", error);
+  g_clear_error (&error);
+  g_free (format);
+  gtk_widget_grab_focus (GTK_WIDGET (self->grid));
 }
 
 /* ---- PDF -------------------------------------------------------------- */
@@ -4990,6 +5018,7 @@ static const GActionEntry ACTIONS[] = {
   { "export-book-pdf", action_export_book_pdf, NULL, NULL, NULL, { 0 } },
   { "print-preview",  action_print_preview,  NULL, NULL, NULL, { 0 } },
   { "print-preview-book", action_print_preview_book, NULL, NULL, NULL, { 0 } },
+  { "insert-scan",    action_insert_scan,    NULL, NULL, NULL, { 0 } },
   { "options",        action_options,        NULL, NULL, NULL, { 0 } },
   { "zoom",           action_zoom,           "i",  NULL, NULL, { 0 } },
   { "freeze-panes",   action_freeze_panes,   NULL, NULL, NULL, { 0 } },

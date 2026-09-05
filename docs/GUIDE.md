@@ -592,9 +592,12 @@ of its own.
 
 ## 12. Pictures, shapes, notes and links
 
-- **Insert ▸ Picture** floats a picture over the grid, anchored to the
-  active cell. Click to select, drag to move, drag a handle to resize,
-  Delete to remove.
+- **Insert ▸ Picture ▸ From File** floats a picture over the grid,
+  anchored to the active cell. Click to select, drag to move, drag a
+  handle to resize, Delete to remove.
+- **Insert ▸ Picture ▸ From Scanner or Camera** asks the scanner --
+  through Windows' own acquire dialog, or SANE's `scanimage` elsewhere
+  -- and puts what it gives where a picture from a file would go.
 - **Insert ▸ Shape** puts a rectangle, an oval, a line, an arrow or a
   text box over the grid. Format ▸ Shape sets its text, fill, line
   colour and line width.

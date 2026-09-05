@@ -136,7 +136,11 @@
         </submenu>
       </section>
       <section>
-        <item><attribute name="label" translatable="yes">_Picture...</attribute><attribute name="action">win.insert-picture</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Picture</attribute>
+          <item><attribute name="label" translatable="yes">_From File...</attribute><attribute name="action">win.insert-picture</attribute></item>
+          <item><attribute name="label" translatable="yes">From _Scanner or Camera...</attribute><attribute name="action">win.insert-scan</attribute></item>
+        </submenu>
       </section>
     </submenu>
 

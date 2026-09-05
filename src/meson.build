@@ -109,6 +109,7 @@ o42_ui_sources = files(
   'ui/o42-dialogs-tools.c',
   'ui/o42-dialogs-format.c',
   'ui/o42-window.c',
+  'ui/o42-scan.c',
   'ui/o42-application.c',
   'main.c',
 )
