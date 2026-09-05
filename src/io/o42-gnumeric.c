@@ -708,12 +708,19 @@ write_sheet (GString *out, O42Sheet *sheet)
 
     if (ps->has_area)
       {
-        char *a = o42_ref_name_full (ps->area.row0, ps->area.col0, TRUE, TRUE);
-        char *b = o42_ref_name_full (ps->area.row1, ps->area.col1, TRUE, TRUE);
-        g_string_append_printf (w.out,
+        g_string_append (w.out,
           "      <gnm:Names>\n        <gnm:Name>\n          <gnm:name>Print_Area</gnm:name>\n"
-          "          <gnm:value>%s:%s</gnm:value>\n          <gnm:position>A1</gnm:position>\n        </gnm:Name>\n      </gnm:Names>\n", a, b);
-        g_free (a); g_free (b);
+          "          <gnm:value>");
+        for (int k = 0; k < MAX (ps->n_areas, 1); k++)
+          {
+            const O42Range *area = ps->n_areas > 0 ? &ps->areas[k] : &ps->area;
+            char *a = o42_ref_name_full (area->row0, area->col0, TRUE, TRUE);
+            char *b = o42_ref_name_full (area->row1, area->col1, TRUE, TRUE);
+            g_string_append_printf (w.out, "%s%s:%s", k > 0 ? "," : "", a, b);
+            g_free (a); g_free (b);
+          }
+        g_string_append (w.out,
+          "</gnm:value>\n          <gnm:position>A1</gnm:position>\n        </gnm:Name>\n      </gnm:Names>\n");
       }
     hf_split_gnumeric (ps->header, &hl, &hc, &hr);
     hf_split_gnumeric (ps->footer, &fl, &fc, &fr);
@@ -761,12 +768,14 @@ write_sheet (GString *out, O42Sheet *sheet)
                                   g_array_index (cb, int, i));
       }
       if (ps->title_rows > 0)
-        g_string_append_printf (w.out, "        <gnm:repeat_top value=\"A1:IV%d\"/>\n", ps->title_rows);
+        g_string_append_printf (w.out, "        <gnm:repeat_top value=\"A%d:IV%d\"/>\n",
+                                ps->title_row_first + 1, ps->title_row_first + ps->title_rows);
       if (ps->title_cols > 0)
         {
-          char last[8];
-          o42_col_name (ps->title_cols - 1, last, sizeof last);
-          g_string_append_printf (w.out, "        <gnm:repeat_left value=\"A1:%s65536\"/>\n", last);
+          char first[8], last[8];
+          o42_col_name (ps->title_col_first, first, sizeof first);
+          o42_col_name (ps->title_col_first + ps->title_cols - 1, last, sizeof last);
+          g_string_append_printf (w.out, "        <gnm:repeat_left value=\"%s1:%s65536\"/>\n", first, last);
         }
       g_string_append_printf (w.out,
         "        <gnm:order>%s</gnm:order>\n        <gnm:orientation>%s</gnm:orientation>\n"
@@ -1725,12 +1734,18 @@ start_element (GMarkupParseContext *context, const char *element,
       else if (strcmp (name, "draft") == 0) ps.draft = v != NULL && atoi (v) != 0;
       else if (strcmp (name, "repeat_left") == 0)
         {
-          /* A1:B65536: the columns up to the one after the colon. */
+          /* E1:F65536: columns E to F. */
           const char *colon = v != NULL ? strchr (v, ':') : NULL;
-          int cols = 0;
+          int first = 0, last = 0;
+          for (const char *q = v != NULL ? v : ""; g_ascii_isalpha (*q); q++)
+            first = first * 26 + (g_ascii_toupper (*q) - 'A' + 1);
           for (const char *q = colon != NULL ? colon + 1 : ""; g_ascii_isalpha (*q); q++)
-            cols = cols * 26 + (g_ascii_toupper (*q) - 'A' + 1);
-          ps.title_cols = cols;
+            last = last * 26 + (g_ascii_toupper (*q) - 'A' + 1);
+          if (first > 0 && last >= first)
+            {
+              ps.title_col_first = first - 1;
+              ps.title_cols = last - first + 1;
+            }
         }
       else if (strcmp (name, "comments") == 0)
         ps.notes = placement != NULL && strcmp (placement, "at_end") == 0 ? O42_PRINT_NOTES_AT_END
@@ -1772,11 +1787,14 @@ start_element (GMarkupParseContext *context, const char *element,
         o42_sheet_set_print_options (r->sheet, ps->gridlines, v != NULL && atoi (v) != 0, ps->title_rows);
       else if (strcmp (name, "repeat_top") == 0)
         {
+          /* A5:IV6: rows 5 to 6. */
           const char *colon = v != NULL ? strchr (v, ':') : NULL;
-          const char *digits = colon != NULL ? colon + 1 : NULL;
-          while (digits != NULL && *digits != '\0' && !g_ascii_isdigit (*digits)) digits++;
-          if (digits != NULL && *digits != '\0')
-            o42_sheet_set_print_options (r->sheet, ps->gridlines, ps->headings, atoi (digits));
+          const char *first = v, *last = colon != NULL ? colon + 1 : NULL;
+          while (first != NULL && *first != '\0' && !g_ascii_isdigit (*first)) first++;
+          while (last != NULL && *last != '\0' && !g_ascii_isdigit (*last)) last++;
+          if (first != NULL && last != NULL && *first != '\0' && *last != '\0')
+            o42_sheet_set_print_title_ranges (r->sheet, atoi (first) - 1, atoi (last) - 1,
+                                              ps->title_col_first, ps->title_col_first + ps->title_cols - 1);
         }
       else
         {
@@ -2916,20 +2934,29 @@ end_element (GMarkupParseContext *context, const char *element,
             {
               if (r->sheet != NULL && strcmp (r->name_name->str, "Print_Area") == 0)
                 {
-                  O42Range area;
-                  char *clean = g_strdup (r->name_value->str);
-                  char *w = clean;
-                  const char *bang = strrchr (r->name_value->str, '!');
-                  for (const char *q = bang != NULL ? bang + 1 : r->name_value->str; *q != '\0'; q++)
-                    if (*q != '$') *w++ = *q;
-                  *w = '\0';
-                  {
-                    gsize used = 0;
-                    if (o42_ref_parse (clean, &area.row0, &area.col0, &used) && clean[used] == ':' &&
-                        o42_ref_parse (clean + used + 1, &area.row1, &area.col1, NULL))
-                      o42_sheet_set_print_area (r->sheet, &area);
-                  }
-                  g_free (clean);
+                  /* A1:C5,E1:F9, each part an area, each perhaps with a sheet. */
+                  O42Range areas[O42_PRINT_AREAS_MAX];
+                  int n = 0;
+                  char **parts = g_strsplit (r->name_value->str, ",", -1);
+
+                  for (int k = 0; parts[k] != NULL && n < O42_PRINT_AREAS_MAX; k++)
+                    {
+                      const char *bang = strrchr (parts[k], '!');
+                      char *clean = g_strdup (parts[k]);
+                      char *w = clean;
+                      gsize used = 0;
+
+                      for (const char *q = bang != NULL ? bang + 1 : parts[k]; *q != '\0'; q++)
+                        if (*q != '$') *w++ = *q;
+                      *w = '\0';
+                      if (o42_ref_parse (clean, &areas[n].row0, &areas[n].col0, &used) && clean[used] == ':' &&
+                          o42_ref_parse (clean + used + 1, &areas[n].row1, &areas[n].col1, NULL))
+                        n++;
+                      g_free (clean);
+                    }
+                  g_strfreev (parts);
+                  if (n > 0)
+                    o42_sheet_set_print_areas (r->sheet, areas, n);
                 }
               return;
             }

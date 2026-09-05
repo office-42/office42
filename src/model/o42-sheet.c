@@ -8055,9 +8055,43 @@ void
 o42_sheet_set_print_area (O42Sheet *sheet, const O42Range *area)
 {
   g_return_if_fail (sheet != NULL);
-  sheet->print.has_area = area != NULL;
-  if (area != NULL)
-    sheet->print.area = o42_range_normalise (area->row0, area->col0, area->row1, area->col1);
+  o42_sheet_set_print_areas (sheet, area, area != NULL ? 1 : 0);
+}
+
+void
+o42_sheet_set_print_areas (O42Sheet *sheet, const O42Range *areas, int n)
+{
+  g_return_if_fail (sheet != NULL);
+  n = CLAMP (n, 0, O42_PRINT_AREAS_MAX);
+  if (areas == NULL)
+    n = 0;
+  sheet->print.n_areas = n;
+  sheet->print.has_area = n > 0;
+  for (int i = 0; i < n; i++)
+    sheet->print.areas[i] = o42_range_normalise (areas[i].row0, areas[i].col0, areas[i].row1, areas[i].col1);
+  if (n > 0)
+    sheet->print.area = sheet->print.areas[0];
+  sheet->modified = TRUE;
+}
+
+void
+o42_sheet_set_print_title_ranges (O42Sheet *sheet, int row0, int row1, int col0, int col1)
+{
+  g_return_if_fail (sheet != NULL);
+  if (row1 < row0 || row0 < 0)
+    sheet->print.title_rows = sheet->print.title_row_first = 0;
+  else
+    {
+      sheet->print.title_row_first = MIN (row0, O42_MAX_ROWS - 1);
+      sheet->print.title_rows = MIN (row1, O42_MAX_ROWS - 1) - sheet->print.title_row_first + 1;
+    }
+  if (col1 < col0 || col0 < 0)
+    sheet->print.title_cols = sheet->print.title_col_first = 0;
+  else
+    {
+      sheet->print.title_col_first = MIN (col0, O42_MAX_COLS - 1);
+      sheet->print.title_cols = MIN (col1, O42_MAX_COLS - 1) - sheet->print.title_col_first + 1;
+    }
   sheet->modified = TRUE;
 }
 
@@ -8113,8 +8147,20 @@ o42_sheet_set_print_setup (O42Sheet *sheet, const O42PrintSetup *setup)
   sheet->print.header = header;
   sheet->print.footer = footer;
   if (sheet->print.has_area)
-    sheet->print.area = o42_range_normalise (setup->area.row0, setup->area.col0,
-                                             setup->area.row1, setup->area.col1);
+    {
+      /* A caller that set `area` alone means one area. */
+      sheet->print.n_areas = CLAMP (setup->n_areas, 1, O42_PRINT_AREAS_MAX);
+      if (setup->n_areas <= 0)
+        sheet->print.areas[0] = setup->area;
+      for (int i = 0; i < sheet->print.n_areas; i++)
+        sheet->print.areas[i] = o42_range_normalise (sheet->print.areas[i].row0, sheet->print.areas[i].col0,
+                                                     sheet->print.areas[i].row1, sheet->print.areas[i].col1);
+      sheet->print.area = sheet->print.areas[0];
+    }
+  else
+    sheet->print.n_areas = 0;
+  sheet->print.title_row_first = CLAMP (setup->title_row_first, 0, O42_MAX_ROWS - 1);
+  sheet->print.title_col_first = CLAMP (setup->title_col_first, 0, O42_MAX_COLS - 1);
   sheet->print.title_rows = CLAMP (setup->title_rows, 0, O42_MAX_ROWS - 1);
   sheet->print.title_cols = CLAMP (setup->title_cols, 0, O42_MAX_COLS - 1);
   sheet->print.scale = CLAMP (setup->scale, 10, 400);
@@ -8213,6 +8259,135 @@ int
 o42_paper_nth (int n)
 {
   return n >= 0 && n < (int) G_N_ELEMENTS (PAPERS) ? PAPERS[n].code : 9;
+}
+
+char *
+o42_print_areas_text (const O42PrintSetup *setup)
+{
+  GString *out = g_string_new (NULL);
+
+  if (setup != NULL && setup->has_area)
+    for (int i = 0; i < MAX (setup->n_areas, 1); i++)
+      {
+        const O42Range *a = setup->n_areas > 0 ? &setup->areas[i] : &setup->area;
+        char *x = o42_ref_name (a->row0, a->col0), *y = o42_ref_name (a->row1, a->col1);
+
+        g_string_append_printf (out, "%s%s:%s", i > 0 ? "," : "", x, y);
+        g_free (x); g_free (y);
+      }
+  return g_string_free (out, FALSE);
+}
+
+gboolean
+o42_print_areas_parse (const char *text, O42Range *areas, int *n_areas)
+{
+  char **parts;
+  int n = 0;
+  gboolean ok = TRUE;
+
+  *n_areas = 0;
+  if (text == NULL)
+    return TRUE;
+  parts = g_strsplit (text, ",", -1);
+  for (int i = 0; parts[i] != NULL && ok; i++)
+    {
+      char *clean = g_strdup (g_strstrip (parts[i]));
+      char *w = clean;
+      const char *bang = strrchr (clean, '!');
+      gsize len = 0;
+      O42Range r;
+
+      for (const char *q = bang != NULL ? bang + 1 : clean; *q != '\0'; q++)
+        if (*q != '$') *w++ = *q;
+      *w = '\0';
+      if (*clean == '\0')
+        { g_free (clean); continue; }
+      if (n >= O42_PRINT_AREAS_MAX)
+        ok = FALSE;
+      else if (o42_ref_parse (clean, &r.row0, &r.col0, &len) &&
+               (clean[len] == '\0' || (clean[len] == ':' && o42_ref_parse (clean + len + 1, &r.row1, &r.col1, NULL))))
+        {
+          if (clean[len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
+          areas[n++] = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+        }
+      else
+        ok = FALSE;
+      g_free (clean);
+    }
+  g_strfreev (parts);
+  *n_areas = ok ? n : 0;
+  return ok;
+}
+
+char *
+o42_print_titles_text (int first, int count, gboolean rows)
+{
+  if (count <= 0)
+    return g_strdup ("");
+  if (rows)
+    return g_strdup_printf ("$%d:$%d", first + 1, first + count);
+  {
+    char a[8], b[8];
+    o42_col_name (first, a, sizeof a);
+    o42_col_name (first + count - 1, b, sizeof b);
+    return g_strdup_printf ("$%s:$%s", a, b);
+  }
+}
+
+gboolean
+o42_print_titles_parse (const char *text, gboolean rows, int *first, int *count)
+{
+  const char *p, *colon;
+  int a = 0, b = 0;
+
+  *first = 0;
+  *count = 0;
+  if (text == NULL)
+    return TRUE;
+  while (g_ascii_isspace (*text)) text++;
+  if (*text == '\0')
+    return TRUE;
+  /* A single number or letter stands for one row or column; a bare
+   * count (Excel never writes one, but the old dialog took one) is
+   * "1:N". */
+  p = text;
+  colon = strchr (text, ':');
+  if (*p == '$') p++;
+  if (rows)
+    {
+      if (!g_ascii_isdigit (*p)) return FALSE;
+      a = atoi (p);
+      if (colon != NULL)
+        {
+          const char *q = colon + 1;
+          if (*q == '$') q++;
+          if (!g_ascii_isdigit (*q)) return FALSE;
+          b = atoi (q);
+        }
+      else
+        { b = a; a = 1; }
+      if (a < 1 || b < a) return FALSE;
+      *first = a - 1;
+      *count = b - a + 1;
+      return TRUE;
+    }
+  if (!g_ascii_isalpha (*p)) return FALSE;
+  for (; g_ascii_isalpha (*p); p++)
+    a = a * 26 + (g_ascii_toupper (*p) - 'A' + 1);
+  if (colon != NULL)
+    {
+      const char *q = colon + 1;
+      if (*q == '$') q++;
+      if (!g_ascii_isalpha (*q)) return FALSE;
+      for (; g_ascii_isalpha (*q); q++)
+        b = b * 26 + (g_ascii_toupper (*q) - 'A' + 1);
+    }
+  else
+    b = a;
+  if (a < 1 || b < a) return FALSE;
+  *first = a - 1;
+  *count = b - a + 1;
+  return TRUE;
 }
 
 void

@@ -2304,20 +2304,30 @@ on_setup_ok (GtkWidget *w, gpointer data)
   ps.header = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->header));
   ps.footer = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->footer));
 
-  ps.has_area = FALSE;
-  if (*area != '\0')
-    {
-      O42Range r;
-      if (o42_ref_parse (area, &r.row0, &r.col0, &len) &&
-          (area[len] == '\0' || (area[len] == ':' && o42_ref_parse (area + len + 1, &r.row1, &r.col1, NULL))))
-        {
-          if (area[len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
-          ps.has_area = TRUE;
-          ps.area = r;
-        }
-    }
-  ps.title_rows = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->titles));
-  ps.title_cols = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->title_cols));
+  {
+    O42Range areas[O42_PRINT_AREAS_MAX];
+    int n = 0;
+
+    ps.has_area = FALSE;
+    ps.n_areas = 0;
+    if (o42_print_areas_parse (area, areas, &n) && n > 0)
+      {
+        ps.has_area = TRUE;
+        ps.n_areas = n;
+        for (int i = 0; i < n; i++)
+          ps.areas[i] = areas[i];
+        ps.area = areas[0];
+      }
+  }
+  (void) len;
+  {
+    int first = 0, count = 0;
+
+    if (o42_print_titles_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->titles)), TRUE, &first, &count))
+      { ps.title_row_first = first; ps.title_rows = count; }
+    if (o42_print_titles_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->title_cols)), FALSE, &first, &count))
+      { ps.title_col_first = first; ps.title_cols = count; }
+  }
   ps.gridlines = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->gridlines));
   ps.headings = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->headings));
   ps.black_white = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->black_white));
@@ -2473,18 +2483,22 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
   grid = page_grid (notebook, _("Sheet"));
   prompt->area = labelled (grid, 0, _("Print area:"), gtk_entry_new ());
   gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->area), _("the used range"));
-  if (setup->has_area)
-    {
-      char *x = o42_ref_name (setup->area.row0, setup->area.col0);
-      char *y = o42_ref_name (setup->area.row1, setup->area.col1);
-      char *text = g_strdup_printf ("%s:%s", x, y);
-      gtk_editable_set_text (GTK_EDITABLE (prompt->area), text);
-      g_free (text); g_free (x); g_free (y);
-    }
-  prompt->titles = labelled (grid, 1, _("Rows to repeat at top:"), gtk_spin_button_new_with_range (0, 50, 1));
-  prompt->title_cols = labelled (grid, 2, _("Columns to repeat at left:"), gtk_spin_button_new_with_range (0, 26, 1));
-  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->titles), setup->title_rows);
-  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->title_cols), setup->title_cols);
+  {
+    char *areas = o42_print_areas_text (setup);
+    gtk_editable_set_text (GTK_EDITABLE (prompt->area), areas);
+    g_free (areas);
+  }
+  prompt->titles = labelled (grid, 1, _("Rows to repeat at top:"), gtk_entry_new ());
+  prompt->title_cols = labelled (grid, 2, _("Columns to repeat at left:"), gtk_entry_new ());
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->titles), _("$1:$2"));
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->title_cols), _("$A:$B"));
+  {
+    char *tr = o42_print_titles_text (setup->title_row_first, setup->title_rows, TRUE);
+    char *tc = o42_print_titles_text (setup->title_col_first, setup->title_cols, FALSE);
+    gtk_editable_set_text (GTK_EDITABLE (prompt->titles), tr);
+    gtk_editable_set_text (GTK_EDITABLE (prompt->title_cols), tc);
+    g_free (tr); g_free (tc);
+  }
   prompt->gridlines = check_row (grid, 3, _("_Gridlines"), setup->gridlines);
   prompt->headings = check_row (grid, 4, _("Row and column h_eadings"), setup->headings);
   prompt->black_white = check_row (grid, 5, _("_Black and white"), setup->black_white);

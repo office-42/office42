@@ -39,6 +39,12 @@ make_bands (O42Sheet *sheet, int from, int to, gboolean columns, double limit_px
   double used = 0.0;
   double pos = 0.0;
 
+  /* The offset is from the sheet's edge, so that an object placed by
+   * its column and row lands right on a band that starts at column E. */
+  for (int i = 0; i < from; i++)
+    pos += columns ? o42_sheet_col_width (sheet, i) : o42_sheet_row_height (sheet, i);
+  band.offset = pos;
+
   for (int i = from; i <= to; i++)
     {
       double size = columns ? o42_sheet_col_width (sheet, i)
@@ -71,11 +77,16 @@ typedef struct {
   double height;     /* points, laid out at the body's width */
 } NoteLine;
 
+/* One print area's pages: its column bands by its row bands. */
+typedef struct {
+  GArray *col_bands;
+  GArray *row_bands;
+} Region;
+
 struct _O42Pages {
   O42Sheet *sheet;
   const O42PrintSetup *setup;
-  GArray   *col_bands;
-  GArray   *row_bands;
+  GArray   *regions;      /* Region: one per print area, one when there is none */
   char     *document;     /* for &F */
   double    paper_w, paper_h;         /* points, as printed */
   double    body_x, body_y;           /* the margins' corner, points */
@@ -84,8 +95,8 @@ struct _O42Pages {
   double    headings_h;   /* column letters across the top */
   double    titles_h;     /* the repeated rows */
   double    titles_w;     /* the repeated columns */
-  int       title_rows;
-  int       title_cols;
+  int       title_row0, title_row1;   /* the repeated rows, row1 < row0 for none */
+  int       title_col0, title_col1;
   double    scale;        /* 1.0 for life size */
   GArray   *notes;        /* NoteLine, in row order, for notes at the end */
   GArray   *note_pages;   /* int: the first note of each page after the cells */
@@ -672,15 +683,19 @@ o42_pages_new (O42Sheet *sheet)
   pages->notes = g_array_new (FALSE, FALSE, sizeof (NoteLine));
   pages->note_pages = g_array_new (FALSE, FALSE, sizeof (int));
 
+  pages->regions = g_array_new (FALSE, FALSE, sizeof (Region));
+  pages->title_row1 = pages->title_col1 = -1;
   if (o42_sheet_is_chart_sheet (sheet))
     {
       /* One page, the chart across the whole of it. */
       Band whole = { 0, 0, 0 };
+      Region region;
 
-      pages->col_bands = g_array_new (FALSE, FALSE, sizeof (Band));
-      pages->row_bands = g_array_new (FALSE, FALSE, sizeof (Band));
-      g_array_append_val (pages->col_bands, whole);
-      g_array_append_val (pages->row_bands, whole);
+      region.col_bands = g_array_new (FALSE, FALSE, sizeof (Band));
+      region.row_bands = g_array_new (FALSE, FALSE, sizeof (Band));
+      g_array_append_val (region.col_bands, whole);
+      g_array_append_val (region.row_bands, whole);
+      g_array_append_val (pages->regions, region);
       return pages;
     }
   o42_sheet_used_range (sheet, &used);
@@ -691,12 +706,20 @@ o42_pages_new (O42Sheet *sheet)
       pages->headings_w = HEADING_W;
       pages->headings_h = HEADING_H;
     }
-  pages->title_rows = setup->title_rows;
-  for (int r = 0; r < setup->title_rows; r++)
-    pages->titles_h += o42_sheet_row_height (sheet, r);
-  pages->title_cols = setup->title_cols;
-  for (int c = 0; c < setup->title_cols; c++)
-    pages->titles_w += o42_sheet_col_width (sheet, c);
+  if (setup->title_rows > 0)
+    {
+      pages->title_row0 = setup->title_row_first;
+      pages->title_row1 = setup->title_row_first + setup->title_rows - 1;
+      for (int r = pages->title_row0; r <= pages->title_row1; r++)
+        pages->titles_h += o42_sheet_row_height (sheet, r);
+    }
+  if (setup->title_cols > 0)
+    {
+      pages->title_col0 = setup->title_col_first;
+      pages->title_col1 = setup->title_col_first + setup->title_cols - 1;
+      for (int c = pages->title_col0; c <= pages->title_col1; c++)
+        pages->titles_w += o42_sheet_col_width (sheet, c);
+    }
 
   /* Pictures, charts and shapes extend the printed area past the last
    * cell, unless a print area was set, which is a fence. */
@@ -764,8 +787,16 @@ o42_pages_new (O42Sheet *sheet)
       }
     across = MAX (across / pages->scale, 1.0);
     down = MAX (down / pages->scale, 1.0);
-    pages->col_bands = make_bands (sheet, used.col0, used.col1, TRUE, across);
-    pages->row_bands = make_bands (sheet, used.row0, used.row1, FALSE, down);
+    /* Each print area is paged on its own; with none, the used range. */
+    for (int i = 0; i < MAX (setup->n_areas, 1); i++)
+      {
+        O42Range r = setup->n_areas > 0 ? setup->areas[i] : used;
+        Region region;
+
+        region.col_bands = make_bands (sheet, r.col0, r.col1, TRUE, across);
+        region.row_bands = make_bands (sheet, r.row0, r.row1, FALSE, down);
+        g_array_append_val (pages->regions, region);
+      }
   }
 
   /* Notes at the end: listed after the cells, on as many pages as they
@@ -1092,8 +1123,8 @@ draw_headings (O42Pages *pages, cairo_t *cr, PangoLayout *layout, const Band *co
   x = x0;
   for (int pass = 0; pass < 2; pass++)
     {
-      int first = pass == 0 ? 0 : cols->first;
-      int last = pass == 0 ? pages->title_cols - 1 : cols->last;
+      int first = pass == 0 ? pages->title_col0 : cols->first;
+      int last = pass == 0 ? pages->title_col1 : cols->last;
       if (pass == 0 && !with_title_cols)
         continue;
       for (int c = first; c <= last; c++)
@@ -1118,8 +1149,8 @@ draw_headings (O42Pages *pages, cairo_t *cr, PangoLayout *layout, const Band *co
   y = y0;
   for (int pass = 0; pass < 2; pass++)
     {
-      int first = pass == 0 ? 0 : rows->first;
-      int last = pass == 0 ? pages->title_rows - 1 : rows->last;
+      int first = pass == 0 ? pages->title_row0 : rows->first;
+      int last = pass == 0 ? pages->title_row1 : rows->last;
       if (pass == 0 && !with_title_rows)
         continue;
       for (int r = first; r <= last; r++)
@@ -1144,9 +1175,45 @@ draw_headings (O42Pages *pages, cairo_t *cr, PangoLayout *layout, const Band *co
 }
 
 static int
+region_pages (const Region *region)
+{
+  return (int) (region->col_bands->len * region->row_bands->len);
+}
+
+static int
 sheet_pages (O42Pages *pages)
 {
-  return (int) (pages->col_bands->len * pages->row_bands->len);
+  int total = 0;
+  for (guint i = 0; i < pages->regions->len; i++)
+    total += region_pages (&g_array_index (pages->regions, Region, i));
+  return total;
+}
+
+/* The region a page of the sheet falls in, and its column and row band
+ * there, in the setup's page order. */
+static const Region *
+page_bands (O42Pages *pages, int page, guint *cb, guint *rb)
+{
+  for (guint i = 0; i < pages->regions->len; i++)
+    {
+      const Region *region = &g_array_index (pages->regions, Region, i);
+      int count = region_pages (region);
+
+      if (page >= count)
+        { page -= count; continue; }
+      if (pages->setup->down_then_over)
+        {
+          *rb = (guint) page % region->row_bands->len;
+          *cb = (guint) page / region->row_bands->len;
+        }
+      else
+        {
+          *cb = (guint) page % region->col_bands->len;
+          *rb = (guint) page / region->col_bands->len;
+        }
+      return region;
+    }
+  return NULL;
 }
 
 int
@@ -1195,7 +1262,8 @@ void
 o42_pages_draw (O42Pages *pages, int page, cairo_t *cr)
 {
   PangoLayout *layout;
-  guint cb, rb;
+  guint cb = 0, rb = 0;
+  const Region *region;
   const O42PrintSetup *setup;
 
   g_return_if_fail (pages != NULL);
@@ -1239,15 +1307,11 @@ o42_pages_draw (O42Pages *pages, int page, cairo_t *cr)
       return;
     }
 
-  if (setup->down_then_over)
+  region = page_bands (pages, page, &cb, &rb);
+  if (region == NULL)
     {
-      rb = (guint) page % pages->row_bands->len;
-      cb = (guint) page / pages->row_bands->len;
-    }
-  else
-    {
-      cb = (guint) page % pages->col_bands->len;
-      rb = (guint) page / pages->col_bands->len;
+      g_object_unref (layout);
+      return;
     }
 
   cairo_save (cr);
@@ -1257,10 +1321,10 @@ o42_pages_draw (O42Pages *pages, int page, cairo_t *cr)
   cairo_scale (cr, PX_TO_PT * pages->scale, PX_TO_PT * pages->scale);
   pango_cairo_update_layout (cr, layout);
   {
-    const Band *cols = &g_array_index (pages->col_bands, Band, cb);
-    const Band *rows = &g_array_index (pages->row_bands, Band, rb);
-    gboolean with_title_rows = pages->title_rows > 0 && rows->first > pages->title_rows - 1;
-    gboolean with_title_cols = pages->title_cols > 0 && cols->first > pages->title_cols - 1;
+    const Band *cols = &g_array_index (region->col_bands, Band, cb);
+    const Band *rows = &g_array_index (region->row_bands, Band, rb);
+    gboolean with_title_rows = pages->title_row1 >= pages->title_row0 && rows->first > pages->title_row1;
+    gboolean with_title_cols = pages->title_col1 >= pages->title_col0 && cols->first > pages->title_col1;
     double x0 = pages->headings_w;
     double y0 = pages->headings_h;
     double body_w_px = pages->body_w / PX_TO_PT / pages->scale;
@@ -1286,8 +1350,15 @@ o42_pages_draw (O42Pages *pages, int page, cairo_t *cr)
     /* Four quarters at most: the repeated corner, the repeated rows
      * above the band, the repeated columns beside it, and the band. */
     {
-      Band title_cols = { 0, pages->title_cols - 1, 0.0 };
-      Band title_rows = { 0, pages->title_rows - 1, 0.0 };
+      Band title_cols = { pages->title_col0, pages->title_col1, 0.0 };
+      Band title_rows = { pages->title_row0, pages->title_row1, 0.0 };
+
+      /* The repeated rows and columns are drawn in bands of their own,
+       * so their offsets are theirs. */
+      for (int c = 0; c < pages->title_col0; c++)
+        title_cols.offset += o42_sheet_col_width (pages->sheet, c);
+      for (int r = 0; r < pages->title_row0; r++)
+        title_rows.offset += o42_sheet_row_height (pages->sheet, r);
 
       if (with_title_rows && with_title_cols)
         {
@@ -1323,17 +1394,33 @@ o42_pages_draw (O42Pages *pages, int page, cairo_t *cr)
   g_object_unref (layout);
 }
 
+/* Where the bands of every region divide, in one sorted list. */
 static int
-pages_breaks (GArray *bands, int **out)
+pages_breaks (O42Pages *pages, gboolean rows, int **out)
 {
-  int n = bands != NULL ? (int) bands->len - 1 : 0;
+  GArray *all = g_array_new (FALSE, FALSE, sizeof (int));
+  int n;
 
-  *out = NULL;
-  if (n <= 0)
-    return 0;
-  *out = g_new (int, n);
-  for (int i = 0; i < n; i++)
-    (*out)[i] = g_array_index (bands, Band, i + 1).first;
+  for (guint i = 0; i < pages->regions->len; i++)
+    {
+      const Region *region = &g_array_index (pages->regions, Region, i);
+      GArray *bands = rows ? region->row_bands : region->col_bands;
+
+      for (guint k = 1; k < bands->len; k++)
+        {
+          int at = g_array_index (bands, Band, k).first;
+          gboolean seen = FALSE;
+
+          for (guint j = 0; j < all->len && !seen; j++)
+            seen = g_array_index (all, int, j) == at;
+          if (!seen)
+            g_array_append_val (all, at);
+        }
+    }
+  n = (int) all->len;
+  *out = n > 0 ? (int *) g_array_free (all, FALSE) : NULL;
+  if (n == 0)
+    g_array_free (all, TRUE);
   return n;
 }
 
@@ -1341,14 +1428,32 @@ int
 o42_pages_row_breaks (O42Pages *pages, int **rows)
 {
   g_return_val_if_fail (pages != NULL && rows != NULL, 0);
-  return pages_breaks (pages->row_bands, rows);
+  return pages_breaks (pages, TRUE, rows);
 }
 
 int
 o42_pages_col_breaks (O42Pages *pages, int **cols)
 {
   g_return_val_if_fail (pages != NULL && cols != NULL, 0);
-  return pages_breaks (pages->col_bands, cols);
+  return pages_breaks (pages, FALSE, cols);
+}
+
+/* The print areas as paged, for the grid's page-break view: the nth
+ * region's rectangle, FALSE past the last. */
+gboolean
+o42_pages_region (O42Pages *pages, int n, O42Range *out)
+{
+  const Region *region;
+
+  g_return_val_if_fail (pages != NULL && out != NULL, FALSE);
+  if (n < 0 || n >= (int) pages->regions->len)
+    return FALSE;
+  region = &g_array_index (pages->regions, Region, n);
+  out->col0 = g_array_index (region->col_bands, Band, 0).first;
+  out->col1 = g_array_index (region->col_bands, Band, region->col_bands->len - 1).last;
+  out->row0 = g_array_index (region->row_bands, Band, 0).first;
+  out->row1 = g_array_index (region->row_bands, Band, region->row_bands->len - 1).last;
+  return TRUE;
 }
 
 void
@@ -1361,8 +1466,13 @@ o42_pages_free (O42Pages *pages)
     g_free (g_array_index (pages->notes, NoteLine, i).text);
   g_array_free (pages->notes, TRUE);
   g_array_free (pages->note_pages, TRUE);
-  g_array_free (pages->col_bands, TRUE);
-  g_array_free (pages->row_bands, TRUE);
+  for (guint i = 0; i < pages->regions->len; i++)
+    {
+      Region *region = &g_array_index (pages->regions, Region, i);
+      g_array_free (region->col_bands, TRUE);
+      g_array_free (region->row_bands, TRUE);
+    }
+  g_array_free (pages->regions, TRUE);
   g_free (pages->document);
   g_free (pages);
 }

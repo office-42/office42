@@ -3287,21 +3287,28 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
             continue;
           if (pn->kind == 6)
             {
-              O42Range area = o42_range_normalise (pn->row0, pn->col0, pn->row1, pn->col1);
-              o42_sheet_set_print_area (target, &area);
+              /* Each area of the name, one after another. */
+              const O42PrintSetup *ps = o42_sheet_print_setup (target);
+              O42Range areas[O42_PRINT_AREAS_MAX];
+              int n = ps->has_area ? MIN (ps->n_areas, O42_PRINT_AREAS_MAX - 1) : 0;
+
+              for (int k = 0; k < n; k++)
+                areas[k] = ps->areas[k];
+              areas[n++] = o42_range_normalise (pn->row0, pn->col0, pn->row1, pn->col1);
+              o42_sheet_set_print_areas (target, areas, n);
             }
           else
             {
               const O42PrintSetup *ps = o42_sheet_print_setup (target);
-              int rows = ps->title_rows, cols = ps->title_cols;
+              int row0 = ps->title_row_first, row1 = ps->title_row_first + ps->title_rows - 1;
+              int col0 = ps->title_col_first, col1 = ps->title_col_first + ps->title_cols - 1;
 
-              /* Whole rows repeat at the top, whole columns at the left;
-               * only runs from the first row or column can be kept. */
-              if (pn->col0 == 0 && pn->col1 >= 255 && pn->row0 == 0)
-                rows = pn->row1 + 1;
-              else if (pn->row0 == 0 && pn->row1 >= 65535 && pn->col0 == 0)
-                cols = pn->col1 + 1;
-              o42_sheet_set_print_titles (target, rows, cols);
+              /* Whole rows repeat at the top, whole columns at the left. */
+              if (pn->col0 == 0 && pn->col1 >= 255)
+                { row0 = pn->row0; row1 = pn->row1; }
+              else if (pn->row0 == 0 && pn->row1 >= 65535)
+                { col0 = pn->col0; col1 = pn->col1; }
+              o42_sheet_set_print_title_ranges (target, row0, row1, col0, col1);
             }
         }
       for (int i = 0; i < o42_book_n_sheets (book); i++)
@@ -5509,17 +5516,26 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
 
         if (ps->has_area)
           {
+            int n = MAX (ps->n_areas, 1);
+
             begin_record (&w, R_NAME);
             put16 (w.out, 0x0020); put8 (w.out, 0);
             put8 (w.out, 1);
-            put16 (w.out, 11);
+            put16 (w.out, 11 * n + (n - 1));     /* the areas, a ptgUnion between */
             put16 (w.out, i + 1); put16 (w.out, i + 1);
             put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0);
             put8 (w.out, 0); put8 (w.out, 0x06);
-            put8 (w.out, 0x3B);
-            put16 (w.out, i);
-            put16 (w.out, MIN (ps->area.row0, 65535)); put16 (w.out, MIN (ps->area.row1, 65535));
-            put16 (w.out, MIN (ps->area.col0, 255)); put16 (w.out, MIN (ps->area.col1, 255));
+            for (int k = 0; k < n; k++)
+              {
+                const O42Range *area = ps->n_areas > 0 ? &ps->areas[k] : &ps->area;
+
+                put8 (w.out, 0x3B);
+                put16 (w.out, i);
+                put16 (w.out, MIN (area->row0, 65535)); put16 (w.out, MIN (area->row1, 65535));
+                put16 (w.out, MIN (area->col0, 255)); put16 (w.out, MIN (area->col1, 255));
+                if (k > 0)
+                  put8 (w.out, 0x10);
+              }
             end_record (&w);
           }
         if (parts > 0)
@@ -5536,13 +5552,15 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
                 put8 (w.out, 0x3B);
                 put16 (w.out, i);
                 put16 (w.out, 0); put16 (w.out, 65535);
-                put16 (w.out, 0); put16 (w.out, MIN (ps->title_cols - 1, 255));
+                put16 (w.out, MIN (ps->title_col_first, 255));
+                put16 (w.out, MIN (ps->title_col_first + ps->title_cols - 1, 255));
               }
             if (ps->title_rows > 0)
               {
                 put8 (w.out, 0x3B);
                 put16 (w.out, i);
-                put16 (w.out, 0); put16 (w.out, MIN (ps->title_rows - 1, 65535));
+                put16 (w.out, MIN (ps->title_row_first, 65535));
+                put16 (w.out, MIN (ps->title_row_first + ps->title_rows - 1, 65535));
                 put16 (w.out, 0); put16 (w.out, 255);
               }
             if (parts == 2)

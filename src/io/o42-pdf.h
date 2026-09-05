@@ -59,6 +59,10 @@ void      o42_pages_free  (O42Pages *pages);
 int       o42_pages_row_breaks (O42Pages *pages, int **rows);
 int       o42_pages_col_breaks (O42Pages *pages, int **cols);
 
+/* The nth print area as paged (the used range when there is none);
+ * FALSE past the last. */
+gboolean  o42_pages_region (O42Pages *pages, int n, O42Range *out);
+
 gboolean o42_pdf_import_available (void);
 
 /* Appends the PDF's pages below whatever the sheet already holds, one blank

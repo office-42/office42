@@ -1823,21 +1823,29 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
           char *sname = g_markup_escape_text (o42_sheet_get_name (o42_book_sheet (book, i)), -1);
           if (ps->has_area)
             {
-              char *a = o42_ref_name_full (ps->area.row0, ps->area.col0, TRUE, TRUE);
-              char *b = o42_ref_name_full (ps->area.row1, ps->area.col1, TRUE, TRUE);
-              g_string_append_printf (defs, "<definedName name=\"_xlnm.Print_Area\" localSheetId=\"%d\">'%s'!%s:%s</definedName>", i, sname, a, b);
-              g_free (a); g_free (b);
+              g_string_append_printf (defs, "<definedName name=\"_xlnm.Print_Area\" localSheetId=\"%d\">", i);
+              for (int k = 0; k < MAX (ps->n_areas, 1); k++)
+                {
+                  const O42Range *area = ps->n_areas > 0 ? &ps->areas[k] : &ps->area;
+                  char *a = o42_ref_name_full (area->row0, area->col0, TRUE, TRUE);
+                  char *b = o42_ref_name_full (area->row1, area->col1, TRUE, TRUE);
+                  g_string_append_printf (defs, "%s'%s'!%s:%s", k > 0 ? "," : "", sname, a, b);
+                  g_free (a); g_free (b);
+                }
+              g_string_append (defs, "</definedName>");
             }
           if (ps->title_rows > 0 || ps->title_cols > 0)
             {
-              char last_col[8];
+              char first_col[8], last_col[8];
 
-              o42_col_name (MAX (ps->title_cols - 1, 0), last_col, sizeof last_col);
+              o42_col_name (ps->title_col_first, first_col, sizeof first_col);
+              o42_col_name (ps->title_col_first + MAX (ps->title_cols - 1, 0), last_col, sizeof last_col);
               g_string_append_printf (defs, "<definedName name=\"_xlnm.Print_Titles\" localSheetId=\"%d\">", i);
               if (ps->title_cols > 0)
-                g_string_append_printf (defs, "'%s'!$A:$%s%s", sname, last_col, ps->title_rows > 0 ? "," : "");
+                g_string_append_printf (defs, "'%s'!$%s:$%s%s", sname, first_col, last_col, ps->title_rows > 0 ? "," : "");
               if (ps->title_rows > 0)
-                g_string_append_printf (defs, "'%s'!$1:$%d", sname, ps->title_rows);
+                g_string_append_printf (defs, "'%s'!$%d:$%d", sname, ps->title_row_first + 1,
+                                        ps->title_row_first + ps->title_rows);
               g_string_append (defs, "</definedName>");
             }
           g_free (sname);
@@ -3694,28 +3702,38 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
             {
               /* Print_Area (A) or Print_Titles (T) of sheet nm+2: 'Sheet'!$A$1:$C$5 or 'Sheet'!$1:$2. */
               O42Sheet *target = o42_book_sheet (book, atoi (nm + 2));
-              const char *bang = strrchr (val, '!');
-              const char *ref = bang != NULL ? bang + 1 : val;
               if (target != NULL && nm[1] == 'A')
                 {
-                  O42Range area;
-                  char *clean = g_strdup (ref);
-                  char *w = clean;
-                  for (const char *q = ref; *q != '\0'; q++) if (*q != '$') *w++ = *q;
-                  *w = '\0';
-                  {
-                    gsize used = 0;
-                    if (o42_ref_parse (clean, &area.row0, &area.col0, &used) && clean[used] == ':' &&
-                        o42_ref_parse (clean + used + 1, &area.row1, &area.col1, NULL))
-                      o42_sheet_set_print_area (target, &area);
-                  }
-                  g_free (clean);
+                  /* 'Sheet'!$A$1:$C$5,'Sheet'!$E$1:$F$9: each part an area. */
+                  O42Range areas[O42_PRINT_AREAS_MAX];
+                  int n = 0;
+                  char **pieces = g_strsplit (val, ",", -1);
+
+                  for (int k = 0; pieces[k] != NULL && n < O42_PRINT_AREAS_MAX; k++)
+                    {
+                      const char *b = strrchr (pieces[k], '!');
+                      const char *q = b != NULL ? b + 1 : pieces[k];
+                      char *clean = g_strdup (q);
+                      char *w = clean;
+                      gsize used = 0;
+
+                      for (const char *z = q; *z != '\0'; z++) if (*z != '$') *w++ = *z;
+                      *w = '\0';
+                      if (o42_ref_parse (clean, &areas[n].row0, &areas[n].col0, &used) && clean[used] == ':' &&
+                          o42_ref_parse (clean + used + 1, &areas[n].row1, &areas[n].col1, NULL))
+                        n++;
+                      g_free (clean);
+                    }
+                  g_strfreev (pieces);
+                  if (n > 0)
+                    o42_sheet_set_print_areas (target, areas, n);
                 }
               else if (target != NULL)
                 {
-                  /* 'Sheet'!$A:$B,'Sheet'!$1:$2: either part, in either order. */
+                  /* 'Sheet'!$A:$B,'Sheet'!$5:$6: either part, in either order. */
                   const O42PrintSetup *ps = o42_sheet_print_setup (target);
-                  int rows = ps->title_rows, cols = ps->title_cols;
+                  int row0 = ps->title_row_first, row1 = ps->title_row_first + ps->title_rows - 1;
+                  int col0 = ps->title_col_first, col1 = ps->title_col_first + ps->title_cols - 1;
                   char **halves = g_strsplit (val, ",", -1);
 
                   for (int k = 0; halves[k] != NULL; k++)
@@ -3723,21 +3741,24 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                       const char *b = strrchr (halves[k], '!');
                       const char *q = b != NULL ? b + 1 : halves[k];
                       const char *colon = strchr (q, ':');
-                      const char *end = colon != NULL ? colon + 1 : q;
+                      const char *start = q, *end = colon != NULL ? colon + 1 : q;
 
+                      if (*start == '$') start++;
                       if (*end == '$') end++;
-                      if (g_ascii_isdigit (*end))
-                        rows = atoi (end);
-                      else if (g_ascii_isalpha (*end))
+                      if (g_ascii_isdigit (*start))
+                        { row0 = atoi (start) - 1; row1 = atoi (end) - 1; }
+                      else if (g_ascii_isalpha (*start))
                         {
-                          int c = 0;
+                          int a = 0, c = 0;
+                          for (; g_ascii_isalpha (*start); start++)
+                            a = a * 26 + (g_ascii_toupper (*start) - 'A' + 1);
                           for (; g_ascii_isalpha (*end); end++)
                             c = c * 26 + (g_ascii_toupper (*end) - 'A' + 1);
-                          cols = c;
+                          col0 = a - 1; col1 = c - 1;
                         }
                     }
                   g_strfreev (halves);
-                  o42_sheet_set_print_titles (target, rows, cols);
+                  o42_sheet_set_print_title_ranges (target, row0, row1, col0, col1);
                 }
               continue;
             }

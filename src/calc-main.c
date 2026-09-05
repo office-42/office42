@@ -3136,15 +3136,14 @@ main (int argc, char *argv[])
        * titlerows N; pdf PATH */
       if (g_str_has_prefix (text, "printarea "))
         {
-          O42Range r;
-          gsize len = 0;
+          O42Range areas[O42_PRINT_AREAS_MAX];
+          int n = 0;
           if (strcmp (text + 10, "clear") == 0)
             o42_sheet_set_print_area (sheet, NULL);
-          else if (o42_ref_parse (text + 10, &r.row0, &r.col0, &len) && text[10 + len] == ':' &&
-                   o42_ref_parse (text + 11 + len, &r.row1, &r.col1, NULL))
-            o42_sheet_set_print_area (sheet, &r);
+          else if (o42_print_areas_parse (text + 10, areas, &n) && n > 0)
+            o42_sheet_set_print_areas (sheet, areas, n);
           else
-            fprintf (stderr, "usage: printarea A1:C9|clear\n");
+            fprintf (stderr, "usage: printarea A1:C9[,E1:F9]|clear\n");
           continue;
         }
       if (g_str_has_prefix (text, "header ") || g_str_has_prefix (text, "footer "))
@@ -3152,14 +3151,30 @@ main (int argc, char *argv[])
           o42_sheet_set_header_footer (sheet, text[0] == 'h' ? text + 7 : NULL, text[0] == 'f' ? text + 7 : NULL);
           continue;
         }
-      if (g_str_has_prefix (text, "printopt ") || g_str_has_prefix (text, "titlerows "))
+      /* titlerows 2 | titlerows 5:6 | titlerows none; titlecols A:B */
+      if (g_str_has_prefix (text, "titlerows ") || g_str_has_prefix (text, "titlecols "))
+        {
+          const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+          gboolean rows = text[5] == 'r';
+          int first = 0, count = 0;
+          const char *spec = strcmp (text + 10, "none") == 0 ? "" : text + 10;
+
+          if (!o42_print_titles_parse (spec, rows, &first, &count))
+            { fprintf (stderr, "usage: titlerows 5:6|2|none; titlecols A:B|none\n"); continue; }
+          if (rows)
+            o42_sheet_set_print_title_ranges (sheet, first, first + count - 1,
+                                              ps->title_col_first, ps->title_col_first + ps->title_cols - 1);
+          else
+            o42_sheet_set_print_title_ranges (sheet, ps->title_row_first, ps->title_row_first + ps->title_rows - 1,
+                                              first, first + count - 1);
+          continue;
+        }
+      if (g_str_has_prefix (text, "printopt "))
         {
           const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
           gboolean gridlines = ps->gridlines, headings = ps->headings;
           int titles = ps->title_rows;
-          if (text[0] == 't')
-            titles = atoi (text + 10);
-          else if (g_str_has_prefix (text + 9, "gridlines "))
+          if (g_str_has_prefix (text + 9, "gridlines "))
             gridlines = strcmp (text + 19, "on") == 0;
           else if (g_str_has_prefix (text + 9, "headings "))
             headings = strcmp (text + 18, "on") == 0;
@@ -3260,13 +3275,19 @@ main (int argc, char *argv[])
           static const char *const errors[] = { "shown", "blank", "dashes", "na" };
           if (ps->has_area)
             {
-              char *x = o42_ref_name (ps->area.row0, ps->area.col0), *y = o42_ref_name (ps->area.row1, ps->area.col1);
-              printf ("area %s:%s\n", x, y);
-              g_free (x); g_free (y);
+              char *areas = o42_print_areas_text (ps);
+              printf ("area %s\n", areas);
+              g_free (areas);
             }
-          printf ("header \"%s\"\nfooter \"%s\"\ngridlines %s\nheadings %s\ntitlerows %d titlecols %d\n",
-                  ps->header ? ps->header : "", ps->footer ? ps->footer : "",
-                  ps->gridlines ? "on" : "off", ps->headings ? "on" : "off", ps->title_rows, ps->title_cols);
+          {
+            char *tr = o42_print_titles_text (ps->title_row_first, ps->title_rows, TRUE);
+            char *tc = o42_print_titles_text (ps->title_col_first, ps->title_cols, FALSE);
+            printf ("header \"%s\"\nfooter \"%s\"\ngridlines %s\nheadings %s\ntitlerows %s titlecols %s\n",
+                    ps->header ? ps->header : "", ps->footer ? ps->footer : "",
+                    ps->gridlines ? "on" : "off", ps->headings ? "on" : "off",
+                    *tr ? tr : "none", *tc ? tc : "none");
+            g_free (tr); g_free (tc);
+          }
           printf ("scale %d fit %dx%d\n", ps->scale, ps->fit_wide, ps->fit_tall);
           printf ("paper %s %s margins %g %g %g %g header %g footer %g center %s order %s firstpage %d\n",
                   o42_paper_name (ps->paper), ps->landscape ? "landscape" : "portrait",

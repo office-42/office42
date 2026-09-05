@@ -202,15 +202,23 @@ typedef enum {
   O42_PRINT_ERRORS_NA           /* #N/A */
 } O42PrintErrors;
 
+#define O42_PRINT_AREAS_MAX 8
+
 typedef struct {
   gboolean  has_area;
-  O42Range  area;
+  O42Range  area;           /* the first print area; areas[0] */
+  O42Range  areas[O42_PRINT_AREAS_MAX];   /* Excel allows several, each printed
+                                           * on pages of its own */
+  int       n_areas;        /* 0 when has_area is FALSE */
   char     *header;
   char     *footer;
   gboolean  gridlines;
   gboolean  headings;
-  int       title_rows;     /* rows 0..title_rows-1 repeat at the top; 0 for none */
-  int       title_cols;     /* columns 0..title_cols-1 repeat at the left */
+  int       title_rows;     /* this many rows repeat at the top; 0 for none */
+  int       title_cols;     /* this many columns repeat at the left */
+  int       title_row_first;    /* the first of them, usually 0: Excel's $5:$6
+                                 * repeats rows 5 and 6 */
+  int       title_col_first;
   int       scale;          /* per cent, 100 for life size */
   int       fit_wide;       /* fit the sheet into this many pages across,
                              * and `fit_tall` down; 0 for neither, and
@@ -232,10 +240,15 @@ typedef struct {
 
 const O42PrintSetup *o42_sheet_print_setup       (O42Sheet *sheet);
 void                 o42_sheet_set_print_area    (O42Sheet *sheet, const O42Range *area);  /* NULL clears */
+/* Several areas, each on pages of its own; 0 clears. */
+void                 o42_sheet_set_print_areas   (O42Sheet *sheet, const O42Range *areas, int n);
 void                 o42_sheet_set_header_footer (O42Sheet *sheet, const char *header, const char *footer);
 void                 o42_sheet_set_print_options (O42Sheet *sheet, gboolean gridlines,
                                                   gboolean headings, int title_rows);
 void                 o42_sheet_set_print_titles  (O42Sheet *sheet, int title_rows, int title_cols);
+/* As ranges: rows row0..row1 and columns col0..col1 repeat; a range with
+ * row1 < row0 (col1 < col0) means none. */
+void                 o42_sheet_set_print_title_ranges (O42Sheet *sheet, int row0, int row1, int col0, int col1);
 /* Life size, a percentage, or fitted into so many pages across and
  * down (either may be zero for "as many as it takes"). */
 void                 o42_sheet_set_print_scale   (O42Sheet *sheet, int scale, int fit_wide, int fit_tall);
@@ -254,6 +267,15 @@ const char *o42_paper_name (int code);
 int         o42_paper_from_name (const char *name);   /* "A4", "na_letter", "iso_a4"; 0 if unknown */
 int         o42_paper_count (void);                   /* how many the tables know */
 int         o42_paper_nth  (int n);                   /* their codes, in order */
+
+/* The print areas as text, "A1:C5,E1:F9", and back; the repeated rows
+ * as "5:6" or "$5:$6" (columns "A:B"), and back -- the forms Excel's
+ * dialog shows.  The parsers return FALSE for text that is not one;
+ * empty text is no area (no titles).  Caller frees the text. */
+char    *o42_print_areas_text  (const O42PrintSetup *setup);
+gboolean o42_print_areas_parse (const char *text, O42Range *areas, int *n_areas);
+char    *o42_print_titles_text (int first, int count, gboolean rows);
+gboolean o42_print_titles_parse (const char *text, gboolean rows, int *first, int *count);
 
 /* The printed page's size in points, as the setup has it: the paper
  * turned if landscape. */

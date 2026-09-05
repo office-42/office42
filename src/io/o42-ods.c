@@ -1568,21 +1568,29 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
     g_free (style);
     if (ps->has_area)
       {
-        /* 'Sheet 1'.A1:'Sheet 1'.C9, the sheet quoted when it needs it. */
-        char *a = o42_ref_name (ps->area.row0, ps->area.col0);
-        char *b = o42_ref_name (ps->area.row1, ps->area.col1);
+        /* 'Sheet 1'.A1:'Sheet 1'.C9, the sheet quoted when it needs it;
+         * several areas a space apart. */
         gboolean quote = strpbrk (o42_sheet_get_name (sheet), " '.-") != NULL;
 
-        g_string_append_printf (out, " table:print-ranges=\"%s%s%s.%s:%s%s%s.%s\"",
-                                quote ? "&apos;" : "", name, quote ? "&apos;" : "", a,
-                                quote ? "&apos;" : "", name, quote ? "&apos;" : "", b);
-        g_free (a); g_free (b);
+        g_string_append (out, " table:print-ranges=\"");
+        for (int k = 0; k < MAX (ps->n_areas, 1); k++)
+          {
+            const O42Range *area = ps->n_areas > 0 ? &ps->areas[k] : &ps->area;
+            char *a = o42_ref_name (area->row0, area->col0);
+            char *b = o42_ref_name (area->row1, area->col1);
+
+            g_string_append_printf (out, "%s%s%s%s.%s:%s%s%s.%s", k > 0 ? " " : "",
+                                    quote ? "&apos;" : "", name, quote ? "&apos;" : "", a,
+                                    quote ? "&apos;" : "", name, quote ? "&apos;" : "", b);
+            g_free (a); g_free (b);
+          }
+        g_string_append_c (out, '"');
       }
     g_string_append (out, ">");
     /* The repeated rows and columns are wrapped as headers, so the
      * columns come in two runs when there are any. */
-    last_col = MAX (last_col, ps->title_cols - 1);
-    last_row = MAX (last_row, MIN (ps->title_rows, 64) - 1);
+    if (ps->title_cols > 0) last_col = MAX (last_col, ps->title_col_first + ps->title_cols - 1);
+    if (ps->title_rows > 0) last_row = MAX (last_row, MIN (ps->title_row_first + ps->title_rows, 4096) - 1);
     {
       /* A page break is a row or column style, so the rows and columns
        * up to the last break are written out. */
@@ -1602,16 +1610,18 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
    * break or the repeated columns do. */
   {
     const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
-    if (ps->title_cols > 0)
-      g_string_append (out, "<table:table-header-columns>");
+    int title_c0 = ps->title_cols > 0 ? ps->title_col_first : -1;
+    int title_c1 = ps->title_cols > 0 ? ps->title_col_first + ps->title_cols : -1;   /* one past */
     for (int c = 0; c <= last_col; )
       {
         int width = o42_sheet_col_width (sheet, c);
         gboolean hidden = o42_sheet_col_hidden (sheet, c);
         gboolean brk = o42_sheet_page_break (sheet, FALSE, c);
         int n = 1;
+        if (c == title_c0)
+          g_string_append (out, "<table:table-header-columns>");
         while (c + n <= last_col && o42_sheet_col_width (sheet, c + n) == width &&
-               o42_sheet_col_hidden (sheet, c + n) == hidden && c + n != ps->title_cols &&
+               o42_sheet_col_hidden (sheet, c + n) == hidden && c + n != title_c1 && c + n != title_c0 &&
                !o42_sheet_page_break (sheet, FALSE, c + n))
           n++;
         g_string_append_printf (out, "<table:table-column table:style-name=\"%s\"",
@@ -1621,7 +1631,7 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
         if (hidden) g_string_append (out, " table:visibility=\"collapse\"");
         g_string_append (out, " table:default-cell-style-name=\"Default\"/>");
         c += n;
-        if (c == ps->title_cols && ps->title_cols > 0)
+        if (c == title_c1)
           g_string_append (out, "</table:table-header-columns>");
       }
     if (last_col < 0)
@@ -1633,10 +1643,10 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
       int height = o42_sheet_row_height (sheet, r);
       gboolean hidden = o42_sheet_row_hidden (sheet, r);
       gboolean brk = o42_sheet_page_break (sheet, TRUE, r);
-      int title_rows = o42_sheet_print_setup (sheet)->title_rows;
+      const O42PrintSetup *tps = o42_sheet_print_setup (sheet);
       int last_in_row = -1;
 
-      if (r == 0 && title_rows > 0)
+      if (tps->title_rows > 0 && r == tps->title_row_first)
         g_string_append (out, "<table:table-header-rows>");
 
       for (int c = 0; c <= last_col; c++)
@@ -1659,7 +1669,7 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
       if (last_in_row < 0)
         g_string_append (out, "<table:table-cell/>");
       g_string_append (out, "</table:table-row>");
-      if (r + 1 == title_rows)
+      if (tps->title_rows > 0 && r + 1 == tps->title_row_first + tps->title_rows)
         g_string_append (out, "</table:table-header-rows>");
     }
   if (last_row < 0)
@@ -3613,14 +3623,17 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           }
         if (ranges != NULL && r->sheet != NULL)
           {
-            O42Range area;
-            char *first = g_strdup (ranges);
-            char *space = strchr (first, ' ');
+            /* Sheet.A1:Sheet.C5 Sheet.E1:Sheet.F9: an area per word. */
+            O42Range areas[O42_PRINT_AREAS_MAX];
+            int n = 0;
+            char **words = g_strsplit (ranges, " ", -1);
 
-            if (space != NULL) *space = '\0';
-            if (ods_range (first, NULL, &area))
-              o42_sheet_set_print_area (r->sheet, &area);
-            g_free (first);
+            for (int k = 0; words[k] != NULL && n < O42_PRINT_AREAS_MAX; k++)
+              if (*words[k] != '\0' && ods_range (words[k], NULL, &areas[n]))
+                n++;
+            g_strfreev (words);
+            if (n > 0)
+              o42_sheet_set_print_areas (r->sheet, areas, n);
           }
       }
       r->in_header_rows = r->in_header_cols = 0;
@@ -3809,16 +3822,18 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
   if (strcmp (name, "table-header-columns") == 0 && r->sheet != NULL)
     {
       const O42PrintSetup *ps = o42_sheet_print_setup (r->sheet);
-      if (r->header_cols_from == 0)
-        o42_sheet_set_print_titles (r->sheet, ps->title_rows, r->col);
+      if (r->col > r->header_cols_from)
+        o42_sheet_set_print_title_ranges (r->sheet, ps->title_row_first, ps->title_row_first + ps->title_rows - 1,
+                                          r->header_cols_from, r->col - 1);
       r->in_header_cols = 0;
       return;
     }
   if (strcmp (name, "table-header-rows") == 0 && r->sheet != NULL)
     {
       const O42PrintSetup *ps = o42_sheet_print_setup (r->sheet);
-      if (r->header_rows_from == 0)
-        o42_sheet_set_print_titles (r->sheet, r->row, ps->title_cols);
+      if (r->row > r->header_rows_from)
+        o42_sheet_set_print_title_ranges (r->sheet, r->header_rows_from, r->row - 1,
+                                          ps->title_col_first, ps->title_col_first + ps->title_cols - 1);
       r->in_header_rows = 0;
       return;
     }
