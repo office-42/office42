@@ -313,8 +313,7 @@ class Sheet:
 
     def evaluate(self, formula):
         """The value of a formula on this sheet, without putting it in a cell."""
-        saved = _c.current()
-        return _c.evaluate(formula)
+        return _c.evaluate(formula, self.index)
 
 
 class Book:

@@ -202,13 +202,17 @@ static PyObject *
 m_remove_sheet (PyObject *self, PyObject *args)
 {
   int index;
+  O42Sheet *gone;
   (void) self;
-  if (!PyArg_ParseTuple (args, "i", &index) || sheet_arg (index) == NULL)
+  if (!PyArg_ParseTuple (args, "i", &index) || (gone = sheet_arg (index)) == NULL)
     return NULL;
   if (!o42_book_remove_sheet (current_book, index))
     return PyErr_Format (PyExc_ValueError, "cannot remove the only sheet");
   sheets_touched = TRUE;
-  current_sheet = o42_book_sheet (current_book, 0);
+  /* Only a script that removed the sheet it was running on moves to
+   * another; removing a scratch sheet leaves `sheet` where it was. */
+  if (gone == current_sheet)
+    current_sheet = o42_book_sheet (current_book, 0);
   Py_RETURN_NONE;
 }
 
@@ -688,16 +692,24 @@ m_function_names (PyObject *self, PyObject *args)
 static PyObject *
 m_evaluate (PyObject *self, PyObject *args)
 {
-  /* A formula evaluated on the current sheet, as a cell would. */
+  /* A formula evaluated on a sheet -- the current one unless another
+   * is named -- as a cell there would. */
   const char *text;
+  int index = -1;
+  O42Sheet *sheet;
   O42Value v;
   PyObject *result;
   (void) self;
-  if (!PyArg_ParseTuple (args, "s", &text))
+  if (!PyArg_ParseTuple (args, "s|i", &text, &index))
     return NULL;
-  if (current_sheet == NULL)
-    Py_RETURN_NONE;
-  v = o42_sheet_evaluate_formula (current_sheet, text);
+  sheet = index >= 0 ? sheet_arg (index) : current_sheet;
+  if (sheet == NULL)
+    {
+      if (index >= 0)
+        return NULL;
+      Py_RETURN_NONE;
+    }
+  v = o42_sheet_evaluate_formula (sheet, text);
   result = value_to_py (&v);
   o42_value_clear (&v);
   return result;
