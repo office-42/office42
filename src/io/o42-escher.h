@@ -34,6 +34,7 @@ typedef struct {
   int      blip;                   /* pictures: 1-based index in the group's store */
   int      col1, row1, col2, row2; /* the anchor cells */
   double   dx1, dy1, dx2, dy2;     /* fractions of those cells, 0..1 */
+  O42AnchorMode anchor_mode;       /* how a drawing, picture or chart follows the cells */
   char    *note;                   /* notes: the text */
   int      note_row, note_col;     /* notes: the cell they belong to */
 } O42EscherShape;
@@ -79,6 +80,7 @@ typedef struct {
   gboolean shadow;
   guint32  shadow_colour;
   double   shadow_dx, shadow_dy;   /* px */
+  O42AnchorMode anchor_mode;       /* the ClientAnchor's flags: 0 two-cell, 2 one-cell, 3 absolute */
   GArray  *path;                   /* O42PathPoint: a freeform's outline, or NULL; the caller frees */
   gboolean closed;
   gboolean path_raw;               /* the path's numbers are EMU of the shape's box, not fractions */

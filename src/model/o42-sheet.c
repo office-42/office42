@@ -3555,11 +3555,121 @@ shift_keyed_texts (GHashTable *table, gboolean rows, int at, int count)
   return moved;
 }
 
+/* ---- Objects following the cells ---------------------------------------- */
+
+/* Where an object lies before the cells under it change: its corners
+ * in pixels from the sheet's origin, and its far corner as a cell. */
+typedef struct {
+  O42ObjectType type;
+  gpointer      object;
+  O42AnchorMode mode;
+  double        x0, y0, x1, y1;
+  int           from_row, from_col;   /* the near corner's cell, as it was */
+  int           far_row, far_col;     /* the far corner's, as it was */
+  int           to_row, to_col;       /* the far corner's, as it moves */
+  double        to_dx, to_dy;
+} ObjectPlace;
+
+static void
+object_geometry (O42Sheet *sheet, O42ObjectType type, gpointer object,
+                 int **row, int **col, double **dx, double **dy, double **w, double **h, O42AnchorMode *mode)
+{
+  if (type == O42_OBJECT_SHAPE)
+    {
+      O42Shape *s = object;
+      *row = &s->row; *col = &s->col; *dx = &s->dx; *dy = &s->dy; *w = &s->width; *h = &s->height; *mode = s->anchor;
+    }
+  else if (type == O42_OBJECT_PICTURE)
+    {
+      O42Picture *p = object;
+      *row = &p->row; *col = &p->col; *dx = &p->dx; *dy = &p->dy; *w = &p->width; *h = &p->height; *mode = p->anchor;
+    }
+  else
+    {
+      O42Chart *c = object;
+      *row = &c->row; *col = &c->col; *dx = &c->dx; *dy = &c->dy; *w = &c->width; *h = &c->height; *mode = c->anchor;
+    }
+  (void) sheet;
+}
+
+/* Every object's place, taken before the cells move or resize. */
+static GArray *
+objects_place (O42Sheet *sheet)
+{
+  GArray *objects = o42_sheet_objects (sheet);
+  GArray *places = g_array_new (FALSE, FALSE, sizeof (ObjectPlace));
+
+  for (guint i = 0; i < objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i);
+      ObjectPlace pl;
+      int *row, *col;
+      double *dx, *dy, *w, *h;
+
+      pl.type = ref->type;
+      pl.object = ref->object;
+      object_geometry (sheet, ref->type, ref->object, &row, &col, &dx, &dy, &w, &h, &pl.mode);
+      pl.x0 = o42_sheet_col_offset (sheet, *col) + *dx;
+      pl.y0 = o42_sheet_row_offset (sheet, *row) + *dy;
+      pl.x1 = pl.x0 + *w;
+      pl.y1 = pl.y0 + *h;
+      pl.to_col = MIN (o42_sheet_col_at (sheet, pl.x1), O42_MAX_COLS - 1);
+      pl.to_row = MIN (o42_sheet_row_at (sheet, pl.y1), O42_MAX_ROWS - 1);
+      pl.to_dx = pl.x1 - o42_sheet_col_offset (sheet, pl.to_col);
+      pl.to_dy = pl.y1 - o42_sheet_row_offset (sheet, pl.to_row);
+      pl.from_row = *row;
+      pl.from_col = *col;
+      /* The far corner as a cell for the deletion test: the last cell
+       * the object reaches into, not the one after its edge. */
+      pl.far_col = MIN (o42_sheet_col_at (sheet, MAX (pl.x1 - 1, pl.x0)), O42_MAX_COLS - 1);
+      pl.far_row = MIN (o42_sheet_row_at (sheet, MAX (pl.y1 - 1, pl.y0)), O42_MAX_ROWS - 1);
+      g_array_append_val (places, pl);
+    }
+  g_array_free (objects, TRUE);
+  return places;
+}
+
+/* After the cells have changed: an object sized with them takes its
+ * size from where its far corner's cell is now; one that stays put is
+ * given back its pixels. */
+static void
+objects_follow (O42Sheet *sheet, GArray *places)
+{
+  for (guint i = 0; i < places->len; i++)
+    {
+      const ObjectPlace *pl = &g_array_index (places, ObjectPlace, i);
+      int *row, *col;
+      double *dx, *dy, *w, *h;
+      O42AnchorMode mode;
+
+      object_geometry (sheet, pl->type, pl->object, &row, &col, &dx, &dy, &w, &h, &mode);
+      if (mode == O42_ANCHOR_TWO_CELL)
+        {
+          double x0 = o42_sheet_col_offset (sheet, *col) + *dx;
+          double y0 = o42_sheet_row_offset (sheet, *row) + *dy;
+          double x1 = o42_sheet_col_offset (sheet, pl->to_col) + pl->to_dx;
+          double y1 = o42_sheet_row_offset (sheet, pl->to_row) + pl->to_dy;
+
+          *w = MAX (x1 - x0, 1);
+          *h = MAX (y1 - y0, pl->type == O42_OBJECT_SHAPE && ((O42Shape *) pl->object)->kind == O42_SHAPE_LINE ? 0 : 1);
+        }
+      else if (mode == O42_ANCHOR_ABSOLUTE)
+        {
+          *col = MIN (o42_sheet_col_at (sheet, pl->x0), O42_MAX_COLS - 1);
+          *row = MIN (o42_sheet_row_at (sheet, pl->y0), O42_MAX_ROWS - 1);
+          *dx = pl->x0 - o42_sheet_col_offset (sheet, *col);
+          *dy = pl->y0 - o42_sheet_row_offset (sheet, *row);
+        }
+    }
+  g_array_free (places, TRUE);
+}
+
 static void
 sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
                          int band_lo, int band_hi)
 {
   GArray *landings;
+  GArray *places;
   GHashTableIter iter;
   gpointer key_ptr, value;
   int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
@@ -3982,7 +4092,9 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
     }
 
   /* Sizes and pictures move with the cells.  Neither is in the undo
-   * history yet. */
+   * history yet.  The objects' places are taken first, with the cells
+   * as they were. */
+  places = objects_place (sheet);
   {
     GHashTable *tables[4];
     int n_tables = 0;
@@ -4080,6 +4192,53 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
           if (*hi < *lo) *hi = *lo;
         }
     }
+
+  /* The far corner of an object sized with the cells moves as its
+   * near one did, and an object whose rows (or columns) all went goes
+   * with them, as Excel's does; the rest take their sizes from where
+   * the cells are now. */
+  for (guint i = 0; i < places->len; i++)
+    {
+      ObjectPlace *pl = &g_array_index (places, ObjectPlace, i);
+      int *to = rows ? &pl->to_row : &pl->to_col;
+
+      if (count > 0)
+        {
+          if (*to >= at) *to = MIN (*to + count, limit - 1);
+        }
+      else if (*to >= at - count)
+        *to += count;
+      else if (*to >= at)
+        *to = at;   /* the far corner was in the deleted band: it lands at the band's start */
+    }
+  {
+    /* Objects wholly inside a deleted band are removed. */
+    GArray *doomed = g_array_new (FALSE, FALSE, sizeof (ObjectPlace));
+
+    if (count < 0)
+      for (guint i = 0; i < places->len; i++)
+        {
+          const ObjectPlace *pl = &g_array_index (places, ObjectPlace, i);
+          int near_idx = rows ? pl->from_row : pl->from_col;
+          int far_idx = rows ? pl->far_row : pl->far_col;
+
+          if (pl->mode != O42_ANCHOR_ABSOLUTE && near_idx >= at && far_idx < at - count)
+            g_array_append_val (doomed, *pl);
+        }
+    for (guint i = 0; i < doomed->len; i++)
+      {
+        const ObjectPlace *pl = &g_array_index (doomed, ObjectPlace, i);
+
+        if (pl->type == O42_OBJECT_SHAPE) o42_sheet_remove_shape (sheet, ((O42Shape *) pl->object)->id);
+        else if (pl->type == O42_OBJECT_PICTURE) o42_sheet_remove_picture (sheet, ((O42Picture *) pl->object)->id);
+        else o42_sheet_remove_chart (sheet, ((O42Chart *) pl->object)->id);
+        for (guint k = 0; k < places->len; k++)
+          if (g_array_index (places, ObjectPlace, k).object == pl->object)
+            { g_array_remove_index (places, k); break; }
+      }
+    g_array_free (doomed, TRUE);
+  }
+  objects_follow (sheet, places);
 
   deps_rebuild (sheet);
 }
@@ -4742,6 +4901,8 @@ o42_sheet_col_width (O42Sheet *sheet, int col)
 void
 o42_sheet_set_col_width (O42Sheet *sheet, int col, int width)
 {
+  GArray *places;
+
   g_return_if_fail (sheet != NULL);
   op_begin (sheet);
   obj_capture (sheet, OBJ_COL_WIDTH, col, 0);
@@ -4749,9 +4910,11 @@ o42_sheet_set_col_width (O42Sheet *sheet, int col, int width)
 
   width = CLAMP (width, 8, 2000);
   record_op_begin (sheet, "sheet.col_width(%d, %d)", col, width);
+  places = objects_place (sheet);
   sizes_changed (sheet);
   g_hash_table_insert (sheet->col_widths, GINT_TO_POINTER (col),
                        GINT_TO_POINTER (width));
+  objects_follow (sheet, places);
   sheet->modified = TRUE;
   record_op_end (sheet);
 }
@@ -4986,6 +5149,8 @@ o42_sheet_row_height_set (O42Sheet *sheet, int row)
 void
 o42_sheet_set_row_height (O42Sheet *sheet, int row, int height)
 {
+  GArray *places;
+
   g_return_if_fail (sheet != NULL);
   op_begin (sheet);
   obj_capture (sheet, OBJ_ROW_HEIGHT, row, 0);
@@ -4993,9 +5158,11 @@ o42_sheet_set_row_height (O42Sheet *sheet, int row, int height)
 
   height = CLAMP (height, 6, 500);
   record_op_begin (sheet, "sheet.row_height(%d, %d)", row, height);
+  places = objects_place (sheet);
   sizes_changed (sheet);
   g_hash_table_insert (sheet->row_heights, GINT_TO_POINTER (row),
                        GINT_TO_POINTER (height));
+  objects_follow (sheet, places);
   sheet->modified = TRUE;
   record_op_end (sheet);
 }
@@ -5003,16 +5170,20 @@ o42_sheet_set_row_height (O42Sheet *sheet, int row, int height)
 void
 o42_sheet_set_row_hidden (O42Sheet *sheet, int row, gboolean hidden)
 {
+  GArray *places;
+
   g_return_if_fail (sheet != NULL);
   op_begin (sheet);
   obj_capture (sheet, OBJ_ROW_HIDDEN, row, 0);
   op_end (sheet);
 
   record_op_begin (sheet, "sheet.%s(%d)", hidden ? "hide_rows" : "unhide_rows", row);
+  places = objects_place (sheet);
   sizes_changed (sheet);
   if (hidden) g_hash_table_add (sheet->hidden_rows, GINT_TO_POINTER (row));
   else        g_hash_table_remove (sheet->hidden_rows, GINT_TO_POINTER (row));
   sheet->modified = TRUE;
+  objects_follow (sheet, places);
   record_op_end (sheet);
 }
 
@@ -5034,16 +5205,20 @@ o42_sheet_row_hidden_by_hand (O42Sheet *sheet, int row)
 void
 o42_sheet_set_col_hidden (O42Sheet *sheet, int col, gboolean hidden)
 {
+  GArray *places;
+
   g_return_if_fail (sheet != NULL);
   op_begin (sheet);
   obj_capture (sheet, OBJ_COL_HIDDEN, col, 0);
   op_end (sheet);
 
   record_op_begin (sheet, "sheet.%s(%d)", hidden ? "hide_cols" : "unhide_cols", col);
+  places = objects_place (sheet);
   sizes_changed (sheet);
   if (hidden) g_hash_table_add (sheet->hidden_cols, GINT_TO_POINTER (col));
   else        g_hash_table_remove (sheet->hidden_cols, GINT_TO_POINTER (col));
   sheet->modified = TRUE;
+  objects_follow (sheet, places);
   record_op_end (sheet);
 }
 

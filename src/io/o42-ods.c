@@ -1091,16 +1091,44 @@ typedef struct {
   char *part;         /* the name it goes into the zip under */
 } OdsPicture;
 
+/* The far corner of an object as OpenDocument anchors it: the cell it
+ * reaches and the offset within, for an object that moves and sizes
+ * with the cells; nothing for one that does not.  Caller frees. */
+static char *
+ods_end_cell (O42Sheet *sheet, int row, int col, double dx, double dy, double w, double h,
+              O42AnchorMode mode)
+{
+  double x1 = o42_sheet_col_offset (sheet, col) + dx + w;
+  double y1 = o42_sheet_row_offset (sheet, row) + dy + h;
+  int to_col, to_row;
+  char *quoted, *ref, *attrs;
+
+  if (mode != O42_ANCHOR_TWO_CELL)
+    return g_strdup ("");
+  to_col = MIN (o42_sheet_col_at (sheet, x1), O42_MAX_COLS - 1);
+  to_row = MIN (o42_sheet_row_at (sheet, y1), O42_MAX_ROWS - 1);
+  quoted = g_markup_escape_text (o42_sheet_get_name (sheet), -1);
+  ref = o42_ref_name (to_row, to_col);
+  attrs = g_strdup_printf (" table:end-cell-address=\"%s%s%s.%s\" table:end-x=\"%.3fcm\" table:end-y=\"%.3fcm\"",
+                           strpbrk (quoted, " '.-") != NULL ? "&apos;" : "", quoted,
+                           strpbrk (quoted, " '.-") != NULL ? "&apos;" : "", ref,
+                           (x1 - o42_sheet_col_offset (sheet, to_col)) * PX_TO_CM,
+                           (y1 - o42_sheet_row_offset (sheet, to_row)) * PX_TO_CM);
+  g_free (quoted);
+  g_free (ref);
+  return attrs;
+}
+
 static void
 append_frame_head (GString *out, const char *name, int z,
-                   double dx, double dy, double w, double h)
+                   double dx, double dy, double w, double h, const char *end_cell)
 {
   char *escaped = g_markup_escape_text (name, -1);
 
   g_string_append_printf (out,
-    "<draw:frame draw:name=\"%s\" draw:z-index=\"%d\" table:end-cell-address=\"\" "
+    "<draw:frame draw:name=\"%s\" draw:z-index=\"%d\"%s "
     "svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">",
-    escaped, z, dx * PX_TO_CM, dy * PX_TO_CM, w * PX_TO_CM, h * PX_TO_CM);
+    escaped, z, end_cell, dx * PX_TO_CM, dy * PX_TO_CM, w * PX_TO_CM, h * PX_TO_CM);
   g_free (escaped);
 }
 
@@ -1279,7 +1307,11 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
       if (pic->row != row || pic->col != col)
         continue;
       name = g_strdup_printf ("Picture %u", i + 1);
-      append_frame_head (out, name, (int) i, pic->dx, pic->dy, pic->width, pic->height);
+      {
+        char *end = ods_end_cell (sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, pic->anchor);
+        append_frame_head (out, name, (int) i, pic->dx, pic->dy, pic->width, pic->height, end);
+        g_free (end);
+      }
       g_string_append_printf (out,
         "<draw:image xlink:href=\"Pictures/sheet%d_image%u.%s\" xlink:type=\"simple\" "
         "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
@@ -1292,6 +1324,7 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
       const O42Shape *shape = g_ptr_array_index (shapes, i);
       char *name;
       char *text;
+      char *end_cell;
 
       if (shape->row != row || shape->col != col)
         continue;
@@ -1308,6 +1341,7 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
         }
       name = g_strdup_printf ("Shape %u", i + 1);
       text = shape_text_xml (s, shape, sheet_index, i);
+      end_cell = ods_end_cell (sheet, shape->row, shape->col, shape->dx, shape->dy, shape->width, shape->height, shape->anchor);
       /* The shape's fill and line as a graphic style of its own; the
        * dashes and the heads are named in styles.xml. */
       {
@@ -1423,9 +1457,9 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
                   g_string_append_printf (pts, "%s%.0f,%.0f", k > 0 ? " " : "", pp->x * vw, pp->y * vh);
                 }
               g_string_append_printf (out,
-                "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+                "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
                 "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\" svg:viewBox=\"0 0 %.0f %.0f\" draw:points=\"%s\">%s</draw:%s>",
-                shape->closed ? "polygon" : "polyline", name, sheet_index, i,
+                shape->closed ? "polygon" : "polyline", name, sheet_index, i, end_cell,
                 shape->dx * PX_TO_CM, shape->dy * PX_TO_CM, shape->width * PX_TO_CM, shape->height * PX_TO_CM,
                 vw, vh, pts->str, text, shape->closed ? "polygon" : "polyline");
             }
@@ -1441,37 +1475,38 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
                 }
               if (shape->closed) g_string_append (pts, "Z");
               g_string_append_printf (out,
-                "<draw:path draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+                "<draw:path draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
                 "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\" svg:viewBox=\"0 0 %.0f %.0f\" svg:d=\"%s\">%s</draw:path>",
-                name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+                name, sheet_index, i, end_cell, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
                 shape->width * PX_TO_CM, shape->height * PX_TO_CM, vw, vh, g_strstrip (pts->str), text);
             }
           g_string_free (pts, TRUE);
         }
       else if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
         g_string_append_printf (out,
-          "<draw:line draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x1=\"%.3fcm\" svg:y1=\"%.3fcm\" "
+          "<draw:line draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x1=\"%.3fcm\" svg:y1=\"%.3fcm\" "
           "svg:x2=\"%.3fcm\" svg:y2=\"%.3fcm\"><text:p/></draw:line>",
-          name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+          name, sheet_index, i, end_cell, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           (shape->dx + shape->width) * PX_TO_CM, (shape->dy + shape->height) * PX_TO_CM);
       else if (o42_shape_ods_type (shape) != NULL)
         /* An AutoShape is a custom shape whose enhanced geometry names
          * the outline; LibreOffice draws it from the name. */
         g_string_append_printf (out,
-          "<draw:custom-shape draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+          "<draw:custom-shape draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
           "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">%s"
           "<draw:enhanced-geometry draw:type=\"%s\"/></draw:custom-shape>",
-          name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+          name, sheet_index, i, end_cell, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
           o42_shape_ods_type (shape));
       else
         g_string_append_printf (out,
-          "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+          "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
           "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">%s</draw:%s>",
-          shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect", name, sheet_index, i,
+          shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect", name, sheet_index, i, end_cell,
           shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
           shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect");
+      g_free (end_cell);
       g_free (text);
       g_free (name);
     }
@@ -1484,8 +1519,12 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
       if (chart->row != row || chart->col != col)
         continue;
       name = g_strdup_printf ("Chart %u", i + 1);
-      append_frame_head (out, name, (int) (100 + i), chart->dx, chart->dy,
-                         chart->width, chart->height);
+      {
+        char *end = ods_end_cell (sheet, chart->row, chart->col, chart->dx, chart->dy, chart->width, chart->height, chart->anchor);
+        append_frame_head (out, name, (int) (100 + i), chart->dx, chart->dy,
+                           chart->width, chart->height, end);
+        g_free (end);
+      }
       g_string_append_printf (out,
         "<draw:object xlink:href=\"./Sheet%dChart%u\" xlink:type=\"simple\" "
         "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
@@ -2201,6 +2240,7 @@ typedef struct {
   GArray     *cell_runs;     /* O42TextRun for the cell being read */
   O42Shape   *shape;         /* the shape being read, for its text */
   double      frame_x, frame_y, frame_w, frame_h;   /* the frame being read */
+  O42AnchorMode frame_anchor;                       /* and how it is anchored */
   GHashTable *form_controls;  /* form:id -> FormControl, for draw:control */
   GArray     *loose_controls; /* LooseControl: shapes outside any cell */
   gboolean    in_form;        /* inside <office:forms>, where a frame is a group box */
@@ -3045,6 +3085,7 @@ read_chart_object (Reader *r, const char *href, int row, int col,
       if (box.col0 > 0)
         box.col0--;
       chart = o42_sheet_add_chart (r->sheet, c.kind, &box, row, col);
+  if (chart != NULL) chart->anchor = r->frame_anchor;
       if (chart != NULL)
         {
           chart->first_row_labels = TRUE;
@@ -3287,6 +3328,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "frame") == 0 && !r->in_form)
         {
+          const char *end = attr (names, values, "end-cell-address");
+          r->frame_anchor = end != NULL && *end != '\0' ? O42_ANCHOR_TWO_CELL : O42_ANCHOR_ONE_CELL;
           r->frame_x = ods_length (attr (names, values, "x"));
           r->frame_y = ods_length (attr (names, values, "y"));
           r->frame_w = ods_length (attr (names, values, "width"));
@@ -3319,6 +3362,7 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
 
                   if (pic != NULL)
                     {
+                      pic->anchor = r->frame_anchor;
                       pic->dx = r->frame_x;
                       pic->dy = r->frame_y;
                       if (r->frame_w > 1) pic->width = r->frame_w;
@@ -3392,6 +3436,11 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                   if (st->head_end != O42_HEAD_NONE)
                     shape->kind = O42_SHAPE_ARROW;
                 }
+            }
+          if (shape != NULL)
+            {
+              const char *end = attr (names, values, "end-cell-address");
+              shape->anchor = end != NULL && *end != '\0' ? O42_ANCHOR_TWO_CELL : O42_ANCHOR_ONE_CELL;
             }
           if (shape != NULL && freeform)
             ods_read_freeform (shape, name, attr (names, values, "viewBox"),

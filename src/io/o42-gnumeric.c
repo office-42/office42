@@ -467,9 +467,9 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
     "ObjectAnchorType=\"16 16 16 16\" Direction=\"17\" "
     "crop-top=\"%s\" crop-bottom=\"%s\" crop-left=\"%s\" crop-right=\"%s\" "
     "o42-z=\"%u\" o42-group=\"%u\" o42-rotation=\"%g\" o42-flip-h=\"%d\" o42-flip-v=\"%d\" "
-    "o42-lock-aspect=\"%d\">\n",
+    "o42-lock-aspect=\"%d\" o42-anchor=\"%s\">\n",
     a, b, fx0s, fy0s, fx1s, fy1s, ct, cb, cl, cr, pic->z, pic->group, pic->rotation,
-    pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0);
+    pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0, o42_anchor_mode_name (pic->anchor));
 
   encoded = g_base64_encode (g_bytes_get_data (pic->data, NULL),
                              g_bytes_get_size (pic->data));
@@ -536,7 +536,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     "o42-trend=\"%s\" o42-trend-order=\"%d\" o42-errbars=\"%s\" o42-errvalue=\"%g\" "
     "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-group=\"%u\" o42-z=\"%u\" "
     "o42-yformat=\"%s\" o42-secondary=\"%d\" "
-    "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\"%s>\n"
+    "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\" o42-anchor=\"%s\"%s>\n"
     "        <gnm:GogObject type=\"GogGraph\">\n"
     "          <GogObject role=\"Chart\" type=\"GogChart\">\n",
     a, b, fx0s, fy0s, fx1s, fy1s, o42_chart_kind_name (chart->kind),
@@ -548,7 +548,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0, chart->group, chart->z,
     yfmt, chart->secondary_from,
     o42_marker_kind_name (chart->marker), chart->marker_size,
-    chart->marker_picture, bounds);
+    chart->marker_picture, o42_anchor_mode_name (chart->anchor), bounds);
 
   if (*title != '\0')
     g_string_append_printf (out,
@@ -1076,6 +1076,8 @@ write_sheet (GString *out, O42Sheet *sheet)
             g_string_append_printf (ta, " FillKind=\"pattern\" Fill2=\"%u\" Pattern=\"%s\"", (guint) sh->fill2, o42_pattern_name (sh->pattern));
           if (sh->shadow)
             g_string_append_printf (ta, " Shadow=\"%u\" ShadowDx=\"%g\" ShadowDy=\"%g\"", (guint) sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
+          if (sh->anchor != O42_ANCHOR_TWO_CELL)
+            g_string_append_printf (ta, " Anchor=\"%s\"", o42_anchor_mode_name (sh->anchor));
           text_attrs = g_string_free (ta, FALSE);
         }
         g_string_append_printf (w.out,
@@ -1601,6 +1603,8 @@ typedef struct {
   gboolean    object_flip_h, object_flip_v;
   double      object_crop[4];   /* left, top, right, bottom */
   gboolean    object_lock_aspect;
+  O42AnchorMode object_anchor;
+  O42AnchorMode graph_anchor;
   char       *graph_trend_name, *graph_err_name, *graph_font, *graph_data_sheet;
   char       *graph_marker_name;
   double      graph_marker_size;
@@ -2320,6 +2324,7 @@ start_element (GMarkupParseContext *context, const char *element,
                 r->shape->fill2 = (guint32) attr_int (names, values, "Fill2", 0);
                 o42_pattern_parse (attr (names, values, "Pattern"), &r->shape->pattern);
               }
+            o42_anchor_mode_parse (attr (names, values, "Anchor"), &r->shape->anchor);
             if (attr (names, values, "Shadow") != NULL)
               {
                 r->shape->shadow = TRUE;
@@ -2534,6 +2539,8 @@ start_element (GMarkupParseContext *context, const char *element,
           r->graph_marker_picture = (guint) attr_int (names, values, "o42-marker-picture", 0);
           r->graph_group = (guint) attr_int (names, values, "o42-group", 0);
           r->graph_z = (guint) attr_int (names, values, "o42-z", 0);
+          r->graph_anchor = O42_ANCHOR_TWO_CELL;
+          o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->graph_anchor);
           g_free (r->graph_err_name);
           r->graph_err_name = g_strdup (attr (names, values, "o42-errbars"));
           g_free (r->graph_font);
@@ -2632,6 +2639,8 @@ start_element (GMarkupParseContext *context, const char *element,
       r->object_crop[2] = attr_double (names, values, "crop-right", 0);
       r->object_crop[3] = attr_double (names, values, "crop-bottom", 0);
       r->object_lock_aspect = attr_int (names, values, "o42-lock-aspect", 1) != 0;
+      r->object_anchor = O42_ANCHOR_TWO_CELL;
+      o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->object_anchor);
       r->object_flip_h = attr_int (names, values, "o42-flip-h", 0) != 0;
       r->object_flip_v = attr_int (names, values, "o42-flip-v", 0) != 0;
 
@@ -2848,6 +2857,7 @@ finish_picture (Reader *r)
   pic->crop_r = CLAMP (r->object_crop[2], 0, 0.99);
   pic->crop_b = CLAMP (r->object_crop[3], 0, 0.99);
   pic->lock_aspect = r->object_lock_aspect;
+  pic->anchor = r->object_anchor;
 
   x0 = offset_px (r->sheet, TRUE, r->object_bound.col0) +
        r->object_offset[0] * o42_sheet_col_width (r->sheet, r->object_bound.col0);
@@ -3298,6 +3308,7 @@ end_element (GMarkupParseContext *context, const char *element,
           chart->group = r->graph_group;
           if (r->graph_z > 0)
             chart->z = r->graph_z;
+          chart->anchor = r->graph_anchor;
           if (r->graph_data_sheet != NULL)
             {
               g_free (chart->data_sheet);

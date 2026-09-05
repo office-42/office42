@@ -2399,6 +2399,7 @@ read_drawing (Reader *r)
 
               shape->dx = f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
               shape->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
+              shape->anchor = f->anchor_mode;
               shape->width = line_kind ? sx1 - sx0 : MAX (sx1 - sx0, 4);
               shape->height = line_kind ? sy1 - sy0 : MAX (sy1 - sy0, 4);
               shape->fill = (!line_kind && f->filled && (f->path == NULL || f->closed)) ? f->fill : O42_FILL_NONE;
@@ -2477,6 +2478,7 @@ read_drawing (Reader *r)
           pic->width = MAX (x1 - x0, 8);
           pic->height = MAX (y1 - y0, 8);
           pic->rotation = f->rotation;
+          pic->anchor = f->anchor_mode;
           pic->flip_h = f->flip_h;
           pic->flip_v = f->flip_v;
         }
@@ -4824,6 +4826,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               s.flip_h = pic->flip_h;
               s.flip_v = pic->flip_v;
               anchor_object (sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, &s);
+              s.anchor_mode = pic->anchor;
               g_ptr_array_add (controls, NULL);
             }
           else if (ref->type == O42_OBJECT_CHART)
@@ -4837,6 +4840,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               s.is_chart = TRUE;
               s.blip = (int) i;   /* which chart, for the substream */
               anchor_object (sheet, chart->row, chart->col, chart->dx, chart->dy, chart->width, chart->height, &s);
+              s.anchor_mode = chart->anchor;
               g_ptr_array_add (controls, NULL);
             }
           else
@@ -4850,6 +4854,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               else
                 s.drawing = shape;
               anchor_object (sheet, shape->row, shape->col, shape->dx, shape->dy, shape->width, shape->height, &s);
+              s.anchor_mode = shape->anchor;
               g_ptr_array_add (controls, s.is_control ? (gpointer) shape : NULL);
             }
           g_array_append_val (shapes, s);

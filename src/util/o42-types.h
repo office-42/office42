@@ -37,6 +37,20 @@ typedef struct {
   int col1;
 } O42Range;
 
+/* How an object that floats over the grid follows the cells under it,
+ * Excel's three: moved and sized with them (its far corner is a cell
+ * too, so widening a column widens it), moved but not sized (its size
+ * is its own, its corner a cell), or neither (it stays put on the sheet
+ * in pixels). */
+typedef enum {
+  O42_ANCHOR_TWO_CELL = 0,
+  O42_ANCHOR_ONE_CELL,
+  O42_ANCHOR_ABSOLUTE
+} O42AnchorMode;
+
+const char *o42_anchor_mode_name  (O42AnchorMode mode);        /* "twoCell", "oneCell", "absolute" */
+gboolean    o42_anchor_mode_parse (const char *name, O42AnchorMode *mode);
+
 /* Cells are keyed by one integer so the sparse store can be an ordinary hash
  * table rather than anything clever. */
 static inline guint64

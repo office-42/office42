@@ -1429,11 +1429,13 @@ main (int argc, char *argv[])
               else if (strcmp (words[2], "flipv") == 0)  pic->flip_v = number != 0;
               else if (strcmp (words[2], "width") == 0)  pic->width = number;
               else if (strcmp (words[2], "height") == 0) pic->height = number;
+              else if (strcmp (words[2], "anchor") == 0)
+                { if (!o42_anchor_mode_parse (words[3], &pic->anchor)) fprintf (stderr, "twoCell, oneCell or absolute\n"); }
               else fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: pictureset ID rotation|fliph|flipv|width|height|"
-                             "cropl|cropr|cropt|cropb|lockaspect VALUE\n");
+                             "cropl|cropr|cropt|cropb|lockaspect|anchor VALUE\n");
           g_strfreev (words);
           continue;
         }
@@ -1583,6 +1585,8 @@ main (int argc, char *argv[])
                     printf (" pattern %s %06X", o42_pattern_name (sh->pattern), sh->fill2);
                   if (sh->shadow)
                     printf (" shadow %06X %g,%g", sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
+                  if (sh->anchor != O42_ANCHOR_TWO_CELL)
+                    printf (" %s", o42_anchor_mode_name (sh->anchor));
                   printf (" line %06X/%g", sh->line, sh->line_width);
                   if (sh->dash != O42_DASH_SOLID)
                     printf (" %s", o42_dash_name (sh->dash));
@@ -2102,6 +2106,8 @@ main (int argc, char *argv[])
                 sh->shadow_dx = number;
               else if (strcmp (words[2], "shadowdy") == 0)
                 sh->shadow_dy = number;
+              else if (strcmp (words[2], "anchor") == 0)
+                { if (!o42_anchor_mode_parse (words[3], &sh->anchor)) fprintf (stderr, "twoCell, oneCell or absolute\n"); }
               else
                 fprintf (stderr, "no such field\n");
             }
@@ -2110,7 +2116,7 @@ main (int argc, char *argv[])
                              "min|max|step|page|width|height|linewidth|dash|headstart|headend|"
                              "headstartsize|headendsize|rotation|fliph|flipv|font|fontsize|bold|italic|"
                              "textcolour|halign|valign|nowrap|inset|fill|line|fillkind|fill2|angle|"
-                             "pattern|shadow|shadowcolour|shadowdx|shadowdy VALUE\n");
+                             "pattern|shadow|shadowcolour|shadowdx|shadowdy|anchor VALUE\n");
           g_strfreev (words);
           continue;
         }

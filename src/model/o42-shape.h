@@ -140,6 +140,7 @@ typedef struct {
   double        dy;
   double        width;      /* pixels */
   double        height;
+  O42AnchorMode anchor;     /* how it follows the cells */
   double        rotation;   /* degrees clockwise about the box's centre */
   gboolean      flip_h;     /* mirrored left to right, before turning */
   gboolean      flip_v;

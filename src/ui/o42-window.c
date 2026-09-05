@@ -3939,6 +3939,35 @@ action_order (GSimpleAction *a, GVariant *p, gpointer data)
   window_sync (self);
 }
 
+/* Excel's Properties tab: how an object follows the cells.  Three
+ * check buttons in one group, and the mode they stand for. */
+static GtkWidget *
+anchor_radios (GtkWidget **buttons, O42AnchorMode current)
+{
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+  static const char *const labels[] = { N_("_Move and size with cells"), N_("Move but _don't size with cells"),
+                                        N_("Don't move or si_ze with cells") };
+
+  for (int i = 0; i < 3; i++)
+    {
+      buttons[i] = gtk_check_button_new_with_mnemonic (_(labels[i]));
+      if (i > 0)
+        gtk_check_button_set_group (GTK_CHECK_BUTTON (buttons[i]), GTK_CHECK_BUTTON (buttons[0]));
+      gtk_box_append (GTK_BOX (box), buttons[i]);
+    }
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (buttons[CLAMP ((int) current, 0, 2)]), TRUE);
+  return box;
+}
+
+static O42AnchorMode
+anchor_chosen (GtkWidget **buttons)
+{
+  for (int i = 0; i < 3; i++)
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (buttons[i])))
+      return (O42AnchorMode) i;
+  return O42_ANCHOR_TWO_CELL;
+}
+
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
@@ -3950,6 +3979,7 @@ typedef struct {
   GtkWidget *halign, *valign, *wrap, *inset;
   GtkWidget *fill_kind, *fill2, *angle, *pattern;
   GtkWidget *shadow, *shadow_colour, *shadow_dx, *shadow_dy;
+  GtkWidget *anchor[3];
 } ShapePrompt;
 
 static void
@@ -4009,6 +4039,7 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
       }
       shape->text_nowrap = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->wrap));
       shape->text_inset = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->inset));
+      shape->anchor = anchor_chosen (prompt->anchor);
       o42_sheet_end_group (prompt->window->sheet);
       o42_sheet_set_modified (prompt->window->sheet, TRUE);
       o42_grid_refresh (prompt->window->grid);
@@ -4118,6 +4149,11 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_v), shape->flip_v);
   gtk_grid_attach (GTK_GRID (grid), prompt->flip_v, 0, 2, 2, 1);
 
+  /* Properties */
+  grid = page_grid (notebook, _("Properties"));
+  gtk_grid_attach (GTK_GRID (grid), gtk_label_new (_("Object positioning:")), 0, 0, 2, 1);
+  gtk_grid_attach (GTK_GRID (grid), anchor_radios (prompt->anchor, shape->anchor), 0, 1, 2, 1);
+
   /* Text */
   grid = page_grid (notebook, _("Text"));
   prompt->text = gtk_text_view_new ();
@@ -4176,6 +4212,7 @@ typedef struct {
   guint      picture_id;
   GtkWidget *width, *height, *rotation, *flip_h, *flip_v;
   GtkWidget *crop[4], *lock_aspect;     /* left, top, right, bottom, per cent */
+  GtkWidget *anchor[3];
 } PicturePrompt;
 
 static void
@@ -4199,6 +4236,7 @@ on_picture_format_ok (GtkWidget *w, gpointer data)
       pic->crop_r = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[2])) / 100;
       pic->crop_b = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[3])) / 100;
       pic->lock_aspect = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->lock_aspect));
+      pic->anchor = anchor_chosen (prompt->anchor);
       o42_sheet_end_group (prompt->window->sheet);
       o42_sheet_set_modified (prompt->window->sheet, TRUE);
       o42_grid_refresh (prompt->window->grid);
@@ -4265,6 +4303,8 @@ action_format_picture (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->flip_v = gtk_check_button_new_with_mnemonic ( _("Flip _vertical"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_v), pic->flip_v);
   gtk_box_append (GTK_BOX (content), prompt->flip_v);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Object positioning:")));
+  gtk_box_append (GTK_BOX (content), anchor_radios (prompt->anchor, pic->anchor));
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_picture_format_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);

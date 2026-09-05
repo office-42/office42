@@ -13,6 +13,7 @@
 
 #include <cairo.h>
 #include <glib.h>
+#include "o42-types.h"
 
 G_BEGIN_DECLS
 
@@ -30,6 +31,7 @@ typedef struct {
   double           dy;
   double           width;      /* shown size, pixels */
   double           height;
+  O42AnchorMode    anchor;     /* how it follows the cells */
   double           rotation;   /* degrees clockwise about the centre */
   gboolean         flip_h;     /* mirrored, before turning */
   gboolean         flip_v;

@@ -89,7 +89,7 @@ mime_for (const char *format)
 
 static void
 append_anchor (GString *dr, O42Sheet *sheet, int row, int col, double dx, double dy,
-               double width, double height)
+               double width, double height, O42AnchorMode mode)
 {
   double x0 = offset_px (sheet, TRUE, col) + dx;
   double y0 = offset_px (sheet, FALSE, row) + dy;
@@ -99,10 +99,10 @@ append_anchor (GString *dr, O42Sheet *sheet, int row, int col, double dx, double
   cell_at (sheet, TRUE, x0 + width, &to_col, &to_dx);
   cell_at (sheet, FALSE, y0 + height, &to_row, &to_dy);
   g_string_append_printf (dr,
-    "<xdr:twoCellAnchor editAs=\"oneCell\">"
+    "<xdr:twoCellAnchor editAs=\"%s\">"
     "<xdr:from><xdr:col>%d</xdr:col><xdr:colOff>%.0f</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>%.0f</xdr:rowOff></xdr:from>"
     "<xdr:to><xdr:col>%d</xdr:col><xdr:colOff>%.0f</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>%.0f</xdr:rowOff></xdr:to>",
-    col, dx * EMU_PER_PX, row, dy * EMU_PER_PX,
+    o42_anchor_mode_name (mode), col, dx * EMU_PER_PX, row, dy * EMU_PER_PX,
     to_col, to_dx * EMU_PER_PX, to_row, to_dy * EMU_PER_PX);
 }
 
@@ -591,7 +591,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
               "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image%d_%u.%s\"/>",
               rid, index, i + 1, ext);
 
-            append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height);
+            append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, pic->anchor);
             g_string_append_printf (dr,
               "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"%d\"/></xdr:cNvPicPr></xdr:nvPicPr>"
               "<xdr:blipFill><a:blip r:embed=\"rId%d\"/>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
@@ -627,7 +627,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                 chart->width * EMU_PER_PX, chart->height * EMU_PER_PX);
             else
               append_anchor (dr, sheet, chart->row, chart->col, chart->dx, chart->dy,
-                             chart->width, chart->height);
+                             chart->width, chart->height, chart->anchor);
             g_string_append_printf (dr,
               "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"%d\" name=\"Chart %u\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>"
               "<xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
@@ -655,7 +655,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             if (o42_shape_is_control (sh->kind))
               continue;
 
-            append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height);
+            append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height, sh->anchor);
             g_string_append_printf (dr,
               "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
               "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
@@ -1087,7 +1087,8 @@ chart_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user
 
 static void
 add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
-                     int row, int col, double dx, double dy, double width, double height)
+                     int row, int col, double dx, double dy, double width, double height,
+                     O42AnchorMode anchor)
 {
   static const GMarkupParser parser = { chart_start, chart_end, chart_text, NULL, NULL };
   ChartReader c;
@@ -1103,6 +1104,7 @@ add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
       O42Chart *chart = o42_sheet_add_chart (sheet, c.kind_known ? c.kind : O42_CHART_COLUMN, &c.box, row, col);
       if (chart != NULL)
         {
+          chart->anchor = anchor;
           chart->first_row_labels = c.have_tx;
           chart->first_col_labels = c.have_cat || c.kind == O42_CHART_SCATTER;
           g_free (chart->title);
@@ -1168,6 +1170,7 @@ typedef struct
   GString    *text;
   char       *blip, *chart;
 
+  O42AnchorMode anchor_mode;
   gboolean    is_shape;    /* an xdr:sp: a shape the file describes */
   gboolean    in_line;     /* inside a:ln, so a colour is the outline's */
   gboolean    in_body;     /* inside xdr:txBody, so a:t is the shape's text */
@@ -1253,6 +1256,11 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->from_col = d->from_row = d->to_col = d->to_row = 0;
       d->from_coff = d->from_roff = d->to_coff = d->to_roff = 0;
       d->absolute = strcmp (n, "absoluteAnchor") == 0;
+      /* How it follows the cells: the anchor's kind, or what editAs says. */
+      d->anchor_mode = d->absolute ? O42_ANCHOR_ABSOLUTE
+                     : strcmp (n, "oneCellAnchor") == 0 ? O42_ANCHOR_ONE_CELL : O42_ANCHOR_TWO_CELL;
+      if (!d->absolute)
+        o42_anchor_mode_parse (attr (names, values, "editAs"), &d->anchor_mode);
       d->have_to = d->have_ext = FALSE;
       d->abs_x = d->abs_y = 0;
       d->is_shape = d->in_line = d->in_body = d->arrow = d->text_box = FALSE;
@@ -1634,6 +1642,7 @@ finish_anchor (DrawReader *d)
               pic->crop_l = d->crop[0]; pic->crop_t = d->crop[1];
               pic->crop_r = d->crop[2]; pic->crop_b = d->crop[3];
               pic->lock_aspect = d->lock_aspect;
+              pic->anchor = d->anchor_mode;
             }
         }
       g_free (part);
@@ -1671,6 +1680,7 @@ finish_anchor (DrawReader *d)
           sh->dy = dy;
           sh->width = width;
           sh->height = height;
+          sh->anchor = d->anchor_mode;
           sh->fill = d->fill;
           sh->fill_kind = d->fill_kind;
           sh->fill2 = d->fill2;
@@ -1718,7 +1728,7 @@ finish_anchor (DrawReader *d)
       const char *target = g_hash_table_lookup (d->rels, d->chart);
       char *part = target ? resolve (d->dir, target) : NULL;
       if (part != NULL)
-        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height);
+        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height, d->anchor_mode);
       g_free (part);
     }
 }

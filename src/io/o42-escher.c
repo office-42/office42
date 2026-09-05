@@ -389,7 +389,9 @@ static void
 put_anchor (GByteArray *a, const O42EscherShape *s)
 {
   header (a, 0, 0, ESC_CLIENT_ANCHOR, 18);
-  put16 (a, s->is_note ? 3 : 2);   /* 2: move with cells, size fixed; 3: notes as Excel writes them */
+  /* 0: moved and sized with the cells; 2: moved, size its own; 3: neither
+   * -- which is how Excel writes notes too. */
+  put16 (a, s->is_note ? 3 : s->anchor_mode == O42_ANCHOR_ABSOLUTE ? 3 : s->anchor_mode == O42_ANCHOR_ONE_CELL ? 2 : 0);
   put16 (a, s->col1); put16 (a, (guint) (CLAMP (s->dx1, 0, 1) * 1024));
   put16 (a, s->row1); put16 (a, (guint) (CLAMP (s->dy1, 0, 1) * 256));
   put16 (a, s->col2); put16 (a, (guint) (CLAMP (s->dx2, 0, 1) * 1024));
@@ -845,6 +847,9 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
         }
       else if (type == ESC_CLIENT_ANCHOR && rlen >= 18)
         {
+          guint flags = rd16 (body);
+
+          cur.anchor_mode = flags == 3 ? O42_ANCHOR_ABSOLUTE : flags == 2 ? O42_ANCHOR_ONE_CELL : O42_ANCHOR_TWO_CELL;
           cur.col1 = rd16 (body + 2); cur.dx1 = rd16 (body + 4) / 1024.0;
           cur.row1 = rd16 (body + 6); cur.dy1 = rd16 (body + 8) / 256.0;
           cur.col2 = rd16 (body + 10); cur.dx2 = rd16 (body + 12) / 1024.0;
