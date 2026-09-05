@@ -7,6 +7,7 @@
 #include "o42-image.h"
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
+#include <string.h>
 
 static GdkPixbuf *
 decode (GBytes *data, const char **format)
@@ -48,11 +49,87 @@ decode (GBytes *data, const char **format)
   return pixbuf;
 }
 
+static gint32
+rd32le (const guint8 *p)
+{
+  return (gint32) (p[0] | (p[1] << 8) | (p[2] << 16) | ((guint32) p[3] << 24));
+}
+
+static gint16
+rd16le (const guint8 *p)
+{
+  return (gint16) (p[0] | (p[1] << 8));
+}
+
+/* The Windows metafiles Office pastes: gdk-pixbuf cannot draw them, but
+ * the bytes are kept and passed on to the formats that can hold them,
+ * and the header says how big the picture is. */
+gboolean
+o42_image_is_metafile (GBytes *data, int *width, int *height, const char **format)
+{
+  gsize len = 0;
+  const guint8 *p = data != NULL ? g_bytes_get_data (data, &len) : NULL;
+
+  if (p == NULL)
+    return FALSE;
+  if (len >= 88 && rd32le (p) == 1 && memcmp (p + 40, " EMF", 4) == 0)
+    {
+      /* rclFrame, in hundredths of a millimetre. */
+      double w = (rd32le (p + 32) - rd32le (p + 24)) / 2540.0 * 96.0;
+      double h = (rd32le (p + 36) - rd32le (p + 28)) / 2540.0 * 96.0;
+      if (width)  *width  = MAX ((int) (w + 0.5), 1);
+      if (height) *height = MAX ((int) (h + 0.5), 1);
+      if (format) *format = g_intern_static_string ("emf");
+      return TRUE;
+    }
+  if (len >= 22 && p[0] == 0xD7 && p[1] == 0xCD && p[2] == 0xC6 && p[3] == 0x9A)
+    {
+      /* A placeable WMF: a bounding box in units of `inch` per inch. */
+      int inch = rd16le (p + 14);
+      double w = (rd16le (p + 10) - rd16le (p + 6)) * 96.0 / MAX (inch, 1);
+      double h = (rd16le (p + 12) - rd16le (p + 8)) * 96.0 / MAX (inch, 1);
+      if (width)  *width  = MAX ((int) (w + 0.5), 1);
+      if (height) *height = MAX ((int) (h + 0.5), 1);
+      if (format) *format = g_intern_static_string ("wmf");
+      return TRUE;
+    }
+  if (len >= 18 && p[0] == 0x01 && p[1] == 0x00 && p[2] == 0x09 && p[3] == 0x00)
+    {
+      /* A bare WMF says nothing about its size. */
+      if (width)  *width  = 1;
+      if (height) *height = 1;
+      if (format) *format = g_intern_static_string ("wmf");
+      return TRUE;
+    }
+  return FALSE;
+}
+
+GBytes *
+o42_image_as_png (GBytes *data)
+{
+  GdkPixbuf *pixbuf = decode (data, NULL);
+  char *buffer = NULL;
+  gsize size = 0;
+
+  if (pixbuf == NULL)
+    return NULL;
+  if (!gdk_pixbuf_save_to_buffer (pixbuf, &buffer, &size, "png", NULL, NULL))
+    {
+      g_object_unref (pixbuf);
+      return NULL;
+    }
+  g_object_unref (pixbuf);
+  return g_bytes_new_take (buffer, size);
+}
+
 gboolean
 o42_image_probe (GBytes *data, int *width, int *height, const char **format)
 {
-  GdkPixbuf *pixbuf = decode (data, format);
+  GdkPixbuf *pixbuf;
 
+  if (o42_image_is_metafile (data, width, height, format))
+    return TRUE;
+  pixbuf = decode (data, format);
   if (pixbuf == NULL)
     return FALSE;
 

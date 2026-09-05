@@ -140,7 +140,7 @@ main (int argc, char *argv[])
   O42Book *book = o42_book_new ();
   O42Sheet *sheet = o42_book_sheet (book, 0);
   O42Db *db = NULL;
-  char line[4096];
+  static char line[65536];   /* a cell holds 32767 characters, and a note more */
 
   /* SQLVALUE() asks the book's database; it answers #N/A while there
    * is none. */
@@ -1659,9 +1659,10 @@ main (int argc, char *argv[])
               printf ("pattern %s/%06X on ", o42_pattern_name ((O42Pattern) f->pattern),
                       f->pattern_colour);
               if (f->fill == O42_FILL_NONE)
-                printf ("none\n");
+                printf ("none");
               else
-                printf ("%06X\n", f->fill);
+                printf ("%06X", f->fill);
+              printf (" %s%s\n", f->locked ? "locked" : "unlocked", f->hidden ? " hidden" : "");
             }
           continue;
         }
@@ -2001,8 +2002,10 @@ main (int argc, char *argv[])
               const O42Chart *c = g_ptr_array_index (charts, i);
               char *a = o42_ref_name (c->data.row0, c->data.col0);
               char *b = o42_ref_name (c->data.row1, c->data.col1);
-              printf ("chart %u: %s of %s:%s, series in %s, labels row %d col %d, \"%s\", at %d,%d %gx%g\n",
-                      c->id, o42_chart_kind_name (c->kind), a, b,
+              printf ("chart %u: %s of %s%s%s:%s, series in %s, labels row %d col %d, \"%s\", at %d,%d %gx%g\n",
+                      c->id, o42_chart_kind_name (c->kind),
+                      c->data_sheet != NULL && *c->data_sheet != '\0' ? c->data_sheet : "",
+                      c->data_sheet != NULL && *c->data_sheet != '\0' ? "!" : "", a, b,
                       c->series_in_rows ? "rows" : "columns",
                       c->first_row_labels, c->first_col_labels,
                       c->title ? c->title : "", c->row, c->col, c->width, c->height);
