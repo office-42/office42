@@ -77,7 +77,7 @@ enum {
   R_MSODRAWINGGROUP = 0x00EB, R_MSODRAWING = 0x00EC,
   R_HEADER = 0x0014, R_FOOTER = 0x0015, R_HCENTER = 0x0083, R_VCENTER = 0x0084,
   R_SETUP = 0x00A1, R_PRINTSIZE = 0x0033, R_PROTECT = 0x0012,
-  R_PASSWORD = 0x0013,
+  R_PASSWORD = 0x0013, R_HLINK = 0x01B8,
   C_UNITS = 0x1001, C_CHART = 0x1002, C_SERIES = 0x1003, C_DATAFORMAT = 0x1006,
   C_LINEFORMAT = 0x1007, C_AREAFORMAT = 0x100A, C_SERIESTEXT = 0x100D, C_CHARTFORMAT = 0x1014,
   C_LEGEND = 0x1015, C_BAR = 0x1017, C_LINE = 0x1018, C_PIE = 0x1019, C_AREA = 0x101A,
@@ -292,6 +292,19 @@ put_ustr8 (GByteArray *a, const char *text)
   put_ustr_body (a, text);
 }
 
+/* A hyperlink's counted string: the count of UTF-16 units with the
+ * NUL, then the units. */
+static void
+put_hlink_string (GByteArray *a, const char *text)
+{
+  glong n = 0;
+  gunichar2 *u = g_utf8_to_utf16 (text, -1, NULL, &n, NULL);
+  put32 (a, n + 1);
+  for (glong i = 0; i < n; i++) put16 (a, u[i]);
+  put16 (a, 0);
+  g_free (u);
+}
+
 static void
 put_ustr16 (GByteArray *a, const char *text)
 {
@@ -399,6 +412,137 @@ typedef struct {
   char        *title;
   const char  *data_sheet;   /* interned: the sheet the series are on, or NULL */
 } ChartDef;
+
+/* HLINK: a hyperlink on a range of cells, as the Hyperlink Object of
+ * MS-OSHARED has it: a stream version, flags, then whichever of a
+ * display name, a frame name, a moniker (a URL or a file path), and a
+ * place in the book the flags announce.  Returns the target in the
+ * form the sheet keeps -- a URL, or "#Sheet!A1" -- or NULL. */
+#define HL_HAS_MONIKER     0x0001
+#define HL_HAS_LOCATION    0x0008
+#define HL_HAS_DISPLAY     0x0010
+#define HL_HAS_GUID        0x0020
+#define HL_HAS_TIME        0x0040
+#define HL_HAS_FRAME       0x0080
+#define HL_MONIKER_STRING  0x0100
+
+static const guchar HL_STD_GUID[16]  = { 0xD0, 0xC9, 0xEA, 0x79, 0xF9, 0xBA, 0xCE, 0x11,
+                                         0x8C, 0x82, 0x00, 0xAA, 0x00, 0x4B, 0xA9, 0x0B };
+static const guchar HL_URL_GUID[16]  = { 0xE0, 0xC9, 0xEA, 0x79, 0xF9, 0xBA, 0xCE, 0x11,
+                                         0x8C, 0x82, 0x00, 0xAA, 0x00, 0x4B, 0xA9, 0x0B };
+static const guchar HL_FILE_GUID[16] = { 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                         0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 };
+
+/* A counted UTF-16 string: u32 count of units (the NUL included), then
+ * the units.  Returns it without the NUL and advances *pp. */
+static char *
+hlink_string (const guchar **pp, const guchar *end)
+{
+  const guchar *p = *pp;
+  guint32 n;
+  gunichar2 *u;
+  char *text;
+
+  if (p + 4 > end)
+    return NULL;
+  n = rd32 (p);
+  p += 4;
+  if (n > (guint32) (end - p) / 2)
+    n = (end - p) / 2;
+  u = g_new (gunichar2, n + 1);
+  for (guint32 i = 0; i < n; i++)
+    u[i] = rd16 (p + 2 * i);
+  u[n] = 0;
+  text = g_utf16_to_utf8 (u, -1, NULL, NULL, NULL);
+  g_free (u);
+  *pp = p + 2 * n;
+  return text;
+}
+
+static char *
+read_hlink_target (const guchar *p, const guchar *end)
+{
+  guint32 flags;
+  char *url = NULL, *location = NULL, *target = NULL;
+
+  if (p + 24 > end || memcmp (p, HL_STD_GUID, 16) != 0)
+    return NULL;
+  flags = rd32 (p + 20);
+  p += 24;
+  if (flags & HL_HAS_DISPLAY)
+    g_free (hlink_string (&p, end));
+  if (flags & HL_HAS_FRAME)
+    g_free (hlink_string (&p, end));
+  if (flags & HL_HAS_MONIKER)
+    {
+      if (flags & HL_MONIKER_STRING)
+        url = hlink_string (&p, end);
+      else if (p + 16 <= end)
+        {
+          if (memcmp (p, HL_URL_GUID, 16) == 0 && p + 20 <= end)
+            {
+              /* The size in bytes of the URL and what may follow it
+               * (a GUID, a version, flags), then the URL, NUL ended. */
+              guint32 size = rd32 (p + 16);
+              const guchar *q = p + 20;
+              GString *u = g_string_new (NULL);
+              for (guint32 i = 0; i + 1 < size && q + 2 * i + 2 <= end; i++)
+                {
+                  gunichar c = rd16 (q + 2 * i);
+                  if (c == 0) break;
+                  g_string_append_unichar (u, c);
+                }
+              url = g_string_free (u, FALSE);
+              p = q + MIN (size, (guint32) (end - q));
+            }
+          else if (memcmp (p, HL_FILE_GUID, 16) == 0 && p + 22 <= end)
+            {
+              /* A file: the ANSI path, then perhaps a unicode one. */
+              guint32 n = rd32 (p + 18);
+              const guchar *q = p + 22;
+              if (n > (guint32) (end - q)) n = end - q;
+              url = g_strndup ((const char *) q, n);
+              {
+                char *nul = strchr (url, '\0');
+                (void) nul;
+              }
+              q += n + 24;
+              if (q + 4 <= end && rd32 (q) > 0 && q + 14 <= end)
+                {
+                  guint32 bytes = rd32 (q + 4);
+                  const guchar *u = q + 10;
+                  gunichar2 *w;
+                  if (bytes > (guint32) (end - u)) bytes = end - u;
+                  w = g_new (gunichar2, bytes / 2 + 1);
+                  for (guint32 i = 0; i < bytes / 2; i++) w[i] = rd16 (u + 2 * i);
+                  w[bytes / 2] = 0;
+                  g_free (url);
+                  url = g_utf16_to_utf8 (w, -1, NULL, NULL, NULL);
+                  g_free (w);
+                  q = u + bytes;
+                }
+              p = q;
+            }
+          else
+            p = end;
+        }
+    }
+  if (flags & HL_HAS_LOCATION)
+    location = hlink_string (&p, end);
+
+  if (url != NULL && *url != '\0')
+    {
+      if (location != NULL && *location != '\0')
+        target = g_strdup_printf ("%s#%s", url, location);
+      else
+        target = g_strdup (url);
+    }
+  else if (location != NULL && *location != '\0')
+    target = g_strdup_printf ("#%s", location);
+  g_free (url);
+  g_free (location);
+  return target;
+}
 
 /* A string in the encoding the record uses: BIFF8 unicode with flags,
  * BIFF5 bytes.  `wide_len` says whether the length is 16 bits.  Returns
@@ -2144,6 +2288,18 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
           r->default_width = (int) (rd16 (p) * 7.0 + 5.0 + 0.5);
           for (int c = 0; c < O42_MAX_COLS; c++)
             o42_sheet_set_col_width (r->sheet, c, r->default_width);
+        }
+      break;
+    case R_HLINK:
+      if (len >= 8 && r->sheet)
+        {
+          O42Range at = o42_range_normalise (rd16 (p), rd16 (p + 4), rd16 (p + 2), rd16 (p + 6));
+          char *target = read_hlink_target (p + 8, p + len);
+          if (target != NULL)
+            for (int row = at.row0; row <= at.row1 && row < O42_MAX_ROWS; row++)
+              for (int col = at.col0; col <= at.col1 && col < O42_MAX_COLS; col++)
+                o42_sheet_set_link (r->sheet, row, col, target);
+          g_free (target);
         }
       break;
     case R_MERGECELLS:
@@ -4061,6 +4217,44 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         end_record (w);
       }
   }
+  /* Hyperlinks: an HLINK a cell, a URL as a URL moniker and a place
+   * in the book as a location string. */
+  {
+    GHashTableIter it;
+    gpointer k, v;
+
+    g_hash_table_iter_init (&it, o42_sheet_links (sheet));
+    while (g_hash_table_iter_next (&it, &k, &v))
+      {
+        guint64 key = *(guint64 *) k;
+        const char *target = v;
+        int row = o42_key_row (key), col = o42_key_col (key);
+        gboolean internal = target[0] == '#';
+
+        if (row >= O42_XLS_MAX_ROWS || col >= O42_XLS_MAX_COLS || target[1] == '\0')
+          continue;
+        begin_record (w, R_HLINK);
+        put16 (w->out, row); put16 (w->out, row);
+        put16 (w->out, col); put16 (w->out, col);
+        g_byte_array_append (w->out, HL_STD_GUID, 16);
+        put32 (w->out, 2);
+        put32 (w->out, internal ? HL_HAS_LOCATION : HL_HAS_MONIKER | 0x0002);
+        if (internal)
+          put_hlink_string (w->out, target + 1);
+        else
+          {
+            glong n = 0;
+            gunichar2 *u = g_utf8_to_utf16 (target, -1, NULL, &n, NULL);
+            g_byte_array_append (w->out, HL_URL_GUID, 16);
+            put32 (w->out, (n + 1) * 2);
+            for (glong i = 0; i < n; i++) put16 (w->out, u[i]);
+            put16 (w->out, 0);
+            g_free (u);
+          }
+        end_record (w);
+      }
+  }
+
   /* Conditional formats: a CONDFMT per rule, each with one CF whose
    * differential format carries only the masked fields. */
   {
