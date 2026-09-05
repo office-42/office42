@@ -232,6 +232,35 @@ operand_clip_whole (O42EvalContext *ctx, O42Operand *op, const O42Node *node)
     op->range.col1 = MAX (used.col1, op->range.col0);
 }
 
+static O42Value operand_cell (O42EvalContext *ctx, const O42Operand *op, int i, int j);
+
+/* For TRIMRANGE: whether a row (column) of an operand holds nothing. */
+static gboolean
+row_is_empty (O42EvalContext *ctx, const O42Operand *op, int r, int cols)
+{
+  for (int c = 0; c < cols; c++)
+    {
+      O42Value v = operand_cell (ctx, op, r, c);
+      gboolean empty = v.type == O42_VALUE_EMPTY;
+      o42_value_clear (&v);
+      if (!empty) return FALSE;
+    }
+  return TRUE;
+}
+
+static gboolean
+col_is_empty (O42EvalContext *ctx, const O42Operand *op, int c, int rows)
+{
+  for (int r = 0; r < rows; r++)
+    {
+      O42Value v = operand_cell (ctx, op, r, c);
+      gboolean empty = v.type == O42_VALUE_EMPTY;
+      o42_value_clear (&v);
+      if (!empty) return FALSE;
+    }
+  return TRUE;
+}
+
 /* An operand's shape: a value is one by one. */
 static void
 operand_dims (const O42Operand *op, int *rows, int *cols)
@@ -5887,6 +5916,307 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
     }
 
   /* TAKE and DROP: so many rows and columns from one end or the other. */
+  /* VSTACK and HSTACK: the arguments one under (beside) another, the
+   * short ones padded with #N/A. */
+  if ((strcmp (node->as.call.name, "VSTACK") == 0 || strcmp (node->as.call.name, "HSTACK") == 0) && n_args >= 1)
+    {
+      gboolean vertical = node->as.call.name[0] == 'V';
+      O42Operand *parts = g_new0 (O42Operand, n_args);
+      int total = 0, widest = 0;
+      ArrayConst *a;
+      int at = 0;
+
+      for (int i = 0; i < n_args; i++)
+        {
+          int rows, cols;
+          parts[i] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, i));
+          operand_dims (&parts[i], &rows, &cols);
+          total += vertical ? rows : cols;
+          widest = MAX (widest, vertical ? cols : rows);
+        }
+      a = vertical ? array_const_new (total, widest) : array_const_new (widest, total);
+      for (int i = 0; i < n_args; i++)
+        {
+          int rows, cols;
+          operand_dims (&parts[i], &rows, &cols);
+          for (int r = 0; r < (vertical ? rows : widest); r++)
+            for (int c = 0; c < (vertical ? widest : cols); c++)
+              {
+                gboolean inside = vertical ? c < cols : r < rows;
+                O42Value v = inside ? operand_cell (ctx, &parts[i], r, c) : o42_value_error (O42_ERR_NA);
+                if (vertical)
+                  a->cells[(at + r) * widest + c] = v;
+                else
+                  a->cells[r * total + at + c] = v;
+              }
+          at += vertical ? rows : cols;
+          operand_clear (&parts[i]);
+        }
+      g_free (parts);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* EXPAND(array, rows, [columns], [pad_with]): grown to a size, the new
+   * cells #N/A or the padding. */
+  if (strcmp (node->as.call.name, "EXPAND") == 0 && n_args >= 2 && n_args <= 4)
+    {
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols;
+      double want_rows, want_cols;
+      O42Value pad = n_args >= 4 ? o42_eval (ctx, g_ptr_array_index (node->as.call.args, 3)) : o42_value_error (O42_ERR_NA);
+      ArrayConst *a;
+
+      operand_dims (&src, &rows, &cols);
+      want_rows = rows; want_cols = cols;
+      {
+        O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 1));
+        O42ErrorCode e = O42_ERR_VALUE;
+        if (v.type != O42_VALUE_EMPTY && !o42_value_to_number (&v, &want_rows, &e))
+          { o42_value_clear (&v); o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (e); return TRUE; }
+        o42_value_clear (&v);
+      }
+      if (n_args >= 3)
+        {
+          O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 2));
+          O42ErrorCode e = O42_ERR_VALUE;
+          if (v.type != O42_VALUE_EMPTY && !o42_value_to_number (&v, &want_cols, &e))
+            { o42_value_clear (&v); o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (e); return TRUE; }
+          o42_value_clear (&v);
+        }
+      if (want_rows < rows || want_cols < cols || want_rows * want_cols > ARRAY_CELLS_MAX)
+        {
+          o42_value_clear (&pad); operand_clear (&src);
+          out->value = o42_value_error (want_rows * want_cols > ARRAY_CELLS_MAX ? O42_ERR_NUM : O42_ERR_VALUE);
+          return TRUE;
+        }
+      a = array_const_new ((int) want_rows, (int) want_cols);
+      for (int r = 0; r < (int) want_rows; r++)
+        for (int c = 0; c < (int) want_cols; c++)
+          a->cells[r * (int) want_cols + c] = (r < rows && c < cols) ? operand_cell (ctx, &src, r, c)
+                                                                      : o42_value_copy (&pad);
+      o42_value_clear (&pad);
+      operand_clear (&src);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* WRAPROWS and WRAPCOLS: a vector folded into rows (columns) of so
+   * many, the last one padded. */
+  if ((strcmp (node->as.call.name, "WRAPROWS") == 0 || strcmp (node->as.call.name, "WRAPCOLS") == 0) &&
+      n_args >= 2 && n_args <= 3)
+    {
+      gboolean by_rows = node->as.call.name[4] == 'R';
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols, len, count, lines;
+      double wrap = 0;
+      O42Value pad = n_args >= 3 ? o42_eval (ctx, g_ptr_array_index (node->as.call.args, 2)) : o42_value_error (O42_ERR_NA);
+      ArrayConst *a;
+
+      operand_dims (&src, &rows, &cols);
+      if (rows != 1 && cols != 1)
+        { o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      {
+        O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 1));
+        O42ErrorCode e = O42_ERR_VALUE;
+        if (!o42_value_to_number (&v, &wrap, &e) || wrap < 1)
+          { o42_value_clear (&v); o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
+        o42_value_clear (&v);
+      }
+      len = rows * cols;
+      count = (int) wrap;
+      lines = (len + count - 1) / count;
+      a = by_rows ? array_const_new (lines, count) : array_const_new (count, lines);
+      for (int i = 0; i < lines * count; i++)
+        {
+          int line = i / count, k = i % count;
+          O42Value v = i < len ? operand_cell (ctx, &src, rows == 1 ? 0 : i, rows == 1 ? i : 0) : o42_value_copy (&pad);
+          if (by_rows)
+            a->cells[line * count + k] = v;
+          else
+            a->cells[k * lines + line] = v;
+        }
+      o42_value_clear (&pad);
+      operand_clear (&src);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* TOCOL and TOROW: an array laid out in one line, by rows unless asked
+   * by columns, leaving out blanks (1), errors (2) or both (3). */
+  if ((strcmp (node->as.call.name, "TOCOL") == 0 || strcmp (node->as.call.name, "TOROW") == 0) &&
+      n_args >= 1 && n_args <= 3)
+    {
+      gboolean to_col = node->as.call.name[2] == 'C';
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols;
+      double ignore = 0;
+      gboolean by_col = FALSE;
+      GArray *kept = g_array_new (FALSE, FALSE, sizeof (O42Value));
+      ArrayConst *a;
+
+      if (n_args >= 2 && !eval_number_arg (ctx, node, 1, &ignore))
+        { operand_clear (&src); g_array_free (kept, TRUE); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      if (n_args >= 3)
+        {
+          O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 2));
+          O42ErrorCode e = O42_ERR_VALUE;
+          if (!o42_value_to_bool (&v, &by_col, &e)) by_col = FALSE;
+          o42_value_clear (&v);
+        }
+      operand_dims (&src, &rows, &cols);
+      for (int i = 0; i < rows * cols; i++)
+        {
+          int r = by_col ? i % rows : i / cols, c = by_col ? i / rows : i % cols;
+          O42Value v = operand_cell (ctx, &src, r, c);
+          gboolean drop = (v.type == O42_VALUE_EMPTY && ((int) ignore & 1)) ||
+                          (v.type == O42_VALUE_ERROR && ((int) ignore & 2));
+          if (drop) o42_value_clear (&v);
+          else g_array_append_val (kept, v);
+        }
+      operand_clear (&src);
+      if (kept->len == 0)
+        { g_array_free (kept, TRUE); out->value = o42_value_error (O42_ERR_CALC); return TRUE; }
+      a = to_col ? array_const_new ((int) kept->len, 1) : array_const_new (1, (int) kept->len);
+      for (guint i = 0; i < kept->len; i++)
+        a->cells[i] = g_array_index (kept, O42Value, i);
+      g_array_free (kept, TRUE);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* MUNIT(n): the identity matrix. */
+  if (strcmp (node->as.call.name, "MUNIT") == 0 && n_args == 1)
+    {
+      double size = 0;
+      ArrayConst *a;
+
+      if (!eval_number_arg (ctx, node, 0, &size) || size < 1 || size > 3000)
+        { out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      a = array_const_new ((int) size, (int) size);
+      for (int r = 0; r < (int) size; r++)
+        for (int c = 0; c < (int) size; c++)
+          a->cells[r * (int) size + c] = o42_value_number (r == c ? 1 : 0);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* TRIMRANGE(range, [rows], [columns]): the range without its empty
+   * leading (1), trailing (2) or both (3, the default) rows and columns. */
+  if (strcmp (node->as.call.name, "TRIMRANGE") == 0 && n_args >= 1 && n_args <= 3)
+    {
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols, r0, r1, c0, c1;
+      double trim_rows = 3, trim_cols = 3;
+      ArrayConst *a;
+
+      if ((n_args >= 2 && !eval_number_arg (ctx, node, 1, &trim_rows)) ||
+          (n_args >= 3 && !eval_number_arg (ctx, node, 2, &trim_cols)))
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      operand_dims (&src, &rows, &cols);
+      r0 = 0; r1 = rows - 1; c0 = 0; c1 = cols - 1;
+#define ROW_EMPTY(r) row_is_empty (ctx, &src, (r), cols)
+#define COL_EMPTY(c) col_is_empty (ctx, &src, (c), rows)
+      if ((int) trim_rows & 1) while (r0 <= r1 && ROW_EMPTY (r0)) r0++;
+      if ((int) trim_rows & 2) while (r1 >= r0 && ROW_EMPTY (r1)) r1--;
+      if ((int) trim_cols & 1) while (c0 <= c1 && COL_EMPTY (c0)) c0++;
+      if ((int) trim_cols & 2) while (c1 >= c0 && COL_EMPTY (c1)) c1--;
+#undef ROW_EMPTY
+#undef COL_EMPTY
+      if (r1 < r0 || c1 < c0)
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_CALC); return TRUE; }
+      if (src.is_range && !(src.sheet != NULL && src.sheet[0] == '\001'))
+        {
+          /* Still a range, so SUM(TRIMRANGE(A:A)) walks only what is there. */
+          memset (out, 0, sizeof *out);
+          out->is_range = TRUE;
+          out->sheet = src.sheet;
+          out->range.row0 = src.range.row0 + r0;
+          out->range.row1 = src.range.row0 + r1;
+          out->range.col0 = src.range.col0 + c0;
+          out->range.col1 = src.range.col0 + c1;
+          operand_clear (&src);
+          return TRUE;
+        }
+      a = array_const_new (r1 - r0 + 1, c1 - c0 + 1);
+      for (int r = r0; r <= r1; r++)
+        for (int c = c0; c <= c1; c++)
+          a->cells[(r - r0) * (c1 - c0 + 1) + (c - c0)] = operand_cell (ctx, &src, r, c);
+      operand_clear (&src);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* REGEXEXTRACT(text, pattern, [mode], [case]): the first match (0),
+   * every match as a row (1), or the groups of the first match (2). */
+  if (strcmp (node->as.call.name, "REGEXEXTRACT") == 0 && n_args >= 2 && n_args <= 4)
+    {
+      O42Value tv = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 0));
+      O42Value pv = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 1));
+      double mode = 0, case_mode = 0;
+      char *text, *pattern;
+      GRegex *re;
+      GMatchInfo *info = NULL;
+      GError *err = NULL;
+
+      if (tv.type == O42_VALUE_ERROR) { o42_value_clear (&pv); out->value = tv; return TRUE; }
+      if (pv.type == O42_VALUE_ERROR) { o42_value_clear (&tv); out->value = pv; return TRUE; }
+      if ((n_args >= 3 && !eval_number_arg (ctx, node, 2, &mode)) ||
+          (n_args >= 4 && !eval_number_arg (ctx, node, 3, &case_mode)))
+        { o42_value_clear (&tv); o42_value_clear (&pv); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      text = o42_value_to_text (&tv);
+      pattern = o42_value_to_text (&pv);
+      o42_value_clear (&tv);
+      o42_value_clear (&pv);
+      re = g_regex_new (pattern, case_mode == 1 ? G_REGEX_CASELESS : 0, 0, &err);
+      g_free (pattern);
+      if (re == NULL)
+        { g_clear_error (&err); g_free (text); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      g_regex_match (re, text, 0, &info);
+      if (!g_match_info_matches (info))
+        out->value = o42_value_error (O42_ERR_NA);
+      else if (mode == 1)
+        {
+          GPtrArray *all = g_ptr_array_new_with_free_func (g_free);
+          ArrayConst *a;
+          while (g_match_info_matches (info))
+            {
+              g_ptr_array_add (all, g_match_info_fetch (info, 0));
+              g_match_info_next (info, NULL);
+            }
+          a = array_const_new (1, (int) all->len);
+          for (guint i = 0; i < all->len; i++)
+            a->cells[i] = o42_value_text (g_ptr_array_index (all, i));
+          g_ptr_array_free (all, TRUE);
+          *out = array_operand (a);
+        }
+      else if (mode == 2)
+        {
+          int groups = g_regex_get_capture_count (re);
+          ArrayConst *a = array_const_new (1, MAX (groups, 1));
+          for (int g = 1; g <= MAX (groups, 1); g++)
+            {
+              char *piece = g_match_info_fetch (info, groups > 0 ? g : 0);
+              a->cells[g - 1] = o42_value_take (piece != NULL ? piece : g_strdup (""));
+            }
+          *out = array_operand (a);
+        }
+      else
+        out->value = o42_value_take (g_match_info_fetch (info, 0));
+      g_match_info_free (info);
+      g_regex_unref (re);
+      g_free (text);
+      return TRUE;
+    }
+
+  /* GETPIVOTDATA: office42's pivot tables are laid out as cells and
+   * keep no live model to ask, so this is honestly #REF!. */
+  if (strcmp (node->as.call.name, "GETPIVOTDATA") == 0)
+    {
+      out->value = o42_value_error (O42_ERR_REF);
+      return TRUE;
+    }
+
   if ((strcmp (node->as.call.name, "TAKE") == 0 ||
        strcmp (node->as.call.name, "DROP") == 0) && n_args >= 2 && n_args <= 3)
     {
@@ -5938,7 +6268,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
         }
 
       if (row1 < row0 || col1 < col0)
-        out->value = o42_value_error (O42_ERR_VALUE);
+        out->value = o42_value_error (O42_ERR_CALC);   /* nothing left: an empty array */
       else
         {
           a = array_const_new (row1 - row0 + 1, col1 - col0 + 1);
@@ -10101,6 +10431,17 @@ static const struct {
   { "CHOOSECOLS", "CHOOSECOLS(array, col1, col2, ...)", "The columns named, in the order named." },
   { "CHOOSEROWS", "CHOOSEROWS(array, row1, row2, ...)", "The rows named, in the order named." },
   { "TAKE", "TAKE(array, rows, cols)", "So many rows and columns from the near end, or the far one." },
+  { "VSTACK", "VSTACK(array1, array2, ...)", "The arrays one under another, short ones padded with #N/A." },
+  { "HSTACK", "HSTACK(array1, array2, ...)", "The arrays side by side, short ones padded with #N/A." },
+  { "EXPAND", "EXPAND(array, rows, [columns], [pad_with])", "The array grown to a size, the new cells #N/A or the padding." },
+  { "WRAPROWS", "WRAPROWS(vector, wrap_count, [pad_with])", "A vector folded into rows of so many." },
+  { "WRAPCOLS", "WRAPCOLS(vector, wrap_count, [pad_with])", "A vector folded into columns of so many." },
+  { "TOCOL", "TOCOL(array, [ignore], [scan_by_column])", "An array as one column, blanks or errors left out when asked." },
+  { "TOROW", "TOROW(array, [ignore], [scan_by_column])", "An array as one row, blanks or errors left out when asked." },
+  { "MUNIT", "MUNIT(dimension)", "The identity matrix of a size." },
+  { "TRIMRANGE", "TRIMRANGE(range, [trim_rows], [trim_cols])", "The range without its empty outer rows and columns." },
+  { "REGEXEXTRACT", "REGEXEXTRACT(text, pattern, [return_mode], [case])", "What a regular expression matches: the first match, all of them, or the groups." },
+  { "GETPIVOTDATA", "GETPIVOTDATA(data_field, pivot_table, ...)", "A value from a pivot table; #REF! here, whose pivots are plain cells." },
   { "DROP", "DROP(array, rows, cols)", "The rectangle with so many rows and columns left off." },
   { "TEXTSPLIT", "TEXTSPLIT(text, across, down)", "A text cut into a rectangle at its delimiters." },
   { "MODE.MULT", "MODE.MULT(number1, number2, ...)", "Every value that turns up as often as the commonest." },
@@ -11311,7 +11652,10 @@ o42_function_is_future (const char *name)
     "MUNIT", "ENCODEURL", "FILTERXML", "WEBSERVICE", "IMCOSH", "IMCOT", "IMCSC", "IMCSCH",
     "IMSEC", "IMSECH", "IMSINH", "IMTAN", "SORT", "SORTBY", "UNIQUE", "SEQUENCE", "RANDARRAY",
     "FILTER", "LET", "LAMBDA", "TEXTSPLIT", "VSTACK", "HSTACK", "TAKE", "DROP",
-    "MAP", "BYROW", "BYCOL", "REDUCE", "SCAN", "MAKEARRAY", "ISOMITTED", "ANCHORARRAY"
+    "MAP", "BYROW", "BYCOL", "REDUCE", "SCAN", "MAKEARRAY", "ISOMITTED", "ANCHORARRAY",
+    "EXPAND", "WRAPROWS", "WRAPCOLS", "TOCOL", "TOROW", "TRIMRANGE", "REGEXTEST",
+    "REGEXEXTRACT", "REGEXREPLACE", "PERCENTOF", "CHOOSEROWS", "CHOOSECOLS", "VALUETOTEXT",
+    "ARRAYTOTEXT", "TEXTBEFORE", "TEXTAFTER", "XMATCH", "GROUPBY", "PIVOTBY"
   };
   if (strchr (name, '.') != NULL && strcmp (name, "ERROR.TYPE") != 0)
     return TRUE;

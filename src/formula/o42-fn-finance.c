@@ -687,16 +687,6 @@ fn_bahttext (O42EvalContext *ctx, O42Operand *args, int n)
  * nothing outside Thai; the first two hand the text back and the
  * third spells a number the Thai way, which is what they are for. */
 static O42Value
-fn_asc (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *text = NULL;
-
-  (void) n;
-  ARG_TEXT (0, text);
-  return o42_value_take (text);
-}
-
-static O42Value
 fn_phonetic (O42EvalContext *ctx, O42Operand *args, int n)
 {
   char *text = NULL;
@@ -1285,7 +1275,6 @@ const O42Function O42_FUNCS_FINANCE[] = {
   { "ACCRINTM", 3, 5, fn_accrintm },
   { "AMORDEGRC", 6, 7, fn_amordegrc },
   { "AMORLINC", 6, 7, fn_amorlinc },
-  { "ASC", 1, 1, fn_asc },
   { "BAHTTEXT", 1, 1, fn_bahttext },
   { "COUPDAYBS", 3, 4, fn_coupdaybs },
   { "COUPDAYS", 3, 4, fn_coupdays },
@@ -1326,7 +1315,6 @@ const O42FunctionHelp O42_HELP_FINANCE[] = {
   { "ACCRINTM", "ACCRINTM(issue, settlement, rate, par, basis)", "Accrued interest on a security that pays at maturity." },
   { "AMORDEGRC", "AMORDEGRC(cost, purchased, first_period, salvage, period, rate, basis)", "French degressive depreciation for a period." },
   { "AMORLINC", "AMORLINC(cost, purchased, first_period, salvage, period, rate, basis)", "French straight-line depreciation for a period." },
-  { "ASC", "ASC(text)", "Full-width letters as half-width ones; the text itself here." },
   { "BAHTTEXT", "BAHTTEXT(number)", "A number written out in Thai, in baht and satang." },
   { "COUPDAYBS", "COUPDAYBS(settlement, maturity, frequency, basis)", "Days from the start of the coupon period to the settlement." },
   { "COUPDAYS", "COUPDAYS(settlement, maturity, frequency, basis)", "Days in the coupon period the settlement falls in." },
