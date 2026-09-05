@@ -2479,11 +2479,8 @@ weekend_days (O42EvalContext *ctx, const O42Operand *operand, gboolean weekend[8
             weekend[i + 1] = pattern[i] == '1';
         }
       o42_value_clear (&value);
-      /* A week with no working day in it has no next working day, and
-       * looking for one would never stop. */
-      if (ok && weekend[1] && weekend[2] && weekend[3] && weekend[4] &&
-          weekend[5] && weekend[6] && weekend[7])
-        ok = FALSE;
+      /* A week with no working day in it is a pattern still; WORKDAY.INTL
+       * answers #VALUE! to it and NETWORKDAYS.INTL counts nothing. */
       return ok;
     }
   {
@@ -2551,6 +2548,8 @@ fn_workday_intl (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (1, days);
   if (!weekend_days (ctx, n >= 3 ? &args[2] : NULL, weekend))
     return o42_value_error (O42_ERR_NUM);
+  if (weekend[1] && weekend[2] && weekend[3] && weekend[4] && weekend[5] && weekend[6] && weekend[7])
+    return o42_value_error (O42_ERR_VALUE);   /* "1111111": no working day at all */
 
   d = floor (start);
   step = (days < 0) ? -1 : 1;
@@ -2558,6 +2557,8 @@ fn_workday_intl (O42EvalContext *ctx, O42Operand *args, int n)
   while (days > 0)
     {
       d += step;
+      if (d < 0 || d > 2958465)
+        return o42_value_error (O42_ERR_NUM);
       if (!weekend[o42_date_weekday (d)] && !is_holiday (ctx, n >= 4 ? &args[3] : NULL, d))
         days--;
     }

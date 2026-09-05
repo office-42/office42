@@ -1142,6 +1142,8 @@ fn_datedif (O42EvalContext *ctx, O42Operand *args, int n)
   return result;
 }
 
+static O42Value fn_isoweeknum (O42EvalContext *ctx, O42Operand *args, int n);
+
 static O42Value
 fn_weeknum (O42EvalContext *ctx, O42Operand *args, int n)
 {
@@ -1159,9 +1161,22 @@ fn_weeknum (O42EvalContext *ctx, O42Operand *args, int n)
   jan1 = o42_date_serial (y, 1, 1);
   jan1_wd = o42_date_weekday (jan1);    /* Monday 1 .. Sunday 7 */
 
-  /* Weeks begin on Sunday (type 1) or Monday (type 2), and the week that
-   * holds 1 January is week 1. */
-  offset = ((int) type == 2) ? jan1_wd - 1 : jan1_wd % 7;
+  /* Weeks begin on Sunday (type 1 or 17) or Monday (type 2 or 11) or
+   * any other day (12 to 16), and the week that holds 1 January is
+   * week 1; type 21 is the ISO week. */
+  if ((int) type == 21)
+    return fn_isoweeknum (ctx, args, 1);
+  switch ((int) type)
+    {
+    case 1: case 17: offset = jan1_wd % 7; break;
+    case 2: case 11: offset = jan1_wd - 1; break;
+    case 12: case 13: case 14: case 15: case 16:
+      /* The week starts on Tuesday (12) to Saturday (16): how far 1
+       * January is into its week. */
+      offset = (jan1_wd - ((int) type - 10) + 7) % 7;
+      break;
+    default: return o42_value_error (O42_ERR_NUM);
+    }
   return o42_value_number (floor ((floor (serial) - jan1 + offset) / 7) + 1);
 }
 
