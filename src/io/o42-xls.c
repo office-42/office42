@@ -111,7 +111,9 @@ enum {
   C_CATSERRANGE = 0x1020, C_AXISLINEFORMAT = 0x1021, C_CHARTFORMATLINK = 0x1022,
   C_TEXT = 0x1025, C_FONTX = 0x1026, C_OBJECTLINK = 0x1027, C_FRAME = 0x1032,
   C_BEGIN = 0x1033, C_END = 0x1034, C_AXISPARENT = 0x1041, C_SHTPROPS = 0x1044,
-  C_SERTOCRT = 0x1045, C_AXESUSED = 0x1046, C_AI = 0x1051, C_POS = 0x104F
+  C_SERTOCRT = 0x1045, C_AXESUSED = 0x1046, C_AI = 0x1051, C_POS = 0x104F,
+  C_ATTACHEDLABEL = 0x100C, C_CHART3D = 0x103A, C_RADAR = 0x103E, C_RADARAREA = 0x1040,
+  C_IFMT = 0x104E, C_AXCEXT = 0x1062, C_SURF = 0x103F
 };
 
 /* Excel's numbers for its functions, with the argument counts that
@@ -446,6 +448,15 @@ typedef struct {
   gboolean     have_box, have_title_ref, have_cats;
   char        *title;
   const char  *data_sheet;   /* interned: the sheet the series are on, or NULL */
+  /* The rest of what the substream says: the legend, the axis titles,
+   * depth, labels, gridlines, the value axis' format and bounds. */
+  gboolean     legend, three_d, data_labels, gridlines;
+  char        *x_title, *y_title;
+  char        *pending_text;   /* a SERIESTEXT waiting for its OBJECTLINK */
+  int          axis;           /* the AXIS group being read: 0 category, 1 value, -1 none */
+  char        *y_format;
+  gboolean     has_min, has_max;
+  double       min, max;
 } ChartDef;
 
 /* A built-in name's area, kept until the sheet it belongs to exists:
@@ -2089,6 +2100,55 @@ read_chart_record (Reader *r, guint id, const guchar *p, gsize len)
       if (r->chart_depth <= 1) r->in_series = FALSE;
       break;
     case C_SERIES: r->in_series = TRUE; break;
+    case C_LEGEND: def->legend = TRUE; break;
+    case C_CHART3D: def->three_d = TRUE; break;
+    case C_RADAR: case C_RADARAREA: def->kind = O42_CHART_RADAR; def->kind_known = TRUE; break;
+    case C_SURF: def->kind = O42_CHART_SURFACE; def->kind_known = TRUE; break;
+    case C_ATTACHEDLABEL:
+      /* fShowValue, on a series' data format: the points are labelled. */
+      if (len >= 2 && (rd16 (p) & 0x0001))
+        def->data_labels = TRUE;
+      break;
+    case C_AXIS:
+      if (len >= 2) def->axis = rd16 (p) == 1 ? 1 : rd16 (p) == 0 ? 0 : -1;
+      break;
+    case C_AXISLINEFORMAT:
+      /* Id 1 is the major gridlines, drawn when the axis has this. */
+      if (len >= 2 && rd16 (p) == 1 && def->axis == 1)
+        def->gridlines = TRUE;
+      break;
+    case C_VALUERANGE:
+      if (len >= 42 && def->axis == 1)
+        {
+          guint flags = rd16 (p + 40);
+          if (!(flags & 0x0001)) { def->has_min = TRUE; def->min = rd_double (p); }
+          if (!(flags & 0x0002)) { def->has_max = TRUE; def->max = rd_double (p + 8); }
+        }
+      break;
+    case C_IFMT:
+      if (len >= 2 && def->axis == 1 && rd16 (p) != 0)
+        {
+          const char *code = g_hash_table_lookup (r->formats, GINT_TO_POINTER ((int) rd16 (p)));
+          if (code == NULL) code = o42_xlsx_builtin_number_format (rd16 (p));
+          if (code != NULL) { g_free (def->y_format); def->y_format = g_strdup (code); }
+        }
+      break;
+    case C_OBJECTLINK:
+      /* Which text the SERIESTEXT just read belongs to: 1 the chart's
+       * title, 2 the value axis, 3 the category axis. */
+      if (len >= 2 && def->pending_text != NULL)
+        {
+          guint link = rd16 (p);
+          char **slot = link == 1 ? &def->title : link == 2 ? &def->y_title : link == 3 ? &def->x_title : NULL;
+          if (slot != NULL)
+            {
+              g_free (*slot);
+              *slot = def->pending_text;
+              def->pending_text = NULL;
+            }
+        }
+      g_clear_pointer (&def->pending_text, g_free);
+      break;
     case C_AI:
       if (len >= 8 && r->in_series)
         {
@@ -2133,20 +2193,56 @@ read_chart_record (Reader *r, guint id, const guchar *p, gsize len)
         }
       break;
     case C_LINE: def->kind = O42_CHART_LINE; def->kind_known = TRUE; break;
-    case C_PIE: def->kind = O42_CHART_PIE; def->kind_known = TRUE; break;
+    case C_PIE:
+      /* A pie with a hole is a doughnut. */
+      def->kind = len >= 4 && rd16 (p + 2) > 0 ? O42_CHART_DOUGHNUT : O42_CHART_PIE;
+      def->kind_known = TRUE;
+      break;
     case C_AREA: def->kind = O42_CHART_AREA; def->kind_known = TRUE; break;
-    case C_SCATTER: def->kind = O42_CHART_SCATTER; def->kind_known = TRUE; break;
+    case C_SCATTER:
+      def->kind = len >= 6 && (rd16 (p + 4) & 0x0001) ? O42_CHART_BUBBLE : O42_CHART_SCATTER;
+      def->kind_known = TRUE;
+      break;
     case C_SERIESTEXT:
-      if (!r->in_series && len >= 3 && def->title == NULL)
+      if (!r->in_series && len >= 3)
         {
-          /* id u16, then a byte-counted unicode string. */
+          /* id u16, then a byte-counted unicode string; the OBJECTLINK
+           * that follows says whose it is.  Without one it is the title. */
           const guchar *q = p + 2;
-          def->title = read_str (r, &q, p + len, FALSE);
+          g_free (def->pending_text);
+          def->pending_text = read_str (r, &q, p + len, FALSE);
+          if (def->title == NULL)
+            def->title = g_strdup (def->pending_text);
         }
       break;
     default:
       break;
     }
+}
+
+/* The rest of what a chart substream said, onto the chart. */
+static void
+chart_take_def (O42Chart *chart, const ChartDef *def)
+{
+  chart->legend = def->legend;
+  chart->three_d = def->three_d;
+  chart->data_labels = def->data_labels;
+  chart->gridlines = def->gridlines;
+  if (def->x_title != NULL) { g_free (chart->x_title); chart->x_title = g_strdup (def->x_title); }
+  if (def->y_title != NULL) { g_free (chart->y_title); chart->y_title = g_strdup (def->y_title); }
+  if (def->y_format != NULL) { g_free (chart->y_format); chart->y_format = g_strdup (def->y_format); }
+  chart->has_min = def->has_min; chart->min = def->min;
+  chart->has_max = def->has_max; chart->max = def->max;
+}
+
+static void
+chart_def_clear (ChartDef *def)
+{
+  g_free (def->title);
+  g_free (def->x_title);
+  g_free (def->y_title);
+  g_free (def->pending_text);
+  g_free (def->y_format);
 }
 
 static double
@@ -2413,6 +2509,7 @@ read_drawing (Reader *r)
                       chart->first_col_labels = def->have_cats || def->kind == O42_CHART_SCATTER;
                       g_free (chart->title);
                       chart->title = g_strdup (def->title ? def->title : "");
+                      chart_take_def (chart, def);
                       chart->dx = f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
                       chart->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
                       chart->width = MAX (cx1 - cx0, 40);
@@ -3034,6 +3131,7 @@ read_workbook (Reader *r, GError **error)
                   {
                     ChartDef def;
                     memset (&def, 0, sizeof def);
+                    def.axis = -1;
                     g_array_append_val (r->chart_defs, def);
                     r->in_series = FALSE;
                     r->chart_depth = 0;
@@ -3082,7 +3180,7 @@ read_workbook (Reader *r, GError **error)
                   obj_info_clear (&g_array_index (r->objs, ObjInfo, k));
                 g_array_set_size (r->objs, 0);
                 for (guint k = 0; k < r->chart_defs->len; k++)
-                  g_free (g_array_index (r->chart_defs, ChartDef, k).title);
+                  chart_def_clear (&g_array_index (r->chart_defs, ChartDef, k));
                 g_array_set_size (r->chart_defs, 0);
                 r->pending = FALSE;
                 r->obj_is_note = FALSE;
@@ -3092,6 +3190,7 @@ read_workbook (Reader *r, GError **error)
                   {
                     ChartDef def;
                     memset (&def, 0, sizeof def);
+                    def.axis = -1;
                     g_array_append_val (r->chart_defs, def);
                     r->in_series = FALSE;
                     r->chart_depth = 0;
@@ -3130,6 +3229,7 @@ read_workbook (Reader *r, GError **error)
                       chart->first_col_labels = def->have_cats || def->kind == O42_CHART_SCATTER;
                       g_free (chart->title);
                       chart->title = g_strdup (def->title ? def->title : "");
+                      chart_take_def (chart, def);
                       if (def->data_sheet != NULL)
                         {
                           g_free (chart->data_sheet);
@@ -3473,7 +3573,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   g_byte_array_unref (r.group);
   g_byte_array_unref (r.drawing);
   for (guint k = 0; k < r.chart_defs->len; k++)
-    g_free (g_array_index (r.chart_defs, ChartDef, k).title);
+    chart_def_clear (&g_array_index (r.chart_defs, ChartDef, k));
   g_array_unref (r.chart_defs);
   for (guint k = 0; k < r.objs->len; k++)
     obj_info_clear (&g_array_index (r.objs, ObjInfo, k));
@@ -4273,8 +4373,10 @@ chart_line_area (Writer *w, guint32 colour, gboolean frame)
   end_record (w);
 }
 
+static guint chart_format_id (Writer *w, const char *code);
+
 static void
-chart_axis (Writer *w, int which)
+chart_axis (Writer *w, int which, const O42Chart *chart)
 {
   begin_record (w, C_AXIS);
   put16 (w->out, which); for (int k = 0; k < 16; k++) put8 (w->out, 0);
@@ -4285,19 +4387,25 @@ chart_axis (Writer *w, int which)
       begin_record (w, C_CATSERRANGE);
       put16 (w->out, 1); put16 (w->out, 1); put16 (w->out, 1); put16 (w->out, 1);
       end_record (w);
-      begin_record (w, 0x1062);   /* AXCEXT: everything automatic */
+      begin_record (w, C_AXCEXT);   /* everything automatic */
       for (int k = 0; k < 8; k++) put16 (w->out, 0);
       put16 (w->out, 0x00FF);
       end_record (w);
     }
   else
     {
+      /* The value axis' bounds, automatic unless the chart says. */
+      guint flags = 0x011F;
       begin_record (w, C_VALUERANGE);
-      for (int k = 0; k < 40; k++) put8 (w->out, 0);
-      put16 (w->out, 0x011F);   /* everything automatic */
+      put_double (w->out, chart->has_min ? chart->min : 0);
+      put_double (w->out, chart->has_max ? chart->max : 0);
+      for (int k = 0; k < 24; k++) put8 (w->out, 0);
+      if (chart->has_min) flags &= ~0x0001u;
+      if (chart->has_max) flags &= ~0x0002u;
+      put16 (w->out, flags);
       end_record (w);
-      begin_record (w, 0x104E);   /* IFMT: General */
-      put16 (w->out, 0);
+      begin_record (w, C_IFMT);
+      put16 (w->out, chart->y_format != NULL && *chart->y_format != '\0' ? chart_format_id (w, chart->y_format) : 0);
       end_record (w);
     }
   begin_record (w, C_TICK);
@@ -4311,6 +4419,50 @@ chart_axis (Writer *w, int which)
   begin_record (w, C_LINEFORMAT);
   put32 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0xFFFF); put16 (w->out, 0x0004); put16 (w->out, 0x004D);   /* fAxisOn */
   end_record (w);
+  if (which == 1 && chart->gridlines)
+    {
+      /* The major gridlines: an axis line format of id 1 and its line. */
+      begin_record (w, C_AXISLINEFORMAT); put16 (w->out, 1); end_record (w);
+      begin_record (w, C_LINEFORMAT);
+      put32 (w->out, 0x00C0C0C0); put16 (w->out, 0); put16 (w->out, 0xFFFF); put16 (w->out, 0x0000); put16 (w->out, 0x0017);
+      end_record (w);
+    }
+  begin_record (w, C_END); end_record (w);
+}
+
+/* A number format's id for a chart's IFMT: one of Excel's built-in
+ * codes, or a FORMAT record of the workbook's. */
+static guint
+chart_format_id (Writer *w, const char *code)
+{
+  O42Fmt f;
+
+  o42_fmt_init_default (&f);
+  o42_xlsx_apply_format_code (&f, code);
+  return format_id (w, &f);
+}
+
+/* A text group of the chart: its title, or an axis'.  `link` is 1 for
+ * the chart's, 2 for the value axis, 3 for the category axis. */
+static void
+chart_text (Writer *w, const char *text, guint link)
+{
+  begin_record (w, C_TEXT);
+  put8 (w->out, 2); put8 (w->out, 2); put16 (w->out, 1);
+  put32 (w->out, 0xFFFFFF); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0);
+  put16 (w->out, link == 2 ? 0x00B1 : 0x00B1); put16 (w->out, 0x004D); put16 (w->out, link == 2 ? 0x00FF : 0); put16 (w->out, 0);
+  end_record (w);
+  begin_record (w, C_BEGIN); end_record (w);
+  begin_record (w, C_POS);
+  put16 (w->out, 2); put16 (w->out, 2); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0);
+  end_record (w);
+  begin_record (w, C_FONTX); put16 (w->out, 0); end_record (w);
+  begin_record (w, C_AI); put8 (w->out, 0); put8 (w->out, 1); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
+  begin_record (w, C_SERIESTEXT);
+  put16 (w->out, 0);
+  put_ustr8 (w->out, text);
+  end_record (w);
+  begin_record (w, C_OBJECTLINK); put16 (w->out, link); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
   begin_record (w, C_END); end_record (w);
 }
 
@@ -4517,7 +4669,9 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
   int first_row = d->row0 + (chart->first_row_labels ? 1 : 0);
   O42Book *book = o42_sheet_get_book (sheet);
   int first_col = d->col0 + (chart->first_col_labels ? 1 : 0);
-  gboolean scatter = chart->kind == O42_CHART_SCATTER, pie = chart->kind == O42_CHART_PIE;
+  gboolean scatter = chart->kind == O42_CHART_SCATTER || chart->kind == O42_CHART_BUBBLE;
+  gboolean pie = chart->kind == O42_CHART_PIE || chart->kind == O42_CHART_DOUGHNUT;
+  gboolean no_axes = pie || chart->kind == O42_CHART_RADAR;
   int n_series = 0;
 
   /* The series' references name the sheet the cells are on, which for
@@ -4557,7 +4711,7 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
     int start_col = scatter ? d->col0 + 1 : first_col;
     int n_points = d->row1 - first_row + 1;
 
-    for (int col = start_col; col <= d->col1 && (!pie || n_series == 0); col++)
+    for (int col = start_col; col <= d->col1 && (chart->kind != O42_CHART_PIE || n_series == 0); col++)
       {
         O42Range title = { d->row0, col, d->row0, col };
         O42Range values = { first_row, col, d->row1, col };
@@ -4580,6 +4734,11 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
         end_record (w);
         begin_record (w, C_BEGIN); end_record (w);
         chart_line_area (w, COLOURS[n_series % G_N_ELEMENTS (COLOURS)], FALSE);
+        if (chart->data_labels)
+          {
+            /* fShowValue: each point's value beside it. */
+            begin_record (w, C_ATTACHEDLABEL); put16 (w->out, 0x0001); end_record (w);
+          }
         begin_record (w, C_END); end_record (w);
         begin_record (w, C_SERTOCRT); put16 (w->out, 0); end_record (w);
         begin_record (w, C_END); end_record (w);
@@ -4596,10 +4755,10 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
   begin_record (w, C_POS);
   put16 (w->out, 2); put16 (w->out, 2); put32 (w->out, 0); put32 (w->out, 0x0390); put32 (w->out, 0x0F67); put32 (w->out, 0x0BB8);
   end_record (w);
-  if (!pie)
+  if (!no_axes)
     {
-      chart_axis (w, 0);
-      chart_axis (w, 1);
+      chart_axis (w, 0, chart);
+      chart_axis (w, 1, chart);
     }
   begin_record (w, C_CHARTFORMAT);
   for (int k = 0; k < 16; k++) put8 (w->out, 0);
@@ -4614,11 +4773,21 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
     case O42_CHART_PIE:
       begin_record (w, C_PIE); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
       break;
+    case O42_CHART_DOUGHNUT:
+      /* A pie with a hole half its width. */
+      begin_record (w, C_PIE); put16 (w->out, 0); put16 (w->out, 50); put16 (w->out, 0); end_record (w);
+      break;
     case O42_CHART_AREA:
       begin_record (w, C_AREA); put16 (w->out, 0); end_record (w);
       break;
     case O42_CHART_SCATTER:
       begin_record (w, C_SCATTER); put16 (w->out, 100); put16 (w->out, 1); put16 (w->out, 0); end_record (w);
+      break;
+    case O42_CHART_BUBBLE:
+      begin_record (w, C_SCATTER); put16 (w->out, 100); put16 (w->out, 1); put16 (w->out, 0x0001); end_record (w);
+      break;
+    case O42_CHART_RADAR:
+      begin_record (w, C_RADAR); put16 (w->out, 0x0001); put16 (w->out, 0); end_record (w);
       break;
     default:
       begin_record (w, C_BAR);
@@ -4631,6 +4800,13 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
       break;
     }
   begin_record (w, C_CHARTFORMATLINK); end_record (w);
+  if (chart->three_d)
+    {
+      /* Chart3d: the default 15/20 degree view, with perspective. */
+      begin_record (w, C_CHART3D);
+      put16 (w->out, 15); put16 (w->out, 20); put16 (w->out, 30); put16 (w->out, 100); put16 (w->out, 150); put16 (w->out, 0x0002);
+      end_record (w);
+    }
   if ((n_series > 1 || pie) && chart->legend)
     {
       begin_record (w, C_LEGEND);
@@ -4644,28 +4820,16 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
       begin_record (w, C_END); end_record (w);
     }
   begin_record (w, C_END); end_record (w);   /* CHARTFORMAT */
+  /* The axis titles belong to the axes' group, where Excel and
+   * LibreOffice look for them; the chart's own title comes after. */
+  if (!no_axes && chart->x_title != NULL && chart->x_title[0] != '\0')
+    chart_text (w, chart->x_title, 3);
+  if (!no_axes && chart->y_title != NULL && chart->y_title[0] != '\0')
+    chart_text (w, chart->y_title, 2);
   begin_record (w, C_END); end_record (w);   /* AXISPARENT */
 
   if (chart->title != NULL && chart->title[0] != '\0')
-    {
-      begin_record (w, C_TEXT);
-      put8 (w->out, 2); put8 (w->out, 2); put16 (w->out, 1);
-      put32 (w->out, 0xFFFFFF); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0);
-      put16 (w->out, 0x00B1); put16 (w->out, 0x004D); put16 (w->out, 0); put16 (w->out, 0);
-      end_record (w);
-      begin_record (w, C_BEGIN); end_record (w);
-      begin_record (w, C_POS);
-      put16 (w->out, 2); put16 (w->out, 2); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0);
-      end_record (w);
-      begin_record (w, C_FONTX); put16 (w->out, 0); end_record (w);
-      begin_record (w, C_AI); put8 (w->out, 0); put8 (w->out, 1); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
-      begin_record (w, C_SERIESTEXT);
-      put16 (w->out, 0);
-      put_ustr8 (w->out, chart->title);
-      end_record (w);
-      begin_record (w, C_OBJECTLINK); put16 (w->out, 1); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
-      begin_record (w, C_END); end_record (w);
-    }
+    chart_text (w, chart->title, 1);
   begin_record (w, C_END); end_record (w);   /* CHART */
   begin_record (w, R_EOF); end_record (w);
 }
