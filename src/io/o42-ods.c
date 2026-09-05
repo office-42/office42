@@ -1715,10 +1715,18 @@ write_settings (GString *out, O42Book *book)
   for (int i = 0; i < o42_book_n_sheets (book); i++)
     {
       O42Sheet *sheet = o42_book_sheet (book, i);
+      const O42SheetView *view = o42_sheet_view (sheet);
       int rows = 0, cols = 0;
       char *name = g_markup_escape_text (o42_sheet_get_name (sheet), -1);
       o42_sheet_get_frozen (sheet, &rows, &cols);
       g_string_append_printf (out, "<config:config-item-map-entry config:name=\"%s\">", name);
+      g_string_append_printf (out,
+        "<config:config-item config:name=\"CursorPositionX\" config:type=\"int\">%d</config:config-item>"
+        "<config:config-item config:name=\"CursorPositionY\" config:type=\"int\">%d</config:config-item>"
+        "<config:config-item config:name=\"ZoomType\" config:type=\"short\">0</config:config-item>"
+        "<config:config-item config:name=\"ZoomValue\" config:type=\"int\">%d</config:config-item>"
+        "<config:config-item config:name=\"ShowGrid\" config:type=\"boolean\">%s</config:config-item>",
+        view->active_col, view->active_row, view->zoom, view->gridlines ? "true" : "false");
       if (rows > 0 || cols > 0)
         g_string_append_printf (out,
           "<config:config-item config:name=\"HorizontalSplitMode\" config:type=\"short\">%d</config:config-item>"
@@ -1733,7 +1741,27 @@ write_settings (GString *out, O42Book *book)
       g_string_append (out, "</config:config-item-map-entry>");
       g_free (name);
     }
-  g_string_append (out, "</config:config-item-map-named></config:config-item-map-entry></config:config-item-map-indexed>"
+  g_string_append (out, "</config:config-item-map-named>");
+  {
+    /* The sheet the book opens on, and what shows, which LibreOffice
+     * keeps once for the view: the shown sheet's say. */
+    O42Sheet *shown = o42_book_sheet (book, 0);
+    char *name;
+
+    for (int i = 0; i < o42_book_n_sheets (book); i++)
+      if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+        { shown = o42_book_sheet (book, i); break; }
+    name = g_markup_escape_text (o42_sheet_get_name (shown), -1);
+    g_string_append_printf (out,
+      "<config:config-item config:name=\"ActiveTable\" config:type=\"string\">%s</config:config-item>"
+      "<config:config-item config:name=\"ZoomValue\" config:type=\"int\">%d</config:config-item>"
+      "<config:config-item config:name=\"ShowGrid\" config:type=\"boolean\">%s</config:config-item>"
+      "<config:config-item config:name=\"ShowZeroValues\" config:type=\"boolean\">%s</config:config-item>",
+      name, o42_sheet_view (shown)->zoom, o42_sheet_view (shown)->gridlines ? "true" : "false",
+      o42_sheet_view (shown)->zeros ? "true" : "false");
+    g_free (name);
+  }
+  g_string_append (out, "</config:config-item-map-entry></config:config-item-map-indexed>"
                         "</config:config-item-set></office:settings></office:document-settings>");
 }
 
@@ -2069,6 +2097,8 @@ typedef struct {
   char       *setting_name;
   GString    *setting_value;
   int         split_cols, split_rows, hmode, vmode;
+  int         setting_cursor_x, setting_cursor_y, setting_zoom, setting_grid;
+  int         view_zeros;
 } Reader;
 
 static const char *
@@ -3924,6 +3954,9 @@ settings_start (GMarkupParseContext *ctx, const char *element, const char **name
       g_free (r->setting_table);
       r->setting_table = g_strdup (attr (names, values, "name"));
       r->split_cols = r->split_rows = r->hmode = r->vmode = 0;
+      r->setting_cursor_x = r->setting_cursor_y = 0;
+      r->setting_zoom = 0;
+      r->setting_grid = -1;
     }
   else if (strcmp (name, "config-item") == 0)
     {
@@ -3943,10 +3976,45 @@ settings_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErr
   if (strcmp (name, "config-item") == 0 && r->setting_name != NULL && r->setting_value != NULL)
     {
       int v = atoi (r->setting_value->str);
+      gboolean truth = strcmp (r->setting_value->str, "true") == 0;
       if (strcmp (r->setting_name, "HorizontalSplitMode") == 0) r->hmode = v;
       else if (strcmp (r->setting_name, "VerticalSplitMode") == 0) r->vmode = v;
       else if (strcmp (r->setting_name, "HorizontalSplitPosition") == 0) r->split_cols = v;
       else if (strcmp (r->setting_name, "VerticalSplitPosition") == 0) r->split_rows = v;
+      else if (strcmp (r->setting_name, "CursorPositionX") == 0) r->setting_cursor_x = v;
+      else if (strcmp (r->setting_name, "CursorPositionY") == 0) r->setting_cursor_y = v;
+      else if (strcmp (r->setting_name, "ZoomValue") == 0) r->setting_zoom = v;
+      else if (strcmp (r->setting_name, "ShowGrid") == 0) r->setting_grid = truth ? 1 : 0;
+      else if (strcmp (r->setting_name, "ShowZeroValues") == 0 && r->setting_table == NULL)
+        r->view_zeros = truth ? 1 : 0;
+      else if (strcmp (r->setting_name, "ActiveTable") == 0 && r->setting_table == NULL)
+        {
+          O42Sheet *sheet = o42_book_find_sheet (r->book, r->setting_value->str);
+          for (int i = 0; sheet != NULL && i < o42_book_n_sheets (r->book); i++)
+            {
+              O42SheetView view = *o42_sheet_view (o42_book_sheet (r->book, i));
+              view.selected = o42_book_sheet (r->book, i) == sheet;
+              o42_sheet_set_view (o42_book_sheet (r->book, i), &view);
+            }
+        }
+      /* The view's own ZoomValue and ShowGrid, outside any table, are
+       * the shown sheet's; the tables' own entries came first. */
+      if (r->setting_table == NULL &&
+          (strcmp (r->setting_name, "ZoomValue") == 0 || strcmp (r->setting_name, "ShowGrid") == 0 ||
+           strcmp (r->setting_name, "ShowZeroValues") == 0))
+        for (int i = 0; i < o42_book_n_sheets (r->book); i++)
+          {
+            O42Sheet *sheet = o42_book_sheet (r->book, i);
+            O42SheetView view = *o42_sheet_view (sheet);
+            gboolean any_shown = FALSE;
+            for (int k = 0; k < o42_book_n_sheets (r->book); k++)
+              any_shown = any_shown || o42_sheet_view (o42_book_sheet (r->book, k))->selected;
+            if (strcmp (r->setting_name, "ShowZeroValues") == 0) view.zeros = truth;
+            else if (any_shown && !view.selected) continue;
+            else if (strcmp (r->setting_name, "ZoomValue") == 0 && v > 0) view.zoom = v;
+            else if (strcmp (r->setting_name, "ShowGrid") == 0) view.gridlines = truth;
+            o42_sheet_set_view (sheet, &view);
+          }
       g_clear_pointer (&r->setting_name, g_free);
     }
   else if (strcmp (name, "config-item-map-entry") == 0 && r->setting_table != NULL)
@@ -3954,6 +4022,16 @@ settings_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErr
       O42Sheet *sheet = o42_book_find_sheet (r->book, r->setting_table);
       if (sheet != NULL && (r->hmode == 2 || r->vmode == 2))
         o42_sheet_set_frozen (sheet, r->vmode == 2 ? r->split_rows : 0, r->hmode == 2 ? r->split_cols : 0);
+      if (sheet != NULL)
+        {
+          O42SheetView view = *o42_sheet_view (sheet);
+          view.active_row = r->setting_cursor_y;
+          view.active_col = r->setting_cursor_x;
+          view.selection = o42_range_normalise (view.active_row, view.active_col, view.active_row, view.active_col);
+          if (r->setting_zoom > 0) view.zoom = r->setting_zoom;
+          if (r->setting_grid >= 0) view.gridlines = r->setting_grid != 0;
+          o42_sheet_set_view (sheet, &view);
+        }
       g_clear_pointer (&r->setting_table, g_free);
     }
 }

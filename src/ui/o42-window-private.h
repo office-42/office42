@@ -54,6 +54,7 @@ struct _O42Window {
   GListModel *families;
   GHashTable *family_index;
   gboolean    updating;
+  gboolean    applying_view;    /* the sheet's view is being put on the grid */
 };
 
 /* ---- The frame a dialog is built in ------------------------------------ */

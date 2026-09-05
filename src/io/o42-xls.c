@@ -86,6 +86,7 @@ enum {
   R_BOUNDSHEET = 0x0085, R_PALETTE = 0x0092, R_AUTOFILTERINFO = 0x009D,
   R_AUTOFILTER = 0x009E, R_FILTERMODE = 0x009B, R_FILEPASS = 0x002F,
   R_DATEMODE = 0x0022, R_SHEETEXT = 0x0862, R_GUTS = 0x0080,
+  R_SCL = 0x00A0, R_SELECTION = 0x001D,
   R_MULRK = 0x00BD, R_MULBLANK = 0x00BE, R_RSTRING = 0x00D6, R_XF = 0x00E0,
   R_MERGECELLS = 0x00E5, R_SST = 0x00FC, R_LABELSST = 0x00FD, R_EXTSST = 0x00FF,
   R_DIMENSIONS = 0x0200, R_BLANK = 0x0201, R_NUMBER = 0x0203, R_LABEL = 0x0204,
@@ -2826,8 +2827,46 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
     case R_WINDOW2:
       if (len >= 2 && r->sheet)
         {
+          guint flags = rd16 (p);
+          O42SheetView view = *o42_sheet_view (r->sheet);
+
           r->pending = FALSE;
-          r->frozen = (rd16 (p) & 0x0008) != 0;
+          r->frozen = (flags & 0x0008) != 0;
+          view.gridlines = (flags & 0x0002) != 0;
+          view.zeros = (flags & 0x0010) != 0;
+          view.right_to_left = (flags & 0x0040) != 0;
+          view.outline_symbols = (flags & 0x0080) != 0;
+          view.selected = (flags & 0x0200) != 0;
+          /* BIFF8 carries the zoom here too, when no SCL follows. */
+          if (len >= 14 && rd16 (p + 12) >= 10 && rd16 (p + 12) <= 400)
+            view.zoom = rd16 (p + 12);
+          o42_sheet_set_view (r->sheet, &view);
+        }
+      break;
+    case R_SCL:
+      if (len >= 4 && r->sheet && rd16 (p + 2) != 0)
+        {
+          O42SheetView view = *o42_sheet_view (r->sheet);
+          view.zoom = (int) (rd16 (p) * 100.0 / rd16 (p + 2) + 0.5);
+          o42_sheet_set_view (r->sheet, &view);
+        }
+      break;
+    case R_SELECTION:
+      /* The pane's active cell and its first selected range; the pane
+       * that holds the active cell is the one that counts, which the
+       * frozen bottom-right (0) or the whole sheet (3) is. */
+      if (len >= 15 && r->sheet && (p[0] == 3 || p[0] == 0 || !r->frozen))
+        {
+          O42SheetView view = *o42_sheet_view (r->sheet);
+          guint cref = rd16 (p + 7);
+
+          view.active_row = rd16 (p + 1);
+          view.active_col = rd16 (p + 3);
+          if (cref >= 1)
+            view.selection = o42_range_normalise (rd16 (p + 9), p[13], rd16 (p + 11), p[14]);
+          else
+            view.selection = o42_range_normalise (view.active_row, view.active_col, view.active_row, view.active_col);
+          o42_sheet_set_view (r->sheet, &view);
         }
       break;
     case R_PANE:
@@ -4876,11 +4915,28 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     }
 
   o42_sheet_get_frozen (sheet, &frozen_rows, &frozen_cols);
-  begin_record (w, R_WINDOW2);
-  put16 (w->out, 0x06B6 | (frozen_rows > 0 || frozen_cols > 0 ? 0x0108 : 0) | (index == 0 ? 0x0600 : 0));
-  put16 (w->out, 0); put16 (w->out, 0);
-  put32 (w->out, 0x40); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
-  end_record (w);
+  {
+    const O42SheetView *view = o42_sheet_view (sheet);
+    guint flags = 0x0004 | 0x0020;   /* headers, the default grid colour */
+
+    if (view->gridlines) flags |= 0x0002;
+    if (view->zeros) flags |= 0x0010;
+    if (view->right_to_left) flags |= 0x0040;
+    if (view->outline_symbols) flags |= 0x0080;
+    if (frozen_rows > 0 || frozen_cols > 0) flags |= 0x0108;
+    if (view->selected) flags |= 0x0600;
+    begin_record (w, R_WINDOW2);
+    put16 (w->out, flags);
+    put16 (w->out, 0); put16 (w->out, 0);
+    put32 (w->out, 0x40); put16 (w->out, 0); put16 (w->out, view->zoom); put32 (w->out, 0);
+    end_record (w);
+    if (view->zoom != 100)
+      {
+        begin_record (w, R_SCL);
+        put16 (w->out, view->zoom); put16 (w->out, 100);
+        end_record (w);
+      }
+  }
   if (o42_sheet_tab_colour (sheet) != O42_TAB_NO_COLOUR)
     {
       /* SHEETEXT: the tab's colour as a palette index, after the FRT
@@ -4893,6 +4949,22 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
       for (int k = 0; k < 20; k++) put8 (w->out, 0);
       end_record (w);
     }
+  {
+    /* SELECTION: the active cell and the selected range, in the pane
+     * the active cell lies in (3 when nothing is frozen). */
+    const O42SheetView *view = o42_sheet_view (sheet);
+    O42Range sel = view->selection;
+
+    begin_record (w, R_SELECTION);
+    put8 (w->out, frozen_rows > 0 || frozen_cols > 0 ? 0 : 3);
+    put16 (w->out, MIN (view->active_row, O42_XLS_MAX_ROWS - 1));
+    put16 (w->out, MIN (view->active_col, O42_XLS_MAX_COLS - 1));
+    put16 (w->out, 0);
+    put16 (w->out, 1);
+    put16 (w->out, MIN (sel.row0, O42_XLS_MAX_ROWS - 1)); put16 (w->out, MIN (sel.row1, O42_XLS_MAX_ROWS - 1));
+    put8 (w->out, MIN (sel.col0, O42_XLS_MAX_COLS - 1)); put8 (w->out, MIN (sel.col1, O42_XLS_MAX_COLS - 1));
+    end_record (w);
+  }
   if (frozen_rows > 0 || frozen_cols > 0)
     {
       begin_record (w, R_PANE);
@@ -5371,10 +5443,18 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   if (o42_book_date_1904 (book))
     { begin_record (&w, R_DATEMODE); put16 (w.out, 1); end_record (&w); }
 
-  begin_record (&w, R_WINDOW1);
-  put16 (w.out, 0x0168); put16 (w.out, 0x001E); put16 (w.out, 0x3A5C); put16 (w.out, 0x1C8F);
-  put16 (w.out, 0x0038); put16 (w.out, 0); put16 (w.out, 0); put16 (w.out, 1); put16 (w.out, 0x0258);
-  end_record (&w);
+  {
+    /* WINDOW1: the tab the book opens on, and the first tab shown. */
+    int active_tab = 0;
+
+    for (int i = 0; i < n_sheets; i++)
+      if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+        { active_tab = i; break; }
+    begin_record (&w, R_WINDOW1);
+    put16 (w.out, 0x0168); put16 (w.out, 0x001E); put16 (w.out, 0x3A5C); put16 (w.out, 0x1C8F);
+    put16 (w.out, 0x0038); put16 (w.out, active_tab); put16 (w.out, 0); put16 (w.out, 1); put16 (w.out, 0x0258);
+    end_record (&w);
+  }
 
   /* Fonts: the default four times (index 4 is skipped by Excel), then
    * the rest. */

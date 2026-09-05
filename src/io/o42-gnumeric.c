@@ -688,18 +688,24 @@ write_sheet (GString *out, O42Sheet *sheet)
   o42_sheet_used_range (sheet, &used);
   name = g_markup_escape_text (o42_sheet_get_name (sheet), -1);
 
+  {
+  char zoom_text[G_ASCII_DTOSTR_BUF_SIZE];
   g_string_append_printf (w.out,
-    "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"0\" HideGrid=\"0\" HideColHeader=\"0\" "
-    "HideRowHeader=\"0\" DisplayOutlines=\"1\" OutlineSymbolsBelow=\"1\" OutlineSymbolsRight=\"1\" "
+    "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"%d\" HideGrid=\"%d\" HideColHeader=\"0\" "
+    "HideRowHeader=\"0\" DisplayOutlines=\"%d\" OutlineSymbolsBelow=\"1\" OutlineSymbolsRight=\"1\" "
     "Visibility=\"%s\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
-    "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\">\n"
+    "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\"%s>\n"
     "      <gnm:Name>%s</gnm:Name>\n"
     "      <gnm:MaxCol>%d</gnm:MaxCol>\n      <gnm:MaxRow>%d</gnm:MaxRow>\n"
-    "      <gnm:Zoom>1</gnm:Zoom>\n",
+    "      <gnm:Zoom>%s</gnm:Zoom>\n",
+    o42_sheet_view (sheet)->zeros ? 0 : 1, o42_sheet_view (sheet)->gridlines ? 0 : 1,
+    o42_sheet_view (sheet)->outline_symbols ? 1 : 0,
     o42_sheet_hidden (sheet) ? "GNM_SHEET_VISIBILITY_HIDDEN" : "GNM_SHEET_VISIBILITY_VISIBLE",
     o42_sheet_protected (sheet) ? 1 : 0, o42_sheet_is_chart_sheet (sheet) ? 1 : 0,
     o42_sheet_tab_colour (sheet), o42_sheet_password_hash (sheet),
-    name, used.col1, used.row1);
+    o42_sheet_view (sheet)->right_to_left ? " RTL_Layout=\"1\"" : "",
+    name, used.col1, used.row1, g_ascii_formatd (zoom_text, sizeof zoom_text, "%g", o42_sheet_view (sheet)->zoom / 100.0));
+  }
 
   /* The print setup, in Gnumeric's own element and codes; the print
    * area is the sheet-level name Print_Area, as Gnumeric keeps it. */
@@ -1193,10 +1199,15 @@ write_sheet (GString *out, O42Sheet *sheet)
       }
   }
 
-  g_string_append (w.out,
-    "      <gnm:Selections CursorCol=\"0\" CursorRow=\"0\">\n"
-    "        <gnm:Selection startCol=\"0\" startRow=\"0\" endCol=\"0\" endRow=\"0\"/>\n"
-    "      </gnm:Selections>\n");
+  {
+    const O42SheetView *view = o42_sheet_view (sheet);
+    g_string_append_printf (w.out,
+      "      <gnm:Selections CursorCol=\"%d\" CursorRow=\"%d\">\n"
+      "        <gnm:Selection startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\"/>\n"
+      "      </gnm:Selections>\n",
+      view->active_col, view->active_row, view->selection.col0, view->selection.row0,
+      view->selection.col1, view->selection.row1);
+  }
 
   {
     GPtrArray *pictures = o42_sheet_pictures (sheet);
@@ -1465,9 +1476,15 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
       g_string_append (out, "  </gnm:o42-Scripts>\n");
     }
 
-  g_string_append (out,
-    "  <gnm:UIData SelectedTab=\"0\"/>\n"
-    "</gnm:Workbook>\n");
+  {
+    int active_tab = 0;
+    for (int i = 0; i < o42_book_n_sheets (book); i++)
+      if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+        { active_tab = i; break; }
+    g_string_append_printf (out,
+      "  <gnm:UIData SelectedTab=\"%d\"/>\n"
+      "</gnm:Workbook>\n", active_tab);
+  }
 
   ok = write_gzipped (file, out->str, out->len, error);
   g_string_free (out, TRUE);
@@ -1500,6 +1517,7 @@ typedef struct {
   O42FmtMask  style_mask;
   gboolean    in_names;         /* inside gnm:Names */
   gboolean    in_print_info;    /* inside gnm:PrintInformation */
+  gboolean    saw_selection;    /* the sheet's first gnm:Selection was read */
   int         print_text;       /* 1 in its order, 2 orientation, 3 paper */
   GString    *text;             /* what they say */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
@@ -1693,6 +1711,46 @@ start_element (GMarkupParseContext *context, const char *element,
   if (r->sheet != NULL && strcmp (name, "PrintInformation") == 0)
     {
       r->in_print_info = TRUE;
+      return;
+    }
+
+  if (r->sheet != NULL && !r->in_print_info && strcmp (name, "Zoom") == 0)
+    {
+      g_string_truncate (r->text, 0);
+      r->print_text = 4;
+      return;
+    }
+
+  if (r->sheet != NULL && (strcmp (name, "Selections") == 0 || strcmp (name, "Selection") == 0))
+    {
+      O42SheetView view = *o42_sheet_view (r->sheet);
+
+      if (name[9] == 's')
+        {
+          view.active_col = attr_int (names, values, "CursorCol", 0);
+          view.active_row = attr_int (names, values, "CursorRow", 0);
+        }
+      else if (!r->saw_selection)
+        {
+          view.selection = o42_range_normalise (attr_int (names, values, "startRow", 0),
+                                                attr_int (names, values, "startCol", 0),
+                                                attr_int (names, values, "endRow", 0),
+                                                attr_int (names, values, "endCol", 0));
+          r->saw_selection = TRUE;
+        }
+      o42_sheet_set_view (r->sheet, &view);
+      return;
+    }
+
+  if (strcmp (name, "UIData") == 0)
+    {
+      int tab = attr_int (names, values, "SelectedTab", 0);
+      for (int i = 0; i < o42_book_n_sheets (r->book); i++)
+        {
+          O42SheetView view = *o42_sheet_view (o42_book_sheet (r->book, i));
+          view.selected = i == tab;
+          o42_sheet_set_view (o42_book_sheet (r->book, i), &view);
+        }
       return;
     }
 
@@ -1951,6 +2009,7 @@ start_element (GMarkupParseContext *context, const char *element,
     {
       /* The book starts with one sheet; that one takes the file's first
        * and the rest are added after it. */
+      r->saw_selection = FALSE;
       r->sheet_index++;
       if (r->sheet_index == 1)
         r->sheet = o42_book_sheet (r->book, 0);
@@ -1959,6 +2018,14 @@ start_element (GMarkupParseContext *context, const char *element,
       if (r->sheet != NULL)
         {
           o42_sheet_set_protected (r->sheet, attr_int (names, values, "o42-Protected", 0) != 0);
+          {
+            O42SheetView view = *o42_sheet_view (r->sheet);
+            view.zeros = attr_int (names, values, "HideZero", 0) == 0;
+            view.gridlines = attr_int (names, values, "HideGrid", 0) == 0;
+            view.outline_symbols = attr_int (names, values, "DisplayOutlines", 1) != 0;
+            view.right_to_left = attr_int (names, values, "RTL_Layout", 0) != 0;
+            o42_sheet_set_view (r->sheet, &view);
+          }
           {
             const char *vis = attr (names, values, "Visibility");
             if (vis != NULL && strcmp (vis, "GNM_SHEET_VISIBILITY_VISIBLE") != 0)
@@ -2815,6 +2882,17 @@ end_element (GMarkupParseContext *context, const char *element,
       O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
       char *v = g_strstrip (g_strdup (r->text->str));
 
+      if (r->print_text == 4)
+        {
+          O42SheetView view = *o42_sheet_view (r->sheet);
+          double zoom = g_ascii_strtod (v, NULL);
+          if (zoom > 0)
+            view.zoom = (int) (zoom * 100 + 0.5);
+          o42_sheet_set_view (r->sheet, &view);
+          g_free (v);
+          r->print_text = 0;
+          return;
+        }
       if (r->print_text == 1)
         ps.down_then_over = strcmp (v, "r_then_d") != 0;
       else if (r->print_text == 2)

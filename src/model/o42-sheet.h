@@ -676,6 +676,25 @@ guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
 void     o42_sheet_set_hidden (O42Sheet *sheet, gboolean hidden);
 gboolean o42_sheet_hidden     (O42Sheet *sheet);
 
+/* How the sheet is looked at, which Excel keeps per sheet and every
+ * format carries: the zoom, whether gridlines and zeros show, the
+ * active cell and the selection, and whether this is the sheet the
+ * book opens on.  The window reads it when it shows the sheet and
+ * writes it back as the user moves about. */
+typedef struct {
+  int       zoom;             /* per cent; 100 */
+  gboolean  gridlines;        /* shown */
+  gboolean  zeros;            /* shown */
+  gboolean  right_to_left;
+  gboolean  outline_symbols;
+  int       active_row, active_col;
+  O42Range  selection;
+  gboolean  selected;         /* the book opens on this sheet */
+} O42SheetView;
+
+const O42SheetView *o42_sheet_view     (O42Sheet *sheet);
+void                o42_sheet_set_view (O42Sheet *sheet, const O42SheetView *view);
+
 /* ---- Auditing --------------------------------------------------------- */
 
 /* What a cell's formula reads, and which cells read it, both as

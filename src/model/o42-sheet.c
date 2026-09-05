@@ -119,6 +119,7 @@ struct _O42Sheet {
                             * that sheet ("" for this one) */
   guint32      tab_colour;    /* O42_TAB_NO_COLOUR for a plain tab */
   gboolean     hidden;        /* Format > Sheet > Hide */
+  O42SheetView view;
   guint16      password;      /* the protection hash, 0 for none */
   gboolean     cycle_seen;    /* a formula asked for itself while evaluating */
   gboolean     recalculating; /* inside o42_sheet_recalculate */
@@ -1954,6 +1955,10 @@ o42_sheet_new (const char *name)
   sheet->tables = g_array_new (FALSE, FALSE, sizeof (O42Table));
   sheet->queries = g_array_new (FALSE, FALSE, sizeof (O42Query));
   sheet->tab_colour = O42_TAB_NO_COLOUR;
+  sheet->view.zoom = 100;
+  sheet->view.gridlines = TRUE;
+  sheet->view.zeros = TRUE;
+  sheet->view.outline_symbols = TRUE;
   sheet->scenarios = g_ptr_array_new_with_free_func (scenario_free);
   sheet->shapes = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_shape_free);
   sheet->next_shape_id = 1;
@@ -10108,6 +10113,33 @@ o42_sheet_hidden (O42Sheet *sheet)
 {
   g_return_val_if_fail (sheet != NULL, FALSE);
   return sheet->hidden;
+}
+
+const O42SheetView *
+o42_sheet_view (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  return &sheet->view;
+}
+
+/* Moving about is not a change to the book; the zoom and what shows
+ * are, as Excel counts them. */
+void
+o42_sheet_set_view (O42Sheet *sheet, const O42SheetView *view)
+{
+  g_return_if_fail (sheet != NULL && view != NULL);
+  if (view->zoom != sheet->view.zoom || view->gridlines != sheet->view.gridlines ||
+      view->zeros != sheet->view.zeros || view->right_to_left != sheet->view.right_to_left ||
+      view->outline_symbols != sheet->view.outline_symbols)
+    sheet->modified = TRUE;
+  sheet->view = *view;
+  sheet->view.zoom = CLAMP (view->zoom, 10, 400);
+  sheet->view.active_row = CLAMP (view->active_row, 0, O42_MAX_ROWS - 1);
+  sheet->view.active_col = CLAMP (view->active_col, 0, O42_MAX_COLS - 1);
+  sheet->view.selection = o42_range_normalise (CLAMP (view->selection.row0, 0, O42_MAX_ROWS - 1),
+                                               CLAMP (view->selection.col0, 0, O42_MAX_COLS - 1),
+                                               CLAMP (view->selection.row1, 0, O42_MAX_ROWS - 1),
+                                               CLAMP (view->selection.col1, 0, O42_MAX_COLS - 1));
 }
 
 /* ---------------------------------------------------------------------- */

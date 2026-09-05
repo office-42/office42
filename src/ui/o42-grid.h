@@ -26,6 +26,9 @@ void o42_grid_get_active    (O42Grid *self, int *row, int *col);
 void o42_grid_set_active    (O42Grid *self, int row, int col);
 void o42_grid_get_selection (O42Grid *self, O42Range *range);
 void o42_grid_select_range  (O42Grid *self, const O42Range *range);
+/* The selection and the active cell as a file left them, without
+ * scrolling: the window is not laid out yet when a book opens. */
+void o42_grid_set_cursor    (O42Grid *self, const O42Range *range, int active_row, int active_col);
 
 /* ---- Editing ---------------------------------------------------------- */
 

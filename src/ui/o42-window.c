@@ -84,6 +84,8 @@ static const int FONT_SIZES[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 22,
 G_DEFINE_FINAL_TYPE (O42Window, o42_window, GTK_TYPE_APPLICATION_WINDOW)
 
 static void window_rebuild_tabs (O42Window *self);
+static void window_apply_view (O42Window *self);
+static void window_keep_view (O42Window *self);
 static void window_install_python_host (O42Window *self);
 static void action_new_window (GSimpleAction *a, GVariant *p, gpointer data);
 
@@ -1336,6 +1338,7 @@ action_zoom (GSimpleAction *a, GVariant *param, gpointer data)
 
   (void) a;
   o42_grid_set_zoom (self->grid, percent / 100.0);
+  window_keep_view (self);
   window_sync (self);
   gtk_widget_grab_focus (GTK_WIDGET (self->grid));
 }
@@ -1359,6 +1362,7 @@ on_options_ok (GtkWidget *w, gpointer data)
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->gridlines)));
   o42_grid_set_show_zeros (prompt->window->grid,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->zeros)));
+  window_keep_view (prompt->window);
   o42_grid_set_show_checks (prompt->window->grid,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->checks)));
 
@@ -2962,9 +2966,55 @@ o42_window_show_sheet (O42Window *self, int index)
     o42_grid_commit_edit (self->grid);
 
   self->sheet = sheet;
+  self->applying_view = TRUE;   /* set_sheet moves the cursor; that is not the user */
   o42_grid_set_sheet (self->grid, sheet);
+  window_apply_view (self);
   window_rebuild_tabs (self);
   window_sync (self);
+}
+
+/* The sheet's own view -- zoom, gridlines, zeros, where the cursor was
+ * -- put on the grid, and the sheet marked as the one the book opens
+ * on. */
+static void
+window_apply_view (O42Window *self)
+{
+  const O42SheetView *view = o42_sheet_view (self->sheet);
+  O42SheetView copy;
+
+  self->applying_view = TRUE;
+  o42_grid_set_zoom (self->grid, view->zoom / 100.0);
+  o42_grid_set_show_gridlines (self->grid, view->gridlines);
+  o42_grid_set_show_zeros (self->grid, view->zeros);
+  o42_grid_set_cursor (self->grid, &view->selection, view->active_row, view->active_col);
+  self->applying_view = FALSE;
+  for (int i = 0; i < o42_book_n_sheets (self->book); i++)
+    {
+      O42Sheet *other = o42_book_sheet (self->book, i);
+      if (o42_sheet_view (other)->selected != (other == self->sheet))
+        {
+          copy = *o42_sheet_view (other);
+          copy.selected = other == self->sheet;
+          o42_sheet_set_view (other, &copy);
+        }
+    }
+}
+
+/* What the grid shows now, kept on the sheet. */
+static void
+window_keep_view (O42Window *self)
+{
+  O42SheetView view;
+
+  if (self->sheet == NULL || self->applying_view)
+    return;
+  view = *o42_sheet_view (self->sheet);
+  view.zoom = (int) (o42_grid_get_zoom (self->grid) * 100 + 0.5);
+  view.gridlines = o42_grid_get_show_gridlines (self->grid);
+  view.zeros = o42_grid_get_show_zeros (self->grid);
+  o42_grid_get_active (self->grid, &view.active_row, &view.active_col);
+  o42_grid_get_selection (self->grid, &view.selection);
+  o42_sheet_set_view (self->sheet, &view);
 }
 
 static void
@@ -4846,7 +4896,14 @@ o42_window_open_file (O42Window *self, GFile *file)
   else
     window_set_file (self, file);
 
+  /* The sheet the file was saved on, if it says. */
+  for (int i = 0; ok && i < o42_book_n_sheets (self->book); i++)
+    if (o42_sheet_view (o42_book_sheet (self->book, i))->selected &&
+        !o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      { self->sheet = o42_book_sheet (self->book, i); break; }
+  self->applying_view = TRUE;
   o42_grid_set_sheet (self->grid, self->sheet);
+  window_apply_view (self);
   window_rebuild_tabs (self);
   window_sync (self);
   window_tell_book (self, "sheets");
@@ -6106,6 +6163,7 @@ on_grid_selection_changed (O42Grid *grid, gpointer data)
 {
   O42Window *self = data;
 
+  window_keep_view (self);
   if (o42_book_recording (self->book) && self->sheet != NULL)
     {
       O42Range sel;

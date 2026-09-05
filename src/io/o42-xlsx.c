@@ -411,21 +411,38 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
   }
 
   o42_sheet_get_frozen (sheet, &frozen_rows, &frozen_cols);
-  g_string_append_printf (out, "<sheetViews><sheetView workbookViewId=\"0\"%s>",
-                          selected ? " tabSelected=\"1\"" : "");
-  if (frozen_rows > 0 || frozen_cols > 0)
-    {
-      char *top_left = o42_ref_name (frozen_rows, frozen_cols);
-      const char *pane = frozen_rows > 0 && frozen_cols > 0 ? "bottomRight"
-                         : frozen_rows > 0 ? "bottomLeft" : "topRight";
-      g_string_append (out, "<pane");
-      if (frozen_cols > 0) g_string_append_printf (out, " xSplit=\"%d\"", frozen_cols);
-      if (frozen_rows > 0) g_string_append_printf (out, " ySplit=\"%d\"", frozen_rows);
-      g_string_append_printf (out, " topLeftCell=\"%s\" activePane=\"%s\" state=\"frozen\"/>",
-                              top_left, pane);
-      g_free (top_left);
-    }
-  g_string_append (out, "</sheetView></sheetViews>");
+  {
+    const O42SheetView *view = o42_sheet_view (sheet);
+    const char *pane = frozen_rows > 0 && frozen_cols > 0 ? "bottomRight"
+                       : frozen_rows > 0 ? "bottomLeft" : frozen_cols > 0 ? "topRight" : NULL;
+    char *active = o42_ref_name (view->active_row, view->active_col);
+    char *a = o42_ref_name (view->selection.row0, view->selection.col0);
+    char *b = o42_ref_name (view->selection.row1, view->selection.col1);
+
+    g_string_append_printf (out, "<sheetViews><sheetView workbookViewId=\"0\"%s%s%s%s",
+                            selected ? " tabSelected=\"1\"" : "",
+                            view->gridlines ? "" : " showGridLines=\"0\"",
+                            view->zeros ? "" : " showZeros=\"0\"",
+                            view->right_to_left ? " rightToLeft=\"1\"" : "");
+    if (view->zoom != 100)
+      g_string_append_printf (out, " zoomScale=\"%d\" zoomScaleNormal=\"%d\"", view->zoom, view->zoom);
+    g_string_append_c (out, '>');
+    if (pane != NULL)
+      {
+        char *top_left = o42_ref_name (frozen_rows, frozen_cols);
+        g_string_append (out, "<pane");
+        if (frozen_cols > 0) g_string_append_printf (out, " xSplit=\"%d\"", frozen_cols);
+        if (frozen_rows > 0) g_string_append_printf (out, " ySplit=\"%d\"", frozen_rows);
+        g_string_append_printf (out, " topLeftCell=\"%s\" activePane=\"%s\" state=\"frozen\"/>",
+                                top_left, pane);
+        g_free (top_left);
+      }
+    g_string_append_printf (out, "<selection%s%s%s activeCell=\"%s\" sqref=\"%s%s%s\"/>",
+                            pane != NULL ? " pane=\"" : "", pane != NULL ? pane : "", pane != NULL ? "\"" : "",
+                            active, a, strcmp (a, b) != 0 ? ":" : "", strcmp (a, b) != 0 ? b : "");
+    g_string_append (out, "</sheetView></sheetViews>");
+    g_free (active); g_free (a); g_free (b);
+  }
   g_string_append_printf (out, "<sheetFormatPr defaultColWidth=\"%.6g\" defaultRowHeight=\"%.6g\"/>",
                           PX_TO_CHARS (default_width), PX_TO_PT (default_height));
 
@@ -1589,6 +1606,12 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
   Writer w;
   O42ZipWriter *zip = o42_zip_writer_new ();
   int n_sheets = o42_book_n_sheets (book);
+  int first_shown = 0;   /* the sheet the book opens on */
+
+  for (int i = 0; i < n_sheets; i++)
+    if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+      { first_shown = i; break; }
+
   GPtrArray *sheet_xml = g_ptr_array_new_with_free_func (g_free);
   GString *s;
   GString *extra_types = g_string_new (NULL);
@@ -1678,7 +1701,7 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
           if (o42_sheet_is_chart_sheet (sheet))
             g_ptr_array_add (sheet_xml, write_chart_sheet (sheet, drawing_rid));
           else
-            g_ptr_array_add (sheet_xml, write_sheet (&w, sheet, i == 0, drawing_rid, legacy_rid, table_rid, n_tables));
+            g_ptr_array_add (sheet_xml, write_sheet (&w, sheet, i == first_shown, drawing_rid, legacy_rid, table_rid, n_tables));
         }
         if (rels->len > 0)
           {
@@ -1786,6 +1809,14 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<workbook xmlns=\"" NS_MAIN "\" xmlns:r=\"" NS_REL "\">"
     "<bookViews><workbookView activeTab=\"0\"/></bookViews><sheets>");
+  for (int i = 0; i < n_sheets; i++)
+    if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+      {
+        char *tab = g_strdup_printf ("activeTab=\"%d\"", i);
+        g_string_replace (s, "activeTab=\"0\"", tab, 1);
+        g_free (tab);
+        break;
+      }
   for (int i = 0; i < n_sheets; i++)
     {
       char *name = g_markup_escape_text (o42_sheet_get_name (o42_book_sheet (book, i)), -1);
@@ -2897,6 +2928,43 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       if (state && strcmp (state, "frozen") == 0)
         o42_sheet_set_frozen (r->sheet, attr_int (names, values, "ySplit", 0),
                               attr_int (names, values, "xSplit", 0));
+    }
+  else if (strcmp (n, "sheetView") == 0)
+    {
+      O42SheetView view = *o42_sheet_view (r->sheet);
+
+      view.gridlines = attr_int (names, values, "showGridLines", 1) != 0;
+      view.zeros = attr_int (names, values, "showZeros", 1) != 0;
+      view.right_to_left = attr_int (names, values, "rightToLeft", 0) != 0;
+      view.outline_symbols = attr_int (names, values, "showOutlineSymbols", 1) != 0;
+      view.selected = attr_int (names, values, "tabSelected", 0) != 0;
+      view.zoom = attr_int (names, values, "zoomScale", 100);
+      o42_sheet_set_view (r->sheet, &view);
+    }
+  else if (strcmp (n, "selection") == 0)
+    {
+      /* The last selection element is the active pane's, in Excel's
+       * files; each overwrites the one before. */
+      O42SheetView view = *o42_sheet_view (r->sheet);
+      const char *active = attr (names, values, "activeCell");
+      const char *sqref = attr (names, values, "sqref");
+      int row, col;
+      gsize used = 0;
+
+      if (active != NULL && o42_ref_parse (active, &row, &col, NULL))
+        {
+          view.active_row = row;
+          view.active_col = col;
+          view.selection = o42_range_normalise (row, col, row, col);
+        }
+      if (sqref != NULL && o42_ref_parse (sqref, &view.selection.row0, &view.selection.col0, &used))
+        {
+          if (sqref[used] == ':' && o42_ref_parse (sqref + used + 1, &row, &col, NULL))
+            { view.selection.row1 = row; view.selection.col1 = col; }
+          else
+            { view.selection.row1 = view.selection.row0; view.selection.col1 = view.selection.col0; }
+        }
+      o42_sheet_set_view (r->sheet, &view);
     }
   else if (strcmp (n, "col") == 0)
     {

@@ -476,6 +476,44 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* viewopt zoom N | gridlines on|off | zeros on|off; viewinfo */
+      if (g_str_has_prefix (text, "viewopt "))
+        {
+          O42SheetView view = *o42_sheet_view (sheet);
+          char **w = g_strsplit (text + 8, " ", -1);
+          if (g_strv_length (w) >= 2 && strcmp (w[0], "zoom") == 0) view.zoom = atoi (w[1]);
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "gridlines") == 0) view.gridlines = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "zeros") == 0) view.zeros = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "rtl") == 0) view.right_to_left = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 1 && strcmp (w[0], "shown") == 0)
+            {
+              for (int i = 0; i < o42_book_n_sheets (book); i++)
+                {
+                  O42SheetView other = *o42_sheet_view (o42_book_sheet (book, i));
+                  other.selected = o42_book_sheet (book, i) == sheet;
+                  o42_sheet_set_view (o42_book_sheet (book, i), &other);
+                }
+              view.selected = TRUE;
+            }
+          else
+            fprintf (stderr, "usage: viewopt zoom N | gridlines on|off | zeros on|off | rtl on|off | shown\n");
+          o42_sheet_set_view (sheet, &view);
+          g_strfreev (w);
+          continue;
+        }
+      if (strcmp (text, "viewinfo") == 0)
+        {
+          const O42SheetView *view = o42_sheet_view (sheet);
+          char *a = o42_ref_name (view->active_row, view->active_col);
+          char *b = o42_ref_name (view->selection.row0, view->selection.col0);
+          char *c = o42_ref_name (view->selection.row1, view->selection.col1);
+          printf ("zoom %d gridlines %s zeros %s rtl %s active %s selection %s:%s%s\n", view->zoom,
+                  view->gridlines ? "on" : "off", view->zeros ? "on" : "off", view->right_to_left ? "on" : "off",
+                  a, b, c, view->selected ? " shown" : "");
+          g_free (a); g_free (b); g_free (c);
+          continue;
+        }
+
       if (strcmp (text, "sheets") == 0)
         {
           for (int i = 0; i < o42_book_n_sheets (book); i++)
@@ -1119,6 +1157,14 @@ main (int argc, char *argv[])
               calc_selection.range = r;
               calc_selection.row = arow;
               calc_selection.col = acol;
+              {
+                /* The sheet's own view remembers it, as the window's grid would. */
+                O42SheetView view = *o42_sheet_view (sheet);
+                view.selection = r;
+                view.active_row = arow;
+                view.active_col = acol;
+                o42_sheet_set_view (sheet, &view);
+              }
               o42_book_record_selection (book, o42_sheet_get_name (sheet), &r, arow, acol);
             }
           else
