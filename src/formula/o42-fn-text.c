@@ -168,21 +168,30 @@ fn_concatenate (O42EvalContext *ctx, O42Operand *args, int n)
 
   for (int i = 0; i < n; i++)
     {
-      O42Value v = operand_value (ctx, &args[i]);
-      char *text;
+      int rows, cols;
 
-      if (v.type == O42_VALUE_ERROR)
-        {
-          O42ErrorCode err = v.as.error;
-          o42_value_clear (&v);
-          g_string_free (out, TRUE);
-          return o42_value_error (err);
-        }
+      /* CONCAT takes a range or an array whole, cell after cell. */
+      o42_operand_dims (&args[i], &rows, &cols);
+      for (int r = 0; r < rows; r++)
+        for (int c = 0; c < cols; c++)
+          {
+            O42Value v;
+            char *text;
 
-      text = o42_value_to_text (&v);
-      g_string_append (out, text);
-      g_free (text);
-      o42_value_clear (&v);
+            o42_operand_cell (ctx, &args[i], r, c, &v);
+            if (v.type == O42_VALUE_ERROR)
+              {
+                O42ErrorCode err = v.as.error;
+                o42_value_clear (&v);
+                g_string_free (out, TRUE);
+                return o42_value_error (err);
+              }
+
+            text = o42_value_to_text (&v);
+            g_string_append (out, text);
+            g_free (text);
+            o42_value_clear (&v);
+          }
     }
 
   return o42_value_take (g_string_free (out, FALSE));
@@ -381,7 +390,8 @@ fn_char (O42EvalContext *ctx, O42Operand *args, int n)
   int len;
   (void) n;
   ARG_NUMBER (0, code);
-  if (code < 1 || code > 0x10FFFF)
+  /* CHAR stops at 255, as Excel's does; UNICHAR goes on. */
+  if (code < 1 || code > 255)
     return o42_value_error (O42_ERR_VALUE);
   len = g_unichar_to_utf8 ((gunichar) code, buf);
   buf[len] = '\0';
@@ -434,6 +444,18 @@ glob_matches_prefix (const char *pattern, const char *text)
         return TRUE;
 
       pc = g_utf8_get_char (pattern);
+
+      /* ~* and ~? are the characters themselves, and ~~ a tilde. */
+      if (pc == '~' && pattern[1] != '\0')
+        {
+          pattern = g_utf8_next_char (pattern);
+          pc = g_utf8_get_char (pattern);
+          if (*text == '\0' || g_utf8_get_char (text) != pc)
+            return FALSE;
+          pattern = g_utf8_next_char (pattern);
+          text = g_utf8_next_char (text);
+          continue;
+        }
 
       if (pc == '*')
         {

@@ -399,6 +399,8 @@ fn_impower (O42EvalContext *ctx, O42Operand *args, int n)
   r = hypot (re, im);
   if (r == 0) return o42_value_take (complex_format (p == 0 ? 1 : 0, 0, sfx));
   theta = atan2 (im, re);
+  if (!isfinite (pow (r, p)))
+    return o42_value_error (O42_ERR_NUM);
   return o42_value_take (complex_format (pow (r, p) * cos (p * theta), pow (r, p) * sin (p * theta), sfx));
 }
 

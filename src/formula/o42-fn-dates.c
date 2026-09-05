@@ -69,6 +69,55 @@ fn_time (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (frac - floor (frac));
 }
 
+/* A time on its own -- "25:00", "2:30 p", "14:05:30 PM" -- as
+ * TIMEVALUE takes it: hours past twenty-four wrap, and a bare a or p
+ * serves for am and pm.  FALSE for anything else. */
+static gboolean
+o42_time_of_day (const char *text, double *serial)
+{
+  const char *p = text;
+  int h, m = 0, sec = 0;
+  char *end;
+  gboolean pm = FALSE, am = FALSE;
+
+  while (g_ascii_isspace (*p)) p++;
+  if (!g_ascii_isdigit (*p))
+    return FALSE;
+  h = (int) strtol (p, &end, 10);
+  if (*end != ':')
+    return FALSE;
+  p = end + 1;
+  if (!g_ascii_isdigit (*p))
+    return FALSE;
+  m = (int) strtol (p, &end, 10);
+  p = end;
+  if (*p == ':')
+    {
+      if (!g_ascii_isdigit (p[1]))
+        return FALSE;
+      sec = (int) strtol (p + 1, &end, 10);
+      p = end;
+    }
+  while (g_ascii_isspace (*p)) p++;
+  if (g_ascii_tolower (*p) == 'a' || g_ascii_tolower (*p) == 'p')
+    {
+      pm = g_ascii_tolower (*p) == 'p';
+      am = !pm;
+      p++;
+      if (g_ascii_tolower (*p) == 'm') p++;
+    }
+  while (g_ascii_isspace (*p)) p++;
+  if (*p != '\0' || m < 0 || m >= 60 || sec < 0 || sec >= 60 || h < 0)
+    return FALSE;
+  if ((am || pm) && (h < 1 || h > 12))
+    return FALSE;
+  if (pm && h < 12) h += 12;
+  if (am && h == 12) h = 0;
+  *serial = (h * 3600.0 + m * 60.0 + sec) / 86400.0;
+  *serial -= floor (*serial);
+  return TRUE;
+}
+
 static O42Value
 fn_datevalue_timevalue (O42EvalContext *ctx, O42Operand *args, int n, gboolean date)
 {
@@ -77,7 +126,9 @@ fn_datevalue_timevalue (O42EvalContext *ctx, O42Operand *args, int n, gboolean d
   gboolean ok;
   (void) n;
   ARG_TEXT (0, s);
-  ok = o42_date_parse (s, &serial, NULL, NULL);
+  ok = !date && o42_time_of_day (s, &serial);
+  if (!ok)
+    ok = o42_date_parse (s, &serial, NULL, NULL);
   g_free (s);
   if (!ok)
     return o42_value_error (O42_ERR_VALUE);
@@ -138,6 +189,10 @@ fn_weekday (O42EvalContext *ctx, O42Operand *args, int n)
     case 1:  return o42_value_number (iso % 7 + 1);   /* Sunday 1 .. Saturday 7 */
     case 2:  return o42_value_number (iso);           /* Monday 1 .. Sunday 7 */
     case 3:  return o42_value_number (iso - 1);       /* Monday 0 .. Sunday 6 */
+    case 11: case 12: case 13: case 14: case 15: case 16: case 17:
+      /* The week starting on Monday (11) through Sunday (17), that
+       * day counted 1. */
+      return o42_value_number ((iso - ((int) type - 11) + 6) % 7 + 1);
     default: return o42_value_error (O42_ERR_NUM);
     }
 }
@@ -292,6 +347,8 @@ fn_workday (O42EvalContext *ctx, O42Operand *args, int n)
   while (days > 0)
     {
       d += step;
+      if (d < 0 || d > 2958465)
+        return o42_value_error (O42_ERR_NUM);   /* past 9999-12-31, or before 1900 */
       if (!is_weekend (d) && !is_holiday (ctx, n >= 3 ? &args[2] : NULL, d))
         days--;
     }

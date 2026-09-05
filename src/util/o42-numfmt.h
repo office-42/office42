@@ -73,6 +73,10 @@ double o42_number_round_shown (double n, int places);
  * is what a cell's input text and a rewritten formula are made from, so
  * that copying, sorting, undoing and saving never lose a digit.  Caller
  * frees. */
+/* The number as Excel sees it: fifteen significant figures, and a
+ * denormal is zero. */
+double o42_number_seen (double n);
+
 char *o42_number_to_text (double n, gboolean exact);
 
 /* The format as Excel and Gnumeric write it -- "#,##0.00", "0%",

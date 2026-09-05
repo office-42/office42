@@ -81,6 +81,10 @@ op_text (O42Op op)
     case O42_OP_LE: return "<=";    case O42_OP_GE: return ">=";
     case O42_OP_NEG: return "-";    case O42_OP_POS: return "+";
     case O42_OP_PERCENT: return "%";
+    /* OpenFormula's reference operators: ~ joins, ! intersects, and a
+     * scalar context intersects implicitly without being asked. */
+    case O42_OP_UNION: return "~";  case O42_OP_ISECT: return "!";
+    case O42_OP_IMPLICIT: return "";
     }
   return "?";
 }
