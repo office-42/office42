@@ -3930,7 +3930,7 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
         }
       if (*hi < *lo || *hi >= limit)
         {
-          g_free (v->value); g_free (v->value2); g_free (v->message);
+          g_free (v->value); g_free (v->value2); g_free (v->message); g_free (v->prompt_title); g_free (v->prompt); g_free (v->error_title);
           g_array_remove_index (sheet->validations, i);
         }
       else
@@ -6324,6 +6324,9 @@ o42_sheet_add_validation (O42Sheet *sheet, const O42Validation *v)
   copy.value = g_strdup (v->value ? v->value : "");
   copy.value2 = g_strdup (v->value2 ? v->value2 : "");
   copy.message = g_strdup (v->message ? v->message : "");
+  copy.prompt_title = g_strdup (v->prompt_title ? v->prompt_title : "");
+  copy.prompt = g_strdup (v->prompt ? v->prompt : "");
+  copy.error_title = g_strdup (v->error_title ? v->error_title : "");
   g_array_append_val (sheet->validations, copy);
   sheet->modified = TRUE;
 }
@@ -6338,7 +6341,7 @@ o42_sheet_clear_validations (O42Sheet *sheet, const O42Range *range)
       O42Validation *v = &g_array_index (sheet->validations, O42Validation, i);
       if (range == NULL || ranges_overlap (&v->range, range))
         {
-          g_free (v->value); g_free (v->value2); g_free (v->message);
+          g_free (v->value); g_free (v->value2); g_free (v->message); g_free (v->prompt_title); g_free (v->prompt); g_free (v->error_title);
           g_array_remove_index (sheet->validations, i);
           sheet->modified = TRUE;
         }
@@ -6373,7 +6376,7 @@ input_number (const char *text, double *n)
 }
 
 static gboolean
-validation_allows (O42Sheet *sheet, const O42Validation *v, const char *input)
+validation_allows (O42Sheet *sheet, const O42Validation *v, int row, int col, const char *input)
 {
   O42Condition c;
   double x;
@@ -6382,6 +6385,31 @@ validation_allows (O42Sheet *sheet, const O42Validation *v, const char *input)
     return v->allow_blank;
   if (v->kind == O42_VALID_ANY || input[0] == '=')
     return TRUE;   /* formulas are not checked; their value is not known yet */
+
+  if (v->kind == O42_VALID_CUSTOM)
+    {
+      /* The rule's formula, read at this cell, with the entry standing
+       * in it: what Excel judges a custom rule by.  The entry is put in
+       * for the moment and taken out again. */
+      char *moved, *was = o42_sheet_get_input (sheet, row, col);
+      gboolean truth = FALSE;
+      O42ErrorCode e = O42_ERR_VALUE;
+      O42Value result;
+
+      if (v->value == NULL || *v->value == '\0')
+        { g_free (was); return TRUE; }
+      moved = o42_sheet_relocate_formula (v->value[0] == '=' ? v->value : NULL, row - v->range.row0, col - v->range.col0);
+      if (v->value[0] != '=')
+        { g_free (moved); moved = g_strconcat ("=", v->value, NULL); }
+      set_input_internal (sheet, row, col, input);
+      result = o42_sheet_evaluate_formula (sheet, moved);
+      truth = result.type != O42_VALUE_ERROR && o42_value_to_bool (&result, &truth, &e) && truth;
+      o42_value_clear (&result);
+      set_input_internal (sheet, row, col, was != NULL && *was != '\0' ? was : NULL);
+      g_free (moved);
+      g_free (was);
+      return truth;
+    }
 
   if (v->kind == O42_VALID_LIST)
     {
@@ -6394,10 +6422,10 @@ validation_allows (O42Sheet *sheet, const O42Validation *v, const char *input)
           v->value[used] == ':' && o42_ref_parse (v->value + used + 1, &r.row1, &r.col1, NULL))
         {
           r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
-          for (int row = r.row0; row <= r.row1 && !found; row++)
-            for (int col = r.col0; col <= r.col1 && !found; col++)
+          for (int rr = r.row0; rr <= r.row1 && !found; rr++)
+            for (int cc = r.col0; cc <= r.col1 && !found; cc++)
               {
-                char *shown = o42_sheet_get_display (sheet, row, col);
+                char *shown = o42_sheet_get_display (sheet, rr, cc);
                 found = g_ascii_strcasecmp (shown, typed) == 0;
                 g_free (shown);
               }
@@ -6442,7 +6470,7 @@ o42_sheet_validate (O42Sheet *sheet, int row, int col, const char *input, char *
 
       if (!o42_range_contains (&v->range, row, col))
         continue;
-      if (!validation_allows (sheet, v, input))
+      if (!validation_allows (sheet, v, row, col, input))
         {
           if (message != NULL)
             *message = g_strdup (v->message != NULL && v->message[0] != '\0'

@@ -924,21 +924,31 @@ write_sheet (GString *out, O42Sheet *sheet)
           e0 = g_markup_escape_text (v->value ? v->value : "", -1);
         e1 = g_markup_escape_text (v->value2 ? v->value2 : "", -1);
 
-        g_string_append_printf (w.out,
-          "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
-          "        <gnm:Style o42-validation=\"1\">\n"
-          "          <gnm:Validation Style=\"1\" Type=\"%d\" Operator=\"%d\" AllowBlank=\"%d\" "
-          "UseDropdown=\"%d\" Title=\"\" Message=\"%s\">\n"
-          "            <gnm:Expression0>%s</gnm:Expression0>\n",
-          v->range.col0, v->range.row0, v->range.col1, v->range.row1,
-          (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0, v->kind == O42_VALID_LIST ? 1 : 0,
-          message, e0);
-        if (v->value2 != NULL && v->value2[0] != '\0')
-          g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
-        g_string_append (w.out,
-          "          </gnm:Validation>\n"
-          "        </gnm:Style>\n"
-          "      </gnm:StyleRegion>\n");
+        {
+          char *title = g_markup_escape_text (v->error_title ? v->error_title : "", -1);
+          char *pt = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+          char *pr = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+
+          /* Gnumeric's Style: 0 none, 1 stop, 2 warning, 3 information. */
+          g_string_append_printf (w.out,
+            "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
+            "        <gnm:Style o42-validation=\"1\">\n"
+            "          <gnm:Validation Style=\"%d\" Type=\"%d\" Operator=\"%d\" AllowBlank=\"%d\" "
+            "UseDropdown=\"%d\" Title=\"%s\" Message=\"%s\">\n"
+            "            <gnm:Expression0>%s</gnm:Expression0>\n",
+            v->range.col0, v->range.row0, v->range.col1, v->range.row1,
+            (int) v->error_style + 1, (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0,
+            v->kind == O42_VALID_LIST ? 1 : 0, title, message, e0);
+          if (v->value2 != NULL && v->value2[0] != '\0')
+            g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
+          g_string_append (w.out, "          </gnm:Validation>\n");
+          if (pt[0] != '\0' || pr[0] != '\0')
+            g_string_append_printf (w.out, "          <gnm:InputMessage Title=\"%s\" Message=\"%s\"/>\n", pt, pr);
+          g_string_append (w.out,
+            "        </gnm:Style>\n"
+            "      </gnm:StyleRegion>\n");
+          g_free (title); g_free (pt); g_free (pr);
+        }
         g_free (message);
         g_free (e0);
         g_free (e1);
@@ -1563,6 +1573,9 @@ typedef struct {
   /* A gnm:Condition inside it: the style that follows is the rule's. */
   gboolean    in_condition;
   gboolean    condition_has_value;   /* Value0 was given: a number, ours */
+  char       *pending_prompt_title;  /* a gnm:InputMessage read */
+  char       *pending_prompt;
+  int         last_validation;       /* the rule just added, for its InputMessage */
   O42Condition condition;
   gboolean    region_is_conditional;   /* a region we wrote for a rule only */
   GString    *font_name;
@@ -2098,9 +2111,37 @@ start_element (GMarkupParseContext *context, const char *element,
       v->op = (O42CondOp) attr_int (names, values, "Operator", 0);
       v->allow_blank = attr_int (names, values, "AllowBlank", 1) != 0;
       v->message = g_strdup (attr (names, values, "Message") ? attr (names, values, "Message") : "");
+      v->error_title = g_strdup (attr (names, values, "Title") ? attr (names, values, "Title") : "");
+      v->error_style = (O42ValidStyle) CLAMP (attr_int (names, values, "Style", 1) - 1, 0, 2);
+      v->prompt_title = g_strdup (r->pending_prompt_title != NULL ? r->pending_prompt_title : "");
+      v->prompt = g_strdup (r->pending_prompt != NULL ? r->pending_prompt : "");
       v->value = g_strdup ("");
       v->value2 = g_strdup ("");
       r->in_validation = TRUE;
+      return;
+    }
+
+  if (r->in_style && strcmp (name, "InputMessage") == 0)
+    {
+      /* Gnumeric writes the input message after the Validation; ours
+       * are kept for the rule when the region closes, theirs for the
+       * validation already read. */
+      const char *t = attr (names, values, "Title"), *m = attr (names, values, "Message");
+
+      g_free (r->pending_prompt_title); g_free (r->pending_prompt);
+      r->pending_prompt_title = g_strdup (t != NULL ? t : "");
+      r->pending_prompt = g_strdup (m != NULL ? m : "");
+      if (r->last_validation >= 0 && r->sheet != NULL)
+        {
+          GArray *rules = o42_sheet_validations (r->sheet);
+          if ((guint) r->last_validation < rules->len)
+            {
+              O42Validation *v = &g_array_index (rules, O42Validation, r->last_validation);
+              g_free (v->prompt_title); g_free (v->prompt);
+              v->prompt_title = g_strdup (r->pending_prompt_title);
+              v->prompt = g_strdup (r->pending_prompt);
+            }
+        }
       return;
     }
 
@@ -3124,11 +3165,20 @@ end_element (GMarkupParseContext *context, const char *element,
   if (strcmp (name, "Validation") == 0 && r->in_validation)
     {
       r->in_validation = FALSE;
+      r->last_validation = -1;
       if (r->validation.kind != O42_VALID_ANY && r->validation.range.row1 - r->validation.range.row0 < 2000)
-        o42_sheet_add_validation (r->sheet, &r->validation);
+        {
+          o42_sheet_add_validation (r->sheet, &r->validation);
+          r->last_validation = (int) o42_sheet_validations (r->sheet)->len - 1;
+        }
       g_free (r->validation.value);
       g_free (r->validation.value2);
       g_free (r->validation.message);
+      g_free (r->validation.prompt_title);
+      g_free (r->validation.prompt);
+      g_free (r->validation.error_title);
+      g_clear_pointer (&r->pending_prompt_title, g_free);
+      g_clear_pointer (&r->pending_prompt, g_free);
       memset (&r->validation, 0, sizeof r->validation);
       return;
     }
@@ -3509,6 +3559,7 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   r.merge = g_string_new (NULL);
   r.expr = g_string_new (NULL);
   r.expr_index = -1;
+  r.last_validation = -1;
   r.dimension = g_string_new (NULL);
   r.graph_title = g_string_new (NULL);
   r.shape_text = g_string_new (NULL);

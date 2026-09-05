@@ -417,6 +417,7 @@ typedef struct
   /* Conditional formats: a CONDFMT's range, then its CF rules. */
   O42Range    cf_range;
   GArray     *cf_rects;         /* O42Range: the rectangles a CONDFMT covers */
+  int         dv_anchor_row, dv_anchor_col;   /* a DV's first range's corner */
   gboolean    cf_have_range;
 
   /* Drawings: the group's images, and the sheet's Escher bytes. */
@@ -2002,17 +2003,34 @@ read_dv (Reader *r, const guchar *p, gsize len)
   char *texts[2] = { NULL, NULL };
 
   memset (&v, 0, sizeof v);
-  v.kind = (O42ValidKind) MIN (flags & 0x0F, 6);
+  v.kind = (O42ValidKind) MIN (flags & 0x0F, 7);
   v.op = (O42CondOp) MIN ((flags >> 20) & 0x0F, 7);
   v.allow_blank = (flags & 0x100) != 0;
+  v.error_style = (O42ValidStyle) MIN ((flags >> 4) & 0x07, 2);
   p += 4;
   {
-    char *s;
-    s = read_str (r, &p, end, TRUE); g_free (s);          /* prompt title */
-    s = read_str (r, &p, end, TRUE); g_free (s);          /* prompt text */
-    s = read_str (r, &p, end, TRUE); g_free (s);          /* error title */
+    /* The four texts: the input message's title and text, the error's
+     * title and text.  Excel writes a single NUL for an empty one. */
+    gboolean show_prompt = (flags & 0x40000) != 0, show_error = (flags & 0x80000) != 0;
+    v.prompt_title = read_str (r, &p, end, TRUE);
+    v.error_title = read_str (r, &p, end, TRUE);
+    v.prompt = read_str (r, &p, end, TRUE);
     v.message = read_str (r, &p, end, TRUE);
-    if (v.message[0] == '\0') { g_free (v.message); v.message = g_strdup (""); }
+    if (v.prompt_title[0] == '\0' || !show_prompt) v.prompt_title[0] = '\0';
+    if (v.prompt[0] == '\0' || !show_prompt) v.prompt[0] = '\0';
+    if (v.error_title[0] == '\0' || !show_error) v.error_title[0] = '\0';
+    if (v.message[0] == '\0' || !show_error) v.message[0] = '\0';
+  }
+  /* The formulas' relative references are offsets from the first
+   * range's top-left cell, so the ranges are looked at first. */
+  {
+    const guchar *q = p;
+    for (int k = 0; k < 2 && q + 4 <= end; k++)
+      { guint cce = rd16 (q); q += 4 + cce; }
+    if (q + 10 <= end && rd16 (q) >= 1)
+      { r->dv_anchor_row = rd16 (q + 2); r->dv_anchor_col = rd16 (q + 6); }
+    else
+      r->dv_anchor_row = r->dv_anchor_col = 0;
   }
   for (int k = 0; k < 2; k++)
     {
@@ -2022,7 +2040,7 @@ read_dv (Reader *r, const guchar *p, gsize len)
       p += 4;
       if (cce > 0 && p + cce <= end)
         {
-          O42Node *tree = decode_formula (r, p, cce, 0, 0, FALSE, NULL, NULL);
+          O42Node *tree = decode_formula (r, p, cce, r->dv_anchor_row, r->dv_anchor_col, TRUE, NULL, NULL);
           if (tree->type == O42_NODE_STRING)
             texts[k] = g_strdup (tree->as.string);
           else
@@ -2049,6 +2067,9 @@ read_dv (Reader *r, const guchar *p, gsize len)
   g_free (v.value);
   g_free (v.value2);
   g_free (v.message);
+  g_free (v.prompt_title);
+  g_free (v.prompt);
+  g_free (v.error_title);
 }
 
 /* A chart substream's records: the series' ranges, the kind, the title. */
@@ -3488,6 +3509,10 @@ typedef struct
   GPtrArray  *images;         /* GBytes: the pictures of every sheet, in store order */
   GPtrArray  *image_formats;
   GArray     *shapes_per_sheet;   /* int */
+  int         anchor_row, anchor_col;   /* while compiling a CF or DV formula: the
+                                         * range's top-left, relative parts of a
+                                         * reference being offsets from it (ptgRefN);
+                                         * -1 otherwise */
 } Writer;
 
 static void
@@ -3870,12 +3895,22 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
       {
         int xti = node->sheet_last != NULL ? sheet_xti_span (w, node->sheet, node->sheet_last)
                                            : sheet_xti (w, node->sheet);
+        gboolean row_abs = (node->abs & O42_ABS_ROW0) != 0, col_abs = (node->abs & O42_ABS_COL0) != 0;
+        gboolean anchored = w->anchor_row >= 0 && xti < 0 && !(row_abs && col_abs);
+        int row = node->as.ref.row, col = node->as.ref.col;
+
         if (xti >= 0 && (xti != own_sheet || node->sheet_last != NULL))
           { put8 (a, 0x3A | cls); put16 (a, xti); }
+        else if (anchored)
+          {
+            /* ptgRefN: a relative part is its distance from the anchor. */
+            put8 (a, 0x2C | cls);
+            if (!row_abs) row = (row - w->anchor_row) & 0xFFFF;
+            if (!col_abs) col = (col - w->anchor_col) & 0xFF;
+          }
         else
           put8 (a, 0x24 | cls);
-        put_ref8 (a, node->as.ref.row, node->as.ref.col,
-                  (node->abs & O42_ABS_ROW0) != 0, (node->abs & O42_ABS_COL0) != 0);
+        put_ref8 (a, row, col, row_abs, col_abs);
       }
       break;
     case O42_NODE_RANGE:
@@ -3883,14 +3918,27 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
         int xti = node->sheet_last != NULL ? sheet_xti_span (w, node->sheet, node->sheet_last)
                                            : sheet_xti (w, node->sheet);
         const O42Range *r = &node->as.range;
+        gboolean all_abs = (node->abs & (O42_ABS_ROW0 | O42_ABS_COL0 | O42_ABS_ROW1 | O42_ABS_COL1))
+                           == (O42_ABS_ROW0 | O42_ABS_COL0 | O42_ABS_ROW1 | O42_ABS_COL1);
+        gboolean anchored = w->anchor_row >= 0 && xti < 0 && !all_abs;
+        int row0 = r->row0, row1 = r->row1, col0 = r->col0, col1 = r->col1;
+
         if (xti >= 0 && (xti != own_sheet || node->sheet_last != NULL))
           { put8 (a, 0x3B | cls); put16 (a, xti); }
+        else if (anchored)
+          {
+            put8 (a, 0x2D | cls);   /* ptgAreaN */
+            if (!(node->abs & O42_ABS_ROW0)) row0 = (row0 - w->anchor_row) & 0xFFFF;
+            if (!(node->abs & O42_ABS_ROW1)) row1 = (row1 - w->anchor_row) & 0xFFFF;
+            if (!(node->abs & O42_ABS_COL0)) col0 = (col0 - w->anchor_col) & 0xFF;
+            if (!(node->abs & O42_ABS_COL1)) col1 = (col1 - w->anchor_col) & 0xFF;
+          }
         else
           put8 (a, 0x25 | cls);
-        put16 (a, r->row0);
-        put16 (a, r->row1);
-        put16 (a, (r->col0 & 0xFF) | ((node->abs & O42_ABS_ROW0) ? 0 : 0x8000) | ((node->abs & O42_ABS_COL0) ? 0 : 0x4000));
-        put16 (a, (r->col1 & 0xFF) | ((node->abs & O42_ABS_ROW1) ? 0 : 0x8000) | ((node->abs & O42_ABS_COL1) ? 0 : 0x4000));
+        put16 (a, row0);
+        put16 (a, row1);
+        put16 (a, (col0 & 0xFF) | ((node->abs & O42_ABS_ROW0) ? 0 : 0x8000) | ((node->abs & O42_ABS_COL0) ? 0 : 0x4000));
+        put16 (a, (col1 & 0xFF) | ((node->abs & O42_ABS_ROW1) ? 0 : 0x8000) | ((node->abs & O42_ABS_COL1) ? 0 : 0x4000));
       }
       break;
     case O42_NODE_UNARY:
@@ -5139,7 +5187,10 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         memset (&num, 0, sizeof num);
         num.type = O42_NODE_NUMBER;
         /* The operands: a formula as the cell in the range's top-left
-         * corner reads it, or a number. */
+         * corner reads it, or a number; relative references go out as
+         * offsets from that corner, as Excel keeps them. */
+        w->anchor_row = c->range.row0;
+        w->anchor_col = c->range.col0;
         if (c->expr1 != NULL)
           {
             O42Node *tree = o42_formula_parse (c->expr1 + (c->expr1[0] == '=' ? 1 : 0));
@@ -5163,6 +5214,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             compile (w, &num, f2, FALSE, index, NULL);
           }
         char *numcode_owned = NULL;
+        w->anchor_row = w->anchor_col = -1;
         if (numfmt)
           {
             /* The rule's number format as its code, which is what the
@@ -5270,12 +5322,30 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         for (guint i = 0; i < rules->len; i++)
           {
             const O42Validation *v = &g_array_index (rules, O42Validation, i);
+            gboolean has_prompt = (v->prompt != NULL && *v->prompt != '\0') ||
+                                  (v->prompt_title != NULL && *v->prompt_title != '\0');
             guint32 flags = ((guint) v->kind & 0x0F) | (((guint) v->op & 0x0F) << 20) |
-                            (v->allow_blank ? 0x100 : 0) | 0x200 | 0x80000;
+                            (((guint) v->error_style & 0x07) << 4) |
+                            (v->allow_blank ? 0x100 : 0) | 0x200 | 0x80000 | (has_prompt ? 0x40000 : 0);
             GByteArray *f1 = g_byte_array_new (), *f2 = g_byte_array_new ();
             O42Node *tree;
+            O42Range list_range;
+            gsize list_used = 0;
+            gboolean list_is_range = v->kind == O42_VALID_LIST && v->value != NULL &&
+                                     o42_ref_parse (v->value + (v->value[0] == '='), &list_range.row0, &list_range.col0, &list_used) &&
+                                     v->value[(v->value[0] == '=') + list_used] == ':';
 
-            if (v->kind == O42_VALID_LIST)
+            w->anchor_row = v->range.row0;
+            w->anchor_col = v->range.col0;
+
+            if (v->kind == O42_VALID_LIST && list_is_range)
+              {
+                /* A list read from cells: the range as a formula. */
+                tree = o42_formula_parse (v->value + (v->value[0] == '='));
+                if (tree != NULL) compile (w, tree, f1, FALSE, index, NULL);
+                o42_node_free (tree);
+              }
+            else if (v->kind == O42_VALID_LIST)
               {
                 /* The list is one string with a NUL between entries. */
                 const char *list = v->value ? v->value : "";
@@ -5301,25 +5371,34 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               }
             else
               {
-                tree = o42_formula_parse (v->value && v->value[0] ? v->value : "0");
-                compile (w, tree, f1, FALSE, index, NULL);
+                const char *f = v->value && v->value[0] ? v->value : "0";
+                tree = o42_formula_parse (f[0] == '=' ? f + 1 : f);
+                if (tree != NULL) compile (w, tree, f1, FALSE, index, NULL);
                 o42_node_free (tree);
               }
             if (v->value2 != NULL && v->value2[0] != '\0')
               {
-                tree = o42_formula_parse (v->value2);
-                compile (w, tree, f2, FALSE, index, NULL);
+                tree = o42_formula_parse (v->value2[0] == '=' ? v->value2 + 1 : v->value2);
+                if (tree != NULL) compile (w, tree, f2, FALSE, index, NULL);
                 o42_node_free (tree);
               }
 
+            w->anchor_row = w->anchor_col = -1;
             begin_record (w, R_DV);
             put32 (w->out, flags);
-            for (int k = 0; k < 3; k++)
-              { put16 (w->out, 1); put8 (w->out, 0); put8 (w->out, 0); }   /* empty strings, as Excel writes them */
-            if (v->message != NULL && v->message[0] != '\0')
-              put_ustr16 (w->out, v->message);
-            else
-              { put16 (w->out, 1); put8 (w->out, 0); put8 (w->out, 0); }
+            {
+              /* The four texts, in the record's order -- the prompt's
+               * title, the error's title, the prompt, the error; an
+               * empty one is a single NUL, as Excel writes them. */
+              const char *texts[4] = { v->prompt_title, v->error_title, v->prompt, v->message };
+              for (int k = 0; k < 4; k++)
+                {
+                  if (texts[k] != NULL && texts[k][0] != '\0')
+                    put_ustr16 (w->out, texts[k]);
+                  else
+                    { put16 (w->out, 1); put8 (w->out, 0); put8 (w->out, 0); }
+                }
+            }
             put16 (w->out, f1->len); put16 (w->out, 0);
             g_byte_array_append (w->out, f1->data, f1->len);
             put16 (w->out, f2->len); put16 (w->out, 0);
@@ -5486,6 +5565,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   O42Fmt plain;
 
   memset (&w, 0, sizeof w);
+  w.anchor_row = w.anchor_col = -1;
   w.book = book;
   w.out = g_byte_array_new ();
   w.fonts = g_array_new (FALSE, FALSE, sizeof (O42Fmt));

@@ -798,8 +798,17 @@ typedef enum {
   O42_VALID_LIST,
   O42_VALID_DATE,
   O42_VALID_TIME,
-  O42_VALID_LENGTH
+  O42_VALID_LENGTH,
+  O42_VALID_CUSTOM            /* `value` is a formula, true or false, read as
+                               * standing in the range's top-left cell */
 } O42ValidKind;
+
+/* What refusing an entry does: Excel's Stop, Warning and Information. */
+typedef enum {
+  O42_VALID_STOP = 0,
+  O42_VALID_WARNING,
+  O42_VALID_INFORMATION
+} O42ValidStyle;
 
 typedef struct {
   O42Range      range;
@@ -809,6 +818,10 @@ typedef struct {
   char         *value2;
   char         *message;      /* shown when an entry is refused; may be NULL */
   gboolean      allow_blank;
+  char         *prompt_title; /* the input message, shown when the cell is chosen; may be NULL */
+  char         *prompt;
+  char         *error_title;  /* the refusal's title; may be NULL */
+  O42ValidStyle error_style;
 } O42Validation;
 
 void       o42_sheet_add_validation    (O42Sheet *sheet, const O42Validation *v);   /* copies */

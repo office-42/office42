@@ -669,9 +669,10 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     GArray *rules = o42_sheet_validations (sheet);
     if (rules->len > 0)
       {
-        static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength" };
+        static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength", "custom" };
         static const char *ops[] = { "between", "notBetween", "equal", "notEqual",
                                      "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual" };
+        static const char *styles[] = { "stop", "warning", "information" };
         g_string_append_printf (out, "<dataValidations count=\"%u\">", rules->len);
         for (guint i = 0; i < rules->len; i++)
           {
@@ -679,25 +680,42 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
             char *a = o42_ref_name (v->range.row0, v->range.col0);
             char *b = o42_ref_name (v->range.row1, v->range.col1);
             char *f1, *f2 = NULL, *msg = g_markup_escape_text (v->message ? v->message : "", -1);
+            char *pt = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+            char *pr = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+            char *et = g_markup_escape_text (v->error_title ? v->error_title : "", -1);
+            gboolean list_is_range = FALSE;
             if (v->kind == O42_VALID_LIST)
               {
-                char *quoted = g_strdup_printf ("\"%s\"", v->value ? v->value : "");
-                f1 = g_markup_escape_text (quoted, -1);
-                g_free (quoted);
+                O42Range lr;
+                gsize lused = 0;
+                const char *text = v->value ? v->value : "";
+                list_is_range = o42_ref_parse (text + (text[0] == '='), &lr.row0, &lr.col0, &lused) && text[(text[0] == '=') + lused] == ':';
+                if (list_is_range)
+                  f1 = g_markup_escape_text (text + (text[0] == '='), -1);
+                else
+                  {
+                    char *quoted = g_strdup_printf ("\"%s\"", text);
+                    f1 = g_markup_escape_text (quoted, -1);
+                    g_free (quoted);
+                  }
               }
             else
-              f1 = g_markup_escape_text (v->value ? v->value : "", -1);
+              f1 = g_markup_escape_text (v->value ? v->value + (v->value[0] == '=') : "", -1);
             if (v->value2 != NULL && v->value2[0] != '\0')
-              f2 = g_markup_escape_text (v->value2, -1);
+              f2 = g_markup_escape_text (v->value2 + (v->value2[0] == '='), -1);
             g_string_append_printf (out,
-              "<dataValidation type=\"%s\" operator=\"%s\" allowBlank=\"%d\" showInputMessage=\"0\" "
-              "showErrorMessage=\"1\"%s%s%s sqref=\"%s:%s\"><formula1>%s</formula1>",
-              types[v->kind], ops[v->op], v->allow_blank ? 1 : 0,
-              msg[0] ? " error=\"" : "", msg, msg[0] ? "\"" : "", a, b, f1);
+              "<dataValidation type=\"%s\" operator=\"%s\" allowBlank=\"%d\" showInputMessage=\"%d\" "
+              "showErrorMessage=\"1\" errorStyle=\"%s\"%s%s%s%s%s%s%s%s%s%s%s%s sqref=\"%s:%s\"><formula1>%s</formula1>",
+              types[MIN (v->kind, 7)], ops[v->op], v->allow_blank ? 1 : 0, pt[0] || pr[0] ? 1 : 0,
+              styles[MIN (v->error_style, 2)],
+              et[0] ? " errorTitle=\"" : "", et, et[0] ? "\"" : "",
+              msg[0] ? " error=\"" : "", msg, msg[0] ? "\"" : "",
+              pt[0] ? " promptTitle=\"" : "", pt, pt[0] ? "\"" : "",
+              pr[0] ? " prompt=\"" : "", pr, pr[0] ? "\"" : "", a, b, f1);
             if (f2 != NULL)
               g_string_append_printf (out, "<formula2>%s</formula2>", f2);
             g_string_append (out, "</dataValidation>");
-            g_free (a); g_free (b); g_free (f1); g_free (f2); g_free (msg);
+            g_free (a); g_free (b); g_free (f1); g_free (f2); g_free (msg); g_free (pt); g_free (pr); g_free (et);
           }
         g_string_append (out, "</dataValidations>");
       }
@@ -3127,13 +3145,14 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     }
   else if (strcmp (n, "dataValidation") == 0)
     {
-      static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength" };
+      static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength", "custom" };
       static const char *ops[] = { "between", "notBetween", "equal", "notEqual",
                                    "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual" };
       const char *type = attr (names, values, "type");
       const char *op = attr (names, values, "operator");
       const char *sqref = attr (names, values, "sqref");
       const char *err_text = attr (names, values, "error");
+      const char *style = attr (names, values, "errorStyle");
       gsize used;
 
       memset (&r->dv, 0, sizeof r->dv);
@@ -3145,6 +3164,11 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         if (strcmp (op, ops[i]) == 0) r->dv.op = (O42CondOp) i;
       r->dv.allow_blank = attr_flag (names, values, "allowBlank");
       r->dv.message = g_strdup (err_text ? err_text : "");
+      r->dv.error_title = g_strdup (attr (names, values, "errorTitle") ? attr (names, values, "errorTitle") : "");
+      r->dv.prompt_title = g_strdup (attr (names, values, "promptTitle") ? attr (names, values, "promptTitle") : "");
+      r->dv.prompt = g_strdup (attr (names, values, "prompt") ? attr (names, values, "prompt") : "");
+      r->dv.error_style = style != NULL && strcmp (style, "warning") == 0 ? O42_VALID_WARNING
+                        : style != NULL && strcmp (style, "information") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
       r->dv.value = g_strdup ("");
       r->dv.value2 = g_strdup ("");
       if (sqref != NULL && o42_ref_parse (sqref, &r->dv.range.row0, &r->dv.range.col0, &used))
@@ -3415,7 +3439,7 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
     {
       if (r->in_dv)
         o42_sheet_add_validation (r->sheet, &r->dv);
-      g_free (r->dv.value); g_free (r->dv.value2); g_free (r->dv.message);
+      g_free (r->dv.value); g_free (r->dv.value2); g_free (r->dv.message); g_free (r->dv.prompt_title); g_free (r->dv.prompt); g_free (r->dv.error_title);
       memset (&r->dv, 0, sizeof r->dv);
       r->in_dv = FALSE;
     }

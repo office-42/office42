@@ -2954,7 +2954,7 @@ main (int argc, char *argv[])
           int n = (int) g_strv_length (words);
           O42Validation v;
           gsize len = 0;
-          static const char *kinds[] = { "any", "whole", "decimal", "list", "date", "time", "length" };
+          static const char *kinds[] = { "any", "whole", "decimal", "list", "date", "time", "length", "custom" };
           static const char *ops[] = { "between", "!between", "=", "<>", ">", "<", ">=", "<=" };
 
           memset (&v, 0, sizeof v);
@@ -2969,7 +2969,7 @@ main (int argc, char *argv[])
               v.range = o42_range_normalise (v.range.row0, v.range.col0, v.range.row1, v.range.col1);
               for (guint i = 0; i < G_N_ELEMENTS (kinds); i++)
                 if (strcmp (words[1], kinds[i]) == 0) v.kind = (O42ValidKind) i;
-              if (v.kind == O42_VALID_LIST)
+              if (v.kind == O42_VALID_LIST || v.kind == O42_VALID_CUSTOM)
                 v.value = words[2], next = 3;
               else
                 {
@@ -2980,8 +2980,19 @@ main (int argc, char *argv[])
                   if ((v.op == O42_COND_BETWEEN || v.op == O42_COND_NOT_BETWEEN) && n > 4)
                     v.value2 = words[4], next = 5;
                 }
+              /* The message may carry title=... prompt=... prompttitle=...
+               * style=stop|warning|info words before the text. */
               for (int i = next; i < n; i++)
                 {
+                  if (g_str_has_prefix (words[i], "title=")) { v.error_title = words[i] + 6; continue; }
+                  if (g_str_has_prefix (words[i], "prompt=")) { v.prompt = words[i] + 7; continue; }
+                  if (g_str_has_prefix (words[i], "prompttitle=")) { v.prompt_title = words[i] + 12; continue; }
+                  if (g_str_has_prefix (words[i], "style="))
+                    {
+                      v.error_style = strcmp (words[i] + 6, "warning") == 0 ? O42_VALID_WARNING
+                                    : strcmp (words[i] + 6, "info") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+                      continue;
+                    }
                   if (msg->len > 0) g_string_append_c (msg, ' ');
                   g_string_append (msg, words[i]);
                 }
@@ -3016,8 +3027,13 @@ main (int argc, char *argv[])
               const O42Validation *v = &g_array_index (rules, O42Validation, i);
               char *a = o42_ref_name (v->range.row0, v->range.col0);
               char *b = o42_ref_name (v->range.row1, v->range.col1);
-              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\"\n",
+              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\"",
                       a, b, (int) v->kind, (int) v->op, v->value, v->value2, v->allow_blank, v->message);
+              if (v->error_title != NULL && *v->error_title) printf (" title \"%s\"", v->error_title);
+              if (v->error_style != O42_VALID_STOP) printf (" style %s", v->error_style == O42_VALID_WARNING ? "warning" : "info");
+              if (v->prompt_title != NULL && *v->prompt_title) printf (" prompttitle \"%s\"", v->prompt_title);
+              if (v->prompt != NULL && *v->prompt) printf (" prompt \"%s\"", v->prompt);
+              printf ("\n");
               g_free (a);
               g_free (b);
             }
