@@ -11168,6 +11168,45 @@ o42_sheet_ungroup_objects (O42Sheet *sheet, const O42Range *range)
 }
 
 guint
+o42_sheet_group_refs (O42Sheet *sheet, const GArray *refs)
+{
+  guint highest = 0, group, members = 0;
+
+  g_return_val_if_fail (sheet != NULL && refs != NULL, 0);
+  for (guint i = 0; i < sheet->pictures->len; i++)
+    highest = MAX (highest, ((O42Picture *) g_ptr_array_index (sheet->pictures, i))->group);
+  for (guint i = 0; i < sheet->shapes->len; i++)
+    highest = MAX (highest, ((O42Shape *) g_ptr_array_index (sheet->shapes, i))->group);
+  for (guint i = 0; i < sheet->charts->len; i++)
+    highest = MAX (highest, ((O42Chart *) g_ptr_array_index (sheet->charts, i))->group);
+  group = highest + 1;
+  for (guint i = 0; i < refs->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (refs, O42ObjectRef, i);
+
+      if (ref->type == O42_OBJECT_SHAPE)
+        {
+          O42Shape *s = o42_sheet_find_shape (sheet, ref->id);
+          if (s != NULL) { s->group = group; members++; }
+        }
+      else if (ref->type == O42_OBJECT_PICTURE)
+        {
+          O42Picture *p = o42_sheet_find_picture (sheet, ref->id);
+          if (p != NULL) { p->group = group; members++; }
+        }
+      else
+        {
+          O42Chart *c = o42_sheet_find_chart (sheet, ref->id);
+          if (c != NULL) { c->group = group; members++; }
+        }
+    }
+  if (members < 2)
+    return 0;
+  sheet->modified = TRUE;
+  return group;
+}
+
+guint
 o42_sheet_object_group (O42Sheet *sheet, guint id)
 {
   O42Picture *picture;

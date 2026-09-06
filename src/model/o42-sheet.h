@@ -988,6 +988,11 @@ typedef struct {
 
 GArray  *o42_sheet_objects (O42Sheet *sheet);   /* O42ObjectRef, back to front; free it */
 
+/* Puts the objects named (by type and id) into one new group, the way
+ * Excel groups a multi-selection; the group's number comes back, 0
+ * when fewer than two were found. */
+guint    o42_sheet_group_refs (O42Sheet *sheet, const GArray *refs);
+
 /* Format > Order: the object goes to the front or the back of them all,
  * or one step either way.  One undo step.  FALSE if nothing moved. */
 typedef enum {
