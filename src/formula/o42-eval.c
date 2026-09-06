@@ -6810,26 +6810,49 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       operand_dims (&y, &ry, &cy);
       if (cx != ry)
         { operand_clear (&x); operand_clear (&y); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
-      a = array_const_new (rx, cy);
-      for (int i = 0; i < rx; i++)
-        for (int j = 0; j < cy; j++)
-          {
-            double sum = 0;
-            gboolean bad = FALSE;
-            for (int k = 0; k < cx && !bad; k++)
+      {
+        /* Both matrices read once into flat doubles, then the plain
+         * triple loop with the inner one along a row of the second, so
+         * a 500-by-500 product takes a moment rather than the seconds
+         * that reading each cell a thousand times over did.  Anything
+         * that is not a number is #VALUE! for the whole. */
+        double *mx = g_new (double, (gsize) rx * cx), *my = g_new (double, (gsize) ry * cy);
+        double *mz = g_new0 (double, (gsize) rx * cy);
+        gboolean bad = FALSE;
+
+        for (int i = 0; i < rx && !bad; i++)
+          for (int k = 0; k < cx && !bad; k++)
+            {
+              O42Value v = operand_cell (ctx, &x, i, k);
+              O42ErrorCode e = O42_ERR_VALUE;
+              bad = !o42_value_to_number (&v, &mx[i * cx + k], &e);
+              o42_value_clear (&v);
+            }
+        for (int k = 0; k < ry && !bad; k++)
+          for (int j = 0; j < cy && !bad; j++)
+            {
+              O42Value v = operand_cell (ctx, &y, k, j);
+              O42ErrorCode e = O42_ERR_VALUE;
+              bad = !o42_value_to_number (&v, &my[k * cy + j], &e);
+              o42_value_clear (&v);
+            }
+        if (!bad)
+          for (int i = 0; i < rx; i++)
+            for (int k = 0; k < cx; k++)
               {
-                O42Value p = operand_cell (ctx, &x, i, k), q = operand_cell (ctx, &y, k, j);
-                double u, v;
-                O42ErrorCode e = O42_ERR_VALUE;
-                if (o42_value_to_number (&p, &u, &e) && o42_value_to_number (&q, &v, &e))
-                  sum += u * v;
-                else
-                  bad = TRUE;
-                o42_value_clear (&p);
-                o42_value_clear (&q);
+                double u = mx[i * cx + k];
+                const double *row = my + (gsize) k * cy;
+                double *z = mz + (gsize) i * cy;
+                for (int j = 0; j < cy; j++)
+                  z[j] += u * row[j];
               }
-            a->cells[i * cy + j] = bad ? o42_value_error (O42_ERR_VALUE) : o42_value_number (sum);
-          }
+        a = array_const_new (rx, cy);
+        for (int i = 0; i < rx * cy; i++)
+          a->cells[i] = bad ? o42_value_error (O42_ERR_VALUE) : o42_value_number (mz[i]);
+        g_free (mx);
+        g_free (my);
+        g_free (mz);
+      }
       operand_clear (&x);
       operand_clear (&y);
       *out = array_operand (a);
