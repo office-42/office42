@@ -106,7 +106,88 @@ time as `border_top` … `border_right` and `border_top_colour` …,
 `valign` (`bottom`, `middle`, `top`), `number` (`general`, `fixed`,
 `comma`, `currency`, `percent`, `scientific`, `text`, `date`, `time`,
 `datetime`, or a format code such as `"#,##0.00"`), `decimals`, and
-`locked` and `hidden` for a protected sheet.
+`locked` and `hidden` for a protected sheet.  Each of these is also a
+property of a Range -- `r.bold = True`, `r.number_format = "0.00%"`,
+`r.fill = None` -- read from the top-left cell and set over the whole
+range; so are `r.note`, `r.hyperlink` (deletable with `del`),
+`r.row_height`, `r.column_width` and `r.hidden`, and `r.autofit()`
+widens the columns to their text.
+
+Rules on cells: `r.validate("whole", "between", 1, 10, "One to ten")`
+(kinds `whole`, `decimal`, `list`, `date`, `time`, `length`; `any`
+clears), `r.validation` and `r.clear_validation()`;
+`r.add_conditional_format(">", 100, bold=True, fill="#FFCC00")`,
+`r.conditional_formats` and `r.clear_conditional_formats()`.
+
+### Charts, shapes and pictures
+
+The objects floating over a sheet are Python objects too, reading and
+writing the sheet as they go:
+
+```python
+c = sheet.add_chart("pie", "A1:B5", "D2", width=320, height=220, title="Share")
+c.kind = "column"; c.legend = False; c.data = sheet["A1:C5"]
+s = sheet.add_shape("star5", "F2", 120, 90, text="New!", fill="#FFCC00",
+                    line="#000000", line_width=2, rotation=15)
+s.dash = "dash"; s.flip_h = True; s.send_to_back()
+p = sheet.add_picture("logo.png", "H2", width=200)  # the height follows
+p.crop = (0.1, 0, 0, 0); p.rotation = 90
+sheet.charts, sheet.shapes, sheet.pictures, sheet.objects   # back to front
+c.position, c.size, c.delete()
+```
+
+A Shape's `kind` is `rectangle`, `oval`, `line`, `arrow`, `textbox` or
+a control (`button`, `checkbox`, `option`, `label`, `spinner`,
+`scrollbar`, `listbox`, `groupbox`, `combo`), its `geom` one of the
+AutoShape outlines (`roundRect`, `triangle`, `diamond`, `star5`,
+`rightArrow`, `wedgeRectCallout` ...); a control has `link`, `source`
+and `script`.
+
+### Events
+
+What Excel's `Worksheet_Change` and its kin are.  A script registers a
+handler, or simply defines a function by the conventional name, and
+the window calls it:
+
+```python
+import office42
+
+def on_change(sheet, rng):            # cells the user edited
+    rng.offset(0, 1).value = "seen"   # a handler's own changes do not fire it
+
+@office42.on("selection")             # or on_selection_change(sheet, rng)
+def moved(sheet, rng):
+    office42.app.status = rng.address
+
+def on_before_save(book): ...         # also on_open, on_close
+office42.off("selection", moved)
+```
+
+Handlers belong to the book whose script registered them, and they
+exist once the book's scripts have run (Run Scripts, or a script run
+by hand); nothing fires while none is registered.  What a handler
+prints goes where a script's output goes.
+
+### Stepping through a script
+
+Tools > Macro > Scripts in this Book runs a script a line at a time:
+Step (F8) to the next line, Continue (Shift+F8) to the next breakpoint
+(Ctrl+B on a line sets one), Stop to end it.  The line the script
+waits on is highlighted, its variables are listed beside the code, and
+the grid shows what the script has done so far.
+
+### The application
+
+`office42.app` has `undo()` and `redo()`, `recalculate()`,
+`display_alerts` (False keeps `msgbox` quiet), `status`, `selection`,
+`active_cell` and `active_sheet`.
+
+### Excel's own macros
+
+An `.xlsm` opens as an `.xlsx` does.  Its Visual Basic project is not
+run -- office42 runs Python -- but it is kept as it came, and saving
+as `.xlsm` gives it back to Excel untouched; saving as `.xlsx` leaves
+it out, as Excel does.  The bar under the toolbar says so.
 
 ## Functions from scripts
 
@@ -224,5 +305,5 @@ GTK.
 
 ## Not there
 
-VBA; sandboxing — a script can do what the user can do, so run only
+Running VBA (an `.xlsm`'s project is kept, not run); sandboxing — a script can do what the user can do, so run only
 scripts you trust.

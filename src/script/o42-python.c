@@ -948,6 +948,23 @@ m_close (PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* undo(i) and redo(i): one step back or forward on sheet i's history,
+ * which is the book's; whether there was a step. */
+static PyObject *
+m_undo (PyObject *self, PyObject *args)
+{
+  int index, redo = 0;
+  O42Sheet *sheet;
+  gboolean done;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i|p", &index, &redo) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  done = redo ? o42_sheet_redo (sheet, NULL) : o42_sheet_undo (sheet, NULL);
+  if (done)
+    book_touched = TRUE;
+  return PyBool_FromLong (done);
+}
+
 static PyObject *
 m_calculate (PyObject *self, PyObject *args)
 {
@@ -2428,6 +2445,7 @@ static PyMethodDef METHODS[] = {
   { "open",           m_open,           METH_VARARGS, "Opens a file in a window of its own." },
   { "close",          m_close,          METH_NOARGS,  "Closes the window showing the book." },
   { "calculate",      m_calculate,      METH_NOARGS,  "Recalculates every sheet." },
+  { "undo",           m_undo,           METH_VARARGS, "One step back on the history (or forward, with True)." },
   { "personal_folder", m_personal_folder, METH_NOARGS, "The personal scripts folder." },
   { "get_input",      m_get_input,      METH_VARARGS, "What was typed into a cell." },
   { "set_input",      m_set_input,      METH_VARARGS, "Types into a cell." },

@@ -1020,6 +1020,11 @@ class Application:
         """Works out every formula in the book now: F9."""
         _c.calculate()
 
+    def recalculate(self, full=True):
+        """Every sheet worked out again; `full` is what Excel's
+        CalculateFull is, and the only kind here."""
+        _c.calculate()
+
     calculate_full = calculate
 
     @property
@@ -1033,8 +1038,18 @@ class Application:
 
     status_bar = status
 
+    display_alerts = True   # False keeps msgbox quiet, as Excel's does
+
     def msgbox(self, text):
-        return msgbox(text)
+        if self.display_alerts:
+            return msgbox(text)
+
+    def undo(self):
+        """Edit > Undo: one step back on the book's history; whether there was one."""
+        return _c.undo(_c.current(), False)
+
+    def redo(self):
+        return _c.undo(_c.current(), True)
 
     def inputbox(self, prompt, default=""):
         return inputbox(prompt, default)
