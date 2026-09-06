@@ -63,6 +63,9 @@ fn_time (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, h);
   ARG_NUMBER (1, m);
   ARG_NUMBER (2, s);
+  /* Excel's TIME takes nothing at or past 32768 in any part. */
+  if (h >= 32768 || m >= 32768 || s >= 32768)
+    return o42_value_error (O42_ERR_NUM);
   frac = o42_time_fraction (trunc (h), trunc (m), trunc (s));
   if (frac < 0)
     return o42_value_error (O42_ERR_NUM);
@@ -77,6 +80,7 @@ o42_time_of_day (const char *text, double *serial)
 {
   const char *p = text;
   int h, m = 0, sec = 0;
+  double fraction = 0;    /* "15:45:30.5": the half second */
   char *end;
   gboolean pm = FALSE, am = FALSE;
 
@@ -97,6 +101,11 @@ o42_time_of_day (const char *text, double *serial)
         return FALSE;
       sec = (int) strtol (p + 1, &end, 10);
       p = end;
+      if (*p == '.' && g_ascii_isdigit (p[1]))
+        {
+          fraction = g_ascii_strtod (p, &end);
+          p = end;
+        }
     }
   while (g_ascii_isspace (*p)) p++;
   if (g_ascii_tolower (*p) == 'a' || g_ascii_tolower (*p) == 'p')
@@ -113,7 +122,7 @@ o42_time_of_day (const char *text, double *serial)
     return FALSE;
   if (pm && h < 12) h += 12;
   if (am && h == 12) h = 0;
-  *serial = (h * 3600.0 + m * 60.0 + sec) / 86400.0;
+  *serial = (h * 3600.0 + m * 60.0 + sec + fraction) / 86400.0;
   *serial -= floor (*serial);
   return TRUE;
 }

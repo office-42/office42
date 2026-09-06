@@ -90,7 +90,16 @@ fn_cell (O42EvalContext *ctx, O42Operand *args, int n)
       }
     }
 
-  /* The rest is the caller's to answer. */
+  /* The rest is the caller's to answer; a kind of information CELL
+   * does not have is #VALUE!, a cell it cannot see #N/A. */
+  if (strcmp (what, "color") != 0 && strcmp (what, "filename") != 0 && strcmp (what, "format") != 0 &&
+      strcmp (what, "parentheses") != 0 && strcmp (what, "prefix") != 0 && strcmp (what, "protect") != 0 &&
+      strcmp (what, "width") != 0 && strcmp (what, "sheet") != 0 && strcmp (what, "sheets") != 0 &&
+      strcmp (what, "formula") != 0)
+    {
+      g_free (what);
+      return o42_value_error (O42_ERR_VALUE);
+    }
   if (ctx->get_cell_info != NULL &&
       ctx->get_cell_info (ctx, sheet, row, col, what, &result))
     {
@@ -141,6 +150,8 @@ fn_info (O42EvalContext *ctx, O42Operand *args, int n)
     { g_free (what); return o42_value_text ("Automatic"); }
   if (strcmp (what, "release") == 0)
     { g_free (what); return o42_value_text ("office42 " O42_VERSION); }
+  if (strcmp (what, "version") == 0)
+    { g_free (what); return o42_value_text (O42_VERSION); }
   if (strcmp (what, "system") == 0)
     {
       g_free (what);

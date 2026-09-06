@@ -131,12 +131,13 @@ void
 o42_time_from_serial (double serial, int *hour, int *minute, int *second)
 {
   double frac = serial - floor (serial);
-  /* Rounded to the nearest second, so that 0.5 is 12:00:00 and not
-   * 11:59:59.999. */
-  int total = (int) floor (frac * 86400.0 + 0.5);
+  /* Cut to the second, as Excel's HOUR, MINUTE and SECOND cut, with a
+   * hair's allowance so that 0.3 is 7:12:00 and not 7:11:59; 0.999999
+   * is 23:59:59, not the next day's midnight. */
+  int total = (int) floor (frac * 86400.0 + 1e-4);
 
   if (total >= 86400)
-    total = 0;
+    total = 86399;
 
   if (hour)   *hour   = total / 3600;
   if (minute) *minute = (total / 60) % 60;
@@ -386,6 +387,7 @@ read_time (const char **p, double *fraction)
 {
   const char *q = *p;
   int h, mi = 0, s = 0, dh, dm, ds;
+  double second_fraction = 0;
   gboolean colon;
 
   if (!read_number (&q, &h, &dh) || dh > 2)
@@ -401,6 +403,13 @@ read_time (const char **p, double *fraction)
           q++;
           if (!read_number (&q, &s, &ds) || ds > 2)
             return FALSE;
+          /* "12:00:59.6": the fraction of a second. */
+          if (*q == '.' && g_ascii_isdigit (q[1]))
+            {
+              char *end = NULL;
+              second_fraction = g_ascii_strtod (q, &end);
+              q = end;
+            }
         }
     }
 
@@ -430,7 +439,7 @@ read_time (const char **p, double *fraction)
   if (h > 23 || mi > 59 || s > 59)
     return FALSE;
 
-  *fraction = o42_time_fraction (h, mi, s);
+  *fraction = o42_time_fraction (h, mi, s + second_fraction);
   *p = q;
   return TRUE;
 }

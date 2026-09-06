@@ -997,8 +997,9 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
   if (strcmp (what, "width") == 0)
     {
       /* Excel counts a column's width in characters of the standard
-       * font; ours are in pixels, at about seven to the character. */
-      *out = o42_value_number (floor (o42_sheet_col_width (sheet, col) / 7.0 + 0.5));
+       * font, the padding taken off; ours are in pixels, at seven to
+       * the character and five of padding, so the default 64 is 8. */
+      *out = o42_value_number (floor ((o42_sheet_col_width (sheet, col) - 5) / 7.0));
       return TRUE;
     }
   if (strcmp (what, "protect") == 0)
@@ -1057,7 +1058,14 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
     }
   if (strcmp (what, "color") == 0 || strcmp (what, "parentheses") == 0)
     {
-      *out = o42_value_number (0);
+      /* 1 when the negative section is coloured ([Red]) or in parentheses. */
+      const char *neg = fmt->custom != NULL ? strchr (fmt->custom, ';') : NULL;
+      gboolean yes = FALSE;
+
+      if (neg != NULL)
+        yes = what[0] == 'c' ? (neg[1] == '[' && g_ascii_isalpha (neg[2]))
+                             : strchr (neg + 1, '(') != NULL;
+      *out = o42_value_number (yes ? 1 : 0);
       return TRUE;
     }
   return FALSE;

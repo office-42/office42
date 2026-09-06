@@ -3113,6 +3113,12 @@ fn_networkdays_intl (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (1, end);
   if (!weekend_days (ctx, n >= 3 ? &args[2] : NULL, weekend))
     return o42_value_error (O42_ERR_NUM);
+  {
+    /* Every day a weekend leaves nothing to count: #VALUE!, as Excel says. */
+    gboolean all = TRUE;
+    for (int d = 1; d <= 7; d++) all = all && weekend[d];
+    if (all) return o42_value_error (O42_ERR_VALUE);
+  }
   start = floor (start);
   end = floor (end);
   if (end < start) { double t = start; start = end; end = t; sign = -1; }
@@ -4794,7 +4800,8 @@ fn_address (O42EvalContext *ctx, O42Operand *args, int n)
     {
       char *sheet, *quoted;
       ARG_TEXT (4, sheet);
-      quoted = o42_sheet_name_quote (sheet);
+      /* An empty sheet is "!$A$1", and a "[Book1]Sheet1" goes as written. */
+      quoted = (*sheet == '\0' || *sheet == '[') ? g_strdup (sheet) : o42_sheet_name_quote (sheet);
       text = g_strdup_printf ("%s!%s", quoted, ref);
       g_free (quoted);
       g_free (sheet);
@@ -9415,11 +9422,21 @@ static O42Value
 fn_sheet (O42EvalContext *ctx, O42Operand *args, int n)
 {
   O42Value out;
+  const char *sheet = NULL;
+  char *named = NULL;
 
+  /* SHEET("Sales") asks by name; a name no sheet has is #N/A. */
+  if (n >= 1 && args[0].is_range)
+    sheet = args[0].sheet;
+  else if (n >= 1 && args[0].value.type == O42_VALUE_TEXT)
+    sheet = named = g_strdup (args[0].value.as.text);
   if (ctx->get_cell_info != NULL &&
-      ctx->get_cell_info (ctx, n >= 1 && args[0].is_range ? args[0].sheet : NULL,
-                          ctx->row, ctx->col, "sheet", &out))
-    return out;
+      ctx->get_cell_info (ctx, sheet, ctx->row, ctx->col, "sheet", &out))
+    {
+      g_free (named);
+      return out;
+    }
+  g_free (named);
   return o42_value_error (O42_ERR_NA);
 }
 
@@ -9444,7 +9461,7 @@ fn_isformula (O42EvalContext *ctx, O42Operand *args, int n)
 
   (void) n;
   if (!args[0].is_range)
-    return o42_value_bool (FALSE);
+    return o42_value_error (O42_ERR_VALUE);   /* not a reference */
   if (ctx->get_cell_info != NULL &&
       ctx->get_cell_info (ctx, args[0].sheet, args[0].range.row0, args[0].range.col0,
                           "formula", &out))
