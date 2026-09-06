@@ -92,6 +92,10 @@ struct _O42Grid {
   double         zoom;                     /* 1.0 is 100% */
   int            frozen_rows, frozen_cols; /* View > Freeze Panes */
   gboolean       show_breaks;              /* View > Page Breaks */
+  GArray        *freeform;                 /* double pairs, sheet px: the outline being drawn, or NULL */
+  GArray        *extra_objects;            /* O42ObjectRef (type, id): selected with Shift beside the first */
+  gboolean       rotate_drag;              /* the rotation handle is held */
+  double         rotate_from;              /* the object's angle when it was taken */
   gboolean       split;                    /* Window > Split: the bands
                                             * scroll on their own rather
                                             * than staying pinned */
@@ -535,6 +539,8 @@ shape_hit (O42Grid *self, const O42Shape *shape, double x, double y)
   shape_rect (self, shape, &sx, &sy, &sw, &sh);
   if (sw < 0) { sx += sw; sw = -sw; }
   if (sh < 0) { sy += sh; sh = -sh; }
+  if (shape->kind == O42_SHAPE_FREEFORM || shape->kind == O42_SHAPE_OVAL)
+    return o42_shape_contains (shape, x - sx, y - sy, sw, sh, 3);
   return x >= sx - 3 && x < sx + sw + 3 && y >= sy - 3 && y < sy + sh + 3;
 }
 
@@ -664,6 +670,8 @@ chart_at (O42Grid *self, double x, double y)
 
 static void anchor_place (O42Grid *self, int *arow, int *acol, double *adx,
                           double *ady, double x, double y);
+static void freeform_finish (O42Grid *self);
+static void freeform_point (O42Grid *self, double x, double y, gboolean last);
 static void picture_place (O42Grid *self, O42Picture *pic, double x, double y);
 
 /* The eight handles of a selected object, in the order they are drawn:
@@ -749,6 +757,100 @@ handle_at (O42Grid *self, double x, double y)
     }
 
   return -1;
+}
+
+/* ---- More than one object at a time ---------------------------------------- */
+
+/* Whether an object is among those selected with Shift beside the
+ * first. */
+static gboolean
+object_is_extra (O42Grid *self, O42ObjectType type, guint id)
+{
+  for (guint i = 0; self->extra_objects != NULL && i < self->extra_objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+      if (ref->type == type && ref->id == id)
+        return TRUE;
+    }
+  return FALSE;
+}
+
+static O42ObjectType
+selected_object_type (O42Grid *self)
+{
+  return self->selected_is_shape ? O42_OBJECT_SHAPE : self->selected_is_chart ? O42_OBJECT_CHART : O42_OBJECT_PICTURE;
+}
+
+/* Shift+click: the object joins the selection, or leaves it if it was
+ * in; the first selected stays the one with the handles. */
+static void
+toggle_extra_object (O42Grid *self, O42ObjectType type, guint id)
+{
+  if (self->extra_objects == NULL)
+    self->extra_objects = g_array_new (FALSE, FALSE, sizeof (O42ObjectRef));
+  for (guint i = 0; i < self->extra_objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+      if (ref->type == type && ref->id == id)
+        { g_array_remove_index (self->extra_objects, i); return; }
+    }
+  if (self->selected_picture == id && selected_object_type (self) == type)
+    return;
+  {
+    O42ObjectRef ref = { type, NULL, id, 0 };
+    g_array_append_val (self->extra_objects, ref);
+  }
+}
+
+/* The others move by the step the first took. */
+static void
+move_extras_with (O42Grid *self, int drow, int dcol, double ddx, double ddy)
+{
+  for (guint i = 0; self->extra_objects != NULL && i < self->extra_objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+      int *row = NULL, *col = NULL;
+      double *dx = NULL, *dy = NULL;
+
+      if (ref->type == O42_OBJECT_SHAPE)
+        {
+          O42Shape *s = o42_sheet_find_shape (self->sheet, ref->id);
+          if (s != NULL) { row = &s->row; col = &s->col; dx = &s->dx; dy = &s->dy; }
+        }
+      else if (ref->type == O42_OBJECT_PICTURE)
+        {
+          O42Picture *p = o42_sheet_find_picture (self->sheet, ref->id);
+          if (p != NULL) { row = &p->row; col = &p->col; dx = &p->dx; dy = &p->dy; }
+        }
+      else
+        {
+          O42Chart *c = o42_sheet_find_chart (self->sheet, ref->id);
+          if (c != NULL) { row = &c->row; col = &c->col; dx = &c->dx; dy = &c->dy; }
+        }
+      if (row != NULL)
+        {
+          *row = CLAMP (*row + drow, 0, O42_MAX_ROWS - 1);
+          *col = CLAMP (*col + dcol, 0, O42_MAX_COLS - 1);
+          *dx += ddx; *dy += ddy;
+        }
+    }
+}
+
+/* Where the rotation handle stands: above the top middle of the box,
+ * in the object's own frame. */
+#define ROTATE_HANDLE_UP 22.0
+
+static gboolean
+rotate_handle_at (O42Grid *self, double x, double y)
+{
+  double ox, oy, ow, oh, rotation;
+  gboolean flip_h, flip_v;
+
+  if (!selected_object_rect (self, &ox, &oy, &ow, &oh) || self->selected_is_chart)
+    return FALSE;
+  selected_object_transform (self, &rotation, &flip_h, &flip_v);
+  to_object_frame (rotation, flip_h, flip_v, ox + ow / 2, oy + oh / 2, &x, &y);
+  return fabs (x - (ox + ow / 2)) <= GRIP && fabs (y - (oy - ROTATE_HANDLE_UP)) <= GRIP;
 }
 
 /* Puts the selected object at a rectangle, re-anchoring its corner. */
@@ -4290,7 +4392,18 @@ o42_grid_group_objects (O42Grid *self, gboolean group)
   if (self->sheet == NULL)
     return;
   selection_range (self, &range);
-  if (group)
+  if (group && self->selected_picture != 0 && self->extra_objects != NULL && self->extra_objects->len > 0)
+    {
+      /* A set picked with Shift is grouped as itself. */
+      GArray *refs = g_array_new (FALSE, FALSE, sizeof (O42ObjectRef));
+      O42ObjectRef first = { selected_object_type (self), NULL, self->selected_picture, 0 };
+
+      g_array_append_val (refs, first);
+      g_array_append_vals (refs, self->extra_objects->data, self->extra_objects->len);
+      o42_sheet_group_refs (self->sheet, refs);
+      g_array_unref (refs);
+    }
+  else if (group)
     o42_sheet_group_objects (self->sheet, &range);
   else
     o42_sheet_ungroup_objects (self->sheet, &range);
@@ -4747,6 +4860,14 @@ on_key_pressed (GtkEventControllerKey *controller,
             o42_sheet_remove_chart (self->sheet, self->selected_picture);
           else
             o42_sheet_remove_picture (self->sheet, self->selected_picture);
+          for (guint i = 0; self->extra_objects != NULL && i < self->extra_objects->len; i++)
+            {
+              const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+              if (ref->type == O42_OBJECT_SHAPE) o42_sheet_remove_shape (self->sheet, ref->id);
+              else if (ref->type == O42_OBJECT_CHART) o42_sheet_remove_chart (self->sheet, ref->id);
+              else o42_sheet_remove_picture (self->sheet, ref->id);
+            }
+          g_clear_pointer (&self->extra_objects, g_array_unref);
           self->selected_picture = 0;
           sheet_changed (self);
           return GDK_EVENT_STOP;
@@ -4761,6 +4882,11 @@ on_key_pressed (GtkEventControllerKey *controller,
       return GDK_EVENT_STOP;
 
     case GDK_KEY_Escape:
+      if (self->freeform != NULL)
+        {
+          freeform_finish (self);
+          return GDK_EVENT_STOP;
+        }
       move_active (self, row, col, FALSE);
       return GDK_EVENT_STOP;
 
@@ -4819,6 +4945,14 @@ on_click_pressed (GtkGestureClick *gesture,
 
   row = row_at_y (self, y);
   col = col_at_x (self, x);
+
+  /* A freeform being drawn: a click is a point of it, a double-click
+   * the last. */
+  if (self->freeform != NULL)
+    {
+      freeform_point (self, x, y, n_press >= 2);
+      return;
+    }
 
   /* A click while a formula is being typed writes the cell into it,
    * and the button stays down to drag out a range. */
@@ -4931,6 +5065,21 @@ on_click_pressed (GtkGestureClick *gesture,
       }
   }
 
+  /* The rotation handle starts a turn. */
+  if (rotate_handle_at (self, x, y))
+    {
+      double r; gboolean fh, fv;
+
+      o42_sheet_begin_group (self->sheet);
+      o42_sheet_capture_object (self->sheet, self->selected_picture);
+      selected_object_transform (self, &r, &fh, &fv);
+      self->rotate_drag = TRUE;
+      self->rotate_from = r;
+      self->drag_mouse_x = x;
+      self->drag_mouse_y = y;
+      return;
+    }
+
   /* A handle of the selected object starts a resize. */
   {
     int handle = handle_at (self, x, y);
@@ -4961,6 +5110,37 @@ on_click_pressed (GtkGestureClick *gesture,
     if (shape != NULL && !(state & GDK_CONTROL_MASK) &&
         o42_shape_is_control (shape->kind) && control_pressed (self, shape, x, y))
       return;
+
+    /* Shift+click on an object adds it to (or takes it from) the set
+     * selected; the first keeps the handles.  A plain click on an
+     * object starts the set over. */
+    if ((state & GDK_SHIFT_MASK) && self->selected_picture != 0 &&
+        (shape != NULL || chart != NULL || pic != NULL))
+      {
+        if (shape != NULL) toggle_extra_object (self, O42_OBJECT_SHAPE, shape->id);
+        else if (chart != NULL) toggle_extra_object (self, O42_OBJECT_CHART, chart->id);
+        else toggle_extra_object (self, O42_OBJECT_PICTURE, pic->id);
+        gtk_widget_queue_draw (GTK_WIDGET (self));
+        return;
+      }
+    if (shape != NULL || chart != NULL || pic != NULL)
+      {
+        guint id = shape != NULL ? shape->id : chart != NULL ? chart->id : pic->id;
+        O42ObjectType type = shape != NULL ? O42_OBJECT_SHAPE : chart != NULL ? O42_OBJECT_CHART : O42_OBJECT_PICTURE;
+
+        /* Dragging one of a set drags the set; clicking another object
+         * outside the set forgets it. */
+        if (!(id == self->selected_picture && type == selected_object_type (self)) &&
+            !object_is_extra (self, type, id))
+          g_clear_pointer (&self->extra_objects, g_array_unref);
+        else if (object_is_extra (self, type, id))
+          {
+            /* The clicked one becomes the first; the old first joins the rest. */
+            O42ObjectRef was = { selected_object_type (self), NULL, self->selected_picture, 0 };
+            toggle_extra_object (self, type, id);
+            g_array_append_val (self->extra_objects, was);
+          }
+      }
 
     if (shape != NULL)
       {
@@ -5022,6 +5202,7 @@ on_click_pressed (GtkGestureClick *gesture,
     if (self->selected_picture != 0)
       {
         self->selected_picture = 0;
+        g_clear_pointer (&self->extra_objects, g_array_unref);
         gtk_widget_queue_draw (GTK_WIDGET (self));
       }
   }
@@ -5217,6 +5398,17 @@ on_click_released (GtkGestureClick *gesture, int n_press,
         }
       sheet_changed (self);
     }
+
+  if (self->rotate_drag)
+    {
+      self->rotate_drag = FALSE;
+      if (self->sheet != NULL)
+        {
+          o42_sheet_set_modified (self->sheet, TRUE);
+          o42_sheet_end_group (self->sheet);
+        }
+      sheet_changed (self);
+    }
 }
 
 static void
@@ -5263,6 +5455,33 @@ on_motion (GtkEventControllerMotion *controller,
       return;
     }
 
+  if (self->rotate_drag)
+    {
+      /* The angle from the centre to the pointer, less the quarter turn
+       * the handle stands at; Shift snaps to fifteen degrees. */
+      double ox, oy, ow, oh, angle;
+      GdkModifierType state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (controller));
+
+      if (!selected_object_rect (self, &ox, &oy, &ow, &oh))
+        return;
+      angle = atan2 (y - (oy + oh / 2), x - (ox + ow / 2)) * 180 / G_PI + 90;
+      if (state & GDK_SHIFT_MASK)
+        angle = floor (angle / 15 + 0.5) * 15;
+      angle = fmod (fmod (angle, 360) + 360, 360);
+      if (self->selected_is_shape)
+        {
+          O42Shape *shape = o42_sheet_find_shape (self->sheet, self->selected_picture);
+          if (shape != NULL) shape->rotation = angle;
+        }
+      else if (!self->selected_is_chart)
+        {
+          O42Picture *pic = o42_sheet_find_picture (self->sheet, self->selected_picture);
+          if (pic != NULL) pic->rotation = angle;
+        }
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+      return;
+    }
+
   if (self->resize_handle >= 0)
     {
       double dx = x - self->drag_mouse_x, dy = y - self->drag_mouse_y;
@@ -5271,6 +5490,7 @@ on_motion (GtkEventControllerMotion *controller,
       double hx = HANDLE_X[self->resize_handle], hy = HANDLE_Y[self->resize_handle];
       double rotation;
       gboolean flip_h, flip_v;
+      GdkModifierType state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (controller));
 
       /* A turned object is resized along its own axes: the drag is
        * taken into its frame. */
@@ -5301,7 +5521,8 @@ on_motion (GtkEventControllerMotion *controller,
         {
           O42Picture *pic = o42_grid_selected_picture (self);
 
-          if (pic != NULL && pic->lock_aspect)
+          /* Shift holds any object's proportions, as it does in Excel. */
+          if ((pic != NULL && pic->lock_aspect) || (state & GDK_SHIFT_MASK))
             {
               double ratio = self->resize_w0 / self->resize_h0;
 
@@ -5454,6 +5675,15 @@ on_motion (GtkEventControllerMotion *controller,
       else if (pic != NULL)
         move_group_with (self, pic->id, pic->row - was_row, pic->col - was_col,
                          pic->dx - was_dx, pic->dy - was_dy);
+      {
+        int drow = 0, dcol = 0;
+        double ddx = 0, ddy = 0;
+
+        if (chart != NULL) { drow = chart->row - was_row; dcol = chart->col - was_col; ddx = chart->dx - was_dx; ddy = chart->dy - was_dy; }
+        else if (shape != NULL) { drow = shape->row - was_row; dcol = shape->col - was_col; ddx = shape->dx - was_dx; ddy = shape->dy - was_dy; }
+        else if (pic != NULL) { drow = pic->row - was_row; dcol = pic->col - was_col; ddx = pic->dx - was_dx; ddy = pic->dy - was_dy; }
+        move_extras_with (self, drow, dcol, ddx, ddy);
+      }
       gtk_widget_queue_draw (GTK_WIDGET (self));
       return;
     }
@@ -6502,6 +6732,8 @@ paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, doub
           selected = ref->id == self->selected_picture && self->selected_is_chart;
           break;
         }
+      if (!selected && object_is_extra (self, ref->type, ref->id))
+        selected = TRUE;
       if (ox > vx + vw || oy > vy + vh || ox + MAX (ow, 1) < vx || oy + MAX (oh, 1) < vy)
         continue;
 
@@ -6526,12 +6758,155 @@ paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, doub
           o42_sheet_draw_chart (self->sheet, ref->object, cr, ow, oh);
           break;
         }
-      /* The handles turn with the object. */
+      /* The handles turn with the object; the first selected has the
+       * rotation handle on a stalk, unless it is a chart. */
       if (selected)
-        paint_handles (cr, 0, 0, ow, oh);
+        {
+          paint_handles (cr, 0, 0, ow, oh);
+          if (ref->id == self->selected_picture && ref->type == selected_object_type (self) &&
+              ref->type != O42_OBJECT_CHART)
+            {
+              cairo_set_source_rgb (cr, 0, 0.5, 0);
+              cairo_move_to (cr, ow / 2, 0);
+              cairo_line_to (cr, ow / 2, -ROTATE_HANDLE_UP + 4);
+              cairo_stroke (cr);
+              cairo_arc (cr, ow / 2, -ROTATE_HANDLE_UP, 4, 0, 2 * G_PI);
+              cairo_fill (cr);
+            }
+        }
       cairo_restore (cr);
     }
   g_array_free (objects, TRUE);
+}
+
+/* ---- Freeforms ---------------------------------------------------------- */
+
+void
+o42_grid_begin_freeform (O42Grid *self)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->editing)
+    o42_grid_commit_edit (self);
+  g_clear_pointer (&self->freeform, g_array_unref);
+  g_clear_pointer (&self->extra_objects, g_array_unref);
+  self->freeform = g_array_new (FALSE, FALSE, sizeof (double));
+  gtk_widget_grab_focus (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_drawing_freeform (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->freeform != NULL;
+}
+
+/* The points so far become the shape: its box is their bounds, anchored
+ * at the cell under the top left, and each point a fraction of it. */
+static void
+freeform_finish (O42Grid *self)
+{
+  GArray *pts = self->freeform;
+  guint n;
+  double x0 = G_MAXDOUBLE, y0 = G_MAXDOUBLE, x1 = -G_MAXDOUBLE, y1 = -G_MAXDOUBLE;
+  gboolean closed = FALSE;
+  O42Shape *shape;
+  int row, col;
+  double dx, dy;
+
+  self->freeform = NULL;
+  if (pts == NULL)
+    return;
+  n = pts->len / 2;
+  if (n >= 3)
+    {
+      double fx = g_array_index (pts, double, 0), fy = g_array_index (pts, double, 1);
+      double lx = g_array_index (pts, double, 2 * n - 2), ly = g_array_index (pts, double, 2 * n - 1);
+
+      /* A last point back on the first closes the outline and is not a
+       * point of its own. */
+      if (hypot (lx - fx, ly - fy) <= 6)
+        { closed = TRUE; n--; }
+    }
+  if (n < 2)
+    {
+      g_array_unref (pts);
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+      return;
+    }
+  for (guint i = 0; i < n; i++)
+    {
+      double x = g_array_index (pts, double, 2 * i), y = g_array_index (pts, double, 2 * i + 1);
+      x0 = MIN (x0, x); y0 = MIN (y0, y); x1 = MAX (x1, x); y1 = MAX (y1, y);
+    }
+  if (x1 - x0 < 1) x1 = x0 + 1;
+  if (y1 - y0 < 1) y1 = y0 + 1;
+  anchor_place (self, &row, &col, &dx, &dy, x0, y0);
+  shape = o42_sheet_add_shape (self->sheet, O42_SHAPE_FREEFORM, row, col);
+  if (shape != NULL)
+    {
+      shape->dx = dx;
+      shape->dy = dy;
+      shape->width = x1 - x0;
+      shape->height = y1 - y0;
+      shape->closed = closed;
+      if (!closed)
+        shape->fill = O42_FILL_NONE;
+      for (guint i = 0; i < n; i++)
+        {
+          double x = g_array_index (pts, double, 2 * i), y = g_array_index (pts, double, 2 * i + 1);
+          o42_shape_path_add (shape, i == 0 ? 'M' : 'L', (x - x0) / shape->width, (y - y0) / shape->height, 0, 0, 0, 0);
+        }
+      self->selected_picture = shape->id;
+      self->selected_is_chart = FALSE;
+      self->selected_is_shape = TRUE;
+      sheet_changed (self);
+    }
+  g_array_unref (pts);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+static void
+freeform_point (O42Grid *self, double x, double y, gboolean last)
+{
+  if (self->freeform == NULL)
+    return;
+  if (!last || self->freeform->len == 0)
+    {
+      g_array_append_val (self->freeform, x);
+      g_array_append_val (self->freeform, y);
+    }
+  if (last)
+    freeform_finish (self);
+  else
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* The outline being drawn, as a dashed line through its points. */
+static void
+paint_freeform (O42Grid *self, cairo_t *cr)
+{
+  static const double dashes[] = { 4, 3 };
+
+  if (self->freeform == NULL || self->freeform->len < 2)
+    return;
+  cairo_save (cr);
+  cairo_set_source_rgb (cr, 0.1, 0.3, 0.8);
+  cairo_set_line_width (cr, 1.5);
+  cairo_set_dash (cr, dashes, 2, 0);
+  for (guint i = 0; i + 1 < self->freeform->len; i += 2)
+    {
+      double x = g_array_index (self->freeform, double, i), y = g_array_index (self->freeform, double, i + 1);
+      if (i == 0) cairo_move_to (cr, x, y); else cairo_line_to (cr, x, y);
+    }
+  cairo_stroke (cr);
+  cairo_set_dash (cr, NULL, 0, 0);
+  for (guint i = 0; i + 1 < self->freeform->len; i += 2)
+    {
+      double x = g_array_index (self->freeform, double, i), y = g_array_index (self->freeform, double, i + 1);
+      cairo_rectangle (cr, x - 2, y - 2, 4, 4);
+    }
+  cairo_fill (cr);
+  cairo_restore (cr);
 }
 
 static void
@@ -6695,6 +7070,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
                      view_w, view_h);
     cairo_clip (cr);
     paint_objects (self, cr, scroll_x, scroll_y, view_w, view_h);
+    paint_freeform (self, cr);
     cairo_restore (cr);
   }
 
@@ -7539,6 +7915,7 @@ o42_grid_dispose (GObject *object)
 
   g_clear_pointer (&self->complete_names, g_ptr_array_unref);
   g_clear_pointer (&self->extra_sel, g_array_unref);
+  g_clear_pointer (&self->freeform, g_array_unref);
   g_clear_pointer (&self->refs, g_array_unref);
   g_clear_pointer (&self->arrows, g_array_unref);
   g_clear_object (&self->layout);
@@ -7828,6 +8205,12 @@ o42_grid_reorder_selected (O42Grid *self, O42Order how)
   type = self->selected_is_shape ? O42_OBJECT_SHAPE
        : self->selected_is_chart ? O42_OBJECT_CHART : O42_OBJECT_PICTURE;
   moved = o42_sheet_reorder_object (self->sheet, type, self->selected_picture, how);
+  for (guint i = 0; self->extra_objects != NULL && i < self->extra_objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+      if (o42_sheet_reorder_object (self->sheet, ref->type, ref->id, how))
+        moved = TRUE;
+    }
   if (moved)
     gtk_widget_queue_draw (GTK_WIDGET (self));
   return moved;

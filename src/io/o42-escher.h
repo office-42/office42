@@ -34,6 +34,7 @@ typedef struct {
   int      blip;                   /* pictures: 1-based index in the group's store */
   int      col1, row1, col2, row2; /* the anchor cells */
   double   dx1, dy1, dx2, dy2;     /* fractions of those cells, 0..1 */
+  O42AnchorMode anchor_mode;       /* how a drawing, picture or chart follows the cells */
   char    *note;                   /* notes: the text */
   int      note_row, note_col;     /* notes: the cell they belong to */
 } O42EscherShape;
@@ -71,6 +72,18 @@ typedef struct {
   O42Head  head_start, head_end;
   O42HeadSize head_start_size, head_end_size;
   gboolean has_text;               /* an lTxid: a TXO follows the OBJ */
+  double   text_inset;             /* px, from dxTextLeft; -1 when unsaid */
+  int      text_wrap;              /* WrapText: 0 square, 2 none; -1 when unsaid */
+  int      fill_type;              /* fillType: 0 solid, 4-7 a shade (gradient) */
+  guint32  fill_back;              /* fillBackColor: the gradient's second colour */
+  double   fill_angle;             /* fillAngle, degrees as office42 counts them */
+  gboolean shadow;
+  guint32  shadow_colour;
+  double   shadow_dx, shadow_dy;   /* px */
+  O42AnchorMode anchor_mode;       /* the ClientAnchor's flags: 0 two-cell, 2 one-cell, 3 absolute */
+  GArray  *path;                   /* O42PathPoint: a freeform's outline, or NULL; the caller frees */
+  gboolean closed;
+  gboolean path_raw;               /* the path's numbers are EMU of the shape's box, not fractions */
 } O42EscherFound;
 
 /* The images in a group container, in store order: GBytes with the

@@ -127,6 +127,7 @@ typedef struct {
   double        dx;            /* offset inside the anchor cell, pixels */
   double        dy;
   double        width;         /* pixels */
+  O42AnchorMode anchor;        /* how it follows the cells */
   double        height;
 } O42Chart;
 

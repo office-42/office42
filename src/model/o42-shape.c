@@ -5,6 +5,7 @@
  */
 
 #include "o42-shape.h"
+#include "o42-pattern.h"
 
 #include <pango/pangocairo.h>
 #include <string.h>
@@ -33,9 +34,15 @@ o42_shape_new (O42ShapeKind kind)
               : (kind == O42_SHAPE_TEXT) ? 0xFFFFCC : 0xDCE6F1;
   shape->line = 0x1F497D;
   shape->line_width = 1.5;
+  shape->fill2 = 0xFFFFFF;
+  shape->shadow_colour = 0x808080;
+  shape->shadow_dx = shape->shadow_dy = 3;
   if (kind == O42_SHAPE_ARROW)
     shape->head_end = O42_HEAD_TRIANGLE;
   shape->head_start_size = shape->head_end_size = O42_HEAD_MEDIUM;
+  shape->text_inset = 4;
+  shape->text_halign = kind == O42_SHAPE_TEXT ? O42_HALIGN_LEFT : O42_HALIGN_CENTRE;
+  shape->text_valign = kind == O42_SHAPE_TEXT ? O42_VALIGN_TOP : O42_VALIGN_MIDDLE;
   shape->width = (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW) ? 120 : 140;
   shape->height = (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW) ? 0 : 60;
   if (o42_shape_is_control (kind))
@@ -58,13 +65,15 @@ o42_shape_free (O42Shape *shape)
   g_free (shape->link);
   g_free (shape->source);
   g_free (shape->script);
+  if (shape->path != NULL)
+    g_array_unref (shape->path);
   g_free (shape);
 }
 
 static const char *KIND_NAMES[] = {
   "rectangle", "oval", "line", "arrow", "textbox",
   "button", "checkbox", "option", "spinner", "scrollbar",
-  "listbox", "combo", "label", "groupbox"
+  "listbox", "combo", "label", "groupbox", "freeform"
 };
 
 const char *
@@ -96,7 +105,142 @@ o42_shape_copy (const O42Shape *shape)
   copy->link = g_strdup (shape->link);
   copy->source = g_strdup (shape->source);
   copy->script = g_strdup (shape->script);
+  if (shape->path != NULL)
+    {
+      copy->path = g_array_sized_new (FALSE, FALSE, sizeof (O42PathPoint), shape->path->len);
+      g_array_append_vals (copy->path, shape->path->data, shape->path->len);
+    }
   return copy;
+}
+
+/* ---- Freeforms --------------------------------------------------------- */
+
+void
+o42_shape_path_add (O42Shape *shape, char op, double x, double y,
+                    double x1, double y1, double x2, double y2)
+{
+  O42PathPoint pt = { op, x, y, x1, y1, x2, y2 };
+
+  g_return_if_fail (shape != NULL);
+  if (shape->path == NULL)
+    shape->path = g_array_new (FALSE, FALSE, sizeof (O42PathPoint));
+  g_array_append_val (shape->path, pt);
+}
+
+void
+o42_shape_freeform_path (const O42Shape *shape, cairo_t *cr, double width, double height)
+{
+  g_return_if_fail (shape != NULL && cr != NULL);
+  if (shape->path == NULL)
+    return;
+  for (guint i = 0; i < shape->path->len; i++)
+    {
+      const O42PathPoint *p = &g_array_index (shape->path, O42PathPoint, i);
+
+      switch (p->op)
+        {
+        case 'M': cairo_move_to (cr, p->x * width, p->y * height); break;
+        case 'C': cairo_curve_to (cr, p->x1 * width, p->y1 * height, p->x2 * width, p->y2 * height,
+                                  p->x * width, p->y * height); break;
+        default:  cairo_line_to (cr, p->x * width, p->y * height); break;
+        }
+    }
+  if (shape->closed)
+    cairo_close_path (cr);
+}
+
+char *
+o42_shape_path_to_string (const O42Shape *shape)
+{
+  GString *out = g_string_new (NULL);
+  char b[6][G_ASCII_DTOSTR_BUF_SIZE];
+
+  g_return_val_if_fail (shape != NULL, NULL);
+  for (guint i = 0; shape->path != NULL && i < shape->path->len; i++)
+    {
+      const O42PathPoint *p = &g_array_index (shape->path, O42PathPoint, i);
+
+      if (i > 0)
+        g_string_append_c (out, ' ');
+      if (p->op == 'C')
+        g_string_append_printf (out, "C%s,%s;%s,%s;%s,%s",
+                                g_ascii_formatd (b[0], sizeof b[0], "%.4g", p->x1), g_ascii_formatd (b[1], sizeof b[1], "%.4g", p->y1),
+                                g_ascii_formatd (b[2], sizeof b[2], "%.4g", p->x2), g_ascii_formatd (b[3], sizeof b[3], "%.4g", p->y2),
+                                g_ascii_formatd (b[4], sizeof b[4], "%.4g", p->x), g_ascii_formatd (b[5], sizeof b[5], "%.4g", p->y));
+      else
+        g_string_append_printf (out, "%c%s,%s", p->op,
+                                g_ascii_formatd (b[0], sizeof b[0], "%.4g", p->x), g_ascii_formatd (b[1], sizeof b[1], "%.4g", p->y));
+    }
+  return g_string_free (out, FALSE);
+}
+
+void
+o42_shape_path_from_string (O42Shape *shape, const char *text)
+{
+  char **steps;
+
+  g_return_if_fail (shape != NULL);
+  if (shape->path != NULL)
+    g_array_set_size (shape->path, 0);
+  if (text == NULL)
+    return;
+  steps = g_strsplit (text, " ", -1);
+  for (int i = 0; steps[i] != NULL; i++)
+    {
+      const char *s = steps[i];
+      char op = s[0];
+      double v[6] = { 0, 0, 0, 0, 0, 0 };
+      int n = 0;
+
+      if (op != 'M' && op != 'L' && op != 'C')
+        continue;
+      for (const char *q = s + 1; *q != '\0' && n < 6; )
+        {
+          char *end;
+          v[n++] = g_ascii_strtod (q, &end);
+          if (end == q) break;
+          q = end;
+          while (*q == ',' || *q == ';') q++;
+        }
+      if (op == 'C' && n == 6)
+        o42_shape_path_add (shape, 'C', v[4], v[5], v[0], v[1], v[2], v[3]);
+      else if (op != 'C' && n >= 2)
+        o42_shape_path_add (shape, op, v[0], v[1], 0, 0, 0, 0);
+    }
+  g_strfreev (steps);
+}
+
+gboolean
+o42_shape_contains (const O42Shape *shape, double x, double y, double width, double height, double slack)
+{
+  cairo_surface_t *surface;
+  cairo_t *cr;
+  gboolean hit;
+
+  g_return_val_if_fail (shape != NULL, FALSE);
+  if (shape->kind != O42_SHAPE_FREEFORM && shape->kind != O42_SHAPE_OVAL)
+    return x >= -slack && x < width + slack && y >= -slack && y < height + slack;
+
+  /* The outline as it is drawn, asked whether the point is in it or on
+   * it; cairo needs a context to answer, so a small one is made. */
+  surface = cairo_image_surface_create (CAIRO_FORMAT_A8, 1, 1);
+  cr = cairo_create (surface);
+  if (shape->kind == O42_SHAPE_OVAL)
+    {
+      cairo_save (cr);
+      cairo_translate (cr, width / 2, height / 2);
+      cairo_scale (cr, MAX (width / 2, 1), MAX (height / 2, 1));
+      cairo_arc (cr, 0, 0, 1, 0, 2 * G_PI);
+      cairo_restore (cr);
+    }
+  else
+    o42_shape_freeform_path (shape, cr, width, height);
+  cairo_set_line_width (cr, MAX (shape->line_width, 1) + 2 * slack);
+  hit = cairo_in_stroke (cr, x, y) ||
+        ((shape->kind == O42_SHAPE_OVAL || shape->closed) && shape->fill != O42_FILL_NONE && cairo_in_fill (cr, x, y));
+  cairo_destroy (cr);
+  cairo_surface_destroy (surface);
+  return hit;
 }
 
 /* ---- The outlines ------------------------------------------------------ */
@@ -238,6 +382,7 @@ o42_shape_spt (const O42Shape *shape)
   switch (shape->kind)
     {
     case O42_SHAPE_OVAL:  return 3;
+    case O42_SHAPE_FREEFORM: return 0;   /* msosptNotPrimitive: the path says it all */
     case O42_SHAPE_LINE:
     case O42_SHAPE_ARROW: return 20;
     case O42_SHAPE_TEXT:  return shape->geom == O42_GEOM_RECT ? 202 : GEOMS[shape->geom].spt;
@@ -611,6 +756,119 @@ set_rgb (cairo_t *cr, guint32 colour)
 }
 
 void
+o42_shape_fill_path (const O42Shape *shape, cairo_t *cr, double width, double height)
+{
+  g_return_if_fail (shape != NULL && cr != NULL);
+  if (shape->fill == O42_FILL_NONE)
+    return;
+  switch (shape->fill_kind)
+    {
+    case O42_SHAPE_FILL_GRADIENT:
+      {
+        /* A run across the box along the angle, through its centre. */
+        double a = shape->gradient_angle * G_PI / 180;
+        double cx = width / 2, cy = height / 2;
+        double half = (fabs (cos (a)) * width + fabs (sin (a)) * height) / 2;
+        cairo_pattern_t *g = cairo_pattern_create_linear (cx - cos (a) * half, cy - sin (a) * half,
+                                                          cx + cos (a) * half, cy + sin (a) * half);
+
+        cairo_pattern_add_color_stop_rgb (g, 0, ((shape->fill >> 16) & 0xFF) / 255.0,
+                                          ((shape->fill >> 8) & 0xFF) / 255.0, (shape->fill & 0xFF) / 255.0);
+        cairo_pattern_add_color_stop_rgb (g, 1, ((shape->fill2 >> 16) & 0xFF) / 255.0,
+                                          ((shape->fill2 >> 8) & 0xFF) / 255.0, (shape->fill2 & 0xFF) / 255.0);
+        cairo_set_source (cr, g);
+        cairo_fill_preserve (cr);
+        cairo_pattern_destroy (g);
+        break;
+      }
+    case O42_SHAPE_FILL_PATTERN:
+      {
+        /* The cell painter's pattern, clipped to the outline: the first
+         * colour behind, the second as the pattern. */
+        O42Fmt fmt;
+
+        o42_fmt_init_default (&fmt);
+        fmt.fill = shape->fill;
+        fmt.pattern = shape->pattern;
+        fmt.pattern_colour = shape->fill2;
+        cairo_save (cr);
+        cairo_clip_preserve (cr);
+        o42_pattern_fill (&fmt, cr, 0, 0, width, height);
+        cairo_restore (cr);
+        break;
+      }
+    default:
+      set_rgb (cr, shape->fill);
+      cairo_fill_preserve (cr);
+      break;
+    }
+}
+
+static const struct { O42Pattern pattern; const char *prst; } PATTERN_PRSTS[] = {
+  { O42_PATTERN_SOLID, "solid" },        /* not a prst, but a name to give back */
+  { O42_PATTERN_GRAY75, "pct75" },   { O42_PATTERN_GRAY50, "pct50" },  { O42_PATTERN_GRAY25, "pct25" },
+  { O42_PATTERN_GRAY125, "pct10" },  { O42_PATTERN_GRAY0625, "pct5" },
+  { O42_PATTERN_HORIZONTAL, "horz" }, { O42_PATTERN_VERTICAL, "vert" },
+  { O42_PATTERN_DOWN, "dnDiag" },    { O42_PATTERN_UP, "upDiag" },
+  { O42_PATTERN_GRID, "cross" },     { O42_PATTERN_TRELLIS, "diagCross" },
+  { O42_PATTERN_THIN_HORIZONTAL, "ltHorz" }, { O42_PATTERN_THIN_VERTICAL, "ltVert" },
+  { O42_PATTERN_THIN_DOWN, "ltDnDiag" }, { O42_PATTERN_THIN_UP, "ltUpDiag" },
+  { O42_PATTERN_THIN_GRID, "smGrid" }, { O42_PATTERN_THIN_TRELLIS, "dotDmnd" },
+  /* The rest of DrawingML's, read as the nearest of ours. */
+  { O42_PATTERN_GRAY75, "pct70" },   { O42_PATTERN_GRAY75, "pct80" },   { O42_PATTERN_GRAY75, "pct90" },
+  { O42_PATTERN_GRAY50, "pct40" },   { O42_PATTERN_GRAY50, "pct60" },
+  { O42_PATTERN_GRAY25, "pct20" },   { O42_PATTERN_GRAY25, "pct30" },
+  { O42_PATTERN_HORIZONTAL, "dkHorz" }, { O42_PATTERN_VERTICAL, "dkVert" },
+  { O42_PATTERN_THIN_HORIZONTAL, "narHorz" }, { O42_PATTERN_THIN_VERTICAL, "narVert" },
+  { O42_PATTERN_HORIZONTAL, "dashHorz" }, { O42_PATTERN_VERTICAL, "dashVert" },
+  { O42_PATTERN_DOWN, "dkDnDiag" },  { O42_PATTERN_UP, "dkUpDiag" },
+  { O42_PATTERN_DOWN, "wdDnDiag" },  { O42_PATTERN_UP, "wdUpDiag" },
+  { O42_PATTERN_THIN_DOWN, "dashDnDiag" }, { O42_PATTERN_THIN_UP, "dashUpDiag" },
+  { O42_PATTERN_GRID, "lgGrid" },    { O42_PATTERN_THIN_GRID, "dotGrid" },
+  { O42_PATTERN_TRELLIS, "openDmnd" }, { O42_PATTERN_TRELLIS, "solidDmnd" },
+  { O42_PATTERN_GRID, "smCheck" },   { O42_PATTERN_GRID, "lgCheck" },
+  { O42_PATTERN_THIN_TRELLIS, "trellis" }, { O42_PATTERN_THIN_TRELLIS, "plaid" },
+};
+
+const char *
+o42_shape_pattern_prst (O42Pattern pattern)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (PATTERN_PRSTS); i++)
+    if (PATTERN_PRSTS[i].pattern == pattern)
+      return PATTERN_PRSTS[i].prst;
+  return "pct50";
+}
+
+O42Pattern
+o42_shape_pattern_from_prst (const char *prst)
+{
+  for (guint i = 0; prst != NULL && i < G_N_ELEMENTS (PATTERN_PRSTS); i++)
+    if (strcmp (PATTERN_PRSTS[i].prst, prst) == 0)
+      return PATTERN_PRSTS[i].pattern;
+  return O42_PATTERN_GRAY50;
+}
+
+/* The outline of a filled kind on the path: an oval, a freeform, or a
+ * rectangle wearing its geometry. */
+static void
+outline_path (const O42Shape *shape, cairo_t *cr, double width, double height, double inset)
+{
+  if (shape->kind == O42_SHAPE_OVAL)
+    {
+      cairo_save (cr);
+      cairo_translate (cr, width / 2, height / 2);
+      cairo_scale (cr, MAX (width / 2 - inset, 1), MAX (height / 2 - inset, 1));
+      cairo_new_sub_path (cr);   /* or the arc is joined to wherever the pen was */
+      cairo_arc (cr, 0, 0, 1, 0, 2 * G_PI);
+      cairo_restore (cr);
+    }
+  else if (shape->kind == O42_SHAPE_FREEFORM)
+    o42_shape_freeform_path (shape, cr, width, height);
+  else
+    o42_shape_geom_path (shape->geom, cr, width, height, inset);
+}
+
+void
 o42_shape_draw (const O42Shape *shape, cairo_t *cr, double width, double height)
 {
   double inset;
@@ -655,61 +913,128 @@ o42_shape_draw (const O42Shape *shape, cairo_t *cr, double width, double height)
       }
       break;
 
-    case O42_SHAPE_OVAL:
-      cairo_save (cr);
-      cairo_translate (cr, width / 2, height / 2);
-      cairo_scale (cr, MAX (width / 2 - inset, 1), MAX (height / 2 - inset, 1));
-      cairo_new_sub_path (cr);   /* or the arc is joined to wherever the pen was */
-      cairo_arc (cr, 0, 0, 1, 0, 2 * G_PI);
-      cairo_restore (cr);
-      if (shape->fill != O42_FILL_NONE)
-        {
-          set_rgb (cr, shape->fill);
-          cairo_fill_preserve (cr);
-        }
-      set_rgb (cr, shape->line);
-      cairo_stroke (cr);
-      break;
-
     default:
-      o42_shape_geom_path (shape->geom, cr, width, height, inset);
-      if (shape->fill != O42_FILL_NONE)
+      /* The shadow first, the same outline moved and in one grey; then
+       * the fill, and the stroke over it. */
+      if (shape->shadow)
         {
-          set_rgb (cr, shape->fill);
-          cairo_fill_preserve (cr);
+          cairo_save (cr);
+          cairo_translate (cr, shape->shadow_dx, shape->shadow_dy);
+          outline_path (shape, cr, width, height, inset);
+          set_rgb (cr, shape->shadow_colour);
+          if (shape->kind == O42_SHAPE_FREEFORM && !shape->closed)
+            { cairo_set_line_width (cr, shape->line_width); cairo_stroke (cr); }
+          else
+            cairo_fill (cr);
+          cairo_restore (cr);
         }
+      outline_path (shape, cr, width, height, inset);
+      if (shape->kind != O42_SHAPE_FREEFORM || shape->closed)
+        o42_shape_fill_path (shape, cr, width, height);
       set_rgb (cr, shape->line);
       cairo_stroke (cr);
       break;
     }
 
-  /* The text, wrapped and centred, except on a line where it sits at
-   * the start. */
+  /* The text, in its own font, aligned in the box less the inset,
+   * except on a line where it sits at the start. */
   if (shape->text != NULL && *shape->text != '\0')
+    o42_shape_draw_text (shape, cr, width, height);
+
+  cairo_restore (cr);
+}
+
+O42HAlign
+o42_shape_text_halign (const O42Shape *shape)
+{
+  if (shape->text_halign != O42_HALIGN_GENERAL)
+    return shape->text_halign;
+  return shape->kind == O42_SHAPE_TEXT ? O42_HALIGN_LEFT : O42_HALIGN_CENTRE;
+}
+
+O42VAlign
+o42_shape_text_valign (const O42Shape *shape)
+{
+  return shape->text_valign;
+}
+
+char *
+o42_shape_font_string (const O42Shape *shape)
+{
+  char size[G_ASCII_DTOSTR_BUF_SIZE];
+
+  g_ascii_formatd (size, sizeof size, "%g", shape->font_size > 0 ? shape->font_size : 10);
+  return g_strdup_printf ("%s%s%s %s", shape->font != NULL ? shape->font : "Arial",
+                          shape->bold ? " Bold" : "", shape->italic ? " Italic" : "", size);
+}
+
+/* The words in a shape, drawn upright: the shape may be flipped, and
+ * the caller has flipped the coordinates with it, so the flip is taken
+ * back about the box's centre before the text is laid out; a shape
+ * turned past ninety degrees has its text turned the other way so it
+ * reads.  Excel keeps text readable the same way. */
+void
+o42_shape_draw_text (const O42Shape *shape, cairo_t *cr, double width, double height)
+{
+  PangoLayout *layout;
+  PangoFontDescription *desc;
+  char *font = o42_shape_font_string (shape);
+  int tw, th;
+  gboolean on_line = shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW;
+  double inset = MAX (shape->text_inset, 0);
+  double angle = fmod (fmod (shape->rotation, 360) + 360, 360);
+  double tx, ty;
+
+  cairo_save (cr);
+  if (!on_line && (shape->flip_h || shape->flip_v || (angle > 90 && angle < 270)))
     {
-      PangoLayout *layout = pango_cairo_create_layout (cr);
-      PangoFontDescription *desc = pango_font_description_from_string ("Arial 10");
-      int tw, th;
-
-      pango_layout_set_font_description (layout, desc);
-      pango_layout_set_text (layout, shape->text, -1);
-      if (shape->kind != O42_SHAPE_LINE && shape->kind != O42_SHAPE_ARROW)
-        {
-          pango_layout_set_width (layout, (int) MAX (width - 8, 8) * PANGO_SCALE);
-          pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
-          pango_layout_set_alignment (layout, PANGO_ALIGN_CENTER);
-        }
-      pango_layout_get_pixel_size (layout, &tw, &th);
-      cairo_set_source_rgb (cr, 0, 0, 0);
-      if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
-        cairo_move_to (cr, 2, -th - 2);
-      else
-        cairo_move_to (cr, 4, MAX ((height - th) / 2, 2));
-      pango_cairo_show_layout (cr, layout);
-      pango_font_description_free (desc);
-      g_object_unref (layout);
+      cairo_translate (cr, width / 2, height / 2);
+      cairo_scale (cr, shape->flip_h ? -1 : 1, shape->flip_v ? -1 : 1);
+      if (angle > 90 && angle < 270)
+        cairo_rotate (cr, G_PI);
+      cairo_translate (cr, -width / 2, -height / 2);
     }
+  layout = pango_cairo_create_layout (cr);
+  desc = pango_font_description_from_string (font);
+  pango_layout_set_font_description (layout, desc);
+  pango_layout_set_text (layout, shape->text, -1);
+  if (!on_line)
+    {
+      O42HAlign halign = o42_shape_text_halign (shape);
 
+      if (!shape->text_nowrap)
+        {
+          pango_layout_set_width (layout, (int) MAX (width - 2 * inset, 8) * PANGO_SCALE);
+          pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
+        }
+      pango_layout_set_alignment (layout, halign == O42_HALIGN_LEFT ? PANGO_ALIGN_LEFT
+                                          : halign == O42_HALIGN_RIGHT ? PANGO_ALIGN_RIGHT
+                                          : PANGO_ALIGN_CENTER);
+    }
+  pango_layout_get_pixel_size (layout, &tw, &th);
+  set_rgb (cr, shape->text_colour);
+  if (on_line)
+    { tx = 2; ty = -th - 2; }
+  else
+    {
+      O42HAlign halign = o42_shape_text_halign (shape);
+      O42VAlign valign = o42_shape_text_valign (shape);
+
+      if (shape->text_nowrap)
+        tx = halign == O42_HALIGN_LEFT ? inset : halign == O42_HALIGN_RIGHT ? width - inset - tw
+                                       : (width - tw) / 2;
+      else
+        tx = inset;
+      ty = valign == O42_VALIGN_TOP ? inset : valign == O42_VALIGN_MIDDLE ? (height - th) / 2
+                                            : height - inset - th;
+      cairo_rectangle (cr, 0, 0, width, height);
+      cairo_clip (cr);
+    }
+  cairo_move_to (cr, tx, ty);
+  pango_cairo_show_layout (cr, layout);
+  pango_font_description_free (desc);
+  g_object_unref (layout);
+  g_free (font);
   cairo_restore (cr);
 }
 

@@ -265,17 +265,59 @@ put_drawing_opt (GByteArray *a, const O42Shape *sh, guint txid)
   guint n = 0;
   gboolean line_kind = sh->kind == O42_SHAPE_LINE || sh->kind == O42_SHAPE_ARROW;
   gboolean has_text = !line_kind && sh->text != NULL && *sh->text != '\0';
+  const O42Shape *complex_from = NULL;
 
   header (a, 3, 0, ESC_OPT, 0);
   if (sh->rotation != 0)
     { put16 (a, 0x0004); put32 (a, escher_rotation (sh->rotation, sh->flip_h, sh->flip_v)); n++; }
   if (has_text)
     {
+      guint32 inset = (guint32) (MAX (sh->text_inset, 0) * 9525);
+
       put16 (a, 0x0080); put32 (a, txid << 16); n++;                      /* lTxid */
+      put16 (a, 0x0081); put32 (a, inset); n++;                           /* dxTextLeft, EMU */
+      put16 (a, 0x0082); put32 (a, inset); n++;                           /* dyTextTop */
+      put16 (a, 0x0083); put32 (a, inset); n++;                           /* dxTextRight */
+      put16 (a, 0x0084); put32 (a, inset); n++;                           /* dyTextBottom */
+      put16 (a, 0x0086); put32 (a, sh->text_nowrap ? 2 : 0); n++;        /* WrapText: none, or square */
       put16 (a, 0x00BF); put32 (a, 0x00080008); n++;                      /* fFitTextToShape off, text on */
     }
+  if (sh->kind == O42_SHAPE_FREEFORM && sh->path != NULL)
+    {
+      /* A freeform: its outline in a 21600-square, as vertices and the
+       * segments that join them.  The two arrays are complex properties:
+       * their sizes stand in the table, their bytes follow it. */
+      guint n_pts = 0, n_seg = 3;   /* the moveTo, and the close and end */
+
+      for (guint i = 0; i < sh->path->len; i++)
+        {
+          const O42PathPoint *pt = &g_array_index (sh->path, O42PathPoint, i);
+          n_pts += pt->op == 'C' ? 3 : 1;
+          if (i > 0) n_seg++;
+        }
+      put16 (a, 0x0140); put32 (a, 0); n++;                              /* geoLeft */
+      put16 (a, 0x0141); put32 (a, 0); n++;                              /* geoTop */
+      put16 (a, 0x0142); put32 (a, 21600); n++;                          /* geoRight */
+      put16 (a, 0x0143); put32 (a, 21600); n++;                          /* geoBottom */
+      put16 (a, 0x0144); put32 (a, 4); n++;                              /* shapePath: complex */
+      put16 (a, 0x8145); put32 (a, 6 + 8 * n_pts); n++;                  /* pVertices, complex */
+      put16 (a, 0x8146); put32 (a, 6 + 2 * n_seg); n++;                  /* pSegmentInfo, complex */
+      complex_from = sh;
+    }
+  if (!line_kind && sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+    { put16 (a, 0x0180); put32 (a, 4); n++; }                            /* fillType: shade */
   if (!line_kind && sh->fill != O42_FILL_NONE)
     { put16 (a, 0x0181); put32 (a, escher_colour (sh->fill)); n++; }     /* fillColor */
+  if (!line_kind && sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+    {
+      /* Escher's angle runs the other way from ours and starts at the
+       * top; 16.16 fixed point. */
+      double angle = fmod (fmod (270 - sh->gradient_angle, 360) + 360, 360);
+
+      put16 (a, 0x0183); put32 (a, escher_colour (sh->fill2)); n++;      /* fillBackColor */
+      put16 (a, 0x0186); put32 (a, 0); n++;                              /* fillFocus */
+      put16 (a, 0x018B); put32 (a, (guint32) (gint32) (angle * 65536)); n++;   /* fillAngle */
+    }
   put16 (a, 0x01BF); put32 (a, (!line_kind && sh->fill != O42_FILL_NONE) ? 0x00100010 : 0x00100000); n++;  /* fFilled */
   put16 (a, 0x01C0); put32 (a, escher_colour (sh->line)); n++;           /* lineColor */
   put16 (a, 0x01CB); put32 (a, (guint32) (sh->line_width * 9525)); n++;  /* lineWidth, EMU */
@@ -296,7 +338,45 @@ put_drawing_opt (GByteArray *a, const O42Shape *sh, guint txid)
       put16 (a, 0x01D5); put32 (a, sh->head_end_size); n++;
     }
   put16 (a, 0x01FF); put32 (a, 0x00080008); n++;                         /* fLine on */
+  if (sh->shadow)
+    {
+      put16 (a, 0x0200); put32 (a, 0); n++;                              /* shadowType: offset */
+      put16 (a, 0x0201); put32 (a, escher_colour (sh->shadow_colour)); n++;
+      put16 (a, 0x0205); put32 (a, (guint32) (gint32) (sh->shadow_dx * 9525)); n++;   /* shadowOffsetX, EMU */
+      put16 (a, 0x0206); put32 (a, (guint32) (gint32) (sh->shadow_dy * 9525)); n++;
+      put16 (a, 0x023F); put32 (a, 0x00020002); n++;                     /* fShadow */
+    }
   put16 (a, 0x03BF); put32 (a, 0x00080000); n++;                         /* not hidden, printable */
+  if (complex_from != NULL)
+    {
+      /* The complex properties' bytes, in the order of the table. */
+      GArray *path = complex_from->path;
+      guint n_pts = 0, n_seg = 3;
+
+      for (guint i = 0; i < path->len; i++)
+        {
+          const O42PathPoint *pt = &g_array_index (path, O42PathPoint, i);
+          n_pts += pt->op == 'C' ? 3 : 1;
+          if (i > 0) n_seg++;
+        }
+      put16 (a, n_pts); put16 (a, n_pts); put16 (a, 8);                  /* IMsoArray: count, allocated, element size */
+      for (guint i = 0; i < path->len; i++)
+        {
+          const O42PathPoint *pt = &g_array_index (path, O42PathPoint, i);
+          if (pt->op == 'C')
+            {
+              put32 (a, (guint32) (gint32) (pt->x1 * 21600)); put32 (a, (guint32) (gint32) (pt->y1 * 21600));
+              put32 (a, (guint32) (gint32) (pt->x2 * 21600)); put32 (a, (guint32) (gint32) (pt->y2 * 21600));
+            }
+          put32 (a, (guint32) (gint32) (pt->x * 21600)); put32 (a, (guint32) (gint32) (pt->y * 21600));
+        }
+      put16 (a, n_seg); put16 (a, n_seg); put16 (a, 2);
+      put16 (a, 0x4000);                                                  /* moveTo */
+      for (guint i = 1; i < path->len; i++)
+        put16 (a, g_array_index (path, O42PathPoint, i).op == 'C' ? 0x2001 : 0x0001);
+      put16 (a, complex_from->closed ? 0x6001 : 0x0000);                  /* close, or a lineTo of nothing */
+      put16 (a, 0x8000);                                                  /* end */
+    }
   /* The header's instance is the property count. */
   a->data[opt_at] = (3 & 0x0F) | ((n & 0x0F) << 4);
   a->data[opt_at + 1] = (n >> 4) & 0xFF;
@@ -309,7 +389,9 @@ static void
 put_anchor (GByteArray *a, const O42EscherShape *s)
 {
   header (a, 0, 0, ESC_CLIENT_ANCHOR, 18);
-  put16 (a, s->is_note ? 3 : 2);   /* 2: move with cells, size fixed; 3: notes as Excel writes them */
+  /* 0: moved and sized with the cells; 2: moved, size its own; 3: neither
+   * -- which is how Excel writes notes too. */
+  put16 (a, s->is_note ? 3 : s->anchor_mode == O42_ANCHOR_ABSOLUTE ? 3 : s->anchor_mode == O42_ANCHOR_ONE_CELL ? 2 : 0);
   put16 (a, s->col1); put16 (a, (guint) (CLAMP (s->dx1, 0, 1) * 1024));
   put16 (a, s->row1); put16 (a, (guint) (CLAMP (s->dy1, 0, 1) * 256));
   put16 (a, s->col2); put16 (a, (guint) (CLAMP (s->dx2, 0, 1) * 1024));
@@ -535,6 +617,106 @@ o42_escher_parse_group (const guchar *data, gsize len, GPtrArray *images, GPtrAr
     }
 }
 
+/* A freeform's vertices and segments into a path of fractions of the
+ * shape's own geometry box.  Elements are 4 or 8 bytes (two 16-bit or
+ * two 32-bit numbers; 0xFFF0 in the size field means the 16-bit kind).
+ * Segments say how the vertices are joined: a move, so many lines, so
+ * many curves, a close; without them every vertex is a line. */
+static void
+escher_read_path (O42EscherFound *cur, const guchar *vertices, gsize vlen,
+                  const guchar *segments, gsize slen, const gint32 *geo)
+{
+  guint n = rd16 (vertices), cb = rd16 (vertices + 4);
+  gsize each = (cb == 8) ? 8 : 4;
+  /* A box of nothing (LibreOffice's) means the numbers are EMU of the
+   * shape's own size, which the caller knows. */
+  gboolean raw = geo[2] - geo[0] == 0 && geo[3] - geo[1] == 0;
+  double gw = raw ? 1 : MAX (geo[2] - geo[0], 1), gh = raw ? 1 : MAX (geo[3] - geo[1], 1);
+  const guchar *v = vertices + 6;
+  guint used = 0;
+  GArray *path = g_array_new (FALSE, FALSE, sizeof (O42PathPoint));
+  gboolean closed = FALSE;
+
+#define VERTEX(i, px, py) G_STMT_START {                                            \
+    const guchar *q = v + (gsize) (i) * each;                                       \
+    if (each == 8) { px = ((gint32) rd32 (q) - geo[0]) / gw; py = ((gint32) rd32 (q + 4) - geo[1]) / gh; } \
+    else { px = ((gint16) rd16 (q) - geo[0]) / gw; py = ((gint16) rd16 (q + 2) - geo[1]) / gh; } \
+  } G_STMT_END
+
+  if (6 + (gsize) n * each > vlen)
+    n = (guint) ((vlen - 6) / each);
+  /* A vertex that names a guide (bit 31 set) is an AutoShape's formula,
+   * which office42 does not evaluate: no path, and the caller draws
+   * what it can. */
+  if (each == 8)
+    for (guint i = 0; i < n; i++)
+      if ((rd32 (v + (gsize) i * 8) & 0x80000000u) || (rd32 (v + (gsize) i * 8 + 4) & 0x80000000u))
+        { g_array_unref (path); return; }
+  if (segments != NULL && slen >= 6)
+    {
+      guint ns = rd16 (segments);
+      const guchar *s = segments + 6;
+
+      if (6 + (gsize) ns * 2 > slen)
+        ns = (guint) ((slen - 6) / 2);
+      for (guint k = 0; k < ns; k++)
+        {
+          guint code = rd16 (s + 2 * k);
+          guint kind = code >> 13, count = code & 0x1FFF;
+
+          if (kind <= 2 && used >= n)
+            break;                /* a step wanting a vertex there is not */
+          if (kind == 2)          /* moveTo */
+            {
+              O42PathPoint p = { 'M', 0, 0, 0, 0, 0, 0 };
+              VERTEX (used, p.x, p.y); used++;
+              g_array_append_val (path, p);
+            }
+          else if (kind == 0)     /* lineTo, count of them */
+            for (guint c = 0; c < count && used < n; c++)
+              {
+                O42PathPoint p = { 'L', 0, 0, 0, 0, 0, 0 };
+                VERTEX (used, p.x, p.y); used++;
+                g_array_append_val (path, p);
+              }
+          else if (kind == 1)     /* curveTo, three vertices each */
+            for (guint c = 0; c < count && used + 2 < n; c++)
+              {
+                O42PathPoint p = { 'C', 0, 0, 0, 0, 0, 0 };
+                VERTEX (used, p.x1, p.y1); VERTEX (used + 1, p.x2, p.y2); VERTEX (used + 2, p.x, p.y);
+                used += 3;
+                g_array_append_val (path, p);
+              }
+          else if (kind == 3)     /* close */
+            closed = TRUE;
+          else if (kind == 4)     /* end */
+            break;
+        }
+    }
+  else
+    {
+      for (guint i = 0; i < n; i++)
+        {
+          O42PathPoint p = { i == 0 ? 'M' : 'L', 0, 0, 0, 0, 0, 0 };
+          VERTEX (i, p.x, p.y);
+          g_array_append_val (path, p);
+        }
+      closed = n >= 3;
+    }
+#undef VERTEX
+  if (path->len >= 2)
+    {
+      /* Whatever the segments said, an outline starts with a move. */
+      g_array_index (path, O42PathPoint, 0).op = 'M';
+      if (cur->path != NULL) g_array_unref (cur->path);
+      cur->path = path;
+      cur->closed = closed;
+      cur->path_raw = raw;
+    }
+  else
+    g_array_unref (path);
+}
+
 void
 o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
 {
@@ -567,6 +749,11 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
               cur.line = 0x000000;
               cur.line_width = 1;
               cur.head_start_size = cur.head_end_size = O42_HEAD_MEDIUM;
+              cur.text_inset = -1;
+              cur.text_wrap = -1;
+              cur.fill_back = 0xFFFFFF;
+              cur.shadow_colour = 0x808080;
+              cur.shadow_dx = cur.shadow_dy = 3;
               in_shape = TRUE;
             }
           p = body;
@@ -586,19 +773,63 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
         {
           /* The instance counts the properties; a complex one's bytes
            * follow the table and are not properties themselves. */
+          const guchar *complex = body + 6 * MIN (inst, rlen / 6);
+          const guchar *vertices = NULL, *segments = NULL;
+          gsize n_vertex_bytes = 0, n_segment_bytes = 0;
+          gint32 geo[4] = { 0, 0, 21600, 21600 };
+
           for (guint i = 0, n = 0; i + 6 <= rlen && n < inst; i += 6, n++)
             {
               guint id = rd16 (body + i) & 0x3FFF;
+              gboolean is_complex = (rd16 (body + i) & 0x8000) != 0;
               guint32 v = rd32 (body + i + 2);
 
+              if (is_complex)
+                {
+                  /* Its bytes are the next v of the data after the table.
+                   * An array's v counts its six-byte header in Excel's
+                   * files and leaves it out in LibreOffice's; the header
+                   * itself says how long the array really is. */
+                  gsize actual = v;
+
+                  if (id >= 0x0145 && id <= 0x0159 && complex + 6 <= body + rlen)
+                    {
+                      guint ne = rd16 (complex), cb = rd16 (complex + 4);
+                      gsize each = cb == 0xFFF0 ? 4 : cb;
+                      gsize with_header = 6 + (gsize) ne * each;
+
+                      if (with_header == v + 6 || (with_header != v && with_header <= (gsize) (body + rlen - complex)))
+                        actual = with_header;
+                    }
+                  if (complex + actual <= body + rlen)
+                    {
+                      if (id == 0x0145) { vertices = complex; n_vertex_bytes = actual; }
+                      else if (id == 0x0146) { segments = complex; n_segment_bytes = actual; }
+                    }
+                  complex += actual;
+                  continue;
+                }
               switch (id)
                 {
+                case 0x0140: geo[0] = (gint32) v; break;
+                case 0x0141: geo[1] = (gint32) v; break;
+                case 0x0142: geo[2] = (gint32) v; break;
+                case 0x0143: geo[3] = (gint32) v; break;
                 case 0x0004: cur.rotation = (gint32) v / 65536.0; break;   /* the flips are known by the end: see below */
                 case 0x0080: cur.has_text = TRUE; break;
+                case 0x0081: cur.text_inset = floor (v / 9525.0 + 0.5); break;
+                case 0x0086: cur.text_wrap = (int) v; break;
                 case 0x0104: cur.blip = v; break;
                 /* A high byte marks a palette or system colour, which is left
                  * at the default rather than misread as an RGB. */
+                case 0x0180: cur.fill_type = (int) v; break;
                 case 0x0181: if ((v >> 24) == 0) cur.fill = escher_colour (v); break;
+                case 0x0183: if ((v >> 24) == 0) cur.fill_back = escher_colour (v); break;
+                case 0x018B: cur.fill_angle = fmod (fmod (270 - (gint32) v / 65536.0, 360) + 360, 360); break;
+                case 0x0201: if ((v >> 24) == 0) cur.shadow_colour = escher_colour (v); break;
+                case 0x0205: cur.shadow_dx = (gint32) v / 9525.0; break;
+                case 0x0206: cur.shadow_dy = (gint32) v / 9525.0; break;
+                case 0x023F: if (v & 0x00020000) cur.shadow = (v & 0x02) != 0; break;
                 case 0x01BF: if (v & 0x00100000) cur.filled = (v & 0x10) != 0; break;
                 case 0x01C0: if ((v >> 24) == 0) cur.line = escher_colour (v); break;
                 case 0x01CB: cur.line_width = floor (v / 95.25 + 0.5) / 100; break;   /* EMU, to the hundredth */
@@ -611,9 +842,14 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
                 default: break;
                 }
             }
+          if (vertices != NULL && n_vertex_bytes >= 6)
+            escher_read_path (&cur, vertices, n_vertex_bytes, segments, n_segment_bytes, geo);
         }
       else if (type == ESC_CLIENT_ANCHOR && rlen >= 18)
         {
+          guint flags = rd16 (body);
+
+          cur.anchor_mode = flags == 3 ? O42_ANCHOR_ABSOLUTE : flags == 2 ? O42_ANCHOR_ONE_CELL : O42_ANCHOR_TWO_CELL;
           cur.col1 = rd16 (body + 2); cur.dx1 = rd16 (body + 4) / 1024.0;
           cur.row1 = rd16 (body + 6); cur.dy1 = rd16 (body + 8) / 256.0;
           cur.col2 = rd16 (body + 10); cur.dx2 = rd16 (body + 12) / 1024.0;

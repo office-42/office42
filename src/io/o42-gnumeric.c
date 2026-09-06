@@ -467,9 +467,10 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
     "ObjectAnchorType=\"16 16 16 16\" Direction=\"17\" "
     "crop-top=\"%s\" crop-bottom=\"%s\" crop-left=\"%s\" crop-right=\"%s\" "
     "o42-z=\"%u\" o42-group=\"%u\" o42-rotation=\"%g\" o42-flip-h=\"%d\" o42-flip-v=\"%d\" "
-    "o42-lock-aspect=\"%d\">\n",
+    "o42-lock-aspect=\"%d\" o42-anchor=\"%s\" o42-brightness=\"%g\" o42-contrast=\"%g\">\n",
     a, b, fx0s, fy0s, fx1s, fy1s, ct, cb, cl, cr, pic->z, pic->group, pic->rotation,
-    pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0);
+    pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0, o42_anchor_mode_name (pic->anchor),
+    pic->brightness, pic->contrast);
 
   encoded = g_base64_encode (g_bytes_get_data (pic->data, NULL),
                              g_bytes_get_size (pic->data));
@@ -536,7 +537,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     "o42-trend=\"%s\" o42-trend-order=\"%d\" o42-errbars=\"%s\" o42-errvalue=\"%g\" "
     "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-group=\"%u\" o42-z=\"%u\" "
     "o42-yformat=\"%s\" o42-secondary=\"%d\" "
-    "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\"%s>\n"
+    "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\" o42-anchor=\"%s\"%s>\n"
     "        <gnm:GogObject type=\"GogGraph\">\n"
     "          <GogObject role=\"Chart\" type=\"GogChart\">\n",
     a, b, fx0s, fy0s, fx1s, fy1s, o42_chart_kind_name (chart->kind),
@@ -548,7 +549,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0, chart->group, chart->z,
     yfmt, chart->secondary_from,
     o42_marker_kind_name (chart->marker), chart->marker_size,
-    chart->marker_picture, bounds);
+    chart->marker_picture, o42_anchor_mode_name (chart->anchor), bounds);
 
   if (*title != '\0')
     g_string_append_printf (out,
@@ -1086,6 +1087,7 @@ write_sheet (GString *out, O42Sheet *sheet)
         const O42Shape *sh = g_ptr_array_index (shapes, i);
         char *at = o42_ref_name (sh->row, sh->col);
         char *body = g_markup_escape_text (sh->text != NULL ? sh->text : "", -1);
+        char *text_attrs = NULL;
         char *control = NULL;
 
         /* A form control carries the cell it drives and the rest of
@@ -1105,18 +1107,52 @@ write_sheet (GString *out, O42Sheet *sheet)
             g_free (script);
           }
 
+        /* The text's font and alignment, only when they are not the
+         * kind's own. */
+        {
+          GString *ta = g_string_new (NULL);
+          if (sh->font != NULL)
+            {
+              char *e = g_markup_escape_text (sh->font, -1);
+              g_string_append_printf (ta, " Font=\"%s\"", e);
+              g_free (e);
+            }
+          if (sh->font_size > 0) g_string_append_printf (ta, " FontSize=\"%g\"", sh->font_size);
+          if (sh->bold) g_string_append (ta, " Bold=\"1\"");
+          if (sh->italic) g_string_append (ta, " Italic=\"1\"");
+          if (sh->text_colour != 0) g_string_append_printf (ta, " TextColour=\"%u\"", (guint) sh->text_colour);
+          g_string_append_printf (ta, " TextHAlign=\"%d\" TextVAlign=\"%d\"", (int) sh->text_halign, (int) sh->text_valign);
+          if (sh->text_nowrap) g_string_append (ta, " NoWrap=\"1\"");
+          if (sh->text_inset != 4) g_string_append_printf (ta, " Inset=\"%g\"", sh->text_inset);
+          if (sh->path != NULL)
+            {
+              char *path = o42_shape_path_to_string (sh);
+              g_string_append_printf (ta, " Path=\"%s\" Closed=\"%d\"", path, sh->closed ? 1 : 0);
+              g_free (path);
+            }
+          if (sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+            g_string_append_printf (ta, " FillKind=\"gradient\" Fill2=\"%u\" Angle=\"%g\"", (guint) sh->fill2, sh->gradient_angle);
+          else if (sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+            g_string_append_printf (ta, " FillKind=\"pattern\" Fill2=\"%u\" Pattern=\"%s\"", (guint) sh->fill2, o42_pattern_name (sh->pattern));
+          if (sh->shadow)
+            g_string_append_printf (ta, " Shadow=\"%u\" ShadowDx=\"%g\" ShadowDy=\"%g\"", (guint) sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
+          if (sh->anchor != O42_ANCHOR_TWO_CELL)
+            g_string_append_printf (ta, " Anchor=\"%s\"", o42_anchor_mode_name (sh->anchor));
+          text_attrs = g_string_free (ta, FALSE);
+        }
         g_string_append_printf (w.out,
           "      <gnm:o42-Shape Kind=\"%s\" Geom=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
           "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\" Z=\"%u\" "
           "Dash=\"%s\" HeadStart=\"%s\" HeadEnd=\"%s\" HeadStartSize=\"%d\" HeadEndSize=\"%d\" "
-          "Rotation=\"%g\" FlipH=\"%d\" FlipV=\"%d\"%s>%s</gnm:o42-Shape>\n",
+          "Rotation=\"%g\" FlipH=\"%d\" FlipV=\"%d\"%s%s>%s</gnm:o42-Shape>\n",
           o42_shape_kind_name (sh->kind), o42_shape_geom_name (sh->geom), at,
           sh->dx, sh->dy, sh->width, sh->height,
           (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group, sh->z,
           o42_dash_name (sh->dash), o42_head_name (sh->head_start), o42_head_name (sh->head_end),
           (int) sh->head_start_size, (int) sh->head_end_size,
           sh->rotation, sh->flip_h ? 1 : 0, sh->flip_v ? 1 : 0,
-          control != NULL ? control : "", body);
+          control != NULL ? control : "", text_attrs, body);
+        g_free (text_attrs);
         g_free (control);
         g_free (at);
         g_free (body);
@@ -1656,6 +1692,9 @@ typedef struct {
   gboolean    object_flip_h, object_flip_v;
   double      object_crop[4];   /* left, top, right, bottom */
   gboolean    object_lock_aspect;
+  O42AnchorMode object_anchor;
+  double      object_brightness, object_contrast;
+  O42AnchorMode graph_anchor;
   char       *graph_trend_name, *graph_err_name, *graph_font, *graph_data_sheet;
   char       *graph_marker_name;
   double      graph_marker_size;
@@ -2449,6 +2488,46 @@ start_element (GMarkupParseContext *context, const char *element,
           r->shape->rotation = attr_double (names, values, "Rotation", 0);
           r->shape->flip_h = attr_int (names, values, "FlipH", 0) != 0;
           r->shape->flip_v = attr_int (names, values, "FlipV", 0) != 0;
+          if (attr (names, values, "Font") != NULL)
+            r->shape->font = g_intern_string (attr (names, values, "Font"));
+          r->shape->font_size = attr_double (names, values, "FontSize", 0);
+          r->shape->bold = attr_int (names, values, "Bold", 0) != 0;
+          r->shape->italic = attr_int (names, values, "Italic", 0) != 0;
+          r->shape->text_colour = (guint32) attr_int (names, values, "TextColour", 0);
+          if (attr (names, values, "TextHAlign") != NULL)
+            r->shape->text_halign = (O42HAlign) CLAMP (attr_int (names, values, "TextHAlign", 0), 0, 3);
+          if (attr (names, values, "TextVAlign") != NULL)
+            r->shape->text_valign = (O42VAlign) CLAMP (attr_int (names, values, "TextVAlign", 0), 0, 2);
+          r->shape->text_nowrap = attr_int (names, values, "NoWrap", 0) != 0;
+          r->shape->text_inset = attr_double (names, values, "Inset", 4);
+          if (attr (names, values, "Path") != NULL)
+            {
+              o42_shape_path_from_string (r->shape, attr (names, values, "Path"));
+              r->shape->closed = attr_int (names, values, "Closed", 0) != 0;
+            }
+          {
+            const char *fk = attr (names, values, "FillKind");
+            if (fk != NULL && strcmp (fk, "gradient") == 0)
+              {
+                r->shape->fill_kind = O42_SHAPE_FILL_GRADIENT;
+                r->shape->fill2 = (guint32) attr_int (names, values, "Fill2", 0xFFFFFF);
+                r->shape->gradient_angle = attr_double (names, values, "Angle", 0);
+              }
+            else if (fk != NULL && strcmp (fk, "pattern") == 0)
+              {
+                r->shape->fill_kind = O42_SHAPE_FILL_PATTERN;
+                r->shape->fill2 = (guint32) attr_int (names, values, "Fill2", 0);
+                o42_pattern_parse (attr (names, values, "Pattern"), &r->shape->pattern);
+              }
+            o42_anchor_mode_parse (attr (names, values, "Anchor"), &r->shape->anchor);
+            if (attr (names, values, "Shadow") != NULL)
+              {
+                r->shape->shadow = TRUE;
+                r->shape->shadow_colour = (guint32) attr_int (names, values, "Shadow", 0x808080);
+                r->shape->shadow_dx = attr_double (names, values, "ShadowDx", 3);
+                r->shape->shadow_dy = attr_double (names, values, "ShadowDy", 3);
+              }
+          }
           if (o42_shape_is_control (kind))
             {
               const char *link = attr (names, values, "Link");
@@ -2681,6 +2760,8 @@ start_element (GMarkupParseContext *context, const char *element,
           r->graph_marker_picture = (guint) attr_int (names, values, "o42-marker-picture", 0);
           r->graph_group = (guint) attr_int (names, values, "o42-group", 0);
           r->graph_z = (guint) attr_int (names, values, "o42-z", 0);
+          r->graph_anchor = O42_ANCHOR_TWO_CELL;
+          o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->graph_anchor);
           g_free (r->graph_err_name);
           r->graph_err_name = g_strdup (attr (names, values, "o42-errbars"));
           g_free (r->graph_font);
@@ -2779,6 +2860,10 @@ start_element (GMarkupParseContext *context, const char *element,
       r->object_crop[2] = attr_double (names, values, "crop-right", 0);
       r->object_crop[3] = attr_double (names, values, "crop-bottom", 0);
       r->object_lock_aspect = attr_int (names, values, "o42-lock-aspect", 1) != 0;
+      r->object_anchor = O42_ANCHOR_TWO_CELL;
+      o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->object_anchor);
+      r->object_brightness = attr_double (names, values, "o42-brightness", 0);
+      r->object_contrast = attr_double (names, values, "o42-contrast", 0);
       r->object_flip_h = attr_int (names, values, "o42-flip-h", 0) != 0;
       r->object_flip_v = attr_int (names, values, "o42-flip-v", 0) != 0;
 
@@ -2995,6 +3080,9 @@ finish_picture (Reader *r)
   pic->crop_r = CLAMP (r->object_crop[2], 0, 0.99);
   pic->crop_b = CLAMP (r->object_crop[3], 0, 0.99);
   pic->lock_aspect = r->object_lock_aspect;
+  pic->anchor = r->object_anchor;
+  pic->brightness = r->object_brightness;
+  pic->contrast = r->object_contrast;
 
   x0 = offset_px (r->sheet, TRUE, r->object_bound.col0) +
        r->object_offset[0] * o42_sheet_col_width (r->sheet, r->object_bound.col0);
@@ -3509,6 +3597,7 @@ end_element (GMarkupParseContext *context, const char *element,
           chart->group = r->graph_group;
           if (r->graph_z > 0)
             chart->z = r->graph_z;
+          chart->anchor = r->graph_anchor;
           if (r->graph_data_sheet != NULL)
             {
               g_free (chart->data_sheet);

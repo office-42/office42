@@ -89,7 +89,7 @@ mime_for (const char *format)
 
 static void
 append_anchor (GString *dr, O42Sheet *sheet, int row, int col, double dx, double dy,
-               double width, double height)
+               double width, double height, O42AnchorMode mode)
 {
   double x0 = offset_px (sheet, TRUE, col) + dx;
   double y0 = offset_px (sheet, FALSE, row) + dy;
@@ -99,10 +99,10 @@ append_anchor (GString *dr, O42Sheet *sheet, int row, int col, double dx, double
   cell_at (sheet, TRUE, x0 + width, &to_col, &to_dx);
   cell_at (sheet, FALSE, y0 + height, &to_row, &to_dy);
   g_string_append_printf (dr,
-    "<xdr:twoCellAnchor editAs=\"oneCell\">"
+    "<xdr:twoCellAnchor editAs=\"%s\">"
     "<xdr:from><xdr:col>%d</xdr:col><xdr:colOff>%.0f</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>%.0f</xdr:rowOff></xdr:from>"
     "<xdr:to><xdr:col>%d</xdr:col><xdr:colOff>%.0f</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>%.0f</xdr:rowOff></xdr:to>",
-    col, dx * EMU_PER_PX, row, dy * EMU_PER_PX,
+    o42_anchor_mode_name (mode), col, dx * EMU_PER_PX, row, dy * EMU_PER_PX,
     to_col, to_dx * EMU_PER_PX, to_row, to_dy * EMU_PER_PX);
 }
 
@@ -450,6 +450,69 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
 /* The a:xfrm attributes for a turned or mirrored object: the angle in
  * 60,000ths of a degree, and the flips.  A static buffer: one call per
  * printf. */
+/* A freeform's outline as a custom geometry: one path the size of the
+ * box, in EMU, with the moves, lines and curves as they are. */
+static void
+append_cust_geom (GString *dr, const O42Shape *sh)
+{
+  double w = MAX (sh->width, 1) * EMU_PER_PX, h = MAX (sh->height, 1) * EMU_PER_PX;
+
+  g_string_append_printf (dr,
+    "<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l=\"0\" t=\"0\" r=\"r\" b=\"b\"/>"
+    "<a:pathLst><a:path w=\"%.0f\" h=\"%.0f\">", w, h);
+  for (guint i = 0; i < sh->path->len; i++)
+    {
+      const O42PathPoint *p = &g_array_index (sh->path, O42PathPoint, i);
+
+      if (p->op == 'M')
+        g_string_append_printf (dr, "<a:moveTo><a:pt x=\"%.0f\" y=\"%.0f\"/></a:moveTo>", p->x * w, p->y * h);
+      else if (p->op == 'C')
+        g_string_append_printf (dr, "<a:cubicBezTo><a:pt x=\"%.0f\" y=\"%.0f\"/><a:pt x=\"%.0f\" y=\"%.0f\"/><a:pt x=\"%.0f\" y=\"%.0f\"/></a:cubicBezTo>",
+                                p->x1 * w, p->y1 * h, p->x2 * w, p->y2 * h, p->x * w, p->y * h);
+      else
+        g_string_append_printf (dr, "<a:lnTo><a:pt x=\"%.0f\" y=\"%.0f\"/></a:lnTo>", p->x * w, p->y * h);
+    }
+  if (sh->closed)
+    g_string_append (dr, "<a:close/>");
+  g_string_append (dr, "</a:path></a:pathLst></a:custGeom>");
+}
+
+/* The words in a shape, a paragraph per line, with the body's anchor,
+ * wrap and insets and each run's font: what Excel writes, so that it
+ * reads them back the same. */
+static void
+append_text_body (GString *dr, const O42Shape *sh)
+{
+  O42HAlign halign = o42_shape_text_halign (sh);
+  O42VAlign valign = o42_shape_text_valign (sh);
+  double inset_emu = MAX (sh->text_inset, 0) * EMU_PER_PX;
+  char **lines = g_strsplit (sh->text != NULL ? sh->text : "", "\n", -1);
+  char *family = g_markup_escape_text (sh->font != NULL ? sh->font : "Arial", -1);
+
+  g_string_append_printf (dr,
+    "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"%s\" lIns=\"%.0f\" tIns=\"%.0f\" rIns=\"%.0f\" bIns=\"%.0f\" anchor=\"%s\"/><a:lstStyle/>",
+    sh->text_nowrap ? "none" : "square", inset_emu, inset_emu, inset_emu, inset_emu,
+    valign == O42_VALIGN_TOP ? "t" : valign == O42_VALIGN_MIDDLE ? "ctr" : "b");
+  for (int i = 0; lines[i] != NULL; i++)
+    {
+      char *t = g_markup_escape_text (lines[i], -1);
+
+      g_string_append_printf (dr, "<a:p><a:pPr algn=\"%s\"/>",
+                              halign == O42_HALIGN_LEFT ? "l" : halign == O42_HALIGN_RIGHT ? "r" : "ctr");
+      if (*lines[i] != '\0')
+        g_string_append_printf (dr,
+          "<a:r><a:rPr lang=\"en-US\" sz=\"%.0f\"%s%s><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>"
+          "<a:latin typeface=\"%s\"/></a:rPr><a:t>%s</a:t></a:r>",
+          (sh->font_size > 0 ? sh->font_size : 10) * 100, sh->bold ? " b=\"1\"" : "",
+          sh->italic ? " i=\"1\"" : "", sh->text_colour & 0xFFFFFFu, family, t);
+      g_string_append (dr, "</a:p>");
+      g_free (t);
+    }
+  g_string_append (dr, "</xdr:txBody>");
+  g_strfreev (lines);
+  g_free (family);
+}
+
 static const char *
 xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
 {
@@ -462,6 +525,20 @@ xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
     g_strlcat (buffer, " flipH=\"1\"", sizeof buffer);
   if (flip_v)
     g_strlcat (buffer, " flipV=\"1\"", sizeof buffer);
+  return buffer;
+}
+
+/* A picture's brightness and contrast as a:lum, in thousandths of a
+ * per cent; nothing when both are as they were.  A static buffer. */
+static const char *
+lum_xml (const O42Picture *pic)
+{
+  static char buffer[64];
+
+  if (pic->brightness == 0 && pic->contrast == 0)
+    return "";
+  g_snprintf (buffer, sizeof buffer, "<a:lum bright=\"%.0f\" contrast=\"%.0f\"/>",
+              pic->brightness * 100000, pic->contrast * 100000);
   return buffer;
 }
 
@@ -528,13 +605,13 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
               "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image%d_%u.%s\"/>",
               rid, index, i + 1, ext);
 
-            append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height);
+            append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, pic->anchor);
             g_string_append_printf (dr,
               "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"%d\"/></xdr:cNvPicPr></xdr:nvPicPr>"
-              "<xdr:blipFill><a:blip r:embed=\"rId%d\"/>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
+              "<xdr:blipFill><a:blip r:embed=\"rId%d\">%s</a:blip>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
               "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
               "<xdr:clientData/></xdr:twoCellAnchor>",
-              shape, i + 1, pic->lock_aspect ? 1 : 0, rid, src_rect (pic),
+              shape, i + 1, pic->lock_aspect ? 1 : 0, rid, lum_xml (pic), src_rect (pic),
               xfrm_attrs (pic->rotation, pic->flip_h, pic->flip_v),
               pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
             rid++;
@@ -564,7 +641,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                 chart->width * EMU_PER_PX, chart->height * EMU_PER_PX);
             else
               append_anchor (dr, sheet, chart->row, chart->col, chart->dx, chart->dy,
-                             chart->width, chart->height);
+                             chart->width, chart->height, chart->anchor);
             g_string_append_printf (dr,
               "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"%d\" name=\"Chart %u\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>"
               "<xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
@@ -592,19 +669,30 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             if (o42_shape_is_control (sh->kind))
               continue;
 
-            append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height);
+            append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height, sh->anchor);
             g_string_append_printf (dr,
               "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
               "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
-              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>"
-              "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>",
-              shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : "Shape", i + 1,
+              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>",
+              shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : sh->kind == O42_SHAPE_FREEFORM ? "Freeform" : "Shape", i + 1,
               sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
               xfrm_attrs (sh->rotation, sh->flip_h, sh->flip_v),
-              sh->width * EMU_PER_PX, sh->height * EMU_PER_PX,
-              o42_shape_prst (sh));
-            if (sh->fill == O42_FILL_NONE || stroke)
+              sh->width * EMU_PER_PX, sh->height * EMU_PER_PX);
+            if (sh->kind == O42_SHAPE_FREEFORM && sh->path != NULL)
+              append_cust_geom (dr, sh);
+            else
+              g_string_append_printf (dr, "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>", o42_shape_prst (sh));
+            if (sh->fill == O42_FILL_NONE || stroke || (sh->kind == O42_SHAPE_FREEFORM && !sh->closed))
               g_string_append (dr, "<a:noFill/>");
+            else if (sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+              g_string_append_printf (dr,
+                "<a:gradFill rotWithShape=\"1\"><a:gsLst><a:gs pos=\"0\"><a:srgbClr val=\"%06X\"/></a:gs>"
+                "<a:gs pos=\"100000\"><a:srgbClr val=\"%06X\"/></a:gs></a:gsLst><a:lin ang=\"%.0f\" scaled=\"0\"/></a:gradFill>",
+                sh->fill & 0xFFFFFFu, sh->fill2 & 0xFFFFFFu, fmod (fmod (sh->gradient_angle, 360) + 360, 360) * 60000);
+            else if (sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+              g_string_append_printf (dr,
+                "<a:pattFill prst=\"%s\"><a:fgClr><a:srgbClr val=\"%06X\"/></a:fgClr><a:bgClr><a:srgbClr val=\"%06X\"/></a:bgClr></a:pattFill>",
+                o42_shape_pattern_prst (sh->pattern), sh->fill2 & 0xFFFFFFu, sh->fill & 0xFFFFFFu);
             else
               g_string_append_printf (dr, "<a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
                                       sh->fill & 0xFFFFFFu);
@@ -630,16 +718,15 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                                           SIZES[CLAMP (sh->head_end_size, 0, 2)],
                                           SIZES[CLAMP (sh->head_end_size, 0, 2)]);
               }
-            g_string_append (dr, "</a:ln></xdr:spPr>");
-            g_string_append (dr,
-              "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"square\"/><a:lstStyle/><a:p>");
-            if (sh->text != NULL && sh->text[0] != '\0')
-              {
-                char *t = g_markup_escape_text (sh->text, -1);
-                g_string_append_printf (dr, "<a:r><a:rPr lang=\"en-US\"/><a:t>%s</a:t></a:r>", t);
-                g_free (t);
-              }
-            g_string_append (dr, "</a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
+            g_string_append (dr, "</a:ln>");
+            if (sh->shadow)
+              g_string_append_printf (dr,
+                "<a:effectLst><a:outerShdw dist=\"%.0f\" dir=\"%.0f\" algn=\"tl\" rotWithShape=\"0\"><a:srgbClr val=\"%06X\"/></a:outerShdw></a:effectLst>",
+                hypot (sh->shadow_dx, sh->shadow_dy) * EMU_PER_PX,
+                fmod (atan2 (sh->shadow_dy, sh->shadow_dx) * 180 / G_PI + 360, 360) * 60000, sh->shadow_colour & 0xFFFFFFu);
+            g_string_append (dr, "</xdr:spPr>");
+            append_text_body (dr, sh);
+            g_string_append (dr, "</xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
             shape++;
           }
       }
@@ -1014,7 +1101,8 @@ chart_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user
 
 static void
 add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
-                     int row, int col, double dx, double dy, double width, double height)
+                     int row, int col, double dx, double dy, double width, double height,
+                     O42AnchorMode anchor)
 {
   static const GMarkupParser parser = { chart_start, chart_end, chart_text, NULL, NULL };
   ChartReader c;
@@ -1030,6 +1118,7 @@ add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
       O42Chart *chart = o42_sheet_add_chart (sheet, c.kind_known ? c.kind : O42_CHART_COLUMN, &c.box, row, col);
       if (chart != NULL)
         {
+          chart->anchor = anchor;
           chart->first_row_labels = c.have_tx;
           chart->first_col_labels = c.have_cat || c.kind == O42_CHART_SCATTER;
           g_free (chart->title);
@@ -1095,6 +1184,7 @@ typedef struct
   GString    *text;
   char       *blip, *chart;
 
+  O42AnchorMode anchor_mode;
   gboolean    is_shape;    /* an xdr:sp: a shape the file describes */
   gboolean    in_line;     /* inside a:ln, so a colour is the outline's */
   gboolean    in_body;     /* inside xdr:txBody, so a:t is the shape's text */
@@ -1108,8 +1198,47 @@ typedef struct
   double      rotation;    /* degrees, from a:xfrm */
   gboolean    flip_h, flip_v;
   double      crop[4];     /* a:srcRect l, t, r, b as fractions */
+  double      bright, contrast;   /* a:lum, as fractions */
   gboolean    lock_aspect;
   GString    *body;
+
+  /* The fill's kind: a gradient's stops and angle, a pattern's colours,
+   * and a shadow. */
+  O42ShapeFillKind fill_kind;
+  int         in_grad;      /* 1 inside a:gradFill; the stops count as they come */
+  int         grad_stops;
+  guint32     fill2;
+  double      grad_angle;
+  int         in_patt;      /* 1 in a:fgClr, 2 in a:bgClr, 3 elsewhere in a:pattFill */
+  O42Pattern  pattern;
+  gboolean    in_shadow, shadow;
+  guint32     shadow_colour;
+  double      shadow_dx, shadow_dy;
+
+  /* A custom geometry: the path's own size and its steps, gathered as
+   * a:pt come. */
+  gboolean    custom;
+  double      path_w, path_h;
+  char        path_op;      /* the step being read: 'M', 'L' or 'C' */
+  double      cubic[6];     /* a curve's points so far */
+  int         cubic_n;
+  GArray     *path;         /* O42PathPoint */
+  gboolean    path_closed;
+
+  /* The body's text style, from a:bodyPr, the first a:pPr and the
+   * first a:rPr. */
+  gboolean    in_rpr;
+  gboolean    have_rpr;
+  gboolean    have_ppr;
+  gboolean    have_anchor;  /* a:bodyPr said where the text sits */
+  O42HAlign   t_halign;
+  O42VAlign   t_valign;
+  gboolean    t_nowrap;
+  double      t_inset;      /* px, or -1 for unsaid */
+  double      t_size;       /* points, or 0 */
+  gboolean    t_bold, t_italic;
+  guint32     t_colour;
+  const char *t_font;       /* interned, or NULL */
 } DrawReader;
 
 /* An a:srgbClr or a:sysClr as 0x00RRGGBB. */
@@ -1142,6 +1271,11 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->from_col = d->from_row = d->to_col = d->to_row = 0;
       d->from_coff = d->from_roff = d->to_coff = d->to_roff = 0;
       d->absolute = strcmp (n, "absoluteAnchor") == 0;
+      /* How it follows the cells: the anchor's kind, or what editAs says. */
+      d->anchor_mode = d->absolute ? O42_ANCHOR_ABSOLUTE
+                     : strcmp (n, "oneCellAnchor") == 0 ? O42_ANCHOR_ONE_CELL : O42_ANCHOR_TWO_CELL;
+      if (!d->absolute)
+        o42_anchor_mode_parse (attr (names, values, "editAs"), &d->anchor_mode);
       d->have_to = d->have_ext = FALSE;
       d->abs_x = d->abs_y = 0;
       d->is_shape = d->in_line = d->in_body = d->arrow = d->text_box = FALSE;
@@ -1153,9 +1287,32 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->rotation = 0;
       d->flip_h = d->flip_v = FALSE;
       d->crop[0] = d->crop[1] = d->crop[2] = d->crop[3] = 0;
+      d->bright = d->contrast = 0;
       d->lock_aspect = TRUE;
       d->head_start = d->head_end = O42_HEAD_NONE;
       d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
+      d->in_rpr = d->have_rpr = d->have_ppr = d->have_anchor = FALSE;
+      d->custom = d->path_closed = FALSE;
+      d->fill_kind = O42_SHAPE_FILL_SOLID;
+      d->in_grad = d->grad_stops = d->in_patt = 0;
+      d->fill2 = 0xFFFFFF;
+      d->grad_angle = 0;
+      d->pattern = O42_PATTERN_GRAY50;
+      d->in_shadow = d->shadow = FALSE;
+      d->shadow_colour = 0x808080;
+      d->shadow_dx = d->shadow_dy = 3;
+      d->path_w = d->path_h = 0;
+      d->path_op = 0;
+      d->cubic_n = 0;
+      if (d->path != NULL) g_array_set_size (d->path, 0);
+      d->t_halign = O42_HALIGN_GENERAL;
+      d->t_valign = O42_VALIGN_BOTTOM;
+      d->t_nowrap = FALSE;
+      d->t_inset = -1;
+      d->t_size = 0;
+      d->t_bold = d->t_italic = FALSE;
+      d->t_colour = 0;
+      d->t_font = NULL;
       g_string_truncate (d->body, 0);
       g_clear_pointer (&d->blip, g_free);
       g_clear_pointer (&d->chart, g_free);
@@ -1169,6 +1326,12 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *x = attr (names, values, "x"), *y = attr (names, values, "y");
       if (x) d->abs_x = g_ascii_strtod (x, NULL) / EMU_PER_PX;
       if (y) d->abs_y = g_ascii_strtod (y, NULL) / EMU_PER_PX;
+    }
+  else if (strcmp (n, "lum") == 0)
+    {
+      const char *b = attr (names, values, "bright"), *c = attr (names, values, "contrast");
+      d->bright = b != NULL ? CLAMP (g_ascii_strtod (b, NULL) / 100000, -1, 1) : 0;
+      d->contrast = c != NULL ? CLAMP (g_ascii_strtod (c, NULL) / 100000, -1, 1) : 0;
     }
   else if (strcmp (n, "srcRect") == 0)
     {
@@ -1267,11 +1430,159 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       if (draw_colour (names, values, &colour))
         {
           if (d->in_line) d->line = colour;
+          else if (d->in_rpr) d->t_colour = colour;
+          else if (d->in_shadow) d->shadow_colour = colour;
+          else if (d->in_grad)
+            {
+              /* The first stop is the fill, the last the second colour. */
+              if (d->grad_stops == 0) d->fill = colour;
+              else d->fill2 = colour;
+              d->grad_stops++;
+            }
+          else if (d->in_patt == 1) d->fill2 = colour;
+          else if (d->in_patt == 2) d->fill = colour;
           else if (!d->in_body) d->fill = colour;
         }
     }
+  else if (strcmp (n, "gradFill") == 0 && d->is_shape && !d->in_line && !d->in_body)
+    {
+      d->in_grad = 1;
+      d->fill_kind = O42_SHAPE_FILL_GRADIENT;
+    }
+  else if (strcmp (n, "lin") == 0 && d->in_grad)
+    {
+      const char *ang = attr (names, values, "ang");
+      if (ang != NULL) d->grad_angle = g_ascii_strtod (ang, NULL) / 60000;
+    }
+  else if (strcmp (n, "pattFill") == 0 && d->is_shape && !d->in_line && !d->in_body)
+    {
+      d->in_patt = 3;
+      d->fill_kind = O42_SHAPE_FILL_PATTERN;
+      d->pattern = o42_shape_pattern_from_prst (attr (names, values, "prst"));
+    }
+  else if (strcmp (n, "fgClr") == 0 && d->in_patt) d->in_patt = 1;
+  else if (strcmp (n, "bgClr") == 0 && d->in_patt) d->in_patt = 2;
+  else if (strcmp (n, "outerShdw") == 0 && d->is_shape)
+    {
+      const char *dist = attr (names, values, "dist"), *dir = attr (names, values, "dir");
+      double px = dist != NULL ? g_ascii_strtod (dist, NULL) / EMU_PER_PX : 3;
+      double a = dir != NULL ? g_ascii_strtod (dir, NULL) / 60000 * G_PI / 180 : G_PI / 4;
+
+      d->in_shadow = d->shadow = TRUE;
+      d->shadow_dx = floor (px * cos (a) * 10 + 0.5) / 10;
+      d->shadow_dy = floor (px * sin (a) * 10 + 0.5) / 10;
+    }
+  else if (strcmp (n, "custGeom") == 0 && d->is_shape)
+    {
+      d->custom = TRUE;
+      if (d->path == NULL) d->path = g_array_new (FALSE, FALSE, sizeof (O42PathPoint));
+    }
+  else if (strcmp (n, "path") == 0 && d->custom)
+    {
+      const char *w = attr (names, values, "w"), *h = attr (names, values, "h");
+      /* The first path is the one taken; Excel writes one. */
+      if (d->path->len == 0)
+        {
+          d->path_w = w != NULL ? g_ascii_strtod (w, NULL) : 0;
+          d->path_h = h != NULL ? g_ascii_strtod (h, NULL) : 0;
+        }
+    }
+  else if (d->custom && (strcmp (n, "moveTo") == 0 || strcmp (n, "lnTo") == 0 || strcmp (n, "cubicBezTo") == 0))
+    {
+      d->path_op = n[0] == 'm' ? 'M' : n[0] == 'l' ? 'L' : 'C';
+      d->cubic_n = 0;
+    }
+  else if (d->custom && strcmp (n, "quadBezTo") == 0)
+    {
+      d->path_op = 'Q';
+      d->cubic_n = 0;
+    }
+  else if (d->custom && strcmp (n, "close") == 0)
+    d->path_closed = TRUE;
+  else if (d->custom && strcmp (n, "pt") == 0 && d->path_op != 0)
+    {
+      const char *xs = attr (names, values, "x"), *ys = attr (names, values, "y");
+      double w = d->path_w > 0 ? d->path_w : 1, h = d->path_h > 0 ? d->path_h : 1;
+      double x = xs != NULL ? g_ascii_strtod (xs, NULL) / w : 0;
+      double y = ys != NULL ? g_ascii_strtod (ys, NULL) / h : 0;
+      O42PathPoint p = { d->path_op, x, y, 0, 0, 0, 0 };
+
+      if (d->path_op == 'C' || d->path_op == 'Q')
+        {
+          d->cubic[d->cubic_n * 2] = x;
+          d->cubic[d->cubic_n * 2 + 1] = y;
+          d->cubic_n++;
+          if (d->path_op == 'C' && d->cubic_n == 3)
+            {
+              p.x1 = d->cubic[0]; p.y1 = d->cubic[1]; p.x2 = d->cubic[2]; p.y2 = d->cubic[3];
+              p.x = d->cubic[4]; p.y = d->cubic[5];
+              g_array_append_val (d->path, p);
+              d->cubic_n = 0;
+            }
+          else if (d->path_op == 'Q' && d->cubic_n == 2)
+            {
+              /* A quadratic as the cubic it equals, from the last point. */
+              const O42PathPoint *last = d->path->len > 0 ? &g_array_index (d->path, O42PathPoint, d->path->len - 1) : NULL;
+              double lx = last != NULL ? last->x : d->cubic[0], ly = last != NULL ? last->y : d->cubic[1];
+              p.op = 'C';
+              p.x1 = lx + 2.0 / 3 * (d->cubic[0] - lx); p.y1 = ly + 2.0 / 3 * (d->cubic[1] - ly);
+              p.x2 = d->cubic[2] + 2.0 / 3 * (d->cubic[0] - d->cubic[2]); p.y2 = d->cubic[3] + 2.0 / 3 * (d->cubic[1] - d->cubic[3]);
+              p.x = d->cubic[2]; p.y = d->cubic[3];
+              g_array_append_val (d->path, p);
+              d->cubic_n = 0;
+            }
+        }
+      else
+        g_array_append_val (d->path, p);
+    }
   else if (strcmp (n, "txBody") == 0)
     d->in_body = TRUE;
+  else if (strcmp (n, "bodyPr") == 0 && d->in_body)
+    {
+      const char *wrap = attr (names, values, "wrap");
+      const char *anchor = attr (names, values, "anchor");
+      const char *lins = attr (names, values, "lIns");
+
+      d->t_nowrap = wrap != NULL && strcmp (wrap, "none") == 0;
+      if (anchor != NULL)
+        {
+          d->have_anchor = TRUE;
+          d->t_valign = strcmp (anchor, "t") == 0 ? O42_VALIGN_TOP
+                      : strcmp (anchor, "ctr") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+        }
+      if (lins != NULL)
+        d->t_inset = floor (g_ascii_strtod (lins, NULL) / EMU_PER_PX * 10 + 0.5) / 10;
+    }
+  else if (strcmp (n, "pPr") == 0 && d->in_body && !d->have_ppr)
+    {
+      const char *algn = attr (names, values, "algn");
+
+      d->have_ppr = TRUE;
+      if (algn != NULL)
+        d->t_halign = strcmp (algn, "l") == 0 ? O42_HALIGN_LEFT : strcmp (algn, "r") == 0 ? O42_HALIGN_RIGHT
+                    : strcmp (algn, "ctr") == 0 ? O42_HALIGN_CENTRE : O42_HALIGN_GENERAL;
+    }
+  else if ((strcmp (n, "rPr") == 0 || strcmp (n, "endParaRPr") == 0) && d->in_body)
+    {
+      d->in_rpr = TRUE;
+      if (!d->have_rpr && strcmp (n, "rPr") == 0)
+        {
+          const char *sz = attr (names, values, "sz");
+          const char *b = attr (names, values, "b");
+          const char *i = attr (names, values, "i");
+
+          d->have_rpr = TRUE;
+          if (sz != NULL) d->t_size = g_ascii_strtod (sz, NULL) / 100;
+          d->t_bold = b != NULL && strcmp (b, "0") != 0;
+          d->t_italic = i != NULL && strcmp (i, "0") != 0;
+        }
+    }
+  else if (strcmp (n, "latin") == 0 && d->in_rpr)
+    {
+      const char *face = attr (names, values, "typeface");
+      if (face != NULL && *face != '\0' && *face != '+' && d->t_font == NULL)
+        d->t_font = g_intern_string (face);
+    }
   else if (strcmp (n, "p") == 0 && d->in_body && d->body->len > 0)
     g_string_append_c (d->body, '\n');   /* the line before this one ended */
   else if (strcmp (n, "t") == 0 && d->in_body)
@@ -1353,6 +1664,9 @@ finish_anchor (DrawReader *d)
               pic->crop_l = d->crop[0]; pic->crop_t = d->crop[1];
               pic->crop_r = d->crop[2]; pic->crop_b = d->crop[3];
               pic->lock_aspect = d->lock_aspect;
+              pic->anchor = d->anchor_mode;
+              pic->brightness = d->bright;
+              pic->contrast = d->contrast;
             }
         }
       g_free (part);
@@ -1362,22 +1676,44 @@ finish_anchor (DrawReader *d)
       O42ShapeKind kind = O42_SHAPE_RECT;
       O42Shape *sh;
 
-      if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
+      if (d->custom && d->path != NULL && d->path->len >= 2)
+        kind = O42_SHAPE_FREEFORM;
+      else if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
         kind = d->arrow ? O42_SHAPE_ARROW : O42_SHAPE_LINE;
-      else if (d->text_box || d->body->len > 0)
-        kind = O42_SHAPE_TEXT;   /* Excel says txBox; others just write in it */
+      else if (d->text_box || (d->body->len > 0 && strcmp (d->geom, "rect") == 0 && d->fill == O42_FILL_NONE))
+        kind = O42_SHAPE_TEXT;   /* Excel says txBox; an unfilled rectangle with words is one too */
 
       sh = o42_sheet_add_shape (d->sheet, kind, row, col);
       if (sh != NULL)
         {
           /* The preset outline: an ellipse is a kind of its own, the
-           * AutoShapes are outlines a rectangle wears. */
-          o42_shape_apply_prst (sh, d->geom);
+           * AutoShapes are outlines a rectangle wears; a freeform brings
+           * its own. */
+          if (kind == O42_SHAPE_FREEFORM)
+            {
+              for (guint k = 0; k < d->path->len; k++)
+                {
+                  const O42PathPoint *pp = &g_array_index (d->path, O42PathPoint, k);
+                  o42_shape_path_add (sh, pp->op, pp->x, pp->y, pp->x1, pp->y1, pp->x2, pp->y2);
+                }
+              sh->closed = d->path_closed;
+            }
+          else
+            o42_shape_apply_prst (sh, d->geom);
           sh->dx = dx;
           sh->dy = dy;
           sh->width = width;
           sh->height = height;
+          sh->anchor = d->anchor_mode;
           sh->fill = d->fill;
+          sh->fill_kind = d->fill_kind;
+          sh->fill2 = d->fill2;
+          sh->gradient_angle = d->grad_angle;
+          sh->pattern = d->pattern;
+          sh->shadow = d->shadow;
+          sh->shadow_colour = d->shadow_colour;
+          sh->shadow_dx = d->shadow_dx;
+          sh->shadow_dy = d->shadow_dy;
           sh->line = d->line;
           sh->line_width = d->line_width;
           sh->dash = d->dash;
@@ -1396,6 +1732,19 @@ finish_anchor (DrawReader *d)
               g_free (sh->text);
               sh->text = g_strdup (d->body->str);
             }
+          if (d->t_halign != O42_HALIGN_GENERAL) sh->text_halign = d->t_halign;
+          if (d->have_anchor) sh->text_valign = d->t_valign;
+          sh->text_nowrap = d->t_nowrap;
+          if (d->t_inset >= 0) sh->text_inset = d->t_inset;
+          if (d->have_rpr)
+            {
+              sh->font_size = d->t_size;
+              sh->bold = d->t_bold;
+              sh->italic = d->t_italic;
+              sh->text_colour = d->t_colour;
+            }
+          if (d->t_font != NULL && g_ascii_strcasecmp (d->t_font, "Arial") != 0)
+            sh->font = d->t_font;
         }
     }
   else if (d->chart != NULL)
@@ -1403,7 +1752,7 @@ finish_anchor (DrawReader *d)
       const char *target = g_hash_table_lookup (d->rels, d->chart);
       char *part = target ? resolve (d->dir, target) : NULL;
       if (part != NULL)
-        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height);
+        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height, d->anchor_mode);
       g_free (part);
     }
 }
@@ -1425,6 +1774,11 @@ draw_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **er
   else if (strcmp (n, "to") == 0) d->in_to = FALSE;
   else if (strcmp (n, "ln") == 0) d->in_line = FALSE;
   else if (strcmp (n, "txBody") == 0) d->in_body = FALSE;
+  else if (strcmp (n, "rPr") == 0 || strcmp (n, "endParaRPr") == 0) d->in_rpr = FALSE;
+  else if (strcmp (n, "gradFill") == 0) d->in_grad = 0;
+  else if (strcmp (n, "pattFill") == 0) d->in_patt = 0;
+  else if ((strcmp (n, "fgClr") == 0 || strcmp (n, "bgClr") == 0) && d->in_patt) d->in_patt = 3;
+  else if (strcmp (n, "outerShdw") == 0) d->in_shadow = FALSE;
   else if (strcmp (n, "t") == 0 && d->field != NULL)
     {
       g_string_append (d->body, d->text->str);
@@ -1489,6 +1843,7 @@ o42_xlsx_draw_read (GHashTable *parts, const char *sheet_part, const char *rid, 
 
   g_string_free (d.text, TRUE);
   g_string_free (d.body, TRUE);
+  if (d.path != NULL) g_array_unref (d.path);
   g_free (d.blip);
   g_free (d.chart);
   g_free (d.dir);

@@ -353,6 +353,10 @@ typedef struct {
   char    *link;
   char    *source;
   char    *text;          /* the caption, from the TXO that follows */
+  int      text_halign;   /* TXO's alignment: 1 left 2 centre 3 right, 0 unsaid */
+  int      text_valign;   /* 1 top 2 middle 3 bottom, 0 unsaid */
+  gboolean have_font;     /* the first run named a font */
+  O42Fmt   font;
   double   value, min, max, step, page;
   int      selected;
   gboolean checked;
@@ -415,6 +419,7 @@ typedef struct
   gboolean    obj_is_note;
   int         txo_chars;        /* characters still to read for the note */
   GString    *txo_text;
+  gboolean    txo_runs_next;    /* the text is in; the CONTINUE to come holds its runs */
   GHashTable *note_texts;       /* obj id -> char* */
 
   /* Conditional formats: a CONDFMT's range, then its CF rules. */
@@ -2556,19 +2561,37 @@ read_drawing (Reader *r)
         }
       /* A drawn shape: its Sp names the outline, its Opt the fill and
        * line, the TXO after its OBJ the text. */
-      if (!f->is_picture && f->spt != 0 && f->spt != 201 &&
+      if (!f->is_picture && (f->spt != 0 || f->path != NULL) && f->spt != 201 &&
           f->col1 < O42_MAX_COLS && f->row1 < O42_MAX_ROWS &&
           (info == NULL || info->ot != 0x19))
         {
           O42Shape *shape = o42_sheet_add_shape (r->sheet, O42_SHAPE_RECT, f->row1, f->col1);
 
-          /* An outline office42 has no drawing for -- LibreOffice
-           * writes every AutoShape as a freeform path, type 4095 --
-           * comes in as a rectangle with the shape's fill, line and
-           * text, which is more of it than nothing. */
+          /* A freeform -- and LibreOffice writes every AutoShape as one,
+           * type 4095 -- comes in with its outline; an outline office42
+           * has no drawing for and no path comes in as a rectangle with
+           * the shape's fill, line and text, which is more of it than
+           * nothing. */
           if (shape != NULL)
             {
-              if (!o42_shape_apply_spt (shape, f->spt))
+              if (f->path != NULL)
+                {
+                  /* Raw numbers are EMU of the box the anchor gives. */
+                  double sx = sheet_col_x (r->sheet, MIN (f->col2, O42_MAX_COLS - 1)) + f->dx2 * o42_sheet_col_width (r->sheet, MIN (f->col2, O42_MAX_COLS - 1))
+                              - (sheet_col_x (r->sheet, f->col1) + f->dx1 * o42_sheet_col_width (r->sheet, f->col1));
+                  double sy = sheet_row_y (r->sheet, MIN (f->row2, O42_MAX_ROWS - 1)) + f->dy2 * o42_sheet_row_height (r->sheet, MIN (f->row2, O42_MAX_ROWS - 1))
+                              - (sheet_row_y (r->sheet, f->row1) + f->dy1 * o42_sheet_row_height (r->sheet, f->row1));
+                  double kx = f->path_raw ? 1.0 / (MAX (sx, 1) * 9525) : 1, ky = f->path_raw ? 1.0 / (MAX (sy, 1) * 9525) : 1;
+
+                  shape->kind = O42_SHAPE_FREEFORM;
+                  for (guint k = 0; k < f->path->len; k++)
+                    {
+                      const O42PathPoint *pp = &g_array_index (f->path, O42PathPoint, k);
+                      o42_shape_path_add (shape, pp->op, pp->x * kx, pp->y * ky, pp->x1 * kx, pp->y1 * ky, pp->x2 * kx, pp->y2 * ky);
+                    }
+                  shape->closed = f->closed;
+                }
+              else if (!o42_shape_apply_spt (shape, f->spt))
                 shape->kind = O42_SHAPE_RECT;
               double sx0 = sheet_col_x (r->sheet, f->col1) + f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
               double sy0 = sheet_row_y (r->sheet, f->row1) + f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
@@ -2579,9 +2602,23 @@ read_drawing (Reader *r)
 
               shape->dx = f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
               shape->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
+              shape->anchor = f->anchor_mode;
               shape->width = line_kind ? sx1 - sx0 : MAX (sx1 - sx0, 4);
               shape->height = line_kind ? sy1 - sy0 : MAX (sy1 - sy0, 4);
-              shape->fill = (!line_kind && f->filled) ? f->fill : O42_FILL_NONE;
+              shape->fill = (!line_kind && f->filled && (f->path == NULL || f->closed)) ? f->fill : O42_FILL_NONE;
+              if (shape->fill != O42_FILL_NONE && f->fill_type >= 4 && f->fill_type <= 7)
+                {
+                  shape->fill_kind = O42_SHAPE_FILL_GRADIENT;
+                  shape->fill2 = f->fill_back;
+                  shape->gradient_angle = f->fill_angle;
+                }
+              if (f->shadow)
+                {
+                  shape->shadow = TRUE;
+                  shape->shadow_colour = f->shadow_colour;
+                  shape->shadow_dx = f->shadow_dx;
+                  shape->shadow_dy = f->shadow_dy;
+                }
               shape->line = f->line;
               shape->line_width = f->lined ? MAX (f->line_width, 0.5) : 0.5;
               shape->dash = f->dash;
@@ -2597,8 +2634,31 @@ read_drawing (Reader *r)
                   if (f->head_end != O42_HEAD_NONE)
                     shape->kind = O42_SHAPE_ARROW;
                 }
+              if (f->text_inset >= 0)
+                shape->text_inset = f->text_inset;
+              if (f->text_wrap >= 0)
+                shape->text_nowrap = f->text_wrap == 2;
               if (info != NULL && info->text != NULL)
                 { g_free (shape->text); shape->text = g_strdup (info->text); }
+              if (info != NULL)
+                {
+                  if (info->text_halign >= 1 && info->text_halign <= 3)
+                    shape->text_halign = info->text_halign == 1 ? O42_HALIGN_LEFT
+                                       : info->text_halign == 2 ? O42_HALIGN_CENTRE : O42_HALIGN_RIGHT;
+                  if (info->text_valign >= 1 && info->text_valign <= 3)
+                    shape->text_valign = info->text_valign == 1 ? O42_VALIGN_TOP
+                                       : info->text_valign == 2 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+                  if (info->have_font)
+                    {
+                      if (info->font.family != NULL && g_ascii_strcasecmp (info->font.family, "Arial") != 0)
+                        shape->font = info->font.family;
+                      if (info->font.size > 0 && info->font.size != 20)
+                        shape->font_size = info->font.size / 2.0;
+                      shape->bold = info->font.bold;
+                      shape->italic = info->font.italic;
+                      shape->text_colour = info->font.colour;
+                    }
+                }
             }
           continue;
         }
@@ -2621,10 +2681,14 @@ read_drawing (Reader *r)
           pic->width = MAX (x1 - x0, 8);
           pic->height = MAX (y1 - y0, 8);
           pic->rotation = f->rotation;
+          pic->anchor = f->anchor_mode;
           pic->flip_h = f->flip_h;
           pic->flip_v = f->flip_v;
         }
     }
+  for (guint i = 0; i < found->len; i++)
+    if (g_array_index (found, O42EscherFound, i).path != NULL)
+      g_array_unref (g_array_index (found, O42EscherFound, i).path);
   g_array_unref (found);
 }
 
@@ -2755,8 +2819,18 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         {
           r->txo_chars = rd16 (p + 10);
           g_string_truncate (r->txo_text, 0);
+          r->txo_runs_next = FALSE;
           if (r->txo_chars == 0)
             r->obj_is_note = FALSE;
+          else if (!r->obj_is_note && r->objs->len > 0)
+            {
+              /* The alignment bits: how the words sit in a drawn shape. */
+              ObjInfo *info = &g_array_index (r->objs, ObjInfo, r->objs->len - 1);
+              guint grbit = rd16 (p);
+
+              info->text_halign = (grbit >> 1) & 7;
+              info->text_valign = (grbit >> 4) & 7;
+            }
         }
       break;
     case R_NOTE:
@@ -3377,9 +3451,24 @@ read_workbook (Reader *r, GError **error)
 
                       g_free (info->text);
                       info->text = g_strdup (r->txo_text->str);
+                      r->txo_runs_next = TRUE;
                     }
                   r->obj_is_note = FALSE;
                 }
+            }
+          else if (r->txo_runs_next && len >= 8 && r->objs->len > 0)
+            {
+              /* The runs: the first one's font is the shape's. */
+              ObjInfo *info = &g_array_index (r->objs, ObjInfo, r->objs->len - 1);
+              guint ifnt = rd16 (body + 2);
+
+              if (ifnt > 4) ifnt--;
+              if (ifnt < r->fonts->len)
+                {
+                  info->font = g_array_index (r->fonts, O42Fmt, ifnt);
+                  info->have_font = TRUE;
+                }
+              r->txo_runs_next = FALSE;
             }
           break;
         case R_MSODRAWINGGROUP:
@@ -3805,6 +3894,19 @@ fmt_table_add (GHashTable *table, const O42Fmt *fmt, guint index)
   FmtKey *key = g_new0 (FmtKey, 1);
   key->fmt = *fmt;
   g_hash_table_insert (table, key, GUINT_TO_POINTER (index + 1));
+}
+
+/* A shape's text font as a cell format, which is what the font table
+ * is made of. */
+static void
+shape_text_font (const O42Shape *shape, O42Fmt *font)
+{
+  o42_fmt_init_default (font);
+  font->family = g_intern_string (shape->font != NULL ? shape->font : "Arial");
+  font->size = (int) ((shape->font_size > 0 ? shape->font_size : 10) * 2 + 0.5);
+  font->bold = shape->bold ? 1 : 0;
+  font->italic = shape->italic ? 1 : 0;
+  font->colour = shape->text_colour;
 }
 
 static guint
@@ -5120,6 +5222,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               s.flip_h = pic->flip_h;
               s.flip_v = pic->flip_v;
               anchor_object (sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, &s);
+              s.anchor_mode = pic->anchor;
               g_ptr_array_add (controls, NULL);
             }
           else if (ref->type == O42_OBJECT_CHART)
@@ -5133,6 +5236,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               s.is_chart = TRUE;
               s.blip = (int) i;   /* which chart, for the substream */
               anchor_object (sheet, chart->row, chart->col, chart->dx, chart->dy, chart->width, chart->height, &s);
+              s.anchor_mode = chart->anchor;
               g_ptr_array_add (controls, NULL);
             }
           else
@@ -5146,6 +5250,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               else
                 s.drawing = shape;
               anchor_object (sheet, shape->row, shape->col, shape->dx, shape->dy, shape->width, shape->height, &s);
+              s.anchor_mode = shape->anchor;
               g_ptr_array_add (controls, s.is_control ? (gpointer) shape : NULL);
             }
           g_array_append_val (shapes, s);
@@ -5219,8 +5324,26 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               if (text != NULL && *text != '\0')
                 {
                   glong n = MIN (char_count (text), 32000);
+                  guint grbit = 0x0212, ifnt = 0;
+
+                  if (!s->is_note)
+                    {
+                      /* Bits 1-3 the horizontal alignment, 4-6 the vertical,
+                       * as Excel numbers them; the run's font is the
+                       * shape's, registered in the pre-pass. */
+                      O42HAlign ha = o42_shape_text_halign (s->drawing);
+                      O42VAlign va = o42_shape_text_valign (s->drawing);
+                      O42Fmt font;
+                      guint idx;
+
+                      grbit = ((ha == O42_HALIGN_LEFT ? 1 : ha == O42_HALIGN_RIGHT ? 3 : 2) << 1) |
+                              ((va == O42_VALIGN_TOP ? 1 : va == O42_VALIGN_MIDDLE ? 2 : 3) << 4) | 0x0200;
+                      shape_text_font (s->drawing, &font);
+                      idx = font_index (w, &font);
+                      ifnt = idx == 0 ? 0 : idx + 4;
+                    }
                   begin_record (w, R_TXO);
-                  put16 (w->out, s->is_note ? 0x0212 : 0x0224); put16 (w->out, 0);
+                  put16 (w->out, grbit); put16 (w->out, 0);
                   for (int k = 0; k < 6; k++) put8 (w->out, 0);
                   put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
                   end_record (w);
@@ -5228,7 +5351,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
                   put_ustr_body_continued (w, text, n);
                   end_record (w);
                   begin_record (w, R_CONTINUE);
-                  put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
+                  put16 (w->out, 0); put16 (w->out, ifnt); put32 (w->out, 0);
                   put16 (w->out, n); put16 (w->out, 0); put32 (w->out, 0);
                   end_record (w);
                 }
@@ -5833,6 +5956,22 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
       o42_sheet_foreach_cell (g.sheet, gather_cell, &g);
       g_array_sort (g.cells, compare_cells);
       g_ptr_array_add (sheet_cells, g.cells);
+    }
+  /* A drawn shape's text has a font of its own, which must be on record
+   * before the FONT records go out. */
+  for (int i = 0; i < n_sheets; i++)
+    {
+      GPtrArray *shapes = o42_sheet_shapes (o42_book_sheet (book, i));
+      for (guint k = 0; k < shapes->len; k++)
+        {
+          const O42Shape *sh = g_ptr_array_index (shapes, k);
+          O42Fmt font;
+
+          if (o42_shape_is_control (sh->kind) || sh->text == NULL || *sh->text == '\0')
+            continue;
+          shape_text_font (sh, &font);
+          font_index (&w, &font);
+        }
     }
   /* Custom number formats must be on record before the XFs name them. */
   for (guint i = 0; i < w.xfs->len; i++)

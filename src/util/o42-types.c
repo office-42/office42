@@ -6,6 +6,23 @@
 
 #include "o42-types.h"
 
+static const char *const ANCHOR_NAMES[] = { "twoCell", "oneCell", "absolute" };
+
+const char *
+o42_anchor_mode_name (O42AnchorMode mode)
+{
+  return (guint) mode < 3 ? ANCHOR_NAMES[mode] : ANCHOR_NAMES[0];
+}
+
+gboolean
+o42_anchor_mode_parse (const char *name, O42AnchorMode *mode)
+{
+  for (guint i = 0; name != NULL && i < 3; i++)
+    if (g_ascii_strcasecmp (name, ANCHOR_NAMES[i]) == 0)
+      { *mode = (O42AnchorMode) i; return TRUE; }
+  return FALSE;
+}
+
 #include <string.h>
 
 void

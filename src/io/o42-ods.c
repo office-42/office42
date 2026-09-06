@@ -279,6 +279,7 @@ typedef struct {
   GString    *master_pages; /* and the master page that uses it, with the header and footer */
   GHashTable *hf_styles;    /* "B1I0U0S12F" -> "MT3", text styles the header parts wear */
   GString    *hf_style_xml;
+  GString    *fill_defs;    /* styles.xml: the gradients and hatches the shapes use */
 } Styles;
 
 /* A break in a row or column style: the same size, with
@@ -489,6 +490,37 @@ length_cm (int px)
 {
   char buf[G_ASCII_DTOSTR_BUF_SIZE];
   return g_strdup_printf ("%scm", g_ascii_formatd (buf, sizeof buf, "%.3f", px * 2.54 / 96.0));
+}
+
+/* A shape's words as paragraphs, one per line, in a paragraph style
+ * that aligns them and a text style that sets them; both styles are
+ * the shape's own. */
+static char *
+shape_text_xml (Styles *s, const O42Shape *shape, int sheet_index, guint i)
+{
+  GString *out = g_string_new (NULL);
+  char **lines = g_strsplit (shape->text != NULL ? shape->text : "", "\n", -1);
+  O42HAlign ha = o42_shape_text_halign (shape);
+  char size[G_ASCII_DTOSTR_BUF_SIZE];
+  char *family = g_markup_escape_text (shape->font != NULL ? shape->font : "Arial", -1);
+
+  g_string_append_printf (s->styles,
+    "<style:style style:name=\"Pgr%d_%u\" style:family=\"paragraph\"><style:paragraph-properties fo:text-align=\"%s\"/></style:style>"
+    "<style:style style:name=\"Tgr%d_%u\" style:family=\"text\"><style:text-properties fo:font-family=\"%s\" fo:font-size=\"%spt\" "
+    "fo:font-weight=\"%s\" fo:font-style=\"%s\" fo:color=\"#%06x\"/></style:style>",
+    sheet_index, i, ha == O42_HALIGN_LEFT ? "start" : ha == O42_HALIGN_RIGHT ? "end" : "center",
+    sheet_index, i, family, g_ascii_formatd (size, sizeof size, "%g", shape->font_size > 0 ? shape->font_size : 10),
+    shape->bold ? "bold" : "normal", shape->italic ? "italic" : "normal", shape->text_colour & 0xFFFFFF);
+  for (int k = 0; lines[k] != NULL; k++)
+    {
+      char *e = g_markup_escape_text (lines[k], -1);
+      g_string_append_printf (out, "<text:p text:style-name=\"Pgr%d_%u\"><text:span text:style-name=\"Tgr%d_%u\">%s</text:span></text:p>",
+                              sheet_index, i, sheet_index, i, e);
+      g_free (e);
+    }
+  g_strfreev (lines);
+  g_free (family);
+  return g_string_free (out, FALSE);
 }
 
 /* A table style carries the tab's colour and names the master page
@@ -1061,16 +1093,44 @@ typedef struct {
   char *part;         /* the name it goes into the zip under */
 } OdsPicture;
 
+/* The far corner of an object as OpenDocument anchors it: the cell it
+ * reaches and the offset within, for an object that moves and sizes
+ * with the cells; nothing for one that does not.  Caller frees. */
+static char *
+ods_end_cell (O42Sheet *sheet, int row, int col, double dx, double dy, double w, double h,
+              O42AnchorMode mode)
+{
+  double x1 = o42_sheet_col_offset (sheet, col) + dx + w;
+  double y1 = o42_sheet_row_offset (sheet, row) + dy + h;
+  int to_col, to_row;
+  char *quoted, *ref, *attrs;
+
+  if (mode != O42_ANCHOR_TWO_CELL)
+    return g_strdup ("");
+  to_col = MIN (o42_sheet_col_at (sheet, x1), O42_MAX_COLS - 1);
+  to_row = MIN (o42_sheet_row_at (sheet, y1), O42_MAX_ROWS - 1);
+  quoted = g_markup_escape_text (o42_sheet_get_name (sheet), -1);
+  ref = o42_ref_name (to_row, to_col);
+  attrs = g_strdup_printf (" table:end-cell-address=\"%s%s%s.%s\" table:end-x=\"%.3fcm\" table:end-y=\"%.3fcm\"",
+                           strpbrk (quoted, " '.-") != NULL ? "&apos;" : "", quoted,
+                           strpbrk (quoted, " '.-") != NULL ? "&apos;" : "", ref,
+                           (x1 - o42_sheet_col_offset (sheet, to_col)) * PX_TO_CM,
+                           (y1 - o42_sheet_row_offset (sheet, to_row)) * PX_TO_CM);
+  g_free (quoted);
+  g_free (ref);
+  return attrs;
+}
+
 static void
 append_frame_head (GString *out, const char *name, int z,
-                   double dx, double dy, double w, double h)
+                   double dx, double dy, double w, double h, const char *end_cell)
 {
   char *escaped = g_markup_escape_text (name, -1);
 
   g_string_append_printf (out,
-    "<draw:frame draw:name=\"%s\" draw:z-index=\"%d\" table:end-cell-address=\"\" "
+    "<draw:frame draw:name=\"%s\" draw:z-index=\"%d\"%s "
     "svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">",
-    escaped, z, dx * PX_TO_CM, dy * PX_TO_CM, w * PX_TO_CM, h * PX_TO_CM);
+    escaped, z, end_cell, dx * PX_TO_CM, dy * PX_TO_CM, w * PX_TO_CM, h * PX_TO_CM);
   g_free (escaped);
 }
 
@@ -1379,7 +1439,11 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
       if (pic->row != row || pic->col != col)
         continue;
       name = g_strdup_printf ("Picture %u", i + 1);
-      append_frame_head (out, name, (int) i, pic->dx, pic->dy, pic->width, pic->height);
+      {
+        char *end = ods_end_cell (sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, pic->anchor);
+        append_frame_head (out, name, (int) i, pic->dx, pic->dy, pic->width, pic->height, end);
+        g_free (end);
+      }
       g_string_append_printf (out,
         "<draw:image xlink:href=\"Pictures/sheet%d_image%u.%s\" xlink:type=\"simple\" "
         "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
@@ -1392,6 +1456,7 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
       const O42Shape *shape = g_ptr_array_index (shapes, i);
       char *name;
       char *text;
+      char *end_cell;
 
       if (shape->row != row || shape->col != col)
         continue;
@@ -1407,7 +1472,8 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
           continue;
         }
       name = g_strdup_printf ("Shape %u", i + 1);
-      text = g_markup_escape_text (shape->text != NULL ? shape->text : "", -1);
+      text = shape_text_xml (s, shape, sheet_index, i);
+      end_cell = ods_end_cell (sheet, shape->row, shape->col, shape->dx, shape->dy, shape->width, shape->height, shape->anchor);
       /* The shape's fill and line as a graphic style of its own; the
        * dashes and the heads are named in styles.xml. */
       {
@@ -1420,14 +1486,64 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
         static const double HEAD_WIDTH[3] = { 0.2, 0.3, 0.45 };
         gboolean line_kind = shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW;
 
-        g_string_append_printf (s->styles,
-          "<style:style style:name=\"gr%d_%u\" style:family=\"graphic\"><style:graphic-properties "
-          "draw:stroke=\"%s\" svg:stroke-width=\"%.3fcm\" svg:stroke-color=\"#%06x\" "
-          "draw:fill=\"%s\" draw:fill-color=\"#%06x\"",
-          sheet_index, i, shape->dash != O42_DASH_SOLID ? "dash" : "solid",
-          shape->line_width * PX_TO_CM, shape->line & 0xFFFFFF,
-          (!line_kind && shape->fill != O42_FILL_NONE) ? "solid" : "none",
-          (shape->fill != O42_FILL_NONE ? shape->fill : 0xFFFFFF) & 0xFFFFFF);
+        {
+          gboolean filled = !line_kind && shape->fill != O42_FILL_NONE &&
+                            (shape->kind != O42_SHAPE_FREEFORM || shape->closed);
+          const char *fill = !filled ? "none" : shape->fill_kind == O42_SHAPE_FILL_GRADIENT ? "gradient"
+                           : shape->fill_kind == O42_SHAPE_FILL_PATTERN ? "hatch" : "solid";
+
+          g_string_append_printf (s->styles,
+            "<style:style style:name=\"gr%d_%u\" style:family=\"graphic\"><style:graphic-properties "
+            "draw:stroke=\"%s\" svg:stroke-width=\"%.3fcm\" svg:stroke-color=\"#%06x\" "
+            "draw:fill=\"%s\" draw:fill-color=\"#%06x\"",
+            sheet_index, i, shape->dash != O42_DASH_SOLID ? "dash" : "solid",
+            shape->line_width * PX_TO_CM, shape->line & 0xFFFFFF, fill,
+            (shape->fill != O42_FILL_NONE ? shape->fill : 0xFFFFFF) & 0xFFFFFF);
+          if (filled && shape->fill_kind == O42_SHAPE_FILL_GRADIENT)
+            {
+              /* ODF's angle counts counter-clockwise in tenths of a degree
+               * from a run bottom to top; ours clockwise from left to right. */
+              int angle = (int) fmod (fmod (90 - shape->gradient_angle, 360) + 360, 360) * 10;
+
+              g_string_append_printf (s->fill_defs,
+                "<draw:gradient draw:name=\"Gr%d_%u\" draw:style=\"linear\" draw:start-color=\"#%06x\" draw:end-color=\"#%06x\" "
+                "draw:start-intensity=\"100%%\" draw:end-intensity=\"100%%\" draw:angle=\"%d\" draw:border=\"0%%\"/>",
+                sheet_index, i, shape->fill & 0xFFFFFF, shape->fill2 & 0xFFFFFF, angle);
+              g_string_append_printf (s->styles, " draw:fill-gradient-name=\"Gr%d_%u\"", sheet_index, i);
+            }
+          else if (filled && shape->fill_kind == O42_SHAPE_FILL_PATTERN)
+            {
+              /* A hatch: lines at an angle, or two sets crossed, in the
+               * pattern's colour over the fill. */
+              const char *hstyle = "single";
+              int rotation = 0;
+              double distance = 0.1;
+
+              switch (shape->pattern)
+                {
+                case O42_PATTERN_VERTICAL: case O42_PATTERN_THIN_VERTICAL: rotation = 900; break;
+                case O42_PATTERN_UP: case O42_PATTERN_THIN_UP: rotation = 450; break;
+                case O42_PATTERN_DOWN: case O42_PATTERN_THIN_DOWN: rotation = 1350; break;
+                case O42_PATTERN_GRID: case O42_PATTERN_THIN_GRID: hstyle = "double"; break;
+                case O42_PATTERN_TRELLIS: case O42_PATTERN_THIN_TRELLIS: hstyle = "double"; rotation = 450; break;
+                case O42_PATTERN_GRAY75: case O42_PATTERN_GRAY50: hstyle = "triple"; distance = 0.05; break;
+                case O42_PATTERN_GRAY25: case O42_PATTERN_GRAY125: case O42_PATTERN_GRAY0625: hstyle = "double"; distance = 0.15; break;
+                default: break;
+                }
+              if (shape->pattern == O42_PATTERN_THIN_HORIZONTAL || shape->pattern == O42_PATTERN_THIN_VERTICAL ||
+                  shape->pattern == O42_PATTERN_THIN_UP || shape->pattern == O42_PATTERN_THIN_DOWN ||
+                  shape->pattern == O42_PATTERN_THIN_GRID || shape->pattern == O42_PATTERN_THIN_TRELLIS)
+                distance = 0.2;
+              g_string_append_printf (s->fill_defs,
+                "<draw:hatch draw:name=\"Ha%d_%u\" draw:style=\"%s\" draw:color=\"#%06x\" draw:distance=\"%.2fcm\" draw:rotation=\"%d\"/>",
+                sheet_index, i, hstyle, shape->fill2 & 0xFFFFFF, distance, rotation);
+              g_string_append_printf (s->styles, " draw:fill-hatch-name=\"Ha%d_%u\" draw:fill-hatch-solid=\"true\"", sheet_index, i);
+            }
+          if (shape->shadow)
+            g_string_append_printf (s->styles,
+              " draw:shadow=\"visible\" draw:shadow-offset-x=\"%.3fcm\" draw:shadow-offset-y=\"%.3fcm\" draw:shadow-color=\"#%06x\"",
+              shape->shadow_dx * PX_TO_CM, shape->shadow_dy * PX_TO_CM, shape->shadow_colour & 0xFFFFFF);
+        }
         if (shape->dash != O42_DASH_SOLID)
           g_string_append_printf (s->styles, " draw:stroke-dash=\"%s\"", DASH_NAMES[shape->dash]);
         if (line_kind && shape->head_start != O42_HEAD_NONE)
@@ -1436,35 +1552,93 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
         if (line_kind && shape->head_end != O42_HEAD_NONE)
           g_string_append_printf (s->styles, " draw:marker-end=\"%s\" draw:marker-end-width=\"%.2fcm\"",
                                   HEAD_NAMES[shape->head_end], HEAD_WIDTH[CLAMP (shape->head_end_size, 0, 2)]);
-        g_string_append (s->styles, " draw:textarea-horizontal-align=\"center\" "
-                                    "draw:textarea-vertical-align=\"middle\"/></style:style>");
+        {
+          O42HAlign ha = o42_shape_text_halign (shape);
+          O42VAlign va = o42_shape_text_valign (shape);
+          char pad[G_ASCII_DTOSTR_BUF_SIZE];
+
+          g_string_append_printf (s->styles,
+            " draw:textarea-horizontal-align=\"%s\" draw:textarea-vertical-align=\"%s\" fo:padding=\"%scm\"%s/></style:style>",
+            ha == O42_HALIGN_LEFT ? "left" : ha == O42_HALIGN_RIGHT ? "right" : "center",
+            va == O42_VALIGN_TOP ? "top" : va == O42_VALIGN_MIDDLE ? "middle" : "bottom",
+            g_ascii_formatd (pad, sizeof pad, "%.3f", MAX (shape->text_inset, 0) * PX_TO_CM),
+            shape->text_nowrap ? " fo:wrap-option=\"no-wrap\"" : " fo:wrap-option=\"wrap\"");
+        }
       }
-      /* A line is a line; everything else is a box or an ellipse, and
-       * the text inside it goes in a paragraph as it does anywhere. */
-      if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
+      /* A line is a line; a freeform is a polygon, a polyline or a path;
+       * everything else is a box or an ellipse, and the text inside it
+       * goes in a paragraph as it does anywhere. */
+      if (shape->kind == O42_SHAPE_FREEFORM && shape->path != NULL)
+        {
+          /* Points in a view box of hundredths of a pixel, so the numbers
+           * stay whole. */
+          double vw = MAX (floor (shape->width * 100 + 0.5), 1), vh = MAX (floor (shape->height * 100 + 0.5), 1);
+          gboolean curved = FALSE;
+          GString *pts = g_string_new (NULL);
+
+          for (guint k = 0; k < shape->path->len; k++)
+            {
+              const O42PathPoint *pp = &g_array_index (shape->path, O42PathPoint, k);
+              if (pp->op == 'C') curved = TRUE;
+            }
+          if (!curved)
+            {
+              for (guint k = 0; k < shape->path->len; k++)
+                {
+                  const O42PathPoint *pp = &g_array_index (shape->path, O42PathPoint, k);
+                  g_string_append_printf (pts, "%s%.0f,%.0f", k > 0 ? " " : "", pp->x * vw, pp->y * vh);
+                }
+              g_string_append_printf (out,
+                "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+                "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\" svg:viewBox=\"0 0 %.0f %.0f\" draw:points=\"%s\">%s</draw:%s>",
+                shape->closed ? "polygon" : "polyline", name, sheet_index, i, end_cell,
+                shape->dx * PX_TO_CM, shape->dy * PX_TO_CM, shape->width * PX_TO_CM, shape->height * PX_TO_CM,
+                vw, vh, pts->str, text, shape->closed ? "polygon" : "polyline");
+            }
+          else
+            {
+              for (guint k = 0; k < shape->path->len; k++)
+                {
+                  const O42PathPoint *pp = &g_array_index (shape->path, O42PathPoint, k);
+                  if (pp->op == 'C')
+                    g_string_append_printf (pts, "C %.0f %.0f %.0f %.0f %.0f %.0f ", pp->x1 * vw, pp->y1 * vh, pp->x2 * vw, pp->y2 * vh, pp->x * vw, pp->y * vh);
+                  else
+                    g_string_append_printf (pts, "%c %.0f %.0f ", pp->op, pp->x * vw, pp->y * vh);
+                }
+              if (shape->closed) g_string_append (pts, "Z");
+              g_string_append_printf (out,
+                "<draw:path draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+                "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\" svg:viewBox=\"0 0 %.0f %.0f\" svg:d=\"%s\">%s</draw:path>",
+                name, sheet_index, i, end_cell, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+                shape->width * PX_TO_CM, shape->height * PX_TO_CM, vw, vh, g_strstrip (pts->str), text);
+            }
+          g_string_free (pts, TRUE);
+        }
+      else if (shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW)
         g_string_append_printf (out,
-          "<draw:line draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x1=\"%.3fcm\" svg:y1=\"%.3fcm\" "
+          "<draw:line draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x1=\"%.3fcm\" svg:y1=\"%.3fcm\" "
           "svg:x2=\"%.3fcm\" svg:y2=\"%.3fcm\"><text:p/></draw:line>",
-          name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+          name, sheet_index, i, end_cell, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           (shape->dx + shape->width) * PX_TO_CM, (shape->dy + shape->height) * PX_TO_CM);
       else if (o42_shape_ods_type (shape) != NULL)
         /* An AutoShape is a custom shape whose enhanced geometry names
          * the outline; LibreOffice draws it from the name. */
         g_string_append_printf (out,
-          "<draw:custom-shape draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
-          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\"><text:p>%s</text:p>"
+          "<draw:custom-shape draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">%s"
           "<draw:enhanced-geometry draw:type=\"%s\"/></draw:custom-shape>",
-          name, sheet_index, i, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
+          name, sheet_index, i, end_cell, shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
           o42_shape_ods_type (shape));
       else
         g_string_append_printf (out,
-          "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\" svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
-          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\"><text:p>%s</text:p></draw:%s>",
-          shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect", name, sheet_index, i,
+          "<draw:%s draw:name=\"%s\" draw:style-name=\"gr%d_%u\"%s svg:x=\"%.3fcm\" svg:y=\"%.3fcm\" "
+          "svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">%s</draw:%s>",
+          shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect", name, sheet_index, i, end_cell,
           shape->dx * PX_TO_CM, shape->dy * PX_TO_CM,
           shape->width * PX_TO_CM, shape->height * PX_TO_CM, text,
           shape->kind == O42_SHAPE_OVAL ? "ellipse" : "rect");
+      g_free (end_cell);
       g_free (text);
       g_free (name);
     }
@@ -1477,8 +1651,12 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
       if (chart->row != row || chart->col != col)
         continue;
       name = g_strdup_printf ("Chart %u", i + 1);
-      append_frame_head (out, name, (int) (100 + i), chart->dx, chart->dy,
-                         chart->width, chart->height);
+      {
+        char *end = ods_end_cell (sheet, chart->row, chart->col, chart->dx, chart->dy, chart->width, chart->height, chart->anchor);
+        append_frame_head (out, name, (int) (100 + i), chart->dx, chart->dy,
+                           chart->width, chart->height, end);
+        g_free (end);
+      }
       g_string_append_printf (out,
         "<draw:object xlink:href=\"./Sheet%dChart%u\" xlink:type=\"simple\" "
         "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
@@ -2061,6 +2239,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   s.master_pages = g_string_new (NULL);
   s.hf_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   s.hf_style_xml = g_string_new (NULL);
+  s.fill_defs = g_string_new (NULL);
 
   for (int i = 0; i < o42_book_n_sheets (book); i++)
     write_table (body, &s, o42_book_sheet (book, i), i);
@@ -2110,9 +2289,9 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
       "<draw:marker draw:name=\"Stealth\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30 10-9 10 9z\"/>"
       "<draw:marker draw:name=\"Diamond\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 15 10 15 10-15z\"/>"
       "<draw:marker draw:name=\"Circle\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0c-5.5 0-10 4.5-10 10s4.5 10 10 10 10-4.5 10-10-4.5-10-10-10z\"/>"
-      "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>"
-      "</office:styles>"
-      "<office:automatic-styles>");
+      "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>");
+    g_string_append (styles, s.fill_defs->str);
+    g_string_append (styles, "</office:styles><office:automatic-styles>");
 
     g_string_append (styles, s.hf_style_xml->str);
     g_string_append (styles, s.page_layouts->str);
@@ -2141,6 +2320,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   g_string_free (s.page_layouts, TRUE);
   g_string_free (s.master_pages, TRUE);
   g_string_free (s.hf_style_xml, TRUE);
+  g_string_free (s.fill_defs, TRUE);
   g_hash_table_unref (s.hf_styles);
   g_hash_table_unref (s.col_styles);
   g_hash_table_unref (s.row_styles);
@@ -2155,6 +2335,10 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
 /* Reading                                                                */
 /* ====================================================================== */
 
+/* A gradient or a hatch as styles.xml defines it, by name. */
+typedef struct { guint32 start, end; double angle; } OdsGradient;
+typedef struct { guint32 colour; O42Pattern pattern; } OdsHatch;
+
 typedef struct {
   O42Fmt   fmt;
   gboolean has_fmt;        /* anything set beyond the default */
@@ -2166,8 +2350,16 @@ typedef struct {
   gboolean page_break;     /* rows and columns: fo:break-before="page" */
   char    *master_page;    /* tables: the master page they print on */
 
-  /* Graphic styles: a shape's fill and line. */
+  /* Graphic styles: a shape's fill and line, and how its text sits. */
   gboolean graphic;
+  char    *gradient_name;  /* draw:fill="gradient": which */
+  char    *hatch_name;     /* draw:fill="hatch": which */
+  gboolean shadow;
+  guint32  shadow_colour;
+  double   shadow_dx, shadow_dy;
+  int      text_valign;    /* an O42VAlign, or -1 for unsaid */
+  double   text_padding;   /* px, or -1 */
+  int      text_nowrap;    /* 1, 0, or -1 */
   gboolean fill_none;
   guint32  fill;
   guint32  line;
@@ -2203,6 +2395,8 @@ typedef struct {
   int         n_tables;
   GHashTable *styles;        /* name -> Style */
   GHashTable *dashes;        /* a draw:stroke-dash name -> its O42Dash, by its look */
+  GHashTable *gradients;     /* a draw:gradient name -> OdsGradient */
+  GHashTable *hatches;       /* a draw:hatch name -> OdsHatch */
   GHashTable *num_styles;    /* name -> NumStyle */
   Style      *style;         /* the style being read */
   NumStyle   *num;           /* the number style being read */
@@ -2236,6 +2430,7 @@ typedef struct {
   GArray     *cell_runs;     /* O42TextRun for the cell being read */
   O42Shape   *shape;         /* the shape being read, for its text */
   double      frame_x, frame_y, frame_w, frame_h;   /* the frame being read */
+  O42AnchorMode frame_anchor;                       /* and how it is anchored */
   GHashTable *form_controls;  /* form:id -> FormControl, for draw:control */
   GArray     *loose_controls; /* LooseControl: shapes outside any cell */
   gboolean    in_form;        /* inside <office:forms>, where a frame is a group box */
@@ -2619,6 +2814,8 @@ style_free (gpointer data)
 {
   Style *s = data;
   g_free (s->master_page);
+  g_free (s->gradient_name);
+  g_free (s->hatch_name);
   g_free (s->data_style);
   g_free (s);
 }
@@ -3286,6 +3483,7 @@ read_chart_object (Reader *r, const char *href, int row, int col,
       if (box.col0 > 0)
         box.col0--;
       chart = o42_sheet_add_chart (r->sheet, c.kind, &box, row, col);
+  if (chart != NULL) chart->anchor = r->frame_anchor;
       if (chart != NULL)
         {
           chart->first_row_labels = TRUE;
@@ -3330,6 +3528,109 @@ hf_sync (Reader *r)
   *cur = *want;
 }
 
+/* A polygon's or polyline's points, or a path's d, into a freeform's
+ * outline as fractions of the view box. */
+static void
+ods_read_freeform (O42Shape *shape, const char *element, const char *viewbox,
+                   const char *points, const char *d)
+{
+  double vx = 0, vy = 0, vw = 1, vh = 1;
+
+  if (viewbox != NULL)
+    {
+      char **vb = g_strsplit_set (viewbox, " ,", -1);
+      if (g_strv_length (vb) >= 4)
+        {
+          vx = g_ascii_strtod (vb[0], NULL); vy = g_ascii_strtod (vb[1], NULL);
+          vw = g_ascii_strtod (vb[2], NULL); vh = g_ascii_strtod (vb[3], NULL);
+        }
+      g_strfreev (vb);
+    }
+  if (vw <= 0) vw = 1;
+  if (vh <= 0) vh = 1;
+  shape->closed = strcmp (element, "polygon") == 0;
+  if (points != NULL && strcmp (element, "path") != 0)
+    {
+      char **pts = g_strsplit (points, " ", -1);
+      for (int i = 0; pts[i] != NULL; i++)
+        {
+          char *comma = strchr (pts[i], ',');
+          if (comma == NULL || *pts[i] == '\0') continue;
+          o42_shape_path_add (shape, i == 0 ? 'M' : 'L',
+                              (g_ascii_strtod (pts[i], NULL) - vx) / vw,
+                              (g_ascii_strtod (comma + 1, NULL) - vy) / vh, 0, 0, 0, 0);
+        }
+      g_strfreev (pts);
+    }
+  else if (d != NULL)
+    {
+      /* The SVG path grammar, the part a spreadsheet meets: M L C Z and
+       * their relative forms, numbers run together. */
+      const char *p = d;
+      char op = 0;
+      double cx = 0, cy = 0;
+      gboolean relative = FALSE;
+
+      while (*p != '\0')
+        {
+          double v[6];
+          int n = 0;
+
+          while (*p == ' ' || *p == ',') p++;
+          if (g_ascii_isalpha (*p))
+            {
+              op = g_ascii_toupper (*p);
+              relative = g_ascii_islower (*p);
+              p++;
+              if (op == 'Z')
+                { shape->closed = TRUE; continue; }
+            }
+          if (op == 0) break;
+          {
+            int want = op == 'C' ? 6 : op == 'Q' ? 4 : op == 'H' || op == 'V' ? 1 : 2;
+            while (n < want)
+              {
+                char *end;
+                while (*p == ' ' || *p == ',') p++;
+                v[n] = g_ascii_strtod (p, &end);
+                if (end == p) break;
+                p = end;
+                n++;
+              }
+            if (n < want) break;
+          }
+          if (op == 'H') { v[1] = cy; if (relative) v[0] += cx; }
+          else if (op == 'V') { v[1] = v[0]; v[0] = cx; if (relative) v[1] += cy; }
+          else if (relative)
+            for (int k = 0; k < n; k += 2) { v[k] += cx; v[k + 1] += cy; }
+          if (op == 'M' || op == 'L' || op == 'H' || op == 'V')
+            {
+              o42_shape_path_add (shape, op == 'M' ? 'M' : 'L', (v[0] - vx) / vw, (v[1] - vy) / vh, 0, 0, 0, 0);
+              cx = v[0]; cy = v[1];
+              if (op == 'M') op = 'L';   /* points after a move are lines */
+            }
+          else if (op == 'C')
+            {
+              o42_shape_path_add (shape, 'C', (v[4] - vx) / vw, (v[5] - vy) / vh,
+                                  (v[0] - vx) / vw, (v[1] - vy) / vh, (v[2] - vx) / vw, (v[3] - vy) / vh);
+              cx = v[4]; cy = v[5];
+            }
+          else if (op == 'Q')
+            {
+              double x1 = cx + 2.0 / 3 * (v[0] - cx), y1 = cy + 2.0 / 3 * (v[1] - cy);
+              double x2 = v[2] + 2.0 / 3 * (v[0] - v[2]), y2 = v[3] + 2.0 / 3 * (v[1] - v[3]);
+              o42_shape_path_add (shape, 'C', (v[2] - vx) / vw, (v[3] - vy) / vh,
+                                  (x1 - vx) / vw, (y1 - vy) / vh, (x2 - vx) / vw, (y2 - vy) / vh);
+              cx = v[2]; cy = v[3];
+            }
+          else
+            break;
+        }
+    }
+  if (!shape->closed)
+    shape->fill = O42_FILL_NONE;
+}
+
 static void
 content_start (GMarkupParseContext *ctx, const char *element, const char **names,
                const char **values, gpointer user, GError **error)
@@ -3337,6 +3638,44 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
   Reader *r = user;
   const char *name = local (element);
   (void) ctx; (void) error;
+
+  if (r->in_cell && r->shape != NULL && (strcmp (name, "p") == 0 || strcmp (name, "span") == 0))
+    {
+      /* A shape's paragraphs and spans: theirs, not the cell's. */
+      r->depth_in_cell++;
+      if (strcmp (name, "p") == 0)
+        {
+          const char *pstyle = attr (names, values, "style-name");
+          const Style *ps = pstyle != NULL ? g_hash_table_lookup (r->styles, pstyle) : NULL;
+
+          if (r->shape->text != NULL && *r->shape->text != '\0')
+            {
+              char *more = g_strconcat (r->shape->text, "\n", NULL);
+              g_free (r->shape->text);
+              r->shape->text = more;
+            }
+          if (ps != NULL && ps->has_fmt && ps->fmt.halign != O42_HALIGN_GENERAL)
+            r->shape->text_halign = ps->fmt.halign;
+          r->in_p = TRUE;
+        }
+      else if (r->in_p)
+        {
+          const char *tstyle = attr (names, values, "style-name");
+          const Style *ts = tstyle != NULL ? g_hash_table_lookup (r->styles, tstyle) : NULL;
+
+          if (ts != NULL && ts->has_fmt)
+            {
+              if (ts->fmt.family != NULL && g_ascii_strcasecmp (ts->fmt.family, "Arial") != 0)
+                r->shape->font = ts->fmt.family;
+              if (ts->fmt.size > 0 && ts->fmt.size != 20)
+                r->shape->font_size = ts->fmt.size / 2.0;
+              r->shape->bold = ts->fmt.bold;
+              r->shape->italic = ts->fmt.italic;
+              r->shape->text_colour = ts->fmt.colour;
+            }
+        }
+      return;
+    }
 
   if (r->in_cell)
     {
@@ -3387,6 +3726,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "frame") == 0 && !r->in_form)
         {
+          const char *end = attr (names, values, "end-cell-address");
+          r->frame_anchor = end != NULL && *end != '\0' ? O42_ANCHOR_TWO_CELL : O42_ANCHOR_ONE_CELL;
           r->frame_x = ods_length (attr (names, values, "x"));
           r->frame_y = ods_length (attr (names, values, "y"));
           r->frame_w = ods_length (attr (names, values, "width"));
@@ -3419,6 +3760,7 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
 
                   if (pic != NULL)
                     {
+                      pic->anchor = r->frame_anchor;
                       pic->dx = r->frame_x;
                       pic->dy = r->frame_y;
                       if (r->frame_w > 1) pic->width = r->frame_w;
@@ -3431,9 +3773,12 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         o42_shape_apply_ods_type (r->shape, attr (names, values, "type"));
       else if (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
                strcmp (name, "circle") == 0 || strcmp (name, "line") == 0 ||
-               strcmp (name, "custom-shape") == 0)
+               strcmp (name, "custom-shape") == 0 || strcmp (name, "polygon") == 0 ||
+               strcmp (name, "polyline") == 0 || strcmp (name, "path") == 0)
         {
+          gboolean freeform = name[0] == 'p';
           O42ShapeKind kind = strcmp (name, "line") == 0 ? O42_SHAPE_LINE
+                              : freeform ? O42_SHAPE_FREEFORM
                               : (name[0] == 'r' || name[1] == 'u') ? O42_SHAPE_RECT : O42_SHAPE_OVAL;
           O42Shape *shape = o42_sheet_add_shape (r->sheet, kind, r->row, r->cell_col);
           const char *style_name = attr (names, values, "style-name");
@@ -3449,6 +3794,37 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
               else if (st->stroke_none)
                 shape->line_width = 0.5;
               shape->dash = st->dash;
+              if (st->gradient_name != NULL)
+                {
+                  const OdsGradient *g = g_hash_table_lookup (r->gradients, st->gradient_name);
+                  if (g != NULL && shape->fill != O42_FILL_NONE)
+                    {
+                      shape->fill_kind = O42_SHAPE_FILL_GRADIENT;
+                      shape->fill = g->start;
+                      shape->fill2 = g->end;
+                      shape->gradient_angle = fmod (fmod (90 - g->angle, 360) + 360, 360);
+                    }
+                }
+              else if (st->hatch_name != NULL)
+                {
+                  const OdsHatch *h = g_hash_table_lookup (r->hatches, st->hatch_name);
+                  if (h != NULL && shape->fill != O42_FILL_NONE)
+                    {
+                      shape->fill_kind = O42_SHAPE_FILL_PATTERN;
+                      shape->pattern = h->pattern;
+                      shape->fill2 = h->colour;
+                    }
+                }
+              if (st->shadow)
+                {
+                  shape->shadow = TRUE;
+                  shape->shadow_colour = st->shadow_colour;
+                  shape->shadow_dx = st->shadow_dx;
+                  shape->shadow_dy = st->shadow_dy;
+                }
+              if (st->text_valign >= 0) shape->text_valign = (O42VAlign) st->text_valign;
+              if (st->text_padding >= 0) shape->text_inset = floor (st->text_padding + 0.5);
+              if (st->text_nowrap >= 0) shape->text_nowrap = st->text_nowrap == 1;
               if (kind == O42_SHAPE_LINE)
                 {
                   shape->head_start = st->head_start;
@@ -3459,6 +3835,14 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                     shape->kind = O42_SHAPE_ARROW;
                 }
             }
+          if (shape != NULL)
+            {
+              const char *end = attr (names, values, "end-cell-address");
+              shape->anchor = end != NULL && *end != '\0' ? O42_ANCHOR_TWO_CELL : O42_ANCHOR_ONE_CELL;
+            }
+          if (shape != NULL && freeform)
+            ods_read_freeform (shape, name, attr (names, values, "viewBox"),
+                               attr (names, values, "points"), attr (names, values, "d"));
           if (shape != NULL)
             {
               if (kind == O42_SHAPE_LINE)
@@ -3699,6 +4083,37 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
     }
 
   /* Styles. */
+  if (strcmp (name, "gradient") == 0 && attr (names, values, "name") != NULL)
+    {
+      OdsGradient *g = g_new0 (OdsGradient, 1);
+      const char *angle = attr (names, values, "angle");
+
+      g->start = colour_of (attr (names, values, "start-color"), 0xFFFFFF);
+      g->end = colour_of (attr (names, values, "end-color"), 0x000000);
+      g->angle = angle != NULL ? g_ascii_strtod (angle, NULL) / (strstr (angle, "deg") != NULL ? 1 : 10) : 0;
+      g_hash_table_replace (r->gradients, g_strdup (attr (names, values, "name")), g);
+      return;
+    }
+  if (strcmp (name, "hatch") == 0 && attr (names, values, "name") != NULL)
+    {
+      OdsHatch *h = g_new0 (OdsHatch, 1);
+      const char *hstyle = attr (names, values, "style");
+      const char *rotation = attr (names, values, "rotation");
+      double rot = rotation != NULL ? fmod (g_ascii_strtod (rotation, NULL) / (strstr (rotation, "deg") != NULL ? 1 : 10), 180) : 0;
+      gboolean thin = ods_length (attr (names, values, "distance")) > 5;
+      gboolean crossed = hstyle != NULL && strcmp (hstyle, "single") != 0;
+
+      h->colour = colour_of (attr (names, values, "color"), 0);
+      if (crossed)
+        h->pattern = rot > 22 && rot < 68 ? (thin ? O42_PATTERN_THIN_TRELLIS : O42_PATTERN_TRELLIS)
+                                          : (thin ? O42_PATTERN_THIN_GRID : O42_PATTERN_GRID);
+      else if (rot > 22 && rot < 68) h->pattern = thin ? O42_PATTERN_THIN_UP : O42_PATTERN_UP;
+      else if (rot >= 68 && rot < 112) h->pattern = thin ? O42_PATTERN_THIN_VERTICAL : O42_PATTERN_VERTICAL;
+      else if (rot >= 112 && rot < 158) h->pattern = thin ? O42_PATTERN_THIN_DOWN : O42_PATTERN_DOWN;
+      else h->pattern = thin ? O42_PATTERN_THIN_HORIZONTAL : O42_PATTERN_HORIZONTAL;
+      g_hash_table_replace (r->hatches, g_strdup (attr (names, values, "name")), h);
+      return;
+    }
   if (strcmp (name, "stroke-dash") == 0 && attr (names, values, "name") != NULL)
     {
       g_hash_table_replace (r->dashes, g_strdup (attr (names, values, "name")),
@@ -3758,8 +4173,32 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           const char *msw = attr (names, values, "marker-start-width");
           const char *mew = attr (names, values, "marker-end-width");
 
+          {
+            const char *tva = attr (names, values, "textarea-vertical-align");
+            const char *pad = attr (names, values, "padding");
+            const char *wrap = attr (names, values, "wrap-option");
+
+            st->text_valign = tva == NULL ? -1 : strcmp (tva, "top") == 0 ? O42_VALIGN_TOP
+                            : strcmp (tva, "middle") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+            st->text_padding = pad != NULL ? ods_length (pad) : -1;
+            st->text_nowrap = wrap == NULL ? -1 : strcmp (wrap, "no-wrap") == 0 ? 1 : 0;
+          }
           st->graphic = TRUE;
           st->fill_none = fill != NULL && strcmp (fill, "none") == 0;
+          if (fill != NULL && strcmp (fill, "gradient") == 0)
+            st->gradient_name = g_strdup (attr (names, values, "fill-gradient-name"));
+          else if (fill != NULL && strcmp (fill, "hatch") == 0)
+            st->hatch_name = g_strdup (attr (names, values, "fill-hatch-name"));
+          {
+            const char *shadow = attr (names, values, "shadow");
+            if (shadow != NULL && strcmp (shadow, "visible") == 0)
+              {
+                st->shadow = TRUE;
+                st->shadow_colour = colour_of (attr (names, values, "shadow-color"), 0x808080);
+                st->shadow_dx = ods_length (attr (names, values, "shadow-offset-x"));
+                st->shadow_dy = ods_length (attr (names, values, "shadow-offset-y"));
+              }
+          }
           st->fill = fill_colour != NULL ? colour_of (fill_colour, 0xFFFFFF) : 0xFFFFFF;
           st->stroke_none = stroke != NULL && strcmp (stroke, "none") == 0;
           st->line = stroke_colour != NULL ? colour_of (stroke_colour, 0) : 0;
@@ -4206,7 +4645,8 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
   if (r->shape != NULL &&
       (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
        strcmp (name, "circle") == 0 || strcmp (name, "line") == 0 ||
-       strcmp (name, "custom-shape") == 0))
+       strcmp (name, "custom-shape") == 0 || strcmp (name, "polygon") == 0 ||
+       strcmp (name, "polyline") == 0 || strcmp (name, "path") == 0))
     r->shape = NULL;
 
   if (r->in_cell)
@@ -4574,6 +5014,8 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   r.font_faces = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.master_pages = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
   r.dashes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  r.gradients = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  r.hatches = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.form_controls = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, form_control_free);
   r.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.col_styles = g_ptr_array_new_with_free_func (g_free);
@@ -4598,6 +5040,8 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
       if (r.hf_parts[i][j] != NULL)
         g_string_free (r.hf_parts[i][j], TRUE);
   g_hash_table_unref (r.dashes);
+  g_hash_table_unref (r.gradients);
+  g_hash_table_unref (r.hatches);
   g_hash_table_unref (r.form_controls);
   g_hash_table_unref (r.num_styles);
   g_ptr_array_unref (r.col_styles);

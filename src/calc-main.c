@@ -1520,11 +1520,15 @@ main (int argc, char *argv[])
               else if (strcmp (words[2], "flipv") == 0)  pic->flip_v = number != 0;
               else if (strcmp (words[2], "width") == 0)  pic->width = number;
               else if (strcmp (words[2], "height") == 0) pic->height = number;
+              else if (strcmp (words[2], "anchor") == 0)
+                { if (!o42_anchor_mode_parse (words[3], &pic->anchor)) fprintf (stderr, "twoCell, oneCell or absolute\n"); }
+              else if (strcmp (words[2], "brightness") == 0) pic->brightness = CLAMP (number, -1, 1);
+              else if (strcmp (words[2], "contrast") == 0) pic->contrast = CLAMP (number, -1, 1);
               else fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: pictureset ID rotation|fliph|flipv|width|height|"
-                             "cropl|cropr|cropt|cropb|lockaspect VALUE\n");
+                             "cropl|cropr|cropt|cropb|lockaspect|anchor|brightness|contrast VALUE\n");
           g_strfreev (words);
           continue;
         }
@@ -1616,6 +1620,8 @@ main (int argc, char *argv[])
                     printf (" crop %g %g %g %g", pic->crop_l, pic->crop_t, pic->crop_r, pic->crop_b);
                   if (!pic->lock_aspect)
                     printf (" free");
+                  if (pic->brightness != 0 || pic->contrast != 0)
+                    printf (" brightness %g contrast %g", pic->brightness, pic->contrast);
                   printf ("\n");
                   g_free (at);
                 }
@@ -1668,6 +1674,14 @@ main (int argc, char *argv[])
                     printf ("none");
                   else
                     printf ("%06X", sh->fill);
+                  if (sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+                    printf (" gradient %06X %g", sh->fill2, sh->gradient_angle);
+                  else if (sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+                    printf (" pattern %s %06X", o42_pattern_name (sh->pattern), sh->fill2);
+                  if (sh->shadow)
+                    printf (" shadow %06X %g,%g", sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
+                  if (sh->anchor != O42_ANCHOR_TWO_CELL)
+                    printf (" %s", o42_anchor_mode_name (sh->anchor));
                   printf (" line %06X/%g", sh->line, sh->line_width);
                   if (sh->dash != O42_DASH_SOLID)
                     printf (" %s", o42_dash_name (sh->dash));
@@ -1677,6 +1691,31 @@ main (int argc, char *argv[])
                     printf (" heads %s/%d %s/%d", o42_head_name (sh->head_start), sh->head_start_size,
                             o42_head_name (sh->head_end), sh->head_end_size);
                   printf (" \"%s\"", sh->text != NULL ? sh->text : "");
+                  if (sh->path != NULL)
+                    {
+                      printf (" %s", sh->closed ? "closed" : "open");
+                      for (guint k = 0; k < sh->path->len; k++)
+                        {
+                          const O42PathPoint *pt = &g_array_index (sh->path, O42PathPoint, k);
+                          if (pt->op == 'C')
+                            printf (" C%.2f,%.2f;%.2f,%.2f;%.2f,%.2f", pt->x1, pt->y1, pt->x2, pt->y2, pt->x, pt->y);
+                          else
+                            printf (" %c%.2f,%.2f", pt->op, pt->x, pt->y);
+                        }
+                    }
+                  if (sh->font != NULL || sh->font_size > 0 || sh->bold || sh->italic || sh->text_colour != 0 ||
+                      sh->text_halign != O42_HALIGN_GENERAL || sh->text_valign != O42_VALIGN_BOTTOM ||
+                      sh->text_nowrap || sh->text_inset != 4)
+                    {
+                      static const char *const HA[] = { "general", "left", "centre", "right" };
+                      static const char *const VA[] = { "bottom", "middle", "top" };
+                      char *font = o42_shape_font_string (sh);
+
+                      printf (" text %s %06X %s/%s%s inset %g", font, sh->text_colour,
+                              HA[CLAMP (sh->text_halign, 0, 3)], VA[CLAMP (sh->text_valign, 0, 2)],
+                              sh->text_nowrap ? " nowrap" : "", sh->text_inset);
+                      g_free (font);
+                    }
                   if (o42_shape_is_control (sh->kind))
                     {
                       double v = 0;
@@ -1707,7 +1746,33 @@ main (int argc, char *argv[])
                   O42Shape *sh = o42_sheet_add_shape (sheet, kind, srow, scol);
                   if (sh != NULL)
                     sh->geom = geom;
-                  if (sh != NULL && g_strv_length (words) >= 3)
+                  if (sh != NULL && kind == O42_SHAPE_FREEFORM && g_strv_length (words) >= 3)
+                    {
+                      /* shape freeform A1 x,y x,y ...: pixels from the cell's
+                       * corner; a last point on the first closes it. */
+                      char **pts = g_strsplit (words[2], " ", -1);
+                      int n = (int) g_strv_length (pts);
+                      double x0 = G_MAXDOUBLE, y0 = G_MAXDOUBLE, x1 = -G_MAXDOUBLE, y1 = -G_MAXDOUBLE;
+
+                      if (n >= 3 && strcmp (pts[0], pts[n - 1]) == 0)
+                        { sh->closed = TRUE; n--; }
+                      else
+                        sh->fill = O42_FILL_NONE;
+                      for (int k = 0; k < n; k++)
+                        {
+                          double x = g_ascii_strtod (pts[k], NULL), y = g_ascii_strtod (strchr (pts[k], ',') ? strchr (pts[k], ',') + 1 : "0", NULL);
+                          x0 = MIN (x0, x); y0 = MIN (y0, y); x1 = MAX (x1, x); y1 = MAX (y1, y);
+                        }
+                      sh->dx = x0; sh->dy = y0;
+                      sh->width = MAX (x1 - x0, 1); sh->height = MAX (y1 - y0, 1);
+                      for (int k = 0; k < n; k++)
+                        {
+                          double x = g_ascii_strtod (pts[k], NULL), y = g_ascii_strtod (strchr (pts[k], ',') ? strchr (pts[k], ',') + 1 : "0", NULL);
+                          o42_shape_path_add (sh, k == 0 ? 'M' : 'L', (x - x0) / sh->width, (y - y0) / sh->height, 0, 0, 0, 0);
+                        }
+                      g_strfreev (pts);
+                    }
+                  else if (sh != NULL && g_strv_length (words) >= 3)
                     { g_free (sh->text); sh->text = g_strdup (words[2]); }
                 }
               else
@@ -1717,7 +1782,7 @@ main (int argc, char *argv[])
                                  "diamond|pentagon|hexagon|octagon|plus|star4|star5|star8|"
                                  "rightarrow|leftarrow|uparrow|downarrow|leftrightarrow|"
                                  "rectcallout|ellipsecallout|flowprocess|flowdecision|"
-                                 "flowterminator A1 [TEXT]\n");
+                                 "flowterminator A1 [TEXT]; shape freeform A1 x,y x,y ...\n");
               g_strfreev (words);
             }
           continue;
@@ -2096,13 +2161,57 @@ main (int argc, char *argv[])
                 sh->flip_h = number != 0;
               else if (strcmp (words[2], "flipv") == 0)
                 sh->flip_v = number != 0;
+              else if (strcmp (words[2], "font") == 0)
+                sh->font = g_intern_string (words[3]);
+              else if (strcmp (words[2], "fontsize") == 0)
+                sh->font_size = number;
+              else if (strcmp (words[2], "bold") == 0)
+                sh->bold = number != 0;
+              else if (strcmp (words[2], "italic") == 0)
+                sh->italic = number != 0;
+              else if (strcmp (words[2], "textcolour") == 0)
+                sh->text_colour = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "halign") == 0)
+                sh->text_halign = strcmp (words[3], "left") == 0 ? O42_HALIGN_LEFT : strcmp (words[3], "right") == 0 ? O42_HALIGN_RIGHT
+                                : strcmp (words[3], "centre") == 0 ? O42_HALIGN_CENTRE : O42_HALIGN_GENERAL;
+              else if (strcmp (words[2], "valign") == 0)
+                sh->text_valign = strcmp (words[3], "top") == 0 ? O42_VALIGN_TOP : strcmp (words[3], "middle") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+              else if (strcmp (words[2], "nowrap") == 0)
+                sh->text_nowrap = number != 0;
+              else if (strcmp (words[2], "inset") == 0)
+                sh->text_inset = number;
+              else if (strcmp (words[2], "fill") == 0)
+                sh->fill = strcmp (words[3], "none") == 0 ? O42_FILL_NONE : (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "line") == 0)
+                sh->line = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "fillkind") == 0)
+                sh->fill_kind = strcmp (words[3], "gradient") == 0 ? O42_SHAPE_FILL_GRADIENT
+                              : strcmp (words[3], "pattern") == 0 ? O42_SHAPE_FILL_PATTERN : O42_SHAPE_FILL_SOLID;
+              else if (strcmp (words[2], "fill2") == 0)
+                sh->fill2 = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "angle") == 0)
+                sh->gradient_angle = number;
+              else if (strcmp (words[2], "pattern") == 0)
+                { if (!o42_pattern_parse (words[3], &sh->pattern)) fprintf (stderr, "no such pattern\n"); }
+              else if (strcmp (words[2], "shadow") == 0)
+                sh->shadow = number != 0;
+              else if (strcmp (words[2], "shadowcolour") == 0)
+                sh->shadow_colour = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "shadowdx") == 0)
+                sh->shadow_dx = number;
+              else if (strcmp (words[2], "shadowdy") == 0)
+                sh->shadow_dy = number;
+              else if (strcmp (words[2], "anchor") == 0)
+                { if (!o42_anchor_mode_parse (words[3], &sh->anchor)) fprintf (stderr, "twoCell, oneCell or absolute\n"); }
               else
                 fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: controlset ID link|source|script|text|value|"
                              "min|max|step|page|width|height|linewidth|dash|headstart|headend|"
-                             "headstartsize|headendsize|rotation|fliph|flipv VALUE\n");
+                             "headstartsize|headendsize|rotation|fliph|flipv|font|fontsize|bold|italic|"
+                             "textcolour|halign|valign|nowrap|inset|fill|line|fillkind|fill2|angle|"
+                             "pattern|shadow|shadowcolour|shadowdx|shadowdy|anchor VALUE\n");
           g_strfreev (words);
           continue;
         }
