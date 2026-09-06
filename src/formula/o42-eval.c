@@ -5621,6 +5621,108 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       return TRUE;
     }
 
+  if (strcmp (node->as.call.name, "IFS") == 0 && n_args >= 2)
+    {
+      /* Each test in turn, its value only when it holds; an array test
+       * is left to the lifted call. */
+      for (int i = 0; i + 1 < n_args; i += 2)
+        {
+          O42Operand t = eval_operand (ctx, g_ptr_array_index (node->as.call.args, i));
+          O42Value c;
+          gboolean truth = FALSE;
+          O42ErrorCode e = O42_ERR_VALUE;
+
+          if (operand_is_multi (&t))
+            { operand_clear (&t); return FALSE; }
+          c = operand_value (ctx, &t);
+          operand_clear (&t);
+          memset (out, 0, sizeof *out);
+          if (c.type == O42_VALUE_ERROR)
+            { out->value = c; return TRUE; }
+          if (!o42_value_to_bool (&c, &truth, &e))
+            { o42_value_clear (&c); out->value = o42_value_error (e); return TRUE; }
+          o42_value_clear (&c);
+          if (truth)
+            {
+              *out = eval_operand (ctx, g_ptr_array_index (node->as.call.args, i + 1));
+              return TRUE;
+            }
+        }
+      memset (out, 0, sizeof *out);
+      out->value = o42_value_error (O42_ERR_NA);
+      return TRUE;
+    }
+
+  if (strcmp (node->as.call.name, "SWITCH") == 0 && n_args >= 3)
+    {
+      O42Operand subject = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      O42Value v;
+
+      if (operand_is_multi (&subject))
+        { operand_clear (&subject); return FALSE; }
+      v = operand_value (ctx, &subject);
+      operand_clear (&subject);
+      memset (out, 0, sizeof *out);
+      if (v.type == O42_VALUE_ERROR)
+        { out->value = v; return TRUE; }
+      for (int i = 1; i + 1 < n_args; i += 2)
+        {
+          O42Operand t = eval_operand (ctx, g_ptr_array_index (node->as.call.args, i));
+          O42Value c = operand_value (ctx, &t);
+          gboolean same = c.type != O42_VALUE_ERROR && o42_value_compare (&v, &c) == 0 &&
+                          (v.type == c.type || (v.type != O42_VALUE_TEXT && c.type != O42_VALUE_TEXT));
+
+          operand_clear (&t);
+          o42_value_clear (&c);
+          if (same)
+            {
+              o42_value_clear (&v);
+              *out = eval_operand (ctx, g_ptr_array_index (node->as.call.args, i + 1));
+              return TRUE;
+            }
+        }
+      o42_value_clear (&v);
+      if (n_args % 2 == 0)
+        *out = eval_operand (ctx, g_ptr_array_index (node->as.call.args, n_args - 1));
+      else
+        out->value = o42_value_error (O42_ERR_NA);
+      return TRUE;
+    }
+
+  if ((strcmp (node->as.call.name, "IFERROR") == 0 || strcmp (node->as.call.name, "IFNA") == 0) && n_args == 2)
+    {
+      /* The stand-in is worked out only when the value is an error. */
+      O42Operand first = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      gboolean only_na = node->as.call.name[2] == 'N';
+
+      if (operand_is_multi (&first))
+        { operand_clear (&first); return FALSE; }
+      if (first.value.type == O42_VALUE_ERROR &&
+          (!only_na || first.value.as.error == O42_ERR_NA))
+        {
+          operand_clear (&first);
+          *out = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
+          return TRUE;
+        }
+      if (first.is_range)
+        {
+          /* One cell, referenced: its value, unless that is an error. */
+          O42Value v = operand_value (ctx, &first);
+          operand_clear (&first);
+          memset (out, 0, sizeof *out);
+          if (v.type == O42_VALUE_ERROR && (!only_na || v.as.error == O42_ERR_NA))
+            {
+              o42_value_clear (&v);
+              *out = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
+              return TRUE;
+            }
+          out->value = v;
+          return TRUE;
+        }
+      *out = first;
+      return TRUE;
+    }
+
   if (strcmp (node->as.call.name, "IF") == 0 && (n_args == 2 || n_args == 3))
     {
       /* IF over a range of conditions picks cell by cell, which is what
@@ -5631,7 +5733,29 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       ArrayConst *a;
 
       if (!operand_is_multi (&cond))
-        { operand_clear (&cond); return FALSE; }
+        {
+          /* One condition: only the branch taken is worked out, as in
+           * Excel -- which is what lets a LAMBDA call itself and stop,
+           * and keeps =IF(A1,B1:B3,C1:C3) a range for SUM. */
+          O42Value c = operand_value (ctx, &cond);
+          gboolean truth = FALSE;
+          O42ErrorCode e = O42_ERR_VALUE;
+
+          operand_clear (&cond);
+          memset (out, 0, sizeof *out);
+          if (c.type == O42_VALUE_ERROR)
+            { out->value = c; return TRUE; }
+          if (!o42_value_to_bool (&c, &truth, &e))
+            { o42_value_clear (&c); out->value = o42_value_error (e); return TRUE; }
+          o42_value_clear (&c);
+          if (truth)
+            *out = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
+          else if (n_args == 3)
+            *out = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 2));
+          else
+            out->value = o42_value_bool (FALSE);
+          return TRUE;
+        }
       yes = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
       memset (&no, 0, sizeof no);
       if (n_args == 3)
