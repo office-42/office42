@@ -450,6 +450,35 @@ sheet_get_name (O42EvalContext *ctx, const char *name,
   return TRUE;
 }
 
+static const char *
+sheet_get_name_formula (O42EvalContext *ctx, const char *name)
+{
+  O42Sheet *sheet = ctx->user_data;
+
+  return sheet->book != NULL ? o42_book_lookup_name_formula (sheet->book, name) : NULL;
+}
+
+static const O42Range *array_at (O42Sheet *sheet, int row, int col);
+
+static gboolean
+sheet_get_spill (O42EvalContext *ctx, const char *sheet_name, int row, int col, O42Range *out)
+{
+  O42Sheet *sheet = ctx->user_data;
+  const O42Range *block;
+
+  if (sheet_name != NULL && g_ascii_strcasecmp (sheet_name, sheet->name) != 0)
+    {
+      sheet = (sheet->book != NULL) ? o42_book_find_sheet (sheet->book, sheet_name) : NULL;
+      if (sheet == NULL)
+        return FALSE;
+    }
+  block = sheet->arrays->len > 0 ? array_at (sheet, row, col) : NULL;
+  if (block == NULL || block->row0 != row || block->col0 != col)
+    return FALSE;
+  *out = *block;
+  return TRUE;
+}
+
 static const O42Range *array_at (O42Sheet *sheet, int row, int col);
 static void sheet_invalidate (O42Sheet *sheet, int row, int col);
 
@@ -731,6 +760,9 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
         O42Value *values;
 
         o42_eval_array (&sheet->eval, cell->ast, &rows, &cols, &values);
+        for (int k = 0; k < rows * cols; k++)
+          if (values[k].type == O42_VALUE_EMPTY)
+            values[k] = o42_value_number (0);
         result = o42_value_copy (&values[0]);
         for (int r = block.row0; r <= block.row1; r++)
           for (int c = block.col0; c <= block.col1; c++)
@@ -758,6 +790,11 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
         O42Value *values;
 
         o42_eval_array (&sheet->eval, cell->ast, &rows, &cols, &values);
+        /* A formula that comes to an empty cell -- =Z99, IF(TRUE,Z99,1),
+         * INDIRECT("A12") -- shows 0, as Excel's does; only "" is text. */
+        for (int k = 0; k < rows * cols; k++)
+          if (values[k].type == O42_VALUE_EMPTY)
+            values[k] = o42_value_number (0);
         if (rows * cols <= 1)
           {
             result = o42_value_copy (&values[0]);
@@ -1113,6 +1150,68 @@ precedent_on (const O42SheetRange *p, O42Sheet *own, const char *changed)
 #define DEP_TALL_BANDS 256
 #define DEP_WHOLE (-1)
 
+/* One band of the index: the formulas whose precedents reach it, and
+ * the columns those precedents cover, so that a change in a column none
+ * of them reads is dismissed without a look at any formula.  Ten
+ * thousand VLOOKUPs down column D over A:B put every one of them in
+ * every band of A:B; without the mask each formula typed into D asked
+ * all ten thousand whether they read D.  Removing a formula cannot take
+ * its columns out of the mask, so that marks the mask to be rebuilt
+ * from the formulas left, the next time it is asked. */
+typedef struct {
+  GHashTable *set;                    /* guint64 formula keys */
+  guint8      cols[O42_MAX_COLS / 8];
+  gboolean    dirty;
+} DepBand;
+
+static void
+dep_band_free (gpointer data)
+{
+  DepBand *band = data;
+  g_hash_table_unref (band->set);
+  g_free (band);
+}
+
+static void
+dep_band_mark (DepBand *band, const O42Range *r)
+{
+  int c0 = CLAMP (MIN (r->col0, r->col1), 0, O42_MAX_COLS - 1);
+  int c1 = CLAMP (MAX (r->col0, r->col1), 0, O42_MAX_COLS - 1);
+
+  if (c1 - c0 >= 64)
+    {
+      memset (band->cols + c0 / 8, 0xFF, (size_t) (c1 / 8 - c0 / 8 + 1));
+      return;
+    }
+  for (int c = c0; c <= c1; c++)
+    band->cols[c / 8] |= (guint8) (1 << (c % 8));
+}
+
+static gboolean
+dep_band_reads (O42Sheet *sheet, DepBand *band, int col)
+{
+  if (band->dirty)
+    {
+      GHashTableIter iter;
+      gpointer key_ptr;
+
+      memset (band->cols, 0, sizeof band->cols);
+      g_hash_table_iter_init (&iter, band->set);
+      while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
+        {
+          O42Cell *cell = sheet_find_key (sheet, *(guint64 *) key_ptr);
+          if (cell == NULL || cell->precedents == NULL)
+            continue;
+          for (guint i = 0; i < cell->precedents->len; i++)
+            dep_band_mark (band, &g_array_index (cell->precedents, O42SheetRange, i).range);
+        }
+      band->dirty = FALSE;
+    }
+  if (col < 0 || col >= O42_MAX_COLS)
+    return TRUE;
+  return (band->cols[col / 8] & (1 << (col % 8))) != 0;
+}
+
 static char *
 deps_key (const O42SheetRange *p, int band)
 {
@@ -1146,18 +1245,20 @@ deps_add (O42Sheet *sheet, guint64 fkey, O42Cell *cell)
       for (int band = lo; band <= hi; band++)
         {
           char *key = deps_key (p, band);
-          GHashTable *set = g_hash_table_lookup (sheet->dependents, key);
+          DepBand *set = g_hash_table_lookup (sheet->dependents, key);
           guint64 *stored;
           if (set == NULL)
             {
-              set = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
+              set = g_new0 (DepBand, 1);
+              set->set = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
               g_hash_table_insert (sheet->dependents, key, set);
             }
           else
             g_free (key);
           stored = g_new (guint64, 1);
           *stored = fkey;
-          g_hash_table_add (set, stored);
+          g_hash_table_add (set->set, stored);
+          dep_band_mark (set, &p->range);
         }
     }
 }
@@ -1176,11 +1277,12 @@ deps_remove (O42Sheet *sheet, guint64 fkey, O42Cell *cell)
       for (int band = lo; band <= hi; band++)
         {
           char *key = deps_key (p, band);
-          GHashTable *set = g_hash_table_lookup (sheet->dependents, key);
+          DepBand *set = g_hash_table_lookup (sheet->dependents, key);
           if (set != NULL)
             {
-              g_hash_table_remove (set, &fkey);
-              if (g_hash_table_size (set) == 0)
+              g_hash_table_remove (set->set, &fkey);
+              set->dirty = TRUE;
+              if (g_hash_table_size (set->set) == 0)
                 g_hash_table_remove (sheet->dependents, key);
             }
           g_free (key);
@@ -1399,7 +1501,7 @@ o42_sheet_dependents (O42Sheet *sheet, int row, int col)
   GArray *out = g_array_new (FALSE, FALSE, sizeof (O42Range));
   O42SheetRange probe;
   char *key;
-  GHashTable *set;
+  DepBand *set;
   GHashTableIter iter;
   gpointer stored;
 
@@ -1414,10 +1516,10 @@ o42_sheet_dependents (O42Sheet *sheet, int row, int col)
       key = deps_key (&probe, (which & 2) ? DEP_WHOLE : row / DEP_BAND);
       set = g_hash_table_lookup (sheet->dependents, key);
       g_free (key);
-      if (set == NULL)
+      if (set == NULL || !dep_band_reads (sheet, set, col))
         continue;
 
-      g_hash_table_iter_init (&iter, set);
+      g_hash_table_iter_init (&iter, set->set);
       while (g_hash_table_iter_next (&iter, &stored, NULL))
         {
           guint64 fkey = *(guint64 *) stored;
@@ -1574,13 +1676,41 @@ tree_has_range (const O42Node *node)
     }
 }
 
+/* The key the evaluator files a sheet's caches under: its name, upper
+ * case and interned, so that Sheet1 and SHEET1 are the one sheet. */
+static const char *
+sheet_key_of (O42Sheet *sheet)
+{
+  char *upper = g_ascii_strup (sheet->name, -1);
+  const char *key = g_intern_string (upper);
+  g_free (upper);
+  return key;
+}
+
+static const char *
+sheet_eval_key (O42EvalContext *ctx, const char *sheet_name)
+{
+  O42Sheet *sheet = ctx->user_data;
+  O42Sheet *target = sheet;
+
+  if (sheet_name != NULL && g_ascii_strcasecmp (sheet_name, sheet->name) != 0)
+    target = (sheet->book != NULL) ? o42_book_find_sheet (sheet->book, sheet_name) : NULL;
+  return target != NULL ? sheet_key_of (target) : NULL;
+}
+
 static void
 sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
 {
   GArray *to_visit;
-  GHashTable *candidates[4] = { NULL, NULL, NULL, NULL };
+  DepBand *candidates[4] = { NULL, NULL, NULL, NULL };
   gboolean any_candidate = FALSE;
 
+  {
+    /* The evaluator's caches over that cell are stale now. */
+    char *upper = g_ascii_strup (changed, -1);
+    o42_eval_cell_touched (g_intern_string (upper), row, col);
+    g_free (upper);
+  }
   if (g_hash_table_size (sheet->formulas) == 0)
     return;
 
@@ -1607,8 +1737,13 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
       }
     g_free (upper);
   }
+  /* A band whose formulas read nothing in this column has no candidate. */
   for (int which = 0; which < 4; which++)
-    any_candidate |= candidates[which] != NULL;
+    {
+      if (candidates[which] != NULL && !dep_band_reads (sheet, candidates[which], col))
+        candidates[which] = NULL;
+      any_candidate |= candidates[which] != NULL;
+    }
   /* Nothing indexed reads this band and nothing is volatile: no formula
    * can care.  (The volatile ones are checked first: a change in a band
    * no formula names is exactly what INDIRECT reads.) */
@@ -1644,7 +1779,7 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
 
       if (candidates[which] == NULL)
         continue;
-      g_hash_table_iter_init (&iter, candidates[which]);
+      g_hash_table_iter_init (&iter, candidates[which]->set);
       while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
         {
           guint64 fkey = *(guint64 *) key_ptr;
@@ -1935,8 +2070,7 @@ o42_sheet_new (const char *name)
   sheet->cells = g_hash_table_new_full (key_hash, key_equal, g_free, cell_free);
   sheet->formulas = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
   sheet->volatiles = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
-  sheet->dependents = g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
-                                             (GDestroyNotify) g_hash_table_unref);
+  sheet->dependents = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, dep_band_free);
   sheet->col_widths = g_hash_table_new (g_direct_hash, g_direct_equal);
   sheet->row_heights = g_hash_table_new (g_direct_hash, g_direct_equal);
   sheet->hidden_cols = g_hash_table_new (g_direct_hash, g_direct_equal);
@@ -1991,9 +2125,12 @@ o42_sheet_new (const char *name)
   sheet->eval.get_cell = sheet_get_cell_value;
   sheet->eval.get_cell_info = sheet_get_cell_info;
   sheet->eval.get_name = sheet_get_name;
+  sheet->eval.get_name_formula = sheet_get_name_formula;
+  sheet->eval.get_spill = sheet_get_spill;
   sheet->eval.sheets_between = sheet_sheets_between;
   sheet->eval.get_extent = sheet_get_extent;
   sheet->eval.row_hidden = sheet_row_hidden_for_eval;
+  sheet->eval.sheet_key = sheet_eval_key;
   sheet->eval.user_data = sheet;
 
   return sheet;
@@ -2004,6 +2141,7 @@ o42_sheet_free (O42Sheet *sheet)
 {
   if (sheet == NULL)
     return;
+  o42_eval_sheet_changed (sheet_key_of (sheet));
 
   if (sheet->owns_stack)
     o42_undo_stack_free (sheet->stack);
@@ -2066,6 +2204,7 @@ void
 o42_sheet_set_name (O42Sheet *sheet, const char *name)
 {
   g_return_if_fail (sheet != NULL);
+  o42_eval_sheet_changed (sheet_key_of (sheet));
 
   g_free (sheet->name);
   sheet->name = g_strdup (name != NULL ? name : "Sheet1");
@@ -2222,11 +2361,32 @@ cell_collect_name_precedents (O42Sheet *sheet, O42Cell *cell)
     {
       O42Sheet *target = NULL;
       O42SheetRange p;
+      const char *formula;
 
       if (o42_book_lookup_name (sheet->book, g_ptr_array_index (names, i), &target, &p.range))
         {
           p.sheet = (target == sheet) ? NULL : g_intern_string (target->name);
           g_array_append_val (cell->precedents, p);
+        }
+      else if ((formula = o42_book_lookup_name_formula (sheet->book, g_ptr_array_index (names, i))) != NULL)
+        {
+          /* A name that is a formula reads what its formula reads; the
+           * names inside it are followed a few steps, not forever. */
+          O42Node *tree = o42_formula_parse (formula);
+          GPtrArray *inner = g_ptr_array_new ();
+
+          o42_node_collect_refs (tree, cell->precedents);
+          o42_node_collect_names (tree, inner);
+          for (guint k = 0; k < inner->len && names->len < 64; k++)
+            {
+              gboolean seen = FALSE;
+              for (guint m = 0; m < names->len && !seen; m++)
+                seen = g_ascii_strcasecmp (g_ptr_array_index (names, m), g_ptr_array_index (inner, k)) == 0;
+              if (!seen)
+                g_ptr_array_add (names, g_ptr_array_index (inner, k));
+            }
+          g_ptr_array_free (inner, TRUE);
+          o42_node_free (tree);
         }
     }
 }
@@ -2836,6 +2996,7 @@ o42_sheet_clear_range (O42Sheet *sheet, const O42Range *range)
 {
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (range != NULL);
+  o42_eval_sheet_changed (sheet_key_of (sheet));
 
   {
     char *text = record_range_text (sheet, range);
@@ -4096,6 +4257,8 @@ o42_sheet_shift_cells (O42Sheet *sheet, const O42Range *range,
 {
   int count;
 
+  o42_eval_sheet_changed (sheet_key_of (sheet));
+
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (range != NULL);
 
@@ -4124,6 +4287,7 @@ void
 o42_sheet_insert_rows (O42Sheet *sheet, int at, int count)
 {
   g_return_if_fail (sheet != NULL);
+  o42_eval_sheet_changed (sheet_key_of (sheet));
   if (count > 0)
     {
       record_op_begin (sheet, "sheet.insert_rows(%d, %d)", at, count);
@@ -4139,6 +4303,7 @@ void
 o42_sheet_delete_rows (O42Sheet *sheet, int at, int count)
 {
   g_return_if_fail (sheet != NULL);
+  o42_eval_sheet_changed (sheet_key_of (sheet));
   if (count > 0)
     {
       record_op_begin (sheet, "sheet.delete_rows(%d, %d)", at, count);
@@ -4154,6 +4319,7 @@ void
 o42_sheet_insert_cols (O42Sheet *sheet, int at, int count)
 {
   g_return_if_fail (sheet != NULL);
+  o42_eval_sheet_changed (sheet_key_of (sheet));
   if (count > 0)
     {
       record_op_begin (sheet, "sheet.insert_cols(%d, %d)", at, count);
@@ -4169,6 +4335,7 @@ void
 o42_sheet_delete_cols (O42Sheet *sheet, int at, int count)
 {
   g_return_if_fail (sheet != NULL);
+  o42_eval_sheet_changed (sheet_key_of (sheet));
   if (count > 0)
     {
       record_op_begin (sheet, "sheet.delete_cols(%d, %d)", at, count);
@@ -10917,6 +11084,8 @@ o42_sheet_move_range (O42Sheet *sheet, const O42Range *from, int to_row, int to_
   O42Range src;
   int drow, dcol, rows, cols;
   char **inputs;
+
+  o42_eval_sheet_changed (sheet_key_of (sheet));
   O42FmtIdx *formats;
 
   g_return_if_fail (sheet != NULL && from != NULL);
@@ -11171,6 +11340,8 @@ o42_sheet_recalculate (O42Sheet *sheet)
   int max = 100;
   double tolerance = 0.001;
   gboolean iterate;
+
+  o42_eval_sheet_changed (sheet_key_of (sheet));
 
   g_return_if_fail (sheet != NULL);
   if (sheet->recalculating)

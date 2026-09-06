@@ -58,6 +58,13 @@ gboolean  o42_book_rename_sheet (O42Book *book, int index, const char *name);
  * evaluated, and every formula using it is staled. */
 gboolean     o42_book_define_name   (O42Book *book, const char *name,
                                      O42Sheet *sheet, const O42Range *range);
+/* A name for a formula rather than a rectangle: a constant (=0.25), an
+ * expression (=SUM(Sheet1!A1:A3)*2), or a LAMBDA, which a formula then
+ * calls by the name.  `formula` may begin with "=".  Such a name has
+ * no rectangle, so o42_book_lookup_name says FALSE for it and
+ * o42_book_lookup_name_formula gives the text. */
+gboolean     o42_book_define_name_formula (O42Book *book, const char *name, const char *formula);
+const char  *o42_book_lookup_name_formula (O42Book *book, const char *name);
 gboolean     o42_book_undefine_name (O42Book *book, const char *name);
 gboolean     o42_book_lookup_name   (O42Book *book, const char *name,
                                      O42Sheet **sheet, O42Range *range);

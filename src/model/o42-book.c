@@ -16,9 +16,18 @@
  * o42-sheet.h. */
 
 typedef struct {
-  O42Sheet *sheet;
+  O42Sheet *sheet;       /* NULL for a name that is a formula */
   O42Range  range;
+  char     *formula;     /* the expression, without "=", or NULL */
 } NamedRange;
+
+static void
+named_range_free (gpointer data)
+{
+  NamedRange *nr = data;
+  g_free (nr->formula);
+  g_free (nr);
+}
 
 typedef struct {
   O42BookWatcher watcher;
@@ -271,7 +280,7 @@ o42_book_new (void)
 
   book->sheets = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_sheet_free);
   book->stack = o42_undo_stack_new ();
-  book->names = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  book->names = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, named_range_free);
   book->refs = 1;
   book->scripts_trusted = TRUE;
   book->watchers = g_array_new (FALSE, FALSE, sizeof (Watcher));
@@ -905,6 +914,46 @@ o42_book_define_name (O42Book *book, const char *name, O42Sheet *sheet,
 }
 
 gboolean
+o42_book_define_name_formula (O42Book *book, const char *name, const char *formula)
+{
+  NamedRange *nr;
+  char *upper;
+
+  g_return_val_if_fail (book != NULL, FALSE);
+  g_return_val_if_fail (formula != NULL, FALSE);
+
+  if (!name_is_legal (name))
+    return FALSE;
+  if (*formula == '=')
+    formula++;
+  if (*formula == '\0')
+    return FALSE;
+
+  upper = g_ascii_strup (name, -1);
+  nr = g_new0 (NamedRange, 1);
+  nr->formula = g_strdup (formula);
+  g_hash_table_insert (book->names, upper, nr);
+  stale_users_of_name (book, g_intern_string (upper));
+  o42_book_set_modified (book, TRUE);
+  return TRUE;
+}
+
+const char *
+o42_book_lookup_name_formula (O42Book *book, const char *name)
+{
+  char *upper;
+  NamedRange *nr;
+
+  g_return_val_if_fail (book != NULL, NULL);
+  if (name == NULL)
+    return NULL;
+  upper = g_ascii_strup (name, -1);
+  nr = g_hash_table_lookup (book->names, upper);
+  g_free (upper);
+  return nr != NULL ? nr->formula : NULL;
+}
+
+gboolean
 o42_book_undefine_name (O42Book *book, const char *name)
 {
   char *upper;
@@ -939,7 +988,7 @@ o42_book_lookup_name (O42Book *book, const char *name, O42Sheet **sheet,
   upper = g_ascii_strup (name, -1);
   nr = g_hash_table_lookup (book->names, upper);
   g_free (upper);
-  if (nr == NULL)
+  if (nr == NULL || nr->sheet == NULL)
     return FALSE;
 
   if (sheet) *sheet = nr->sheet;

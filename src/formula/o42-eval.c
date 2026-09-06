@@ -71,6 +71,7 @@ typedef struct {
   O42EvalContext *original;
   GPtrArray      *arrays;     /* ArrayConst* */
   GPtrArray      *unions;     /* UnionAreas* */
+  GPtrArray      *closures;   /* Closure*: the bindings lambdas carry out */
 } ArrayFrame;
 
 static GPtrArray *array_frames = NULL;   /* ArrayFrame*, innermost last */
@@ -211,6 +212,35 @@ operand_clip_whole (O42EvalContext *ctx, O42Operand *op, const O42Node *node)
     op->range.row1 = MAX (used.row1, op->range.row0);
   if (node->abs & O42_WHOLE_ROWS)
     op->range.col1 = MAX (used.col1, op->range.col0);
+}
+
+static O42Value operand_cell (O42EvalContext *ctx, const O42Operand *op, int i, int j);
+
+/* For TRIMRANGE: whether a row (column) of an operand holds nothing. */
+static gboolean
+row_is_empty (O42EvalContext *ctx, const O42Operand *op, int r, int cols)
+{
+  for (int c = 0; c < cols; c++)
+    {
+      O42Value v = operand_cell (ctx, op, r, c);
+      gboolean empty = v.type == O42_VALUE_EMPTY;
+      o42_value_clear (&v);
+      if (!empty) return FALSE;
+    }
+  return TRUE;
+}
+
+static gboolean
+col_is_empty (O42EvalContext *ctx, const O42Operand *op, int c, int rows)
+{
+  for (int r = 0; r < rows; r++)
+    {
+      O42Value v = operand_cell (ctx, op, r, c);
+      gboolean empty = v.type == O42_VALUE_EMPTY;
+      o42_value_clear (&v);
+      if (!empty) return FALSE;
+    }
+  return TRUE;
 }
 
 /* An operand's shape: a value is one by one. */
@@ -410,6 +440,9 @@ operand_clear (O42Operand *op)
 O42Value
 o42_operand_value (O42EvalContext *ctx, const O42Operand *op)
 {
+  /* A LAMBDA where a value is wanted: Excel's #CALC!. */
+  if (op->lambda != NULL && !op->is_range)
+    return o42_value_error (O42_ERR_CALC);
   O42Value v;
 
   if (!op->is_range)
@@ -963,6 +996,21 @@ fn_power (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, base);
   ARG_NUMBER (1, exponent);
 
+  /* Excel's edges: 0^0 is #NUM!, 0 to a negative power #DIV/0!, and a
+   * negative base to 1/3 (or any odd root) is the real root, -2. */
+  if (base == 0 && exponent == 0)
+    return o42_value_error (O42_ERR_NUM);
+  if (base == 0 && exponent < 0)
+    return o42_value_error (O42_ERR_DIV0);
+  if (base < 0 && exponent != floor (exponent))
+    {
+      double inverse = 1 / exponent;
+      double odd = round (inverse);
+
+      if (fabs (inverse - odd) < 1e-9 && fmod (fabs (odd), 2) == 1)
+        return o42_value_number (-pow (-base, exponent));
+      return o42_value_error (O42_ERR_NUM);
+    }
   result = pow (base, exponent);
   if (isnan (result) || isinf (result))
     return o42_value_error (O42_ERR_NUM);
@@ -981,6 +1029,9 @@ fn_mod (O42EvalContext *ctx, O42Operand *args, int n)
 
   if (b == 0.0)
     return o42_value_error (O42_ERR_DIV0);
+  /* Excel's MOD gives up when the quotient would be 2^27 or more. */
+  if (fabs (a) >= fabs (b) * 134217728.0)
+    return o42_value_error (O42_ERR_NUM);
 
   /* A spreadsheet's MOD takes the sign of the divisor, so MOD(-1,3) is 2
    * and not -1 the way C's fmod would have it. */
@@ -1318,6 +1369,184 @@ vector_length (const O42Range *r, gboolean vertical)
   return vertical ? r->row1 - r->row0 + 1 : r->col1 - r->col0 + 1;
 }
 
+/* ---- An index over a lookup vector ---- */
+
+/* The first place each value stands in a lookup vector, for an exact
+ * match: built once by walking the vector, kept while nothing on any
+ * sheet changes, and thrown away for the next when there are too many.
+ * VLOOKUP down a long column, once for every row of another, is the
+ * case that wants it: without it every call walks the whole column. */
+typedef struct {
+  const char *sheet;      /* the sheet's key, from the context */
+  O42Range    range;
+  gboolean    vertical;
+  gboolean    building;   /* being walked: a touch meanwhile spoils it */
+  gboolean    spoilt;
+  GHashTable *first;      /* key -> index + 1 */
+} LookupIndex;
+
+static GPtrArray *lookup_indexes;
+#define LOOKUP_INDEX_MIN   32   /* shorter vectors are walked */
+#define LOOKUP_INDEXES_MAX 16
+
+static void
+lookup_index_free (gpointer data)
+{
+  LookupIndex *ix = data;
+  g_hash_table_unref (ix->first);
+  g_free (ix);
+}
+
+void
+o42_eval_cell_touched (const char *sheet_key, int row, int col)
+{
+  if (lookup_indexes == NULL)
+    return;
+  for (guint i = 0; i < lookup_indexes->len; )
+    {
+      LookupIndex *ix = g_ptr_array_index (lookup_indexes, i);
+
+      if (ix->sheet == sheet_key && o42_range_contains (&ix->range, row, col))
+        {
+          if (ix->building)
+            { ix->spoilt = TRUE; i++; }
+          else
+            g_ptr_array_remove_index (lookup_indexes, i);
+        }
+      else
+        i++;
+    }
+}
+
+void
+o42_eval_sheet_changed (const char *sheet_key)
+{
+  if (lookup_indexes == NULL)
+    return;
+  for (guint i = 0; i < lookup_indexes->len; )
+    {
+      LookupIndex *ix = g_ptr_array_index (lookup_indexes, i);
+
+      if (sheet_key == NULL || ix->sheet == sheet_key)
+        {
+          if (ix->building)
+            { ix->spoilt = TRUE; i++; }
+          else
+            g_ptr_array_remove_index (lookup_indexes, i);
+        }
+      else
+        i++;
+    }
+}
+
+/* What a value is filed under: its kind and itself, text folded, so
+ * that 1 and "1" stay apart and "Apple" finds "apple", as Excel has it. */
+static char *
+lookup_key (const O42Value *v)
+{
+  switch (v->type)
+    {
+    case O42_VALUE_NUMBER:
+      {
+        char buf[G_ASCII_DTOSTR_BUF_SIZE];
+        return g_strconcat ("n", g_ascii_formatd (buf, sizeof buf, "%.15g", v->as.number), NULL);
+      }
+    case O42_VALUE_TEXT:
+      {
+        char *folded = g_utf8_casefold (v->as.text, -1);
+        char *key = g_strconcat ("t", folded, NULL);
+        g_free (folded);
+        return key;
+      }
+    case O42_VALUE_BOOL:
+      return g_strdup (v->as.boolean ? "b1" : "b0");
+    default:
+      return NULL;
+    }
+}
+
+/* The exact match of `needle` in the vector through the index, or -1
+ * for none; -2 when the index is not for this (a short vector, an array
+ * made up in the formula, a needle with wildcards, no serial to trust). */
+static int
+lookup_index_find (O42EvalContext *ctx, const O42Value *needle,
+                   const O42Operand *op, gboolean vertical)
+{
+  const O42Range *r = &op->range;
+  int len = vector_length (r, vertical);
+  LookupIndex *ix = NULL;
+  const char *sheet_key;
+  char *key;
+  gpointer found;
+
+  if (ctx->sheet_key == NULL || len < LOOKUP_INDEX_MIN ||
+      (op->sheet != NULL && op->sheet[0] == '\001'))
+    return -2;
+  if (needle->type == O42_VALUE_TEXT &&
+      (strchr (needle->as.text, '*') != NULL || strchr (needle->as.text, '?') != NULL))
+    return -2;
+  sheet_key = ctx->sheet_key (ctx, op->sheet);
+  if (sheet_key == NULL)
+    return -2;
+  key = lookup_key (needle);
+  if (key == NULL)
+    return -2;
+
+  if (lookup_indexes == NULL)
+    lookup_indexes = g_ptr_array_new_with_free_func (lookup_index_free);
+  for (guint i = 0; i < lookup_indexes->len; i++)
+    {
+      LookupIndex *cand = g_ptr_array_index (lookup_indexes, i);
+      if (cand->sheet == sheet_key && cand->vertical == vertical && !cand->building &&
+          cand->range.row0 == r->row0 && cand->range.row1 == r->row1 &&
+          cand->range.col0 == r->col0 && cand->range.col1 == r->col1)
+        {
+          ix = cand;
+          break;
+        }
+    }
+  if (ix == NULL)
+    {
+      ix = g_new0 (LookupIndex, 1);
+      ix->sheet = sheet_key;
+      ix->range = *r;
+      ix->vertical = vertical;
+      ix->building = TRUE;
+      ix->first = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+      if (lookup_indexes->len >= LOOKUP_INDEXES_MAX)
+        g_ptr_array_remove_index (lookup_indexes, 0);
+      g_ptr_array_add (lookup_indexes, ix);
+      for (int i = 0; i < len; i++)
+        {
+          O42Value v;
+          char *k;
+
+          vector_get (ctx, op, vertical, i, &v);
+          k = lookup_key (&v);
+          o42_value_clear (&v);
+          if (k == NULL)
+            continue;
+          if (g_hash_table_contains (ix->first, k))
+            g_free (k);
+          else
+            g_hash_table_insert (ix->first, k, GINT_TO_POINTER (i + 1));
+        }
+      ix->building = FALSE;
+      /* Walking the vector evaluated its formulas; had one of them been
+       * touched meanwhile, what was gathered is not to be trusted. */
+      if (ix->spoilt)
+        {
+          g_ptr_array_remove (lookup_indexes, ix);
+          g_free (key);
+          return -2;
+        }
+    }
+
+  found = g_hash_table_lookup (ix->first, key);
+  g_free (key);
+  return found != NULL ? GPOINTER_TO_INT (found) - 1 : -1;
+}
+
 /* MATCH's three modes, shared by LOOKUP and the approximate forms of
  * VLOOKUP and HLOOKUP.  Type 1 wants the vector ascending and finds the
  * last value not above the needle; -1 wants it descending and finds the
@@ -1333,20 +1562,41 @@ match_in_vector (O42EvalContext *ctx, const O42Value *needle,
 
   if (type == 0)
     {
-      Criterion crit;
+      GPatternSpec *pattern = NULL;
+      int indexed = lookup_index_find (ctx, needle, op, vertical);
 
-      criterion_init (&crit, needle);
+      if (indexed != -2)
+        return indexed;
+
+      /* An exact match is the value itself -- a needle of ">5" is the
+       * text ">5", not a comparison, unlike a COUNTIF criterion -- with
+       * * and ? standing for any characters in text. */
+      if (needle->type == O42_VALUE_TEXT &&
+          (strchr (needle->as.text, '*') != NULL || strchr (needle->as.text, '?') != NULL))
+        {
+          char *folded = g_utf8_casefold (needle->as.text, -1);
+          pattern = g_pattern_spec_new (folded);
+          g_free (folded);
+        }
       for (int i = 0; i < len; i++)
         {
           O42Value v;
           gboolean hit;
 
           vector_get (ctx, op, vertical, i, &v);
-          hit = criterion_match (&crit, &v);
+          if (pattern != NULL)
+            {
+              char *folded = v.type == O42_VALUE_TEXT ? g_utf8_casefold (v.as.text, -1) : NULL;
+              hit = folded != NULL && g_pattern_spec_match_string (pattern, folded);
+              g_free (folded);
+            }
+          else
+            hit = v.type == needle->type && o42_value_compare (&v, needle) == 0;
           o42_value_clear (&v);
           if (hit) { best = i; break; }
         }
-      criterion_clear (&crit);
+      if (pattern != NULL)
+        g_pattern_spec_free (pattern);
       return best;
     }
 
@@ -1618,6 +1868,8 @@ static O42Value fn_isodd  (O42EvalContext *c, O42Operand *a, int n) { return fn_
 static O42Value
 fn_type (O42EvalContext *ctx, O42Operand *args, int n)
 {
+  if (args[0].lambda != NULL && !args[0].is_range)
+    return o42_value_number (128);   /* a LAMBDA, in Excel's numbering */
   O42Value v;
   int code;
 
@@ -2060,6 +2312,32 @@ fn_sumproduct (O42EvalContext *ctx, O42Operand *args, int n)
   int rows, cols;
   double total = 0;
 
+  /* Plain numbers multiply out: SUMPRODUCT(2,3) is 6, and a product too
+   * large for a double is #NUM!. */
+  {
+    gboolean all_values = TRUE;
+    double product = 1;
+
+    for (int i = 0; i < n && all_values; i++)
+      all_values = !args[i].is_range;
+    if (all_values)
+      {
+        for (int i = 0; i < n; i++)
+          {
+            O42Value v = operand_value (ctx, &args[i]);
+            double d = 0;
+            O42ErrorCode e = O42_ERR_VALUE;
+
+            if (v.type == O42_VALUE_ERROR)
+              return v;
+            if (!o42_value_to_number (&v, &d, &e))
+              d = 0;
+            o42_value_clear (&v);
+            product *= d;
+          }
+        return isinf (product) || isnan (product) ? o42_value_error (O42_ERR_NUM) : o42_value_number (product);
+      }
+  }
   for (int i = 0; i < n; i++)
     if (!args[i].is_range)
       return o42_value_error (O42_ERR_VALUE);
@@ -2095,6 +2373,8 @@ fn_sumproduct (O42EvalContext *ctx, O42Operand *args, int n)
         total += product;
       }
 
+  if (isinf (total) || isnan (total))
+    return o42_value_error (O42_ERR_NUM);   /* too large a product */
   return o42_value_number (total);
 }
 
@@ -4240,13 +4520,16 @@ static O42Value
 fn_xlookup (O42EvalContext *ctx, O42Operand *args, int n)
 {
   O42Value needle, result;
-  double mode = 0;
+  double mode = 0, search = 1;
   int length, best = -1;
   GPatternSpec *pattern = NULL;
 
   if (!args[1].is_range || !args[2].is_range)
     return o42_value_error (O42_ERR_VALUE);
   if (n >= 5) ARG_NUMBER (4, mode);
+  /* search_mode: 1 and 2 from the first, -1 and -2 from the last (the
+   * binary ones give the same answer on a sorted vector). */
+  if (n >= 6) ARG_NUMBER (5, search);
   needle = operand_value (ctx, &args[0]);
   if (needle.type == O42_VALUE_ERROR)
     return needle;
@@ -4259,8 +4542,9 @@ fn_xlookup (O42EvalContext *ctx, O42Operand *args, int n)
       g_free (folded);
     }
 
-  for (int i = 0; i < length; i++)
+  for (int step = 0; step < length; step++)
     {
+      int i = search < 0 ? length - 1 - step : step;
       O42Value v;
       int cmp;
       xl_vector_cell (ctx, &args[1], i, &v);
@@ -4351,9 +4635,11 @@ fn_xmatch (O42EvalContext *ctx, O42Operand *args, int n)
   memset (&three[3], 0, sizeof three[3]);
   three[3].value = o42_value_error (O42_ERR_NA);
   if (n >= 3) three[4] = args[2]; else { memset (&three[4], 0, sizeof three[4]); three[4].value = o42_value_number (0); }
-  r = fn_xlookup (ctx, three, 5);
+  if (n >= 4) three[5] = args[3]; else { memset (&three[5], 0, sizeof three[5]); three[5].value = o42_value_number (1); }
+  r = fn_xlookup (ctx, three, 6);
   o42_value_clear (&three[3].value);
   if (n < 3) o42_value_clear (&three[4].value);
+  if (n < 4) o42_value_clear (&three[5].value);
   return r;
 }
 
@@ -4443,7 +4729,8 @@ fn_indirect (O42EvalContext *ctx, O42Operand *args, int n)
 }
 
 /* LAMBDA's parameters and body, and the depth guard for recursion. */
-static O42Operand apply_lambda (O42EvalContext *ctx, const O42Node *lambda,
+typedef struct _Closure Closure;
+static O42Operand apply_lambda (O42EvalContext *ctx, const O42Node *lambda, const Closure *closure,
                                 O42Operand *args, int n_args);
 static int lambda_depth = 0;
 
@@ -4455,24 +4742,132 @@ typedef struct {
 
 static GPtrArray *let_scope = NULL;
 
+/* A lambda that came out of a LET or another LAMBDA carries the names
+ * that were bound when it was made -- LAMBDA(x,LAMBDA(y,x+y))(1)(2) is
+ * 3 because the inner lambda remembers x -- as a copy of the scope,
+ * owned by the frame the formula is evaluated in. */
+struct _Closure {
+  GPtrArray *bindings;   /* LetBinding*, outermost first */
+};
+
+static void
+closure_free (gpointer data)
+{
+  Closure *c = data;
+
+  for (guint i = 0; i < c->bindings->len; i++)
+    {
+      LetBinding *b = g_ptr_array_index (c->bindings, i);
+      operand_clear (&b->operand);
+      g_free (b);
+    }
+  g_ptr_array_free (c->bindings, TRUE);
+  g_free (c);
+}
+
+/* The scope as it stands, copied, and kept by the innermost frame. */
+static const Closure *
+closure_capture (void)
+{
+  ArrayFrame *frame = array_frames && array_frames->len > 0
+                      ? g_ptr_array_index (array_frames, array_frames->len - 1) : NULL;
+  Closure *c;
+
+  if (frame == NULL || let_scope == NULL || let_scope->len == 0)
+    return NULL;
+  c = g_new0 (Closure, 1);
+  c->bindings = g_ptr_array_new ();
+  for (guint i = 0; i < let_scope->len; i++)
+    {
+      const LetBinding *from = g_ptr_array_index (let_scope, i);
+      LetBinding *b = g_new0 (LetBinding, 1);
+
+      b->name = from->name;
+      b->operand = from->operand;
+      b->operand.value = o42_value_copy (&from->operand.value);
+      g_ptr_array_add (c->bindings, b);
+    }
+  g_ptr_array_add (frame->closures, c);
+  return c;
+}
+
+/* A defined name that is a formula: its text parsed once, kept by the
+ * text, so a LAMBDA in it has a tree to live in for as long as any
+ * operand points at it. */
+static GHashTable *name_trees = NULL;
+static int name_depth = 0;
+
+static const O42Node *
+name_formula_tree (O42EvalContext *ctx, const char *name)
+{
+  const char *text;
+  O42Node *tree;
+
+  if (ctx->get_name_formula == NULL)
+    return NULL;
+  text = ctx->get_name_formula (ctx, name);
+  if (text == NULL)
+    return NULL;
+  if (name_trees == NULL)
+    name_trees = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) o42_node_free);
+  tree = g_hash_table_lookup (name_trees, text);
+  if (tree == NULL)
+    {
+      tree = o42_formula_parse (text);
+      g_hash_table_insert (name_trees, g_strdup (text), tree);
+    }
+  return tree;
+}
+
+/* The name of a LAMBDA parameter as written, "[y]" for one that may be
+ * left out, to the name it binds. */
+static const char *
+param_name (const char *written, char *buffer, gsize size)
+{
+  if (written[0] == '[')
+    {
+      gsize n = strlen (written);
+      g_strlcpy (buffer, written + 1, MIN (n - 1, size));
+      return buffer;
+    }
+  return written;
+}
+
 /* Binds a lambda's parameters to `args` and evaluates its body.  The
  * parameters are the call's arguments but the last, which is the body;
  * a missing argument is an empty value, which ISOMITTED sees. */
 static O42Operand
-apply_lambda (O42EvalContext *ctx, const O42Node *lambda, O42Operand *args, int n_args)
+apply_lambda (O42EvalContext *ctx, const O42Node *lambda, const Closure *closure,
+              O42Operand *args, int n_args)
 {
   int n_params = lambda != NULL && lambda->as.call.args != NULL ? (int) lambda->as.call.args->len - 1 : -1;
   O42Operand result;
   int pushed = 0;
+  char name_buffer[128];
 
   memset (&result, 0, sizeof result);
-  if (n_params < 0 || lambda_depth > 64)
+  if (n_params < 0 || lambda_depth > 200 || n_args > n_params)
     {
-      result.value = o42_value_error (n_params < 0 ? O42_ERR_VALUE : O42_ERR_NUM);
+      /* More arguments than parameters is #VALUE!, as Excel has it. */
+      result.value = o42_value_error (n_params < 0 || n_args > n_params ? O42_ERR_VALUE : O42_ERR_NUM);
       return result;
     }
   if (let_scope == NULL)
     let_scope = g_ptr_array_new ();
+  /* What the lambda remembers from where it was made comes first, so
+   * its own parameters shadow it. */
+  if (closure != NULL)
+    for (guint i = 0; i < closure->bindings->len; i++)
+      {
+        const LetBinding *from = g_ptr_array_index (closure->bindings, i);
+        LetBinding *b = g_new0 (LetBinding, 1);
+
+        b->name = from->name;
+        b->operand = from->operand;
+        b->operand.value = o42_value_copy (&from->operand.value);
+        g_ptr_array_add (let_scope, b);
+        pushed++;
+      }
   for (int i = 0; i < n_params; i++)
     {
       const O42Node *p = g_ptr_array_index (lambda->as.call.args, i);
@@ -4481,7 +4876,8 @@ apply_lambda (O42EvalContext *ctx, const O42Node *lambda, O42Operand *args, int 
       if (p == NULL || p->type != O42_NODE_NAME)
         break;
       b = g_new0 (LetBinding, 1);
-      b->name = p->as.name;
+      b->name = p->as.name[0] == '[' ? g_intern_string (param_name (p->as.name, name_buffer, sizeof name_buffer))
+                                     : p->as.name;
       if (i < n_args)
         {
           b->operand = args[i];
@@ -4495,6 +4891,9 @@ apply_lambda (O42EvalContext *ctx, const O42Node *lambda, O42Operand *args, int 
   lambda_depth++;
   result = eval_operand (ctx, g_ptr_array_index (lambda->as.call.args, n_params));
   lambda_depth--;
+  /* A lambda coming out takes the bindings with it. */
+  if (result.lambda != NULL && result.closure == NULL)
+    result.closure = closure_capture ();
   while (pushed-- > 0)
     {
       LetBinding *dead = g_ptr_array_index (let_scope, let_scope->len - 1);
@@ -4844,15 +5243,24 @@ logfit_line (const double *x, const double *y, int n, double sign, double c,
 /* The keys SORT and SORTBY order by, read once, and a stable merge
  * sort of positions over them. */
 typedef struct {
-  O42Value *keys;
-  gboolean  descending;
+  O42Value *keys;         /* n_keys vectors of n items, one after another */
+  gboolean *descending;   /* one per key */
+  int       n_keys;
+  int       n;
 } SortKeys;
 
 static int
 sort_keys_compare (const SortKeys *k, int a, int b)
 {
-  int cmp = o42_value_compare (&k->keys[a], &k->keys[b]);
-  return k->descending ? -cmp : cmp;
+  for (int key = 0; key < k->n_keys; key++)
+    {
+      const O42Value *va = &k->keys[key * k->n + a], *vb = &k->keys[key * k->n + b];
+      int cmp = o42_value_compare (va, vb);
+
+      if (cmp != 0)
+        return k->descending[key] ? -cmp : cmp;
+    }
+  return 0;
 }
 
 static void
@@ -4971,6 +5379,45 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       base = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
       if (!base.is_range)
         { operand_clear (&base); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      {
+        /* OFFSET(A1,{0,1,2},0): an array of offsets gives the cells at
+         * each, one by one -- values, as Excel's lifting has it; what
+         * SUM(N(OFFSET(A1,ROW(A1:A3)-1,0))) counts on. */
+        O42Operand rows_op = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
+        O42Operand cols_op = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 2));
+
+        if (operand_is_multi (&rows_op) || operand_is_multi (&cols_op))
+          {
+            int r1, c1, r2, c2, nr, nc;
+            ArrayConst *a;
+
+            operand_dims (&rows_op, &r1, &c1);
+            operand_dims (&cols_op, &r2, &c2);
+            nr = MAX (r1, r2); nc = MAX (c1, c2);
+            a = array_const_new (nr, nc);
+            for (int i = 0; i < nr; i++)
+              for (int j = 0; j < nc; j++)
+                {
+                  O42Value rv = operand_cell (ctx, &rows_op, i, j), cv = operand_cell (ctx, &cols_op, i, j);
+                  double dr = 0, dc = 0;
+                  O42ErrorCode err = O42_ERR_VALUE;
+                  gboolean ok = o42_value_to_number (&rv, &dr, &err) && o42_value_to_number (&cv, &dc, &err);
+                  int row = base.range.row0 + (int) dr, col = base.range.col0 + (int) dc;
+
+                  o42_value_clear (&rv); o42_value_clear (&cv);
+                  if (!ok)
+                    a->cells[i * nc + j] = o42_value_error (err);
+                  else if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+                    a->cells[i * nc + j] = o42_value_error (O42_ERR_REF);
+                  else
+                    ctx->get_cell (ctx, base.sheet, row, col, &a->cells[i * nc + j]);
+                }
+            operand_clear (&rows_op); operand_clear (&cols_op); operand_clear (&base);
+            *out = array_operand (a);
+            return TRUE;
+          }
+        operand_clear (&rows_op); operand_clear (&cols_op);
+      }
       v = eval_node (ctx, g_ptr_array_index (node->as.call.args, 1));
       if (!o42_value_to_number (&v, &rows, &e)) { o42_value_clear (&v); out->value = o42_value_error (e); return TRUE; }
       o42_value_clear (&v);
@@ -5112,6 +5559,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           pushed++;
         }
       result = eval_operand (ctx, g_ptr_array_index (node->as.call.args, n_args - 1));
+      if (result.lambda != NULL && result.closure == NULL)
+        result.closure = closure_capture ();
       while (pushed-- > 0)
         {
           LetBinding *dead = g_ptr_array_index (let_scope, let_scope->len - 1);
@@ -5157,7 +5606,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
                 memset (two, 0, sizeof two);
                 two[0].value = o42_value_number (i + 1);
                 two[1].value = o42_value_number (j + 1);
-                r = apply_lambda (ctx, fn, two, 2);
+                r = apply_lambda (ctx, fn, hold.closure, two, 2);
                 a->cells[i * (int) cols + j] = operand_value (ctx, &r);
                 operand_clear (&r);
                 o42_value_clear (&two[0].value);
@@ -5184,7 +5633,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
                 memset (each, 0, sizeof each);
                 for (int k = 0; k < n_arrays; k++)
                   each[k].value = operand_cell (ctx, &arrays[k], i, j);
-                r = apply_lambda (ctx, fn, each, n_arrays);
+                r = apply_lambda (ctx, fn, hold.closure, each, n_arrays);
                 a->cells[i * cols + j] = operand_value (ctx, &r);
                 operand_clear (&r);
                 for (int k = 0; k < n_arrays; k++)
@@ -5211,7 +5660,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
               for (int j = 0; j < n_across; j++)
                 line->cells[j] = by_row ? operand_cell (ctx, &first, i, j) : operand_cell (ctx, &first, j, i);
               one = array_operand (line);
-              r = apply_lambda (ctx, fn, &one, 1);
+              r = apply_lambda (ctx, fn, hold.closure, &one, 1);
               a->cells[i] = operand_value (ctx, &r);
               operand_clear (&r);
               operand_clear (&one);
@@ -5239,7 +5688,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
                 two[0] = acc;
                 two[0].value = o42_value_copy (&acc.value);
                 two[1].value = operand_cell (ctx, &values, i, j);
-                r = apply_lambda (ctx, fn, two, 2);
+                r = apply_lambda (ctx, fn, hold.closure, two, 2);
                 o42_value_clear (&two[0].value);
                 o42_value_clear (&two[1].value);
                 operand_clear (&acc);
@@ -5261,6 +5710,55 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
 
       operand_clear (&hold);
       *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* ROWS(A:A) is 1,048,576 and COLUMNS(1:1) 16,384 whatever the sheet
+   * holds; ROW(B1:B1048576) every row.  The range is taken as written,
+   * before the walk of a whole column is cut to the used part. */
+  if ((strcmp (node->as.call.name, "ROWS") == 0 || strcmp (node->as.call.name, "COLUMNS") == 0 ||
+       strcmp (node->as.call.name, "ROW") == 0 || strcmp (node->as.call.name, "COLUMN") == 0) &&
+      n_args == 1)
+    {
+      const O42Node *arg = g_ptr_array_index (node->as.call.args, 0);
+
+      if (arg->type == O42_NODE_RANGE && (arg->abs & (O42_WHOLE_COLS | O42_WHOLE_ROWS)))
+        {
+          const O42Range *r = &arg->as.range;
+          gboolean rows = node->as.call.name[0] == 'R';
+
+          memset (out, 0, sizeof *out);
+          if (g_str_has_suffix (node->as.call.name, "S"))
+            out->value = o42_value_number (rows ? r->row1 - r->row0 + 1 : r->col1 - r->col0 + 1);
+          else
+            {
+              int n = rows ? r->row1 - r->row0 + 1 : r->col1 - r->col0 + 1;
+              ArrayConst *a = rows ? array_const_new (n, 1) : array_const_new (1, n);
+              for (int i = 0; i < n; i++)
+                a->cells[i] = o42_value_number ((rows ? r->row0 : r->col0) + i + 1);
+              *out = array_operand (a);
+            }
+          return TRUE;
+        }
+    }
+
+  if (strcmp (node->as.call.name, "ANCHORARRAY") == 0 && n_args == 1)
+    {
+      /* A1#: the block the formula at A1 spilled into, or #REF! when
+       * nothing spilled from there. */
+      const O42Node *ref = g_ptr_array_index (node->as.call.args, 0);
+      O42Range block;
+
+      if (ref->type == O42_NODE_REF && ctx->get_spill != NULL &&
+          ctx->get_spill (ctx, ref->sheet, ref->as.ref.row, ref->as.ref.col, &block))
+        {
+          memset (out, 0, sizeof *out);
+          out->is_range = TRUE;
+          out->sheet = ref->sheet;
+          out->range = block;
+          return TRUE;
+        }
+      out->value = o42_value_error (O42_ERR_REF);
       return TRUE;
     }
 
@@ -5389,57 +5887,92 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
     }
 
   if ((strcmp (node->as.call.name, "SORT") == 0 && n_args >= 1 && n_args <= 4) ||
-      (strcmp (node->as.call.name, "SORTBY") == 0 && n_args >= 2 && n_args <= 4))
+      (strcmp (node->as.call.name, "SORTBY") == 0 && n_args >= 2))
     {
       gboolean sortby = node->as.call.name[4] == 'B';
       O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
-      O42Operand by;
+      O42Operand bys[16];
+      int n_keys = 0;
       double index = 1, order = 1;
       gboolean by_col = FALSE;
       int rows, cols, n_items, n_across;
       GArray *idx;
       ArrayConst *a;
+      SortKeys keys;
 
-      memset (&by, 0, sizeof by);
+      memset (bys, 0, sizeof bys);
+      operand_dims (&src, &rows, &cols);
       if (sortby)
         {
-          by = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
-          if (n_args >= 3 && !eval_number_arg (ctx, node, 2, &order)) order = 1;
+          /* SORTBY(array, by1, [order1], by2, [order2], ...): the keys
+           * run the way the array does, and each must be as long. */
+          for (int i = 1; i < n_args && n_keys < 16; i += 2)
+            n_keys++;
+          keys.descending = g_new0 (gboolean, MAX (n_keys, 1));
+          for (int k = 0; k < n_keys; k++)
+            {
+              int br, bc;
+              double ord = 1;
+
+              bys[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1 + 2 * k));
+              if (2 + 2 * k < n_args && !eval_number_arg (ctx, node, 2 + 2 * k, &ord)) ord = 1;
+              keys.descending[k] = ord < 0;
+              operand_dims (&bys[k], &br, &bc);
+              if (k == 0)
+                by_col = br == 1 && bc > 1 && bc == cols && rows != cols ? TRUE
+                       : br == 1 && bc == cols && rows == 1 && cols > 1;
+              if ((by_col ? bc : br) != (by_col ? cols : rows) || (by_col ? br : bc) != 1)
+                {
+                  for (int j = 0; j <= k; j++) operand_clear (&bys[j]);
+                  g_free (keys.descending);
+                  operand_clear (&src);
+                  out->value = o42_value_error (O42_ERR_VALUE);
+                  return TRUE;
+                }
+            }
         }
       else
         {
           if (n_args >= 2 && !eval_number_arg (ctx, node, 1, &index)) index = 1;
           if (n_args >= 3 && !eval_number_arg (ctx, node, 2, &order)) order = 1;
           if (n_args >= 4) eval_bool_arg (ctx, node, 3, &by_col);
+          n_keys = 1;
+          keys.descending = g_new0 (gboolean, 1);
+          keys.descending[0] = order < 0;
         }
-      operand_dims (&src, &rows, &cols);
       n_items = by_col ? cols : rows;
       n_across = by_col ? rows : cols;
       if (index < 1 || index > n_across)
-        { operand_clear (&src); operand_clear (&by); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+        {
+          for (int k = 0; k < n_keys && sortby; k++) operand_clear (&bys[k]);
+          g_free (keys.descending);
+          operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE;
+        }
       idx = g_array_new (FALSE, FALSE, sizeof (int));
       for (int i = 0; i < n_items; i++) g_array_append_val (idx, i);
       {
         /* The keys are read once each, then the positions are merge
          * sorted on them: stable, and n log n where an insertion sort
          * took a minute over forty thousand rows. */
-        SortKeys keys;
-
-        keys.keys = g_new0 (O42Value, MAX (n_items, 1));
-        keys.descending = order < 0;
-        for (int i = 0; i < n_items; i++)
-          keys.keys[i] = sortby ? operand_cell (ctx, &by, by_col ? 0 : i, by_col ? i : 0)
-                       : by_col ? operand_cell (ctx, &src, (int) index - 1, i)
-                                : operand_cell (ctx, &src, i, (int) index - 1);
+        keys.n = n_items;
+        keys.n_keys = n_keys;
+        keys.keys = g_new0 (O42Value, MAX (n_items * n_keys, 1));
+        for (int k = 0; k < n_keys; k++)
+          for (int i = 0; i < n_items; i++)
+            keys.keys[k * n_items + i] =
+              sortby ? operand_cell (ctx, &bys[k], by_col ? 0 : i, by_col ? i : 0)
+                     : by_col ? operand_cell (ctx, &src, (int) index - 1, i)
+                              : operand_cell (ctx, &src, i, (int) index - 1);
         if (n_items > 1)
           {
             int *tmp = g_new (int, n_items);
             merge_sort_positions ((int *) idx->data, tmp, n_items, &keys);
             g_free (tmp);
           }
-        for (int i = 0; i < n_items; i++)
+        for (int i = 0; i < n_items * n_keys; i++)
           o42_value_clear (&keys.keys[i]);
         g_free (keys.keys);
+        g_free (keys.descending);
       }
       a = array_const_new (rows, cols);
       for (int i = 0; i < n_items; i++)
@@ -5453,7 +5986,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
         }
       g_array_unref (idx);
       operand_clear (&src);
-      operand_clear (&by);
+      for (int k = 0; k < n_keys && sortby; k++)
+        operand_clear (&bys[k]);
       *out = array_operand (a);
       return TRUE;
     }
@@ -5576,6 +6110,307 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
     }
 
   /* TAKE and DROP: so many rows and columns from one end or the other. */
+  /* VSTACK and HSTACK: the arguments one under (beside) another, the
+   * short ones padded with #N/A. */
+  if ((strcmp (node->as.call.name, "VSTACK") == 0 || strcmp (node->as.call.name, "HSTACK") == 0) && n_args >= 1)
+    {
+      gboolean vertical = node->as.call.name[0] == 'V';
+      O42Operand *parts = g_new0 (O42Operand, n_args);
+      int total = 0, widest = 0;
+      ArrayConst *a;
+      int at = 0;
+
+      for (int i = 0; i < n_args; i++)
+        {
+          int rows, cols;
+          parts[i] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, i));
+          operand_dims (&parts[i], &rows, &cols);
+          total += vertical ? rows : cols;
+          widest = MAX (widest, vertical ? cols : rows);
+        }
+      a = vertical ? array_const_new (total, widest) : array_const_new (widest, total);
+      for (int i = 0; i < n_args; i++)
+        {
+          int rows, cols;
+          operand_dims (&parts[i], &rows, &cols);
+          for (int r = 0; r < (vertical ? rows : widest); r++)
+            for (int c = 0; c < (vertical ? widest : cols); c++)
+              {
+                gboolean inside = vertical ? c < cols : r < rows;
+                O42Value v = inside ? operand_cell (ctx, &parts[i], r, c) : o42_value_error (O42_ERR_NA);
+                if (vertical)
+                  a->cells[(at + r) * widest + c] = v;
+                else
+                  a->cells[r * total + at + c] = v;
+              }
+          at += vertical ? rows : cols;
+          operand_clear (&parts[i]);
+        }
+      g_free (parts);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* EXPAND(array, rows, [columns], [pad_with]): grown to a size, the new
+   * cells #N/A or the padding. */
+  if (strcmp (node->as.call.name, "EXPAND") == 0 && n_args >= 2 && n_args <= 4)
+    {
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols;
+      double want_rows, want_cols;
+      O42Value pad = n_args >= 4 ? o42_eval (ctx, g_ptr_array_index (node->as.call.args, 3)) : o42_value_error (O42_ERR_NA);
+      ArrayConst *a;
+
+      operand_dims (&src, &rows, &cols);
+      want_rows = rows; want_cols = cols;
+      {
+        O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 1));
+        O42ErrorCode e = O42_ERR_VALUE;
+        if (v.type != O42_VALUE_EMPTY && !o42_value_to_number (&v, &want_rows, &e))
+          { o42_value_clear (&v); o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (e); return TRUE; }
+        o42_value_clear (&v);
+      }
+      if (n_args >= 3)
+        {
+          O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 2));
+          O42ErrorCode e = O42_ERR_VALUE;
+          if (v.type != O42_VALUE_EMPTY && !o42_value_to_number (&v, &want_cols, &e))
+            { o42_value_clear (&v); o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (e); return TRUE; }
+          o42_value_clear (&v);
+        }
+      if (want_rows < rows || want_cols < cols || want_rows * want_cols > ARRAY_CELLS_MAX)
+        {
+          o42_value_clear (&pad); operand_clear (&src);
+          out->value = o42_value_error (want_rows * want_cols > ARRAY_CELLS_MAX ? O42_ERR_NUM : O42_ERR_VALUE);
+          return TRUE;
+        }
+      a = array_const_new ((int) want_rows, (int) want_cols);
+      for (int r = 0; r < (int) want_rows; r++)
+        for (int c = 0; c < (int) want_cols; c++)
+          a->cells[r * (int) want_cols + c] = (r < rows && c < cols) ? operand_cell (ctx, &src, r, c)
+                                                                      : o42_value_copy (&pad);
+      o42_value_clear (&pad);
+      operand_clear (&src);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* WRAPROWS and WRAPCOLS: a vector folded into rows (columns) of so
+   * many, the last one padded. */
+  if ((strcmp (node->as.call.name, "WRAPROWS") == 0 || strcmp (node->as.call.name, "WRAPCOLS") == 0) &&
+      n_args >= 2 && n_args <= 3)
+    {
+      gboolean by_rows = node->as.call.name[4] == 'R';
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols, len, count, lines;
+      double wrap = 0;
+      O42Value pad = n_args >= 3 ? o42_eval (ctx, g_ptr_array_index (node->as.call.args, 2)) : o42_value_error (O42_ERR_NA);
+      ArrayConst *a;
+
+      operand_dims (&src, &rows, &cols);
+      if (rows != 1 && cols != 1)
+        { o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      {
+        O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 1));
+        O42ErrorCode e = O42_ERR_VALUE;
+        if (!o42_value_to_number (&v, &wrap, &e) || wrap < 1)
+          { o42_value_clear (&v); o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
+        o42_value_clear (&v);
+      }
+      len = rows * cols;
+      count = (int) wrap;
+      lines = (len + count - 1) / count;
+      a = by_rows ? array_const_new (lines, count) : array_const_new (count, lines);
+      for (int i = 0; i < lines * count; i++)
+        {
+          int line = i / count, k = i % count;
+          O42Value v = i < len ? operand_cell (ctx, &src, rows == 1 ? 0 : i, rows == 1 ? i : 0) : o42_value_copy (&pad);
+          if (by_rows)
+            a->cells[line * count + k] = v;
+          else
+            a->cells[k * lines + line] = v;
+        }
+      o42_value_clear (&pad);
+      operand_clear (&src);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* TOCOL and TOROW: an array laid out in one line, by rows unless asked
+   * by columns, leaving out blanks (1), errors (2) or both (3). */
+  if ((strcmp (node->as.call.name, "TOCOL") == 0 || strcmp (node->as.call.name, "TOROW") == 0) &&
+      n_args >= 1 && n_args <= 3)
+    {
+      gboolean to_col = node->as.call.name[2] == 'C';
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols;
+      double ignore = 0;
+      gboolean by_col = FALSE;
+      GArray *kept = g_array_new (FALSE, FALSE, sizeof (O42Value));
+      ArrayConst *a;
+
+      if (n_args >= 2 && !eval_number_arg (ctx, node, 1, &ignore))
+        { operand_clear (&src); g_array_free (kept, TRUE); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      if (n_args >= 3)
+        {
+          O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 2));
+          O42ErrorCode e = O42_ERR_VALUE;
+          if (!o42_value_to_bool (&v, &by_col, &e)) by_col = FALSE;
+          o42_value_clear (&v);
+        }
+      operand_dims (&src, &rows, &cols);
+      for (int i = 0; i < rows * cols; i++)
+        {
+          int r = by_col ? i % rows : i / cols, c = by_col ? i / rows : i % cols;
+          O42Value v = operand_cell (ctx, &src, r, c);
+          gboolean drop = (v.type == O42_VALUE_EMPTY && ((int) ignore & 1)) ||
+                          (v.type == O42_VALUE_ERROR && ((int) ignore & 2));
+          if (drop) o42_value_clear (&v);
+          else g_array_append_val (kept, v);
+        }
+      operand_clear (&src);
+      if (kept->len == 0)
+        { g_array_free (kept, TRUE); out->value = o42_value_error (O42_ERR_CALC); return TRUE; }
+      a = to_col ? array_const_new ((int) kept->len, 1) : array_const_new (1, (int) kept->len);
+      for (guint i = 0; i < kept->len; i++)
+        a->cells[i] = g_array_index (kept, O42Value, i);
+      g_array_free (kept, TRUE);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* MUNIT(n): the identity matrix. */
+  if (strcmp (node->as.call.name, "MUNIT") == 0 && n_args == 1)
+    {
+      double size = 0;
+      ArrayConst *a;
+
+      if (!eval_number_arg (ctx, node, 0, &size) || size < 1 || size > 3000)
+        { out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      a = array_const_new ((int) size, (int) size);
+      for (int r = 0; r < (int) size; r++)
+        for (int c = 0; c < (int) size; c++)
+          a->cells[r * (int) size + c] = o42_value_number (r == c ? 1 : 0);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* TRIMRANGE(range, [rows], [columns]): the range without its empty
+   * leading (1), trailing (2) or both (3, the default) rows and columns. */
+  if (strcmp (node->as.call.name, "TRIMRANGE") == 0 && n_args >= 1 && n_args <= 3)
+    {
+      O42Operand src = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+      int rows, cols, r0, r1, c0, c1;
+      double trim_rows = 3, trim_cols = 3;
+      ArrayConst *a;
+
+      if ((n_args >= 2 && !eval_number_arg (ctx, node, 1, &trim_rows)) ||
+          (n_args >= 3 && !eval_number_arg (ctx, node, 2, &trim_cols)))
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      operand_dims (&src, &rows, &cols);
+      r0 = 0; r1 = rows - 1; c0 = 0; c1 = cols - 1;
+#define ROW_EMPTY(r) row_is_empty (ctx, &src, (r), cols)
+#define COL_EMPTY(c) col_is_empty (ctx, &src, (c), rows)
+      if ((int) trim_rows & 1) while (r0 <= r1 && ROW_EMPTY (r0)) r0++;
+      if ((int) trim_rows & 2) while (r1 >= r0 && ROW_EMPTY (r1)) r1--;
+      if ((int) trim_cols & 1) while (c0 <= c1 && COL_EMPTY (c0)) c0++;
+      if ((int) trim_cols & 2) while (c1 >= c0 && COL_EMPTY (c1)) c1--;
+#undef ROW_EMPTY
+#undef COL_EMPTY
+      if (r1 < r0 || c1 < c0)
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_CALC); return TRUE; }
+      if (src.is_range && !(src.sheet != NULL && src.sheet[0] == '\001'))
+        {
+          /* Still a range, so SUM(TRIMRANGE(A:A)) walks only what is there. */
+          memset (out, 0, sizeof *out);
+          out->is_range = TRUE;
+          out->sheet = src.sheet;
+          out->range.row0 = src.range.row0 + r0;
+          out->range.row1 = src.range.row0 + r1;
+          out->range.col0 = src.range.col0 + c0;
+          out->range.col1 = src.range.col0 + c1;
+          operand_clear (&src);
+          return TRUE;
+        }
+      a = array_const_new (r1 - r0 + 1, c1 - c0 + 1);
+      for (int r = r0; r <= r1; r++)
+        for (int c = c0; c <= c1; c++)
+          a->cells[(r - r0) * (c1 - c0 + 1) + (c - c0)] = operand_cell (ctx, &src, r, c);
+      operand_clear (&src);
+      *out = array_operand (a);
+      return TRUE;
+    }
+
+  /* REGEXEXTRACT(text, pattern, [mode], [case]): the first match (0),
+   * every match as a row (1), or the groups of the first match (2). */
+  if (strcmp (node->as.call.name, "REGEXEXTRACT") == 0 && n_args >= 2 && n_args <= 4)
+    {
+      O42Value tv = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 0));
+      O42Value pv = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 1));
+      double mode = 0, case_mode = 0;
+      char *text, *pattern;
+      GRegex *re;
+      GMatchInfo *info = NULL;
+      GError *err = NULL;
+
+      if (tv.type == O42_VALUE_ERROR) { o42_value_clear (&pv); out->value = tv; return TRUE; }
+      if (pv.type == O42_VALUE_ERROR) { o42_value_clear (&tv); out->value = pv; return TRUE; }
+      if ((n_args >= 3 && !eval_number_arg (ctx, node, 2, &mode)) ||
+          (n_args >= 4 && !eval_number_arg (ctx, node, 3, &case_mode)))
+        { o42_value_clear (&tv); o42_value_clear (&pv); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      text = o42_value_to_text (&tv);
+      pattern = o42_value_to_text (&pv);
+      o42_value_clear (&tv);
+      o42_value_clear (&pv);
+      re = g_regex_new (pattern, case_mode == 1 ? G_REGEX_CASELESS : 0, 0, &err);
+      g_free (pattern);
+      if (re == NULL)
+        { g_clear_error (&err); g_free (text); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      g_regex_match (re, text, 0, &info);
+      if (!g_match_info_matches (info))
+        out->value = o42_value_error (O42_ERR_NA);
+      else if (mode == 1)
+        {
+          GPtrArray *all = g_ptr_array_new_with_free_func (g_free);
+          ArrayConst *a;
+          while (g_match_info_matches (info))
+            {
+              g_ptr_array_add (all, g_match_info_fetch (info, 0));
+              g_match_info_next (info, NULL);
+            }
+          a = array_const_new (1, (int) all->len);
+          for (guint i = 0; i < all->len; i++)
+            a->cells[i] = o42_value_text (g_ptr_array_index (all, i));
+          g_ptr_array_free (all, TRUE);
+          *out = array_operand (a);
+        }
+      else if (mode == 2)
+        {
+          int groups = g_regex_get_capture_count (re);
+          ArrayConst *a = array_const_new (1, MAX (groups, 1));
+          for (int g = 1; g <= MAX (groups, 1); g++)
+            {
+              char *piece = g_match_info_fetch (info, groups > 0 ? g : 0);
+              a->cells[g - 1] = o42_value_take (piece != NULL ? piece : g_strdup (""));
+            }
+          *out = array_operand (a);
+        }
+      else
+        out->value = o42_value_take (g_match_info_fetch (info, 0));
+      g_match_info_free (info);
+      g_regex_unref (re);
+      g_free (text);
+      return TRUE;
+    }
+
+  /* GETPIVOTDATA: office42's pivot tables are laid out as cells and
+   * keep no live model to ask, so this is honestly #REF!. */
+  if (strcmp (node->as.call.name, "GETPIVOTDATA") == 0)
+    {
+      out->value = o42_value_error (O42_ERR_REF);
+      return TRUE;
+    }
+
   if ((strcmp (node->as.call.name, "TAKE") == 0 ||
        strcmp (node->as.call.name, "DROP") == 0) && n_args >= 2 && n_args <= 3)
     {
@@ -5627,7 +6462,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
         }
 
       if (row1 < row0 || col1 < col0)
-        out->value = o42_value_error (O42_ERR_VALUE);
+        out->value = o42_value_error (O42_ERR_CALC);   /* nothing left: an empty array */
       else
         {
           a = array_const_new (row1 - row0 + 1, col1 - col0 + 1);
@@ -7182,6 +8017,37 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
             { o42_value_clear (&style); out->value = o42_value_error (e); return TRUE; }
           o42_value_clear (&style);
         }
+      {
+        /* INDIRECT({"A1","B2"}): an array of texts gives the cells they
+         * name, one value each. */
+        O42Operand texts = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
+
+        if (operand_is_multi (&texts))
+          {
+            int rows, cols;
+            ArrayConst *a;
+
+            operand_dims (&texts, &rows, &cols);
+            a = array_const_new (rows, cols);
+            for (int i = 0; i < rows; i++)
+              for (int j = 0; j < cols; j++)
+                {
+                  O42Value t = operand_cell (ctx, &texts, i, j);
+                  O42Node *one = t.type == O42_VALUE_TEXT ? o42_formula_parse (t.as.text) : NULL;
+
+                  if (one != NULL && one->type == O42_NODE_REF)
+                    ctx->get_cell (ctx, one->sheet, one->as.ref.row, one->as.ref.col, &a->cells[i * cols + j]);
+                  else
+                    a->cells[i * cols + j] = o42_value_error (O42_ERR_REF);
+                  if (one != NULL) o42_node_free (one);
+                  o42_value_clear (&t);
+                }
+            operand_clear (&texts);
+            *out = array_operand (a);
+            return TRUE;
+          }
+        operand_clear (&texts);
+      }
       v = eval_node (ctx, g_ptr_array_index (node->as.call.args, 0));
       if (v.type != O42_VALUE_TEXT)
         { o42_value_clear (&v); out->value = o42_value_error (O42_ERR_REF); return TRUE; }
@@ -7553,8 +8419,13 @@ fn_mdeterm (O42EvalContext *ctx, O42Operand *args, int n)
   (void) n;
 
   if (!args[0].is_range)
-    return args[0].value.type == O42_VALUE_ERROR ? o42_value_copy (&args[0].value)
-                                                  : o42_value_error (O42_ERR_VALUE);
+    {
+      /* A number is a one-by-one matrix, its own determinant. */
+      if (args[0].value.type == O42_VALUE_NUMBER)
+        return o42_value_number (args[0].value.as.number);
+      return args[0].value.type == O42_VALUE_ERROR ? o42_value_copy (&args[0].value)
+                                                    : o42_value_error (O42_ERR_VALUE);
+    }
   r = &args[0].range;
   size = r->row1 - r->row0 + 1;
   if (size != r->col1 - r->col0 + 1) return o42_value_error (O42_ERR_VALUE);
@@ -7727,6 +8598,10 @@ fn_t_inv (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, p);
   ARG_NUMBER (1, df);
   if (p <= 0 || p >= 1 || df < 1) return o42_value_error (O42_ERR_NUM);
+  /* The t is symmetric: the middle is 0 exactly, and the lower half is
+   * the upper half's mirror, which the bisection alone does not know. */
+  if (p == 0.5) return o42_value_number (0);
+  if (p < 0.5) return o42_value_number (-invert_cdf (t_cdf, 1 - p, floor (df), 0, -1e6, 1e6));
   return o42_value_number (invert_cdf (t_cdf, p, floor (df), 0, -1e6, 1e6));
 }
 
@@ -7761,6 +8636,7 @@ fn_chisq_inv (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (0, p);
   ARG_NUMBER (1, df);
   if (p < 0 || p >= 1 || df < 1) return o42_value_error (O42_ERR_NUM);
+  if (p == 0) return o42_value_number (0);
   return o42_value_number (invert_cdf (chi_cdf, p, floor (df), 0, 0, 1e6));
 }
 
@@ -8697,6 +9573,8 @@ static const Unit UNITS[] = {
   { "mph", 11, 0.44704, FALSE }, { "kn", 11, 0.514444444444444, FALSE }, { "admkn", 11, 0.514773333333333, FALSE },
   { "bit", 12, 1, TRUE }, { "byte", 12, 8, TRUE },
   { "C", 13, 0, FALSE }, { "cel", 13, 0, FALSE }, { "F", 13, 0, FALSE }, { "fah", 13, 0, FALSE }, { "K", 13, 0, TRUE }, { "kel", 13, 0, TRUE },
+  { "Rank", 13, 0, FALSE }, { "Reau", 13, 0, FALSE },
+  { "Pica", 2, 0.0254 / 72, FALSE }, { "pica", 2, 0.0254 / 6, FALSE },
 };
 
 static const struct { const char *prefix; double factor; } PREFIXES[] = {
@@ -8745,9 +9623,13 @@ fn_convert (O42EvalContext *ctx, O42Operand *args, int n)
       double k;
       if (uf->unit[0] == 'C' || uf->unit[0] == 'c') k = x + 273.15;
       else if (uf->unit[0] == 'F' || uf->unit[0] == 'f') k = (x - 32) * 5 / 9 + 273.15;
+      else if (strcmp (uf->unit, "Rank") == 0) k = x * 5 / 9;
+      else if (strcmp (uf->unit, "Reau") == 0) k = x * 5 / 4 + 273.15;
       else k = x * ff;
       if (ut->unit[0] == 'C' || ut->unit[0] == 'c') return o42_value_number (k - 273.15);
       if (ut->unit[0] == 'F' || ut->unit[0] == 'f') return o42_value_number ((k - 273.15) * 9 / 5 + 32);
+      if (strcmp (ut->unit, "Rank") == 0) return o42_value_number (k * 9 / 5);
+      if (strcmp (ut->unit, "Reau") == 0) return o42_value_number ((k - 273.15) * 4 / 5);
       return o42_value_number (k / tf);
     }
   return o42_value_number (x * uf->factor * ff / (ut->factor * tf));
@@ -8892,7 +9774,8 @@ fn_confidence_t (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (1, sd);
   ARG_NUMBER (2, size);
   size = floor (size);
-  if (alpha <= 0 || alpha >= 1 || sd <= 0 || size < 2) return o42_value_error (O42_ERR_NUM);
+  if (alpha <= 0 || alpha >= 1 || sd <= 0 || size < 1) return o42_value_error (O42_ERR_NUM);
+  if (size == 1) return o42_value_error (O42_ERR_DIV0);   /* no degrees of freedom */
   return o42_value_number (invert_cdf (t_cdf, 1 - alpha / 2, size - 1, 0, 0, 1e6) * sd / sqrt (size));
 }
 
@@ -8985,7 +9868,7 @@ fn_factdouble (O42EvalContext *ctx, O42Operand *args, int n)
   (void) n;
   ARG_NUMBER (0, x);
   x = floor (x);
-  if (x < -1 || x > 300) return o42_value_error (O42_ERR_NUM);
+  if (x < 0 || x > 300) return o42_value_error (O42_ERR_NUM);
   for (double k = x; k > 1; k -= 2) r *= k;
   return o42_value_number (r);
 }
@@ -9790,6 +10673,17 @@ static const struct {
   { "CHOOSECOLS", "CHOOSECOLS(array, col1, col2, ...)", "The columns named, in the order named." },
   { "CHOOSEROWS", "CHOOSEROWS(array, row1, row2, ...)", "The rows named, in the order named." },
   { "TAKE", "TAKE(array, rows, cols)", "So many rows and columns from the near end, or the far one." },
+  { "VSTACK", "VSTACK(array1, array2, ...)", "The arrays one under another, short ones padded with #N/A." },
+  { "HSTACK", "HSTACK(array1, array2, ...)", "The arrays side by side, short ones padded with #N/A." },
+  { "EXPAND", "EXPAND(array, rows, [columns], [pad_with])", "The array grown to a size, the new cells #N/A or the padding." },
+  { "WRAPROWS", "WRAPROWS(vector, wrap_count, [pad_with])", "A vector folded into rows of so many." },
+  { "WRAPCOLS", "WRAPCOLS(vector, wrap_count, [pad_with])", "A vector folded into columns of so many." },
+  { "TOCOL", "TOCOL(array, [ignore], [scan_by_column])", "An array as one column, blanks or errors left out when asked." },
+  { "TOROW", "TOROW(array, [ignore], [scan_by_column])", "An array as one row, blanks or errors left out when asked." },
+  { "MUNIT", "MUNIT(dimension)", "The identity matrix of a size." },
+  { "TRIMRANGE", "TRIMRANGE(range, [trim_rows], [trim_cols])", "The range without its empty outer rows and columns." },
+  { "REGEXEXTRACT", "REGEXEXTRACT(text, pattern, [return_mode], [case])", "What a regular expression matches: the first match, all of them, or the groups." },
+  { "GETPIVOTDATA", "GETPIVOTDATA(data_field, pivot_table, ...)", "A value from a pivot table; #REF! here, whose pivots are plain cells." },
   { "DROP", "DROP(array, rows, cols)", "The rectangle with so many rows and columns left off." },
   { "TEXTSPLIT", "TEXTSPLIT(text, across, down)", "A text cut into a rectangle at its delimiters." },
   { "MODE.MULT", "MODE.MULT(number1, number2, ...)", "Every value that turns up as often as the commonest." },
@@ -10311,7 +11205,19 @@ binary_values (O42Op op, O42Value a, O42Value b)
 
     case O42_OP_POW:
       {
-        double p = pow (x, y);
+        /* The same edges as POWER: 0^0 #NUM!, 0^-1 #DIV/0!, (-8)^(1/3) -2. */
+        double p;
+        if (x == 0 && y == 0) { result = o42_value_error (O42_ERR_NUM); break; }
+        if (x == 0 && y < 0) { result = o42_value_error (O42_ERR_DIV0); break; }
+        if (x < 0 && y != floor (y))
+          {
+            double inverse = 1 / y, odd = round (inverse);
+            if (fabs (inverse - odd) < 1e-9 && fmod (fabs (odd), 2) == 1)
+              { result = o42_value_number (-pow (-x, y)); break; }
+            result = o42_value_error (O42_ERR_NUM);
+            break;
+          }
+        p = pow (x, y);
         result = (isnan (p) || isinf (p)) ? o42_value_error (O42_ERR_NUM)
                                           : o42_value_number (p);
         break;
@@ -10421,8 +11327,35 @@ static const LiftEntry LIFTS[] = {
   { "ROW", 0x1 }, { "COLUMN", 0x1 },
   /* lookups: the value looked for, the positions asked for */
   { "VLOOKUP", 0x1 }, { "HLOOKUP", 0x1 }, { "XLOOKUP", 0x1 }, { "MATCH", 0x1 }, { "XMATCH", 0x1 },
-  { "INDEX", 0x6 }, { "CHOOSE", 0x1 },
+  { "INDEX", 0x6 }, { "CHOOSE", 0x1 }, { "INDIRECT", 0x1 },
   { "SUMIF", 0x2 }, { "COUNTIF", 0x2 }, { "AVERAGEIF", 0x2 },
+  /* the criteria of the -IFS: every other argument */
+  { "SUMIFS", 0x55555554u }, { "AVERAGEIFS", 0x55555554u }, { "MAXIFS", 0x55555554u },
+  { "MINIFS", 0x55555554u }, { "COUNTIFS", 0xAAAAAAAAu },
+  /* the k of the order statistics, the number ranked */
+  { "LARGE", 0x2 }, { "SMALL", 0x2 }, { "PERCENTILE", 0x2 }, { "PERCENTILE.INC", 0x2 },
+  { "PERCENTILE.EXC", 0x2 }, { "QUARTILE", 0x2 }, { "QUARTILE.INC", 0x2 }, { "QUARTILE.EXC", 0x2 },
+  { "RANK", 0x1 }, { "RANK.EQ", 0x1 }, { "RANK.AVG", 0x1 }, { "PERCENTRANK", 0x2 },
+  { "PERCENTRANK.INC", 0x2 }, { "PERCENTRANK.EXC", 0x2 },
+  /* and the rest of the one-value families */
+  { "PMT", LIFT_ALL }, { "FV", LIFT_ALL }, { "PV", LIFT_ALL }, { "NPER", LIFT_ALL }, { "RATE", LIFT_ALL },
+  { "IPMT", LIFT_ALL }, { "PPMT", LIFT_ALL }, { "SLN", LIFT_ALL }, { "SYD", LIFT_ALL }, { "DB", LIFT_ALL },
+  { "DDB", LIFT_ALL }, { "EFFECT", LIFT_ALL }, { "NOMINAL", LIFT_ALL },
+  { "NORM.DIST", LIFT_ALL }, { "NORM.S.DIST", LIFT_ALL }, { "NORM.INV", LIFT_ALL }, { "NORM.S.INV", LIFT_ALL },
+  { "NORMDIST", LIFT_ALL }, { "NORMSDIST", LIFT_ALL }, { "NORMINV", LIFT_ALL }, { "NORMSINV", LIFT_ALL },
+  { "STANDARDIZE", LIFT_ALL }, { "EXP.DIST", LIFT_ALL }, { "POISSON.DIST", LIFT_ALL }, { "BINOM.DIST", LIFT_ALL },
+  { "GAMMALN", LIFT_ALL }, { "FISHER", LIFT_ALL }, { "FISHERINV", LIFT_ALL },
+  { "CONVERT", LIFT_ALL }, { "DEC2BIN", LIFT_ALL }, { "DEC2HEX", LIFT_ALL }, { "DEC2OCT", LIFT_ALL },
+  { "BIN2DEC", LIFT_ALL }, { "HEX2DEC", LIFT_ALL }, { "OCT2DEC", LIFT_ALL }, { "BITAND", LIFT_ALL },
+  { "BITOR", LIFT_ALL }, { "BITXOR", LIFT_ALL }, { "DELTA", LIFT_ALL }, { "GESTEP", LIFT_ALL },
+  { "SINH", LIFT_ALL }, { "COSH", LIFT_ALL }, { "TANH", LIFT_ALL }, { "ASINH", LIFT_ALL },
+  { "ACOSH", LIFT_ALL }, { "ATANH", LIFT_ALL }, { "SEC", LIFT_ALL }, { "CSC", LIFT_ALL }, { "COT", LIFT_ALL },
+  { "SQRTPI", LIFT_ALL }, { "ISO.CEILING", LIFT_ALL }, { "CEILING.PRECISE", LIFT_ALL },
+  { "FLOOR.PRECISE", LIFT_ALL }, { "FACTDOUBLE", LIFT_ALL },
+  { "REGEXTEST", LIFT_ALL }, { "REGEXREPLACE", LIFT_ALL }, { "ENCODEURL", LIFT_ALL },
+  { "JIS", LIFT_ALL }, { "ASC", LIFT_ALL }, { "DBCS", LIFT_ALL }, { "LEFTB", LIFT_ALL }, { "RIGHTB", LIFT_ALL },
+  { "MIDB", LIFT_ALL }, { "FINDB", LIFT_ALL }, { "SEARCHB", LIFT_ALL }, { "REPLACEB", LIFT_ALL },
+  { "TEXTBEFORE", 0x1 }, { "TEXTAFTER", 0x1 },
 };
 
 static guint32
@@ -10532,13 +11465,31 @@ eval_call_operand (O42EvalContext *ctx, const O42Node *node)
                 O42Operand r;
                 for (int k = 0; k < n_args; k++)
                   given[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, k));
-                r = apply_lambda (ctx, b->operand.lambda, given, n_args);
+                r = apply_lambda (ctx, b->operand.lambda, b->operand.closure, given, n_args);
                 for (int k = 0; k < n_args; k++)
                   operand_clear (&given[k]);
                 g_free (given);
                 return r;
               }
           }
+      {
+        /* A defined name holding a LAMBDA, called by the name: =ADD2(1,2). */
+        const O42Node *tree = name_formula_tree (ctx, node->as.call.name);
+
+        if (tree != NULL && tree->type == O42_NODE_CALL &&
+            g_ascii_strcasecmp (tree->as.call.name, "LAMBDA") == 0)
+          {
+            O42Operand *given = n_args > 0 ? g_new0 (O42Operand, n_args) : NULL;
+            O42Operand r;
+            for (int k = 0; k < n_args; k++)
+              given[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, k));
+            r = apply_lambda (ctx, tree, NULL, given, n_args);
+            for (int k = 0; k < n_args; k++)
+              operand_clear (&given[k]);
+            g_free (given);
+            return r;
+          }
+      }
       result.value = o42_value_error (O42_ERR_NAME);
       return result;
     }
@@ -10697,7 +11648,7 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
           }
         for (int k = 0; k < n; k++)
           given[k] = eval_operand (ctx, g_ptr_array_index (node->as.apply.args, k));
-        op = apply_lambda (ctx, callee.lambda, given, n);
+        op = apply_lambda (ctx, callee.lambda, callee.closure, given, n);
         for (int k = 0; k < n; k++)
           operand_clear (&given[k]);
         g_free (given);
@@ -10728,6 +11679,24 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
             op.range = range;
             return op;
           }
+        {
+          /* A name that is a formula: =TAXRATE, =TOTAL, or a LAMBDA to be
+           * called.  One that comes back to itself is stopped. */
+          const O42Node *tree = name_formula_tree (ctx, node->as.name);
+
+          if (tree != NULL)
+            {
+              if (name_depth > 32)
+                {
+                  op.value = o42_value_error (O42_ERR_NUM);
+                  return op;
+                }
+              name_depth++;
+              op = eval_operand (ctx, tree);
+              name_depth--;
+              return op;
+            }
+        }
         op.value = o42_value_error (O42_ERR_NAME);
         return op;
       }
@@ -10899,6 +11868,7 @@ o42_eval (O42EvalContext *ctx, const O42Node *node)
   frame.original = ctx;
   frame.arrays = g_ptr_array_new_with_free_func ((GDestroyNotify) array_const_free);
   frame.unions = g_ptr_array_new_with_free_func ((GDestroyNotify) union_areas_free);
+  frame.closures = g_ptr_array_new_with_free_func (closure_free);
   if (array_frames == NULL)
     array_frames = g_ptr_array_new ();
   g_ptr_array_add (array_frames, &frame);
@@ -10908,6 +11878,7 @@ o42_eval (O42EvalContext *ctx, const O42Node *node)
   g_ptr_array_remove_index (array_frames, array_frames->len - 1);
   g_ptr_array_unref (frame.arrays);
   g_ptr_array_unref (frame.unions);
+  g_ptr_array_unref (frame.closures);
   return result;
 }
 
@@ -10924,6 +11895,7 @@ o42_eval_array (O42EvalContext *ctx, const O42Node *node,
   frame.original = ctx;
   frame.arrays = g_ptr_array_new_with_free_func ((GDestroyNotify) array_const_free);
   frame.unions = g_ptr_array_new_with_free_func ((GDestroyNotify) union_areas_free);
+  frame.closures = g_ptr_array_new_with_free_func (closure_free);
   if (array_frames == NULL)
     array_frames = g_ptr_array_new ();
   g_ptr_array_add (array_frames, &frame);
@@ -10936,6 +11908,13 @@ o42_eval_array (O42EvalContext *ctx, const O42Node *node,
       memset (&op, 0, sizeof op);
       op.value = o42_value_error (O42_ERR_VALUE);
     }
+  if (op.lambda != NULL)
+    {
+      /* A LAMBDA never called has no value to show: Excel's #CALC!. */
+      operand_clear (&op);
+      memset (&op, 0, sizeof op);
+      op.value = o42_value_error (O42_ERR_CALC);
+    }
   operand_dims (&op, rows, cols);
   *values = g_new0 (O42Value, (gsize) *rows * *cols);
   for (int i = 0; i < *rows; i++)
@@ -10946,6 +11925,7 @@ o42_eval_array (O42EvalContext *ctx, const O42Node *node,
   g_ptr_array_remove_index (array_frames, array_frames->len - 1);
   g_ptr_array_unref (frame.arrays);
   g_ptr_array_unref (frame.unions);
+  g_ptr_array_unref (frame.closures);
   return TRUE;
 }
 
@@ -10963,7 +11943,10 @@ o42_function_is_future (const char *name)
     "MUNIT", "ENCODEURL", "FILTERXML", "WEBSERVICE", "IMCOSH", "IMCOT", "IMCSC", "IMCSCH",
     "IMSEC", "IMSECH", "IMSINH", "IMTAN", "SORT", "SORTBY", "UNIQUE", "SEQUENCE", "RANDARRAY",
     "FILTER", "LET", "LAMBDA", "TEXTSPLIT", "VSTACK", "HSTACK", "TAKE", "DROP",
-    "MAP", "BYROW", "BYCOL", "REDUCE", "SCAN", "MAKEARRAY", "ISOMITTED"
+    "MAP", "BYROW", "BYCOL", "REDUCE", "SCAN", "MAKEARRAY", "ISOMITTED", "ANCHORARRAY",
+    "EXPAND", "WRAPROWS", "WRAPCOLS", "TOCOL", "TOROW", "TRIMRANGE", "REGEXTEST",
+    "REGEXEXTRACT", "REGEXREPLACE", "PERCENTOF", "CHOOSEROWS", "CHOOSECOLS", "VALUETOTEXT",
+    "ARRAYTOTEXT", "TEXTBEFORE", "TEXTAFTER", "XMATCH", "GROUPBY", "PIVOTBY"
   };
   if (strchr (name, '.') != NULL && strcmp (name, "ERROR.TYPE") != 0)
     return TRUE;

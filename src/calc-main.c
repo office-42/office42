@@ -2468,8 +2468,16 @@ main (int argc, char *argv[])
               if (!o42_book_define_name (book, words[0], sheet, &r))
                 fprintf (stderr, "cannot use %s as a name\n", words[0]);
             }
+          else if (g_strv_length (words) >= 2)
+            {
+              /* A constant, an expression or a LAMBDA: the rest of the line. */
+              const char *formula = text + 5 + strlen (words[0]) + 1;
+
+              if (!o42_book_define_name_formula (book, words[0], formula))
+                fprintf (stderr, "cannot use %s as a name\n", words[0]);
+            }
           else
-            fprintf (stderr, "usage: name TOTAL A1:A5\n");
+            fprintf (stderr, "usage: name TOTAL A1:A5 | name RATE =0.25 | name ADD2 =LAMBDA(a,b,a+b)\n");
           g_strfreev (words);
           continue;
         }
@@ -2493,6 +2501,8 @@ main (int argc, char *argv[])
                   printf ("%s = %s!%s:%s\n", (char *) l->data, o42_sheet_get_name (target), a, b);
                   g_free (a); g_free (b);
                 }
+              else if (o42_book_lookup_name_formula (book, l->data) != NULL)
+                printf ("%s = =%s\n", (char *) l->data, o42_book_lookup_name_formula (book, l->data));
             }
           g_list_free (names);
           continue;

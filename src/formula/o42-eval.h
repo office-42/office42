@@ -32,6 +32,16 @@ struct _O42EvalContext {
   gboolean (*get_name) (O42EvalContext *ctx, const char *name,
                         const char **sheet, O42Range *range);
 
+  /* A defined name that is a formula rather than a rectangle: its text,
+   * without "=", or NULL.  Looked at when get_name has no rectangle for
+   * the name.  May be NULL. */
+  const char *(*get_name_formula) (O42EvalContext *ctx, const char *name);
+
+  /* The block a dynamic array spilled into from the cell at row, col
+   * on the named sheet (NULL for the formula's own), for A1#; FALSE
+   * when nothing spilled from there.  May be NULL. */
+  gboolean (*get_spill) (O42EvalContext *ctx, const char *sheet, int row, int col, O42Range *out);
+
   /* The cell whose formula is being evaluated, for ROW() and COLUMN()
    * without an argument. */
   int        row;
@@ -61,7 +71,22 @@ struct _O42EvalContext {
    * hidden, for AGGREGATE's option to leave such rows out.  May be
    * NULL, and then no row is. */
   gboolean (*row_hidden) (O42EvalContext *ctx, const char *sheet, int row);
+
+  /* An interned string that stands for the named sheet (NULL for the
+   * formula's own) and for no other, the same every time: what the
+   * evaluator files its caches under, and what the sheet passes to
+   * o42_eval_cell_touched when a cell changes.  NULL for a sheet that
+   * is not there.  May be NULL altogether, and then nothing is cached. */
+  const char *(*sheet_key) (O42EvalContext *ctx, const char *sheet);
 };
+
+/* The sheet telling the evaluator that a cell's value may have changed
+ * -- its input was set, or a formula in it was staled -- so that an
+ * index built over a range holding it is thrown away; and that a whole
+ * sheet changed shape or name (rows moved, a sort, a recalculation of
+ * everything), or every sheet when `sheet_key` is NULL. */
+void o42_eval_cell_touched (const char *sheet_key, int row, int col);
+void o42_eval_sheet_changed (const char *sheet_key);
 
 /* An argument is either a single value or a rectangle of them.  Keeping the
  * distinction is what lets SUM(A1:A9) see nine cells while SUM(A1) sees one,
@@ -75,6 +100,8 @@ typedef struct {
   O42Range    range;
   O42Value    value;    /* meaningful when is_range is FALSE */
   const void *lambda;   /* a LAMBDA(...) node, when the operand is one */
+  const void *closure;  /* the bindings it was made under, when it came
+                         * out of another LAMBDA or a LET; else NULL */
 } O42Operand;
 
 O42Value o42_eval (O42EvalContext *ctx, const O42Node *node);

@@ -1360,6 +1360,17 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
               "    </gnm:Name>\n", esc, sheet_name, a, b);
             g_free (sheet_name); g_free (a); g_free (b); g_free (esc);
           }
+        else if (o42_book_lookup_name_formula (book, l->data) != NULL)
+          {
+            char *esc = g_markup_escape_text (l->data, -1);
+            char *val = g_markup_escape_text (o42_book_lookup_name_formula (book, l->data), -1);
+
+            g_string_append_printf (out,
+              "    <gnm:Name>\n      <gnm:name>%s</gnm:name>\n"
+              "      <gnm:value>%s</gnm:value>\n      <gnm:position>A1</gnm:position>\n"
+              "    </gnm:Name>\n", esc, val);
+            g_free (esc); g_free (val);
+          }
       }
     if (names != NULL)
       g_string_append (out, "  </gnm:Names>\n");
@@ -3667,6 +3678,8 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
         }
       if (usable)
         o42_book_define_name (book, nm, target, &range);
+      else if (tree->type != O42_NODE_ERROR && tree->type != O42_NODE_RANGE && tree->type != O42_NODE_REF)
+        o42_book_define_name_formula (book, nm, val);
       o42_node_free (tree);
     }
   g_ptr_array_free (r.pending_names, TRUE);
