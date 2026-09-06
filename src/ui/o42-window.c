@@ -54,6 +54,7 @@
 #include "o42-ods.h"
 #include "o42-html.h"
 #include "o42-book.h"
+#include "o42-pyquote.h"
 #include "o42-eval.h"
 #include "o42-formula.h"
 #include "o42-python.h"
@@ -452,6 +453,22 @@ on_picture_response (GObject *source, GAsyncResult *result, gpointer data)
         {
           o42_grid_insert_picture (self->grid, bytes, format, width, height);
           g_bytes_unref (bytes);
+          if (o42_book_recording (self->book))
+            {
+              /* The recorder gets the picture by its path, which is all
+               * a macro can be given. */
+              int row, col;
+              char *path = g_file_get_path (file);
+              char *quoted = o42_python_quote (path != NULL ? path : "");
+              char *at, *line;
+
+              o42_grid_get_active (self->grid, &row, &col);
+              at = o42_ref_name (row, col);
+              line = g_strdup_printf ("sheet.add_picture(%s, \"%s\")", quoted, at);
+              o42_book_record_sheet (self->book, o42_sheet_get_name (self->sheet));
+              o42_book_record_line (self->book, line);
+              g_free (line); g_free (at); g_free (quoted); g_free (path);
+            }
         }
       else
         show_error (self, "office42 could not insert that picture.", error);
@@ -5175,7 +5192,7 @@ static gboolean
 file_is_xlsx (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  gboolean xlsx = name != NULL && g_str_has_suffix (name, ".xlsx");
+  gboolean xlsx = name != NULL && (g_str_has_suffix (name, ".xlsx") || g_str_has_suffix (name, ".xlsm"));
   g_free (name);
   return xlsx;
 }
@@ -5259,9 +5276,20 @@ o42_window_open_file (O42Window *self, GFile *file)
    * offers, for scripts in the book and for =PY() in its cells alike. */
   if (ok)
     o42_book_set_scripts_trusted (self->book, FALSE);
-  gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar),
-                                 ok && o42_python_available () &&
-                                 (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY")));
+  {
+    gboolean scripts = ok && o42_python_available () &&
+                       (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY"));
+    gboolean vba = ok && o42_book_has_vba (self->book);
+
+    /* A Visual Basic project is not run -- office42 runs Python -- but
+     * it is kept, and the bar says so. */
+    gtk_label_set_text (GTK_LABEL (self->scripts_bar_label),
+                        scripts ? _("This book has Python scripts in it. They have not been run.")
+                                : _("This book has Visual Basic macros, which office42 does not run; "
+                                    "they are kept for Excel when it is saved as .xlsm."));
+    gtk_widget_set_visible (self->scripts_bar_run, scripts);
+    gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), scripts || vba);
+  }
   o42_window_bind_macro_keys (self);
   return ok;
 }
@@ -5298,6 +5326,8 @@ window_save_to (O42Window *self, GFile *file)
 {
   GError *error = NULL;
   gboolean ok;
+
+  o42_window_fire_event (self, "before_save", NULL);
 
   if (file_is_csv (file))
     ok = o42_csv_save (self->sheet, file, &error);
@@ -5365,6 +5395,7 @@ book_filters (void)
 
   g_list_store_append (filters, pattern_filter ("Gnumeric Spreadsheets (*.gnumeric)", "*.gnumeric"));
   g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
+  g_list_store_append (filters, pattern_filter ("Excel Macro-Enabled Workbooks (*.xlsm)", "*.xlsm"));
   g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
   g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods, *.fods)", "*.ods"));
   g_list_store_append (filters, pattern_filter ("Web Pages (*.html)", "*.html"));
@@ -5543,6 +5574,7 @@ o42_window_close_request (GtkWindow *window)
       const char *code = o42_book_script_code (self->book, "Auto_Close");
       if (code != NULL)
         o42_window_run_script (self, "Auto_Close", code);
+      o42_window_fire_event (self, "close", NULL);
     }
 
   if (!o42_book_is_modified (self->book))
@@ -5821,6 +5853,9 @@ static const GActionEntry ACTIONS[] = {
   { "python-console", action_python_console, NULL, NULL, NULL, { 0 } },
   { "python-run",     action_python_run,     NULL, NULL, NULL, { 0 } },
   { "scripts",        action_scripts,        NULL, NULL, NULL, { 0 } },
+  { "script-step",    action_script_step,    NULL, NULL, NULL, { 0 } },
+  { "script-continue", action_script_continue, NULL, NULL, NULL, { 0 } },
+  { "script-stop",    action_script_stop,    NULL, NULL, NULL, { 0 } },
   { "scripts-run-all", action_scripts_run_all, NULL, NULL, NULL, { 0 } },
   { "text-to-columns", action_text_to_columns, NULL, NULL, NULL, { 0 } },
   { "conditional",    action_conditional,    NULL, NULL, NULL, { 0 } },
@@ -6525,6 +6560,24 @@ on_grid_selection_changed (O42Grid *grid, gpointer data)
       o42_book_record_selection (self->book, o42_sheet_get_name (self->sheet), &sel, row, col);
     }
   on_grid_changed (grid, data);
+  if (self->sheet != NULL)
+    {
+      O42Range sel;
+      o42_grid_get_selection (grid, &sel);
+      o42_window_fire_event (self, "selection", &sel);
+    }
+}
+
+/* Cells the user edited, for a script's on_change. */
+static void
+on_grid_cells_edited (O42Grid *grid, int row0, int col0, int row1, int col1, gpointer data)
+{
+  O42Window *self = data;
+  O42Range range = { row0, col0, row1, col1 };
+
+  (void) grid;
+  if (self->sheet != NULL)
+    o42_window_fire_event (self, "change", &range);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -6769,13 +6822,21 @@ host_close (gpointer user, O42Book *book)
     g_idle_add (host_close_later, self);
 }
 
+static int
+host_debug_pause (gpointer user, O42Book *book, const char *filename, int line, const char *variables)
+{
+  O42Window *self = host_window (user, book);
+
+  return self != NULL ? o42_window_debug_pause (self, filename, line, variables) : 0;
+}
+
 static void
 window_install_python_host (O42Window *self)
 {
   static gboolean installed = FALSE;
   O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
                          host_input, host_status, host_path, host_save, host_open,
-                         host_close };
+                         host_close, host_debug_pause };
 
   if (installed)
     return;
@@ -6924,6 +6985,10 @@ o42_window_init (O42Window *self)
     GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget *label = gtk_label_new (_("This book has Python scripts in it. They have not been run."));
     GtkWidget *run = gtk_button_new_with_mnemonic (_("_Run Scripts"));
+
+    self->scripts_bar_label = label;
+    self->scripts_bar_run = run;
+    gtk_label_set_wrap (GTK_LABEL (label), TRUE);
     GtkWidget *show = gtk_button_new_with_mnemonic (_("_Scripts..."));
     GtkWidget *hide = gtk_button_new_with_mnemonic (_("_Hide"));
 
@@ -6955,6 +7020,7 @@ o42_window_init (O42Window *self)
   o42_grid_set_mirror (self->grid, self->formula_entry);
 
   g_signal_connect (self->grid, "selection-changed", G_CALLBACK (on_grid_selection_changed), self);
+  g_signal_connect (self->grid, "cells-edited",      G_CALLBACK (on_grid_cells_edited), self);
   g_signal_connect (self->grid, "sheet-changed",     G_CALLBACK (on_grid_changed), self);
   g_signal_connect (self->grid, "run-script",        G_CALLBACK (on_grid_run_script), self);
   g_signal_connect (self->grid, "map", G_CALLBACK (on_grid_mapped), self);

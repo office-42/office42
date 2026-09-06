@@ -35,7 +35,7 @@ from contextlib import redirect_stdout, redirect_stderr
 
 import _office42 as _c
 
-__all__ = ["Book", "Sheet", "Range", "Error", "book", "sheet", "function",
+__all__ = ["Book", "Sheet", "Range", "Chart", "Shape", "Picture", "Error", "book", "sheet", "function", "on", "off",
            "evaluate", "functions"]
 
 
@@ -394,6 +394,270 @@ class Range:
         """The top-left cell's format, as a dict."""
         return _c.get_format(self.sheet.index, self.row0, self.col0)
 
+    # Excel's Range.NumberFormat, .Font.Bold and the like, as properties
+    # that read the top-left cell and set the whole range.
+    def _prop(name):
+        def get(self):
+            return self.style[name]
+        def put(self, value):
+            self.format(**{name: value})
+        return property(get, put)
+
+    number_format = _prop("number")
+    bold = _prop("bold")
+    italic = _prop("italic")
+    underline = _prop("underline")
+    strikeout = _prop("strikeout")
+    wrap = _prop("wrap")
+    size = _prop("size")
+    family = _prop("family")
+    colour = _prop("colour")
+    fill = _prop("fill")
+    halign = _prop("halign")
+    valign = _prop("valign")
+    decimals = _prop("decimals")
+    locked = _prop("locked")
+    del _prop
+
+    # -- notes and links -----------------------------------------------
+    @property
+    def note(self):
+        """The top-left cell's note, or None."""
+        return _c.get_note(self.sheet.index, self.row0, self.col0)
+
+    @note.setter
+    def note(self, text):
+        _c.set_note(self.sheet.index, self.row0, self.col0, text)
+
+    @note.deleter
+    def note(self):
+        _c.set_note(self.sheet.index, self.row0, self.col0, None)
+
+    @property
+    def hyperlink(self):
+        """The top-left cell's hyperlink -- a URL, or "#Sheet2!A1" -- or None."""
+        return _c.get_link(self.sheet.index, self.row0, self.col0)
+
+    @hyperlink.setter
+    def hyperlink(self, target):
+        _c.set_link(self.sheet.index, self.row0, self.col0, target)
+
+    @hyperlink.deleter
+    def hyperlink(self):
+        _c.set_link(self.sheet.index, self.row0, self.col0, None)
+
+    # -- rows and columns ----------------------------------------------
+    @property
+    def row_height(self):
+        """The first row's height in pixels; setting it sets every row of the range."""
+        return _c.row_height(self.sheet.index, self.row0)
+
+    @row_height.setter
+    def row_height(self, pixels):
+        for r in range(self.row0, self.row1 + 1):
+            _c.row_height(self.sheet.index, r, int(pixels))
+
+    @property
+    def column_width(self):
+        """The first column's width in pixels; setting it sets every column of the range."""
+        return _c.col_width(self.sheet.index, self.col0)
+
+    @column_width.setter
+    def column_width(self, pixels):
+        for c in range(self.col0, self.col1 + 1):
+            _c.col_width(self.sheet.index, c, int(pixels))
+
+    @property
+    def hidden(self):
+        """Whether the range's rows are hidden (its first row's state)."""
+        return _c.hidden(self.sheet.index, True, self.row0)
+
+    @hidden.setter
+    def hidden(self, hide):
+        _c.set_hidden(self.sheet.index, True, self.row0, self.row1, bool(hide))
+
+    def autofit(self):
+        """Widens each column of the range to its longest shown text,
+        as a double-click on the column's edge does."""
+        i = self.sheet.index
+        for c in range(self.col0, self.col1 + 1):
+            longest = 0
+            for r in range(self.row0, self.row1 + 1):
+                longest = max(longest, len(_c.get_display(i, r, c) or ""))
+            if longest:
+                _c.col_width(i, c, min(7 * longest + 12, 1200))
+        return self
+
+    # -- validation and conditional formats ---------------------------
+    @property
+    def validation(self):
+        """The validation rule on the top-left cell, as a dict (kind, op,
+        value, value2, message, allow_blank, range), or None."""
+        for v in _c.validations(self.sheet.index):
+            r0, c0, r1, c1 = v["range"]
+            if r0 <= self.row0 <= r1 and c0 <= self.col0 <= c1:
+                v["range"] = Range(self.sheet, r0, c0, r1, c1)
+                return v
+        return None
+
+    def validate(self, kind, op="between", value="", value2="", message="", allow_blank=True):
+        """Data > Validation over the range: kind is 'whole', 'decimal',
+        'list', 'date', 'time' or 'length' ('any' clears); op is
+        'between', 'not_between', '==', '!=', '>', '<', '>=' or '<=';
+        for a list, value holds the entries comma-separated or a range
+        address.  Replaces the rules the range touched."""
+        i = self.sheet.index
+        _c.clear_validations(i, self.row0, self.col0, self.row1, self.col1)
+        if kind != "any":
+            _c.add_validation(i, self.row0, self.col0, self.row1, self.col1, kind, op,
+                              str(value), str(value2), message or "", bool(allow_blank))
+        return self
+
+    def clear_validation(self):
+        _c.clear_validations(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
+        return self
+
+    @property
+    def conditional_formats(self):
+        """The rules touching the range: dicts with range, op, value,
+        value2 and format (the dict Range.style gives)."""
+        out = []
+        for c in _c.conditions(self.sheet.index):
+            r0, c0, r1, c1 = c["range"]
+            if r0 <= self.row1 and r1 >= self.row0 and c0 <= self.col1 and c1 >= self.col0:
+                c["range"] = Range(self.sheet, r0, c0, r1, c1)
+                out.append(c)
+        return out
+
+    def add_conditional_format(self, op, value, value2=0, **format):
+        """Format > Conditional Formatting: when a cell's value stands in
+        op ('between', '>', '==', ...) to value (and value2 for between),
+        it wears the format given as Range.format takes it."""
+        _c.add_condition(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                         op, float(value), float(value2), **format)
+        return self
+
+    def clear_conditional_formats(self):
+        _c.clear_conditions(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
+        return self
+
+
+class _Object:
+    """A chart, shape or picture floating over a sheet: its properties
+    are read and written through the sheet, so they are always what the
+    sheet holds."""
+
+    __slots__ = ("sheet", "id")
+    _type = ""
+
+    def __init__(self, sheet, id):
+        self.sheet = sheet
+        self.id = id
+
+    def __repr__(self):
+        return "<%s %d on %r>" % (self._type.capitalize(), self.id, self.sheet.name)
+
+    def __eq__(self, other):
+        return type(other) is type(self) and other.id == self.id and other.sheet == self.sheet
+
+    def __hash__(self):
+        return hash((self._type, self.id))
+
+    def _get(self):
+        return _c.object_get(self.sheet.index, self._type, self.id)
+
+    def _set(self, **props):
+        _c.object_set(self.sheet.index, self._type, self.id, props)
+
+    def __getattr__(self, name):
+        props = self._get()
+        if name in props:
+            return props[name]
+        raise AttributeError("a %s has no %s" % (self._type, name))
+
+    def __setattr__(self, name, value):
+        if name in ("sheet", "id") or isinstance(getattr(type(self), name, None), property):
+            object.__setattr__(self, name, value)
+        else:
+            self._set(**{name: value})
+
+    @property
+    def position(self):
+        """The anchor cell as a Range."""
+        p = self._get()
+        return Range(self.sheet, p["row"], p["col"])
+
+    @position.setter
+    def position(self, where):
+        if isinstance(where, str):
+            where = self.sheet.range(where)
+        self._set(row=where.row0, col=where.col0, dx=0, dy=0)
+
+    @property
+    def size(self):
+        """(width, height) in pixels."""
+        p = self._get()
+        return (p["width"], p["height"])
+
+    @size.setter
+    def size(self, wh):
+        self._set(width=float(wh[0]), height=float(wh[1]))
+
+    def bring_to_front(self):
+        _c.reorder_object(self.sheet.index, self._type, self.id, "front")
+
+    def send_to_back(self):
+        _c.reorder_object(self.sheet.index, self._type, self.id, "back")
+
+    def bring_forward(self):
+        _c.reorder_object(self.sheet.index, self._type, self.id, "forward")
+
+    def send_backward(self):
+        _c.reorder_object(self.sheet.index, self._type, self.id, "backward")
+
+    def delete(self):
+        _c.remove_object(self.sheet.index, self._type, self.id)
+
+
+class Chart(_Object):
+    """A chart: kind ('column', 'line', 'pie', 'bar', 'area', 'scatter',
+    'stacked', 'percent', 'doughnut', 'radar', 'bubble', 'stock',
+    'surface', 'box', 'histogram', 'polar', 'contour'), title, x_title,
+    y_title, legend, data (a Range), series_in_rows, first_row_labels,
+    first_col_labels, data_labels, three_d, gridlines, font_family,
+    font_size, y_format, position, size."""
+    __slots__ = ()
+    _type = "chart"
+
+    @property
+    def data(self):
+        p = self._get()
+        return Range(self.sheet, *p["data"])
+
+    @data.setter
+    def data(self, where):
+        if isinstance(where, str):
+            where = self.sheet.range(where)
+        self._set(data=(where.row0, where.col0, where.row1, where.col1))
+
+
+class Shape(_Object):
+    """A drawn shape or a form control: kind, geom (the outline:
+    'rect', 'roundRect', 'ellipse', 'triangle', 'diamond', 'star5',
+    'rightArrow', ...), text, fill ('#RRGGBB' or None), line, line_width,
+    dash, head_start, head_end, rotation, flip_h, flip_v, position, size;
+    a control's link, source and script."""
+    __slots__ = ()
+    _type = "shape"
+
+
+class Picture(_Object):
+    """A picture: format, pixel_w, pixel_h, rotation, flip_h, flip_v,
+    crop (left, right, top, bottom as fractions), lock_aspect,
+    position, size."""
+    __slots__ = ()
+    _type = "picture"
+
 
 class Sheet:
     """One sheet of the book, by index."""
@@ -455,6 +719,82 @@ class Sheet:
         """The rectangle with anything in it, or None for an empty sheet."""
         r = _c.used_range(self.index)
         return None if r is None else Range(self, *r)
+
+    # -- charts, shapes and pictures ----------------------------------
+    def _anchor(self, at):
+        if isinstance(at, str):
+            at = self.range(at)
+        return at.row0, at.col0
+
+    @property
+    def objects(self):
+        """Every chart, shape and picture, from the back to the front."""
+        kinds = {"chart": Chart, "shape": Shape, "picture": Picture}
+        return [kinds[t](self, i) for t, i in _c.objects(self.index)]
+
+    @property
+    def charts(self):
+        return [o for o in self.objects if isinstance(o, Chart)]
+
+    @property
+    def shapes(self):
+        return [o for o in self.objects if isinstance(o, Shape)]
+
+    @property
+    def pictures(self):
+        return [o for o in self.objects if isinstance(o, Picture)]
+
+    def add_chart(self, kind, data, at, width=None, height=None, title=None, **props):
+        """Insert > Chart: a chart of `kind` over the cells of `data`
+        (a Range or "A1:B5"), anchored at `at` (a Range or "D2")."""
+        if isinstance(data, str):
+            data = self.range(data)
+        row, col = self._anchor(at)
+        chart = Chart(self, _c.add_chart(self.index, kind, data.row0, data.col0,
+                                         data.row1, data.col1, row, col))
+        if width is not None:
+            props["width"] = float(width)
+        if height is not None:
+            props["height"] = float(height)
+        if title is not None:
+            props["title"] = title
+        if props:
+            chart._set(**props)
+        return chart
+
+    def add_shape(self, kind, at, width=None, height=None, text=None, **props):
+        """Insert > Shape: 'rectangle', 'oval', 'line', 'arrow',
+        'textbox', an outline such as 'star5' or 'rightArrow', or a
+        control ('button', 'checkbox', 'option', 'label', 'spinner',
+        'scrollbar', 'listbox', 'groupbox', 'combo')."""
+        row, col = self._anchor(at)
+        shape = Shape(self, _c.add_shape(self.index, kind, row, col))
+        if width is not None:
+            props["width"] = float(width)
+        if height is not None:
+            props["height"] = float(height)
+        if text is not None:
+            props["text"] = text
+        if props:
+            shape._set(**props)
+        return shape
+
+    def add_picture(self, path, at, width=None, height=None, **props):
+        """Insert > Picture > From File, anchored at `at`."""
+        row, col = self._anchor(at)
+        picture = Picture(self, _c.add_picture(self.index, path, row, col))
+        pw, ph = picture.size
+        if width is not None and height is None and pw > 0:
+            height = float(width) * ph / pw       # in proportion
+        if height is not None and width is None and ph > 0:
+            width = float(height) * pw / ph
+        if width is not None:
+            props["width"] = float(width)
+        if height is not None:
+            props["height"] = float(height)
+        if props:
+            picture._set(**props)
+        return picture
 
     @property
     def rows(self):
@@ -680,6 +1020,11 @@ class Application:
         """Works out every formula in the book now: F9."""
         _c.calculate()
 
+    def recalculate(self, full=True):
+        """Every sheet worked out again; `full` is what Excel's
+        CalculateFull is, and the only kind here."""
+        _c.calculate()
+
     calculate_full = calculate
 
     @property
@@ -693,8 +1038,18 @@ class Application:
 
     status_bar = status
 
+    display_alerts = True   # False keeps msgbox quiet, as Excel's does
+
     def msgbox(self, text):
-        return msgbox(text)
+        if self.display_alerts:
+            return msgbox(text)
+
+    def undo(self):
+        """Edit > Undo: one step back on the book's history; whether there was one."""
+        return _c.undo(_c.current(), False)
+
+    def redo(self):
+        return _c.undo(_c.current(), True)
 
     def inputbox(self, prompt, default=""):
         return inputbox(prompt, default)
@@ -857,6 +1212,92 @@ def _bind():
     _namespace["function"] = function
 
 
+# ---- Events -----------------------------------------------------------
+#
+# What Excel's Worksheet_Change, Worksheet_SelectionChange,
+# Workbook_BeforeSave, Workbook_Open and Workbook_BeforeClose are:
+# functions a book's script registers with office42.on(), or names in
+# the script that are taken as registered when it runs -- on_change,
+# on_selection_change, on_before_save, on_open, on_close.  A handler is
+# called with (sheet, range) for the first two and (book) for the rest.
+# A change a handler makes does not call the handlers again.
+
+EVENTS = ("change", "selection", "before_save", "open", "close")
+_NAMED_HANDLERS = {"on_change": "change", "on_selection_change": "selection",
+                   "on_before_save": "before_save", "on_open": "open", "on_close": "close"}
+_handlers = {}     # book id -> {event: {name: fn}}
+_forgotten = set() # ids of functions off() was given: the convention does not bring them back
+
+
+def _count_handlers():
+    n = sum(len(fns) for events in _handlers.values() for fns in events.values())
+    _c.events_count(n)
+
+
+def on(event, fn=None, *, name=None):
+    """Registers fn for an event: office42.on("change", fn), or as a
+    decorator @office42.on("change").  A second registration under the
+    same name replaces the first, so a script may be run again."""
+    if event not in EVENTS:
+        raise ValueError("event is one of %s, not %r" % (", ".join(EVENTS), event))
+
+    def register(f):
+        key = name or getattr(f, "__name__", None) or repr(f)
+        _handlers.setdefault(_c.book_id(), {}).setdefault(event, {})[key] = f
+        _count_handlers()
+        return f
+    return register if fn is None else register(fn)
+
+
+def off(event, fn_or_name=None):
+    """Forgets a handler, or with None every handler of the event."""
+    events = _handlers.get(_c.book_id(), {})
+    if fn_or_name is None:
+        for f in events.pop(event, {}).values():
+            _forgotten.add(id(f))
+    else:
+        fns = events.get(event, {})
+        for key in [k for k, f in fns.items() if f is fn_or_name or k == fn_or_name]:
+            _forgotten.add(id(fns[key]))
+            del fns[key]
+    _count_handlers()
+
+
+def _register_named_handlers():
+    """The convention: a function named on_change and the like in what
+    just ran is a handler."""
+    for name, event in _NAMED_HANDLERS.items():
+        f = _namespace.get(name)
+        if callable(f) and id(f) not in _forgotten:
+            on(event, f, name=name)
+
+
+def _fire(event, sheet_index, r0, c0, r1, c1):
+    """Called from C when the event happens; errors are reported, not raised."""
+    _bind()
+    fns = list(_handlers.get(_c.book_id(), {}).get(event, {}).values())
+    if not fns:
+        return ""
+    out = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(out):
+        for f in fns:
+            try:
+                if event in ("change", "selection"):
+                    sh = Sheet(sheet_index)
+                    f(sh, Range(sh, r0, c0, r1, c1))
+                else:
+                    f(book)
+            except BaseException:
+                lines = traceback.format_exc().splitlines()
+                print("\n".join(l for l in lines if "office42.py" not in l))
+    return out.getvalue()
+
+
+def _forget_handlers(owner):
+    _handlers.pop(owner, None)
+    _count_handlers()
+
+
 def _run(code, filename="<console>"):
     """Runs code in the console's namespace; (ok, what it printed)."""
     _bind()
@@ -875,6 +1316,7 @@ def _run(code, filename="<console>"):
                     print(repr(result))
             else:
                 exec(compile(code, filename, "exec"), _namespace)
+                _register_named_handlers()
         except SystemExit:
             pass
         except BaseException:
@@ -885,8 +1327,76 @@ def _run(code, filename="<console>"):
     return ok, out.getvalue()
 
 
+# ---- Stepping through a script ------------------------------------------
+
+class DebugStop(BaseException):
+    """Raised in the script when the user presses Stop."""
+
+
+def _locals_text(frame):
+    """The frame's variables, one a line, for the debugger's pane."""
+    lines = []
+    for name, value in sorted(frame.f_locals.items()):
+        if name.startswith("__") or type(value).__name__ == "module" or callable(value) and not isinstance(value, type):
+            continue
+        try:
+            shown = repr(value)
+        except BaseException:
+            shown = "<unrepresentable>"
+        if len(shown) > 70:
+            shown = shown[:67] + "..."
+        lines.append("%s = %s" % (name, shown))
+    return "\n".join(lines)
+
+
+def _debug(code, filename, breakpoints, step_first):
+    """Runs code as _run does, pausing -- through _c.debug_pause, which
+    waits on the window -- at every line when stepping and at the lines
+    in breakpoints otherwise.  debug_pause answers 0 to go on, 1 to step
+    to the next line, 2 to stop."""
+    import sys
+    _bind()
+    state = {"step": bool(step_first)}
+    stops = set(breakpoints)
+
+    def local_trace(frame, event, arg):
+        if event == "line" and frame.f_code.co_filename == filename:
+            line = frame.f_lineno
+            if state["step"] or line in stops:
+                command = _c.debug_pause(line, _locals_text(frame))
+                if command == 2:
+                    raise DebugStop()
+                state["step"] = command == 1
+        return local_trace
+
+    def global_trace(frame, event, arg):
+        return local_trace if frame.f_code.co_filename == filename else None
+
+    out = io.StringIO()
+    ok = True
+    with redirect_stdout(out), redirect_stderr(out):
+        try:
+            compiled = compile(code, filename, "exec")
+            sys.settrace(global_trace)
+            try:
+                exec(compiled, _namespace)
+            finally:
+                sys.settrace(None)
+            _register_named_handlers()
+        except DebugStop:
+            print("Stopped.")
+        except SystemExit:
+            pass
+        except BaseException:
+            ok = False
+            lines = traceback.format_exc().splitlines()
+            print("\n".join(l for l in lines if "office42.py" not in l))
+    return ok, out.getvalue()
+
+
 def _forget_book(owner):
     """The book is going, or its scripts are being forgotten."""
+    _forget_handlers(owner)
     for name in _book_functions.pop(owner, {}):
         if not _defined_elsewhere(name, owner):
             _c.undefine(name)

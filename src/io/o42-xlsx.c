@@ -1638,6 +1638,11 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
 {
   Writer w;
   O42ZipWriter *zip = o42_zip_writer_new ();
+  /* Saving as .xlsm keeps a Visual Basic project the book came with;
+   * as .xlsx it is left out, as Excel leaves it out. */
+  char *save_name = g_file_get_basename (file);
+  gboolean macro_enabled = save_name != NULL && g_str_has_suffix (save_name, ".xlsm") &&
+                           o42_book_has_vba (book);
   int n_sheets = o42_book_n_sheets (book);
   int first_shown = 0;   /* the sheet the book opens on */
 
@@ -1757,10 +1762,14 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
     "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
-    "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
-    "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
+    "<Default Extension=\"xml\" ContentType=\"application/xml\"/>");
+  /* An .xlsm's workbook part says it is macro-enabled; Excel refuses a
+   * VBA project in a plain .xlsx. */
+  g_string_append_printf (s,
+    "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.%s.main+xml\"/>"
     "<Override PartName=\"/xl/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml\"/>"
-    "<Override PartName=\"/xl/sharedStrings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml\"/>");
+    "<Override PartName=\"/xl/sharedStrings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml\"/>",
+    macro_enabled ? "ms-excel.sheet.macroEnabled" : "openxmlformats-officedocument.spreadsheetml.sheet");
   for (int i = 0; i < n_sheets; i++)
     {
       gboolean cs = o42_sheet_is_chart_sheet (o42_book_sheet (book, i));
@@ -1825,6 +1834,31 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
       o42_zip_writer_add (zip, "xl/o42/scripts.xml", sx->str, sx->len);
       g_string_free (sx, TRUE);
       g_string_append (extra_types, "<Override PartName=\"/xl/o42/scripts.xml\" ContentType=\"application/xml\"/>");
+    }
+  if (macro_enabled)
+    {
+      /* The kept Visual Basic project, and what a package needs to say
+       * about it: its content type and the workbook's relationship. */
+      GList *names = o42_book_kept_parts (book);
+
+      for (GList *l = names; l != NULL; l = l->next)
+        {
+          GBytes *part = o42_book_kept_part (book, l->data);
+          gsize length = 0;
+          const char *data = g_bytes_get_data (part, &length);
+
+          o42_zip_writer_add (zip, l->data, data, length);
+          if (g_str_has_suffix (l->data, ".bin"))
+            g_string_append_printf (extra_types,
+              "<Override PartName=\"/%s\" ContentType=\"application/vnd.ms-office.%s\"/>",
+              (const char *) l->data,
+              strstr (l->data, "Signature") != NULL ? "vbaProjectSignature" : "vbaProject");
+          else if (g_str_has_suffix (l->data, "vbaData.xml"))
+            g_string_append_printf (extra_types,
+              "<Override PartName=\"/%s\" ContentType=\"application/vnd.ms-word.vbaData+xml\"/>",
+              (const char *) l->data);
+        }
+      g_list_free (names);
     }
   g_string_append (s, extra_types->str);
   g_string_append (s, "</Types>");
@@ -1994,8 +2028,13 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     }
   g_string_append_printf (s,
     "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>"
-    "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/>"
-    "</Relationships>", n_sheets + 1, n_sheets + 2);
+    "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings\" Target=\"sharedStrings.xml\"/>",
+    n_sheets + 1, n_sheets + 2);
+  if (macro_enabled)
+    g_string_append_printf (s,
+      "<Relationship Id=\"rId%d\" Type=\"http://schemas.microsoft.com/office/2006/relationships/vbaProject\" Target=\"vbaProject.bin\"/>",
+      n_sheets + 3);
+  g_string_append (s, "</Relationships>");
   o42_zip_writer_add (zip, "xl/_rels/workbook.xml.rels", s->str, s->len);
 
   for (int i = 0; i < n_sheets; i++)
@@ -2065,6 +2104,7 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
 
   {
     GBytes *bytes = o42_zip_writer_finish (zip);
+  g_free (save_name);
     ok = g_file_replace_contents (file, g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes),
                                   NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);
     g_bytes_unref (bytes);
@@ -3693,6 +3733,21 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
       g_hash_table_unref (parts);
       return FALSE;
     }
+
+  /* A Visual Basic project is not read -- office42 runs Python -- but
+   * it is kept, part by part, so that saving as .xlsm gives Excel its
+   * macros back untouched. */
+  {
+    static const char *const vba_parts[] = {
+      "xl/vbaProject.bin", "xl/vbaData.xml", "xl/_rels/vbaProject.bin.rels",
+      "xl/vbaProjectSignature.bin", "xl/_rels/vbaProjectSignature.bin.rels", NULL
+    };
+    for (int i = 0; vba_parts[i] != NULL; i++)
+      {
+        GBytes *part = g_hash_table_lookup (parts, vba_parts[i]);
+        o42_book_keep_part (book, vba_parts[i], part);
+      }
+  }
 
   memset (&r, 0, sizeof r);
   r.book = book;

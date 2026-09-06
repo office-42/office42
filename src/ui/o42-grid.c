@@ -16,6 +16,7 @@
  */
 
 #include "o42-grid.h"
+#include "o42-pyquote.h"
 #include "o42-entry.h"
 #include "o42-shape.h"
 #include "o42-pattern.h"
@@ -1234,6 +1235,22 @@ outline_sync (O42Grid *self)
       self->header_w = header_w;
       gtk_widget_queue_resize (GTK_WIDGET (self));
     }
+}
+
+/* Cells the user edited -- typed, cleared, pasted, filled or moved --
+ * told to whoever listens, with the range; a script's on_change hears
+ * of it through the window. */
+static void
+cells_edited (O42Grid *self, const O42Range *range)
+{
+  g_signal_emit_by_name (self, "cells-edited", range->row0, range->col0, range->row1, range->col1);
+}
+
+static void
+cells_edited_cell (O42Grid *self, int row, int col)
+{
+  O42Range one = { row, col, row, col };
+  cells_edited (self, &one);
 }
 
 static void
@@ -2976,6 +2993,7 @@ o42_grid_commit_edit (O42Grid *self)
   {
     char *fixed = o42_entry_fixed_decimals_apply (text);
     o42_sheet_set_input (self->sheet, self->active_row, self->active_col, fixed != NULL ? fixed : text);
+    cells_edited_cell (self, self->active_row, self->active_col);
     g_free (fixed);
   }
   commit_editor_runs (self, text);
@@ -3018,6 +3036,7 @@ o42_grid_set_active_input (O42Grid *self, const char *text)
   {
     char *fixed = o42_entry_fixed_decimals_apply (text);
     o42_sheet_set_input (self->sheet, self->active_row, self->active_col, fixed != NULL ? fixed : text);
+    cells_edited_cell (self, self->active_row, self->active_col);
     g_free (fixed);
   }
   sheet_changed (self);
@@ -3039,7 +3058,10 @@ o42_grid_delete_selection (O42Grid *self)
     selection_ranges (self, ranges);
     o42_sheet_begin_group (self->sheet);
     for (guint i = 0; i < ranges->len; i++)
-      o42_sheet_clear_range (self->sheet, &g_array_index (ranges, O42Range, i));
+      {
+        o42_sheet_clear_range (self->sheet, &g_array_index (ranges, O42Range, i));
+        cells_edited (self, &g_array_index (ranges, O42Range, i));
+      }
     o42_sheet_end_group (self->sheet);
     g_array_unref (ranges);
   }
@@ -3153,6 +3175,14 @@ o42_grid_paste_special (O42Grid *self, O42PasteMode mode, gboolean transpose)
 
   o42_sheet_copy_range_special (self->sheet, &self->clip_range,
                                 self->active_row, self->active_col, mode, transpose);
+  {
+    O42Range landed = { self->active_row, self->active_col,
+                        self->active_row + (transpose ? self->clip_range.col1 - self->clip_range.col0
+                                                      : self->clip_range.row1 - self->clip_range.row0),
+                        self->active_col + (transpose ? self->clip_range.row1 - self->clip_range.row0
+                                                      : self->clip_range.col1 - self->clip_range.col0) };
+    cells_edited (self, &landed);
+  }
   sheet_changed (self);
 }
 
@@ -3457,6 +3487,27 @@ o42_grid_insert_chart (O42Grid *self, O42ChartKind kind, const char *title,
   chart->series_in_rows = series_in_rows;
   chart->first_row_labels = first_row_labels;
   chart->first_col_labels = first_col_labels;
+
+  /* The macro recorder gets the one line that makes the same chart. */
+  {
+    O42Book *book = o42_sheet_get_book (self->sheet);
+
+    if (book != NULL && o42_book_recording (book))
+      {
+        char *a = o42_ref_name (range.row0, range.col0), *b = o42_ref_name (range.row1, range.col1);
+        char *at = o42_ref_name (row, col);
+        char *quoted = o42_python_quote (title != NULL ? title : "");
+        char *line = g_strdup_printf ("sheet.add_chart(\"%s\", \"%s:%s\", \"%s\", title=%s, series_in_rows=%s, "
+                                      "first_row_labels=%s, first_col_labels=%s)",
+                                      o42_chart_kind_name (kind), a, b, at, quoted,
+                                      series_in_rows ? "True" : "False",
+                                      first_row_labels ? "True" : "False",
+                                      first_col_labels ? "True" : "False");
+        o42_book_record_sheet (book, o42_sheet_get_name (self->sheet));
+        o42_book_record_line (book, line);
+        g_free (line); g_free (quoted); g_free (at); g_free (a); g_free (b);
+      }
+  }
 
   self->selected_picture = chart->id;
   self->selected_is_chart = TRUE;
@@ -4847,6 +4898,9 @@ on_click_released (GtkGestureClick *gesture, int n_press,
             o42_sheet_move_range (self->sheet, &self->move_source,
                                   self->move_row, self->move_col);
           o42_grid_select_range (self, &landed);
+          cells_edited (self, &landed);
+          if (!self->move_copy)
+            cells_edited (self, &self->move_source);
           sheet_changed (self);
         }
       else
@@ -4864,6 +4918,7 @@ on_click_released (GtkGestureClick *gesture, int n_press,
            self->fill_target.col0 != self->fill_source.col0))
         {
           o42_sheet_autofill (self->sheet, &self->fill_source, &self->fill_target);
+          cells_edited (self, &self->fill_target);
           o42_grid_select_range (self, &self->fill_target);
           sheet_changed (self);
         }
@@ -7182,6 +7237,9 @@ o42_grid_class_init (O42GridClass *klass)
     g_signal_new ("selection-changed", G_TYPE_FROM_CLASS (klass),
                   G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
 
+  g_signal_new ("cells-edited", G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 4,
+                G_TYPE_INT, G_TYPE_INT, G_TYPE_INT, G_TYPE_INT);
   signals[SIGNAL_SHEET_CHANGED] =
     g_signal_new ("sheet-changed", G_TYPE_FROM_CLASS (klass),
                   G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
@@ -7378,6 +7436,23 @@ o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, cons
       g_free (shape->text);
       shape->text = g_strdup (text);
     }
+  {
+    O42Book *book = o42_sheet_get_book (self->sheet);
+
+    if (book != NULL && o42_book_recording (book))
+      {
+        const char *name = (kind == O42_SHAPE_RECT && geom != O42_GEOM_RECT)
+                           ? o42_shape_geom_name (geom) : o42_shape_kind_name (kind);
+        char *at = o42_ref_name (row, col);
+        char *quoted = text != NULL && *text != '\0' ? o42_python_quote (text) : NULL;
+        char *line = quoted != NULL
+                     ? g_strdup_printf ("sheet.add_shape(\"%s\", \"%s\", text=%s)", name, at, quoted)
+                     : g_strdup_printf ("sheet.add_shape(\"%s\", \"%s\")", name, at);
+        o42_book_record_sheet (book, o42_sheet_get_name (self->sheet));
+        o42_book_record_line (book, line);
+        g_free (line); g_free (quoted); g_free (at);
+      }
+  }
   self->selected_picture = shape->id;
   self->selected_is_chart = FALSE;
   self->selected_is_shape = TRUE;

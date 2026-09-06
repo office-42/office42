@@ -17,6 +17,8 @@
 #include "o42-eval.h"
 #include "o42-formula.h"
 #include "o42-pattern.h"
+#include "o42-image.h"
+#include "o42-pyquote.h"
 
 #include <string.h>
 #include <glib/gstdio.h>
@@ -64,6 +66,9 @@ o42_python_personal_scripts (void)
 
 gboolean    o42_python_available (void) { return FALSE; }
 const char *o42_python_version   (void) { return NULL; }
+void        o42_python_fire      (O42Book *book, const char *event, O42Sheet *sheet,
+                                  const O42Range *range, char **output)
+{ (void) book; (void) event; (void) sheet; (void) range; if (output != NULL) *output = NULL; }
 void        o42_python_reset     (void) { }
 void        o42_python_forget_book (O42Book *book) { (void) book; }
 gboolean    o42_python_start     (void) { return FALSE; }
@@ -84,6 +89,14 @@ o42_python_run_file (O42Book *book, O42Sheet *sheet, GFile *file, char **output)
   return o42_python_run (book, sheet, "", NULL, output);
 }
 
+gboolean
+o42_python_debug (O42Book *book, O42Sheet *sheet, const char *code, const char *filename,
+                  const int *breakpoints, int n_breakpoints, gboolean step_first, char **output)
+{
+  (void) breakpoints; (void) n_breakpoints; (void) step_first;
+  return o42_python_run (book, sheet, code, filename, output);
+}
+
 #else /* HAVE_PYTHON */
 
 #define PY_SSIZE_T_CLEAN
@@ -101,6 +114,9 @@ static PyObject *error_class   = NULL;   /* office42.Error */
 static char     *init_failure  = NULL;
 static gboolean  book_touched  = FALSE;  /* cells changed since the run began */
 static gboolean  sheets_touched = FALSE; /* sheets added, removed or renamed */
+static int       handler_count = 0;      /* event handlers registered, all books */
+static const char *debug_filename = NULL; /* the script being stepped, while it is */
+static int       firing        = 0;      /* inside a handler: no handlers fire */
 
 /* ---- Between the two value systems --------------------------------- */
 
@@ -932,6 +948,23 @@ m_close (PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* undo(i) and redo(i): one step back or forward on sheet i's history,
+ * which is the book's; whether there was a step. */
+static PyObject *
+m_undo (PyObject *self, PyObject *args)
+{
+  int index, redo = 0;
+  O42Sheet *sheet;
+  gboolean done;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i|p", &index, &redo) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  done = redo ? o42_sheet_redo (sheet, NULL) : o42_sheet_undo (sheet, NULL);
+  if (done)
+    book_touched = TRUE;
+  return PyBool_FromLong (done);
+}
+
 static PyObject *
 m_calculate (PyObject *self, PyObject *args)
 {
@@ -1135,28 +1168,26 @@ choice_arg (PyObject *o, const char **choices, int n, const char *what)
   return -1;
 }
 
-static PyObject *
-m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
+/* The keyword arguments Range.format takes, read into a format and the
+ * mask of what they set.  `have` is the format the cells wear now, for
+ * the properties that are set one part at a time -- one border side,
+ * the pattern's colour -- so the rest of the part is kept.  FALSE with
+ * a Python exception set. */
+static gboolean
+apply_format_kwargs (O42Fmt *fmt_out, O42FmtMask *mask_out, PyObject *kwargs, const O42Fmt *have)
 {
-  int index;
-  O42Range r;
-  O42Sheet *sheet;
-  O42Fmt fmt;
-  O42FmtMask mask = 0;
+  O42Fmt fmt = *fmt_out;
+  O42FmtMask mask = *mask_out;
   PyObject *key, *value;
   Py_ssize_t pos = 0;
-  (void) self;
 
-  if (!PyArg_ParseTuple (args, "iiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1) ||
-      (sheet = sheet_arg (index)) == NULL || !cell_ok (r.row0, r.col0) || !cell_ok (r.row1, r.col1))
-    return NULL;
-  o42_fmt_init_default (&fmt);
+#define FAIL_FORMAT(...) do { PyErr_Format (__VA_ARGS__); return FALSE; } while (0)
   while (kwargs != NULL && PyDict_Next (kwargs, &pos, &key, &value))
     {
       const char *k = PyUnicode_AsUTF8 (key);
       int choice;
       if (k == NULL)
-        return NULL;
+        return FALSE;
       if (strcmp (k, "bold") == 0)           { fmt.bold = PyObject_IsTrue (value); mask |= O42_FMT_BOLD; }
       else if (strcmp (k, "italic") == 0)    { fmt.italic = PyObject_IsTrue (value); mask |= O42_FMT_ITALIC; }
       else if (strcmp (k, "underline") == 0) { fmt.underline = PyObject_IsTrue (value); mask |= O42_FMT_UNDERLINE; }
@@ -1171,7 +1202,7 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
             {
               const char *s = PyUnicode_AsUTF8 (value);
               if (s == NULL || !o42_border_style_parse (s, &style))
-                return PyErr_Format (PyExc_ValueError, "borders is True, False or a style: none, thin, medium, thick, double, dashed or dotted");
+                FAIL_FORMAT (PyExc_ValueError, "borders is True, False or a style: none, thin, medium, thick, double, dashed or dotted");
             }
           else if (PyObject_IsTrue (value))
             style = O42_BORDER_THIN;
@@ -1194,10 +1225,9 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
                 (k[7 + strlen (SIDES[i])] == '\0' || k[7 + strlen (SIDES[i])] == '_'))
               side = i;
           if (side < 0)
-            return PyErr_Format (PyExc_TypeError, "no format property named %s", k);
+            FAIL_FORMAT (PyExc_TypeError, "no format property named %s", k);
           if (!(mask & O42_FMT_BORDERS))
             {
-              const O42Fmt *have = o42_sheet_get_fmt (sheet, r.row0, r.col0);
               for (int i = 0; i < 4; i++)
                 {
                   fmt.border_style[i] = have->border_style[i];
@@ -1206,7 +1236,7 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
             }
           if (colour)
             {
-              if (!colour_arg (value, &fmt.border_colour[side])) return NULL;
+              if (!colour_arg (value, &fmt.border_colour[side])) return FALSE;
             }
           else if (value == Py_None || value == Py_False)
             fmt.border_style[side] = O42_BORDER_NONE;
@@ -1217,7 +1247,7 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
               const char *s = PyUnicode_Check (value) ? PyUnicode_AsUTF8 (value) : NULL;
               O42BorderStyle style;
               if (s == NULL || !o42_border_style_parse (s, &style))
-                return PyErr_Format (PyExc_ValueError, "%s is a style: none, thin, medium, thick, double, dashed or dotted", k);
+                FAIL_FORMAT (PyExc_ValueError, "%s is a style: none, thin, medium, thick, double, dashed or dotted", k);
               fmt.border_style[side] = style;
             }
           o42_fmt_sync_borders (&fmt);
@@ -1230,25 +1260,24 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
             {
               const char *s = PyUnicode_Check (value) ? PyUnicode_AsUTF8 (value) : NULL;
               if (s == NULL || !o42_pattern_parse (s, &pattern))
-                return PyErr_Format (PyExc_ValueError, "unknown pattern %S", value);
+                FAIL_FORMAT (PyExc_ValueError, "unknown pattern %S", value);
             }
           if (!(mask & O42_FMT_PATTERN))
-            fmt.pattern_colour = o42_sheet_get_fmt (sheet, r.row0, r.col0)->pattern_colour;
+            fmt.pattern_colour = have->pattern_colour;
           fmt.pattern = (guint8) pattern;
           mask |= O42_FMT_PATTERN;
         }
       else if (strcmp (k, "pattern_colour") == 0 || strcmp (k, "pattern_color") == 0)
         {
           if (!(mask & O42_FMT_PATTERN))
-            fmt.pattern = o42_sheet_get_fmt (sheet, r.row0, r.col0)->pattern;
-          if (!colour_arg (value, &fmt.pattern_colour)) return NULL;
+            fmt.pattern = have->pattern;
+          if (!colour_arg (value, &fmt.pattern_colour)) return FALSE;
           mask |= O42_FMT_PATTERN;
         }
       else if (strcmp (k, "locked") == 0 || strcmp (k, "hidden") == 0)
         {
           if (!(mask & O42_FMT_PROTECTION))
             {
-              const O42Fmt *have = o42_sheet_get_fmt (sheet, r.row0, r.col0);
               fmt.locked = have->locked;
               fmt.hidden = have->hidden;
             }
@@ -1261,7 +1290,7 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
           const char *s = PyUnicode_Check (value) ? PyUnicode_AsUTF8 (value) : NULL;
           O42BorderStyle style;
           if (s == NULL || !o42_border_style_parse (s, &style))
-            return PyErr_Format (PyExc_ValueError, "border_style is none, thin, medium, thick, double, dashed or dotted");
+            FAIL_FORMAT (PyExc_ValueError, "border_style is none, thin, medium, thick, double, dashed or dotted");
           for (int i = 0; i < 4; i++)
             fmt.border_style[i] = style;
           o42_fmt_sync_borders (&fmt);
@@ -1270,12 +1299,11 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
       else if (strcmp (k, "border_colour") == 0 || strcmp (k, "border_color") == 0)
         {
           guint32 bc;
-          if (!colour_arg (value, &bc)) return NULL;
+          if (!colour_arg (value, &bc)) return FALSE;
           for (int i = 0; i < 4; i++)
             fmt.border_colour[i] = bc;
           if (!(mask & O42_FMT_BORDERS))
             {
-              const O42Fmt *have = o42_sheet_get_fmt (sheet, r.row0, r.col0);
               for (int i = 0; i < 4; i++)
                 fmt.border_style[i] = have->border_style[i];
               o42_fmt_sync_borders (&fmt);
@@ -1285,49 +1313,49 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
       else if (strcmp (k, "indent") == 0)
         {
           fmt.indent = (guint8) CLAMP (PyLong_AsLong (value), 0, 15);
-          if (PyErr_Occurred ()) return NULL;
+          if (PyErr_Occurred ()) return FALSE;
           mask |= O42_FMT_INDENT;
         }
       else if (strcmp (k, "rotation") == 0)
         {
           fmt.rotation = (gint16) CLAMP (PyLong_AsLong (value), -90, 90);
-          if (PyErr_Occurred ()) return NULL;
+          if (PyErr_Occurred ()) return FALSE;
           mask |= O42_FMT_ROTATION;
         }
       else if (strcmp (k, "size") == 0)
         {
           double pt = PyFloat_AsDouble (value);
-          if (PyErr_Occurred ()) return NULL;
+          if (PyErr_Occurred ()) return FALSE;
           fmt.size = (int) (pt * 2 + 0.5);
           mask |= O42_FMT_SIZE;
         }
       else if (strcmp (k, "family") == 0 || strcmp (k, "font") == 0)
         {
           const char *s = PyUnicode_Check (value) ? PyUnicode_AsUTF8 (value) : NULL;
-          if (s == NULL) return PyErr_Format (PyExc_TypeError, "%s must be a text", k);
+          if (s == NULL) FAIL_FORMAT (PyExc_TypeError, "%s must be a text", k);
           fmt.family = g_intern_string (s);
           mask |= O42_FMT_FAMILY;
         }
       else if (strcmp (k, "colour") == 0 || strcmp (k, "color") == 0)
         {
-          if (!colour_arg (value, &fmt.colour)) return NULL;
+          if (!colour_arg (value, &fmt.colour)) return FALSE;
           mask |= O42_FMT_COLOUR;
         }
       else if (strcmp (k, "fill") == 0)
         {
           if (value == Py_None) fmt.fill = O42_FILL_NONE;
-          else if (!colour_arg (value, &fmt.fill)) return NULL;
+          else if (!colour_arg (value, &fmt.fill)) return FALSE;
           mask |= O42_FMT_FILL;
         }
       else if (strcmp (k, "halign") == 0 || strcmp (k, "align") == 0)
         {
-          if ((choice = choice_arg (value, HALIGNS, G_N_ELEMENTS (HALIGNS), "alignment")) < 0) return NULL;
+          if ((choice = choice_arg (value, HALIGNS, G_N_ELEMENTS (HALIGNS), "alignment")) < 0) return FALSE;
           fmt.halign = (O42HAlign) choice;
           mask |= O42_FMT_HALIGN;
         }
       else if (strcmp (k, "valign") == 0)
         {
-          if ((choice = choice_arg (value, VALIGNS, G_N_ELEMENTS (VALIGNS), "vertical alignment")) < 0) return NULL;
+          if ((choice = choice_arg (value, VALIGNS, G_N_ELEMENTS (VALIGNS), "vertical alignment")) < 0) return FALSE;
           fmt.valign = (O42VAlign) choice;
           mask |= O42_FMT_VALIGN;
         }
@@ -1335,7 +1363,7 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
         {
           const char *s = PyUnicode_Check (value) ? PyUnicode_AsUTF8 (value) : NULL;
           int found = -1;
-          if (s == NULL) return PyErr_Format (PyExc_TypeError, "%s must be a text", k);
+          if (s == NULL) FAIL_FORMAT (PyExc_TypeError, "%s must be a text", k);
           for (guint i = 0; i < G_N_ELEMENTS (NUMBERS); i++)
             if (g_ascii_strcasecmp (s, NUMBERS[i]) == 0) found = (int) i;
           if (found >= 0)
@@ -1350,12 +1378,34 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
       else if (strcmp (k, "decimals") == 0)
         {
           fmt.decimals = (int) PyLong_AsLong (value);
-          if (PyErr_Occurred ()) return NULL;
+          if (PyErr_Occurred ()) return FALSE;
           mask |= O42_FMT_DECIMALS;
         }
       else
-        return PyErr_Format (PyExc_TypeError, "no format property named %s", k);
+        FAIL_FORMAT (PyExc_TypeError, "no format property named %s", k);
     }
+#undef FAIL_FORMAT
+  *fmt_out = fmt;
+  *mask_out = mask;
+  return TRUE;
+}
+
+static PyObject *
+m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
+{
+  int index;
+  O42Range r;
+  O42Sheet *sheet;
+  O42Fmt fmt;
+  O42FmtMask mask = 0;
+  (void) self;
+
+  if (!PyArg_ParseTuple (args, "iiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1) ||
+      (sheet = sheet_arg (index)) == NULL || !cell_ok (r.row0, r.col0) || !cell_ok (r.row1, r.col1))
+    return NULL;
+  o42_fmt_init_default (&fmt);
+  if (!apply_format_kwargs (&fmt, &mask, kwargs, o42_sheet_get_fmt (sheet, r.row0, r.col0)))
+    return NULL;
   if (mask != 0)
     {
       r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
@@ -1365,17 +1415,11 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
   Py_RETURN_NONE;
 }
 
+/* A format as the dict get_format gives. */
 static PyObject *
-m_get_format (PyObject *self, PyObject *args)
+fmt_to_dict (const O42Fmt *f)
 {
-  int index, row, col;
-  O42Sheet *sheet;
-  const O42Fmt *f;
   PyObject *fill;
-  (void) self;
-  if (!PyArg_ParseTuple (args, "iii", &index, &row, &col) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
-    return NULL;
-  f = o42_sheet_get_fmt (sheet, row, col);
   /* The fill is a new object, handed over with N so that it is not
    * leaked; None is borrowed and gets its own reference first. */
   fill = f->fill == O42_FILL_NONE ? Py_None : PyLong_FromUnsignedLong (f->fill);
@@ -1408,6 +1452,736 @@ m_get_format (PyObject *self, PyObject *args)
                         "pattern_colour", (unsigned int) f->pattern_colour,
                         "locked", f->locked ? Py_True : Py_False,
                         "hidden", f->hidden ? Py_True : Py_False);
+}
+
+static PyObject *
+m_get_format (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iii", &index, &row, &col) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  return fmt_to_dict (o42_sheet_get_fmt (sheet, row, col));
+}
+
+/* debug_pause(line, variables): the stepped script has stopped on a
+ * line; the window shows it and says what to do next. */
+static PyObject *
+m_debug_pause (PyObject *self, PyObject *args)
+{
+  int line;
+  const char *variables;
+  int command = 0;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "is", &line, &variables))
+    return NULL;
+  /* The window runs its own loop while the script waits; anything that
+   * calls back into Python from it does so from this same thread, as a
+   * callback would, so the interpreter is left as it is. */
+  if (host.debug_pause != NULL)
+    command = host.debug_pause (host.user, current_book, debug_filename, line, variables);
+  return PyLong_FromLong (command);
+}
+
+/* events_count(n): how many handlers office42.on has registered, so
+ * that firing costs nothing while there are none. */
+static PyObject *
+m_events_count (PyObject *self, PyObject *args)
+{
+  int n;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &n))
+    return NULL;
+  handler_count = n;
+  Py_RETURN_NONE;
+}
+
+/* ---- Objects: charts, shapes and pictures ------------------------------ */
+
+/* The kind of object a script names: "chart", "shape" or "picture". */
+static gboolean
+object_type_parse (const char *name, O42ObjectType *type)
+{
+  if (g_strcmp0 (name, "chart") == 0)   { *type = O42_OBJECT_CHART; return TRUE; }
+  if (g_strcmp0 (name, "shape") == 0)   { *type = O42_OBJECT_SHAPE; return TRUE; }
+  if (g_strcmp0 (name, "picture") == 0) { *type = O42_OBJECT_PICTURE; return TRUE; }
+  PyErr_Format (PyExc_ValueError, "no such object type: %s", name != NULL ? name : "");
+  return FALSE;
+}
+
+static const char *
+object_type_name (O42ObjectType type)
+{
+  return type == O42_OBJECT_CHART ? "chart" : type == O42_OBJECT_SHAPE ? "shape" : "picture";
+}
+
+/* objects(i) -> [(type, id), ...] from the back to the front. */
+static PyObject *
+m_objects (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Sheet *sheet;
+  GArray *refs;
+  PyObject *list;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &index) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  refs = o42_sheet_objects (sheet);
+  list = PyList_New (0);
+  for (guint i = 0; i < refs->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (refs, O42ObjectRef, i);
+      PyObject *item = Py_BuildValue ("(sI)", object_type_name (ref->type), ref->id);
+      PyList_Append (list, item);
+      Py_DECREF (item);
+    }
+  g_array_free (refs, TRUE);
+  return list;
+}
+
+/* add_chart(i, kind, r0, c0, r1, c1, row, col) -> id */
+static PyObject *
+m_add_chart (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  const char *kind_name;
+  O42Range r;
+  O42ChartKind kind;
+  O42Sheet *sheet;
+  O42Chart *chart;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "isiiiiii", &index, &kind_name, &r.row0, &r.col0, &r.row1, &r.col1, &row, &col) ||
+      (sheet = sheet_arg (index)) == NULL || !range_ok (&r) || !cell_ok (row, col))
+    return NULL;
+  if (!o42_chart_kind_parse (kind_name, &kind))
+    return PyErr_Format (PyExc_ValueError, "no such chart kind: %s", kind_name);
+  chart = o42_sheet_add_chart (sheet, kind, &r, row, col);
+  if (chart == NULL)
+    return PyErr_Format (PyExc_RuntimeError, "the chart could not be made");
+  book_touched = TRUE;
+  return PyLong_FromUnsignedLong (chart->id);
+}
+
+/* add_shape(i, name, row, col) -> id; the name is a kind ("oval",
+ * "line", "arrow", "textbox", a control) or an outline ("star5"). */
+static PyObject *
+m_add_shape (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  const char *name;
+  O42ShapeKind kind = O42_SHAPE_RECT;
+  O42ShapeGeom geom = O42_GEOM_RECT;
+  gboolean is_geom = FALSE;
+  O42Sheet *sheet;
+  O42Shape *shape;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "isii", &index, &name, &row, &col) ||
+      (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  if (!o42_shape_kind_parse (name, &kind))
+    {
+      if (!o42_shape_geom_parse (name, &geom))
+        return PyErr_Format (PyExc_ValueError, "no such shape: %s", name);
+      kind = O42_SHAPE_RECT;
+      is_geom = TRUE;
+    }
+  shape = o42_sheet_add_shape (sheet, kind, row, col);
+  if (shape == NULL)
+    return PyErr_Format (PyExc_RuntimeError, "the shape could not be made");
+  if (is_geom)
+    shape->geom = geom;
+  book_touched = TRUE;
+  return PyLong_FromUnsignedLong (shape->id);
+}
+
+/* add_picture(i, path, row, col) -> id */
+static PyObject *
+m_add_picture (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  const char *path;
+  O42Sheet *sheet;
+  GFile *file;
+  GBytes *bytes;
+  GError *error = NULL;
+  int width = 0, height = 0;
+  const char *format = NULL;
+  O42Picture *picture;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "isii", &index, &path, &row, &col) ||
+      (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  file = g_file_new_for_path (path);
+  bytes = o42_image_load_file (file, &width, &height, &format, &error);
+  g_object_unref (file);
+  if (bytes == NULL)
+    {
+      PyErr_Format (PyExc_OSError, "%s", error != NULL ? error->message : "not a picture");
+      g_clear_error (&error);
+      return NULL;
+    }
+  picture = o42_sheet_add_picture (sheet, bytes, format, width, height, row, col);
+  g_bytes_unref (bytes);
+  if (picture == NULL)
+    return PyErr_Format (PyExc_RuntimeError, "the picture could not be made");
+  /* Shown at its own size, as Insert > Picture shows it. */
+  picture->width = width;
+  picture->height = height;
+  if (o42_sheet_get_book (sheet) != NULL && o42_book_recording (o42_sheet_get_book (sheet)))
+    {
+      O42Book *book = o42_sheet_get_book (sheet);
+      char *at = o42_ref_name (row, col);
+      char *quoted = o42_python_quote (path);
+      char *line = g_strdup_printf ("sheet.add_picture(%s, \"%s\")", quoted, at);
+      o42_book_record_sheet (book, o42_sheet_get_name (sheet));
+      o42_book_record_line (book, line);
+      g_free (line); g_free (quoted); g_free (at);
+    }
+  book_touched = TRUE;
+  return PyLong_FromUnsignedLong (picture->id);
+}
+
+static PyObject *
+m_remove_object (PyObject *self, PyObject *args)
+{
+  int index;
+  const char *type_name;
+  unsigned id;
+  O42ObjectType type;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "isI", &index, &type_name, &id) || (sheet = sheet_arg (index)) == NULL ||
+      !object_type_parse (type_name, &type))
+    return NULL;
+  if (type == O42_OBJECT_CHART) o42_sheet_remove_chart (sheet, id);
+  else if (type == O42_OBJECT_SHAPE) o42_sheet_remove_shape (sheet, id);
+  else o42_sheet_remove_picture (sheet, id);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static void
+dict_set (PyObject *dict, const char *key, PyObject *value)
+{
+  if (value != NULL)
+    {
+      PyDict_SetItemString (dict, key, value);
+      Py_DECREF (value);
+    }
+}
+
+static PyObject *
+colour_to_py (guint32 colour)
+{
+  if (colour == O42_FILL_NONE)
+    Py_RETURN_NONE;
+  return PyUnicode_FromFormat ("#%06X", colour & 0xFFFFFF);
+}
+
+/* "#RRGGBB", 0xRRGGBB or None (no fill). */
+static gboolean
+py_to_colour (PyObject *o, guint32 *out)
+{
+  if (o == Py_None) { *out = O42_FILL_NONE; return TRUE; }
+  if (PyLong_Check (o)) { *out = (guint32) PyLong_AsUnsignedLong (o) & 0xFFFFFF; return TRUE; }
+  if (PyUnicode_Check (o))
+    {
+      const char *s = PyUnicode_AsUTF8 (o);
+      if (s != NULL && s[0] == '#' && strlen (s) == 7)
+        { *out = (guint32) g_ascii_strtoull (s + 1, NULL, 16); return TRUE; }
+      if (s != NULL && g_ascii_strcasecmp (s, "none") == 0)
+        { *out = O42_FILL_NONE; return TRUE; }
+    }
+  PyErr_SetString (PyExc_ValueError, "a colour is \"#RRGGBB\", a number, or None");
+  return FALSE;
+}
+
+/* object_get(i, type, id) -> dict of the object's properties. */
+static PyObject *
+m_object_get (PyObject *self, PyObject *args)
+{
+  int index;
+  const char *type_name;
+  unsigned id;
+  O42ObjectType type;
+  O42Sheet *sheet;
+  PyObject *d;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "isI", &index, &type_name, &id) || (sheet = sheet_arg (index)) == NULL ||
+      !object_type_parse (type_name, &type))
+    return NULL;
+  d = PyDict_New ();
+  dict_set (d, "type", PyUnicode_FromString (type_name));
+  dict_set (d, "id", PyLong_FromUnsignedLong (id));
+  if (type == O42_OBJECT_CHART)
+    {
+      O42Chart *c = o42_sheet_find_chart (sheet, id);
+      if (c == NULL) { Py_DECREF (d); return PyErr_Format (PyExc_KeyError, "no chart %u", id); }
+      dict_set (d, "kind", PyUnicode_FromString (o42_chart_kind_name (c->kind)));
+      dict_set (d, "title", PyUnicode_FromString (c->title != NULL ? c->title : ""));
+      dict_set (d, "x_title", PyUnicode_FromString (c->x_title != NULL ? c->x_title : ""));
+      dict_set (d, "y_title", PyUnicode_FromString (c->y_title != NULL ? c->y_title : ""));
+      dict_set (d, "legend", PyBool_FromLong (c->legend));
+      dict_set (d, "data", Py_BuildValue ("(iiii)", c->data.row0, c->data.col0, c->data.row1, c->data.col1));
+      dict_set (d, "data_sheet", PyUnicode_FromString (c->data_sheet != NULL ? c->data_sheet : ""));
+      dict_set (d, "series_in_rows", PyBool_FromLong (c->series_in_rows));
+      dict_set (d, "first_row_labels", PyBool_FromLong (c->first_row_labels));
+      dict_set (d, "first_col_labels", PyBool_FromLong (c->first_col_labels));
+      dict_set (d, "data_labels", PyBool_FromLong (c->data_labels));
+      dict_set (d, "three_d", PyBool_FromLong (c->three_d));
+      dict_set (d, "gridlines", PyBool_FromLong (c->gridlines));
+      dict_set (d, "font_family", PyUnicode_FromString (c->font_family != NULL ? c->font_family : ""));
+      dict_set (d, "font_size", PyFloat_FromDouble (c->font_size));
+      dict_set (d, "y_format", PyUnicode_FromString (c->y_format != NULL ? c->y_format : ""));
+      dict_set (d, "row", PyLong_FromLong (c->row)); dict_set (d, "col", PyLong_FromLong (c->col));
+      dict_set (d, "dx", PyFloat_FromDouble (c->dx)); dict_set (d, "dy", PyFloat_FromDouble (c->dy));
+      dict_set (d, "width", PyFloat_FromDouble (c->width)); dict_set (d, "height", PyFloat_FromDouble (c->height));
+      dict_set (d, "z", PyLong_FromUnsignedLong (c->z));
+    }
+  else if (type == O42_OBJECT_SHAPE)
+    {
+      O42Shape *s = o42_sheet_find_shape (sheet, id);
+      if (s == NULL) { Py_DECREF (d); return PyErr_Format (PyExc_KeyError, "no shape %u", id); }
+      dict_set (d, "kind", PyUnicode_FromString (o42_shape_kind_name (s->kind)));
+      dict_set (d, "geom", PyUnicode_FromString (o42_shape_geom_name (s->geom)));
+      dict_set (d, "text", PyUnicode_FromString (s->text != NULL ? s->text : ""));
+      dict_set (d, "fill", colour_to_py (s->fill));
+      dict_set (d, "line", colour_to_py (s->line));
+      dict_set (d, "line_width", PyFloat_FromDouble (s->line_width));
+      dict_set (d, "dash", PyUnicode_FromString (o42_dash_name (s->dash)));
+      dict_set (d, "head_start", PyUnicode_FromString (o42_head_name (s->head_start)));
+      dict_set (d, "head_end", PyUnicode_FromString (o42_head_name (s->head_end)));
+      dict_set (d, "rotation", PyFloat_FromDouble (s->rotation));
+      dict_set (d, "flip_h", PyBool_FromLong (s->flip_h));
+      dict_set (d, "flip_v", PyBool_FromLong (s->flip_v));
+      dict_set (d, "link", s->link != NULL ? PyUnicode_FromString (s->link) : Py_NewRef (Py_None));
+      dict_set (d, "source", s->source != NULL ? PyUnicode_FromString (s->source) : Py_NewRef (Py_None));
+      dict_set (d, "script", s->script != NULL ? PyUnicode_FromString (s->script) : Py_NewRef (Py_None));
+      dict_set (d, "row", PyLong_FromLong (s->row)); dict_set (d, "col", PyLong_FromLong (s->col));
+      dict_set (d, "dx", PyFloat_FromDouble (s->dx)); dict_set (d, "dy", PyFloat_FromDouble (s->dy));
+      dict_set (d, "width", PyFloat_FromDouble (s->width)); dict_set (d, "height", PyFloat_FromDouble (s->height));
+      dict_set (d, "z", PyLong_FromUnsignedLong (s->z));
+    }
+  else
+    {
+      O42Picture *p = o42_sheet_find_picture (sheet, id);
+      if (p == NULL) { Py_DECREF (d); return PyErr_Format (PyExc_KeyError, "no picture %u", id); }
+      dict_set (d, "format", PyUnicode_FromString (p->format != NULL ? p->format : ""));
+      dict_set (d, "pixel_w", PyLong_FromLong (p->pixel_w)); dict_set (d, "pixel_h", PyLong_FromLong (p->pixel_h));
+      dict_set (d, "rotation", PyFloat_FromDouble (p->rotation));
+      dict_set (d, "flip_h", PyBool_FromLong (p->flip_h));
+      dict_set (d, "flip_v", PyBool_FromLong (p->flip_v));
+      dict_set (d, "crop", Py_BuildValue ("(dddd)", p->crop_l, p->crop_r, p->crop_t, p->crop_b));
+      dict_set (d, "lock_aspect", PyBool_FromLong (p->lock_aspect));
+      dict_set (d, "row", PyLong_FromLong (p->row)); dict_set (d, "col", PyLong_FromLong (p->col));
+      dict_set (d, "dx", PyFloat_FromDouble (p->dx)); dict_set (d, "dy", PyFloat_FromDouble (p->dy));
+      dict_set (d, "width", PyFloat_FromDouble (p->width)); dict_set (d, "height", PyFloat_FromDouble (p->height));
+      dict_set (d, "z", PyLong_FromUnsignedLong (p->z));
+    }
+  return d;
+}
+
+static gboolean
+want_double (PyObject *v, double *out)
+{
+  *out = PyFloat_AsDouble (v);
+  if (PyErr_Occurred ()) return FALSE;
+  return TRUE;
+}
+
+static gboolean
+want_bool (PyObject *v, gboolean *out)
+{
+  int t = PyObject_IsTrue (v);
+  if (t < 0) return FALSE;
+  *out = t != 0;
+  return TRUE;
+}
+
+static gboolean
+want_text (PyObject *v, char **out)
+{
+  const char *s;
+  if (v == Py_None) { *out = g_strdup (""); return TRUE; }
+  s = PyUnicode_AsUTF8 (v);
+  if (s == NULL) return FALSE;
+  *out = g_strdup (s);
+  return TRUE;
+}
+
+/* object_set(i, type, id, dict): the properties named, one undo step. */
+static PyObject *
+m_object_set (PyObject *self, PyObject *args)
+{
+  int index;
+  const char *type_name;
+  unsigned id;
+  PyObject *dict, *key, *value;
+  Py_ssize_t pos = 0;
+  O42ObjectType type;
+  O42Sheet *sheet;
+  O42Chart *c = NULL;
+  O42Shape *s = NULL;
+  O42Picture *p = NULL;
+  gboolean ok = TRUE;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "isIO!", &index, &type_name, &id, &PyDict_Type, &dict) ||
+      (sheet = sheet_arg (index)) == NULL || !object_type_parse (type_name, &type))
+    return NULL;
+  if (type == O42_OBJECT_CHART && (c = o42_sheet_find_chart (sheet, id)) == NULL)
+    return PyErr_Format (PyExc_KeyError, "no chart %u", id);
+  if (type == O42_OBJECT_SHAPE && (s = o42_sheet_find_shape (sheet, id)) == NULL)
+    return PyErr_Format (PyExc_KeyError, "no shape %u", id);
+  if (type == O42_OBJECT_PICTURE && (p = o42_sheet_find_picture (sheet, id)) == NULL)
+    return PyErr_Format (PyExc_KeyError, "no picture %u", id);
+
+  o42_sheet_begin_group (sheet);
+  o42_sheet_capture_object (sheet, id);
+  while (ok && PyDict_Next (dict, &pos, &key, &value))
+    {
+      const char *k = PyUnicode_AsUTF8 (key);
+      double d = 0;
+      gboolean b = FALSE;
+      char *t = NULL;
+
+      if (k == NULL) { ok = FALSE; break; }
+#define SET_NUM(field)  else if (strcmp (k, #field + 3) == 0) { ok = want_double (value, &d); if (ok) field = d; }
+#define SET_INT(field)  else if (strcmp (k, #field + 3) == 0) { ok = want_double (value, &d); if (ok) field = (int) d; }
+#define SET_BOOL(field) else if (strcmp (k, #field + 3) == 0) { ok = want_bool (value, &b); if (ok) field = b; }
+#define SET_TEXT(field) else if (strcmp (k, #field + 3) == 0) { ok = want_text (value, &t); if (ok) { g_free (field); field = t; } }
+      if (c != NULL)
+        {
+          if (strcmp (k, "kind") == 0)
+            {
+              const char *name = PyUnicode_AsUTF8 (value);
+              O42ChartKind kind;
+              if (name == NULL || !o42_chart_kind_parse (name, &kind))
+                { PyErr_Format (PyExc_ValueError, "no such chart kind: %s", name != NULL ? name : ""); ok = FALSE; }
+              else c->kind = kind;
+            }
+          else if (strcmp (k, "data") == 0)
+            {
+              O42Range r;
+              if (!PyArg_ParseTuple (value, "iiii", &r.row0, &r.col0, &r.row1, &r.col1) || !range_ok (&r))
+                ok = FALSE;
+              else c->data = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+            }
+          SET_TEXT (c->title) SET_TEXT (c->x_title) SET_TEXT (c->y_title) SET_TEXT (c->font_family) SET_TEXT (c->y_format)
+          SET_TEXT (c->data_sheet)
+          SET_BOOL (c->legend) SET_BOOL (c->series_in_rows) SET_BOOL (c->first_row_labels) SET_BOOL (c->first_col_labels)
+          SET_BOOL (c->data_labels) SET_BOOL (c->three_d) SET_BOOL (c->gridlines)
+          SET_NUM (c->font_size) SET_NUM (c->dx) SET_NUM (c->dy) SET_NUM (c->width) SET_NUM (c->height)
+          SET_INT (c->row) SET_INT (c->col)
+          else { PyErr_Format (PyExc_KeyError, "a chart has no property %s", k); ok = FALSE; }
+        }
+      else if (s != NULL)
+        {
+          if (strcmp (k, "geom") == 0)
+            {
+              const char *name = PyUnicode_AsUTF8 (value);
+              O42ShapeGeom geom;
+              if (name == NULL || !o42_shape_geom_parse (name, &geom))
+                { PyErr_Format (PyExc_ValueError, "no such outline: %s", name != NULL ? name : ""); ok = FALSE; }
+              else s->geom = geom;
+            }
+          else if (strcmp (k, "fill") == 0) ok = py_to_colour (value, &s->fill);
+          else if (strcmp (k, "line") == 0) { guint32 colour; ok = py_to_colour (value, &colour); if (ok) s->line = colour & 0xFFFFFF; }
+          else if (strcmp (k, "dash") == 0)
+            {
+              const char *name = PyUnicode_AsUTF8 (value);
+              if (name == NULL || !o42_dash_parse (name, &s->dash))
+                { PyErr_Format (PyExc_ValueError, "no such dash: %s", name != NULL ? name : ""); ok = FALSE; }
+            }
+          else if (strcmp (k, "head_start") == 0 || strcmp (k, "head_end") == 0)
+            {
+              const char *name = PyUnicode_AsUTF8 (value);
+              O42Head head;
+              if (name == NULL || !o42_head_parse (name, &head))
+                { PyErr_Format (PyExc_ValueError, "no such head: %s", name != NULL ? name : ""); ok = FALSE; }
+              else if (k[5] == 's') s->head_start = head;
+              else s->head_end = head;
+            }
+          SET_TEXT (s->text) SET_TEXT (s->link) SET_TEXT (s->source) SET_TEXT (s->script)
+          SET_NUM (s->line_width) SET_NUM (s->rotation) SET_NUM (s->dx) SET_NUM (s->dy) SET_NUM (s->width) SET_NUM (s->height)
+          SET_NUM (s->value) SET_NUM (s->min) SET_NUM (s->max) SET_NUM (s->step) SET_NUM (s->page)
+          SET_BOOL (s->flip_h) SET_BOOL (s->flip_v)
+          SET_INT (s->row) SET_INT (s->col)
+          else { PyErr_Format (PyExc_KeyError, "a shape has no property %s", k); ok = FALSE; }
+        }
+      else
+        {
+          if (strcmp (k, "crop") == 0)
+            {
+              if (!PyArg_ParseTuple (value, "dddd", &p->crop_l, &p->crop_r, &p->crop_t, &p->crop_b))
+                ok = FALSE;
+            }
+          SET_NUM (p->rotation) SET_NUM (p->dx) SET_NUM (p->dy) SET_NUM (p->width) SET_NUM (p->height)
+          SET_BOOL (p->flip_h) SET_BOOL (p->flip_v) SET_BOOL (p->lock_aspect)
+          SET_INT (p->row) SET_INT (p->col)
+          else { PyErr_Format (PyExc_KeyError, "a picture has no property %s", k); ok = FALSE; }
+        }
+#undef SET_NUM
+#undef SET_INT
+#undef SET_BOOL
+#undef SET_TEXT
+    }
+  o42_sheet_end_group (sheet);
+  if (s != NULL && s->link != NULL && *s->link == '\0') { g_free (s->link); s->link = NULL; }
+  if (s != NULL && s->source != NULL && *s->source == '\0') { g_free (s->source); s->source = NULL; }
+  if (s != NULL && s->script != NULL && *s->script == '\0') { g_free (s->script); s->script = NULL; }
+  if (!ok)
+    return NULL;
+  o42_sheet_set_modified (sheet, TRUE);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+/* reorder_object(i, type, id, how): "front", "back", "forward", "backward". */
+static PyObject *
+m_reorder_object (PyObject *self, PyObject *args)
+{
+  int index;
+  const char *type_name, *how;
+  unsigned id;
+  O42ObjectType type;
+  O42Order order;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "isIs", &index, &type_name, &id, &how) || (sheet = sheet_arg (index)) == NULL ||
+      !object_type_parse (type_name, &type))
+    return NULL;
+  if (strcmp (how, "front") == 0) order = O42_ORDER_FRONT;
+  else if (strcmp (how, "back") == 0) order = O42_ORDER_BACK;
+  else if (strcmp (how, "forward") == 0) order = O42_ORDER_FORWARD;
+  else if (strcmp (how, "backward") == 0) order = O42_ORDER_BACKWARD;
+  else return PyErr_Format (PyExc_ValueError, "how is front, back, forward or backward, not %s", how);
+  o42_sheet_reorder_object (sheet, type, id, order);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+/* ---- Notes, links, validation and conditional formats ------------------ */
+
+static PyObject *
+m_get_note (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  O42Sheet *sheet;
+  const char *note;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iii", &index, &row, &col) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  note = o42_sheet_get_note (sheet, row, col);
+  if (note == NULL) Py_RETURN_NONE;
+  return PyUnicode_FromString (note);
+}
+
+static PyObject *
+m_set_note (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  const char *text = NULL;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiz", &index, &row, &col, &text) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  o42_sheet_set_note (sheet, row, col, text);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_get_link (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  O42Sheet *sheet;
+  const char *link;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iii", &index, &row, &col) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  link = o42_sheet_get_link (sheet, row, col);
+  if (link == NULL) Py_RETURN_NONE;
+  return PyUnicode_FromString (link);
+}
+
+static PyObject *
+m_set_link (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  const char *target = NULL;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiz", &index, &row, &col, &target) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  o42_sheet_set_link (sheet, row, col, target);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static const char *const VALID_KINDS[] = { "any", "whole", "decimal", "list", "date", "time", "length" };
+static const char *const COND_OPS[] = { "between", "not_between", "==", "!=", ">", "<", ">=", "<=" };
+
+static gboolean
+cond_op_parse (const char *name, O42CondOp *op)
+{
+  for (guint i = 0; name != NULL && i < G_N_ELEMENTS (COND_OPS); i++)
+    if (strcmp (name, COND_OPS[i]) == 0 || (i == 2 && strcmp (name, "=") == 0) ||
+        (i == 3 && strcmp (name, "<>") == 0))
+      { *op = (O42CondOp) i; return TRUE; }
+  PyErr_Format (PyExc_ValueError, "no such comparison: %s", name != NULL ? name : "");
+  return FALSE;
+}
+
+/* validations(i) -> [dict, ...] */
+static PyObject *
+m_validations (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Sheet *sheet;
+  GArray *vs;
+  PyObject *list;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &index) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  vs = o42_sheet_validations (sheet);
+  list = PyList_New (0);
+  for (guint i = 0; i < vs->len; i++)
+    {
+      const O42Validation *v = &g_array_index (vs, O42Validation, i);
+      PyObject *d = PyDict_New ();
+      dict_set (d, "range", Py_BuildValue ("(iiii)", v->range.row0, v->range.col0, v->range.row1, v->range.col1));
+      dict_set (d, "kind", PyUnicode_FromString (VALID_KINDS[CLAMP (v->kind, 0, 6)]));
+      dict_set (d, "op", PyUnicode_FromString (COND_OPS[CLAMP (v->op, 0, 7)]));
+      dict_set (d, "value", PyUnicode_FromString (v->value != NULL ? v->value : ""));
+      dict_set (d, "value2", PyUnicode_FromString (v->value2 != NULL ? v->value2 : ""));
+      dict_set (d, "message", PyUnicode_FromString (v->message != NULL ? v->message : ""));
+      dict_set (d, "allow_blank", PyBool_FromLong (v->allow_blank));
+      PyList_Append (list, d);
+      Py_DECREF (d);
+    }
+  return list;
+}
+
+/* add_validation(i, r0, c0, r1, c1, kind, op, value, value2, message, allow_blank) */
+static PyObject *
+m_add_validation (PyObject *self, PyObject *args)
+{
+  int index, allow_blank;
+  O42Range r;
+  const char *kind, *op, *value, *value2, *message;
+  O42Validation v;
+  O42Sheet *sheet;
+  gboolean found = FALSE;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiisssssp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &kind, &op,
+                         &value, &value2, &message, &allow_blank) ||
+      (sheet = sheet_arg (index)) == NULL || !range_ok (&r))
+    return NULL;
+  memset (&v, 0, sizeof v);
+  v.range = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+  for (guint i = 0; i < G_N_ELEMENTS (VALID_KINDS); i++)
+    if (strcmp (kind, VALID_KINDS[i]) == 0) { v.kind = (O42ValidKind) i; found = TRUE; }
+  if (!found)
+    return PyErr_Format (PyExc_ValueError, "no such validation kind: %s", kind);
+  if (!cond_op_parse (op, &v.op))
+    return NULL;
+  v.value = (char *) value;
+  v.value2 = (char *) value2;
+  v.message = (char *) message;
+  v.allow_blank = allow_blank;
+  o42_sheet_add_validation (sheet, &v);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_clear_validations (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!RANGE_ARGS (args, index, r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_clear_validations (sheet, &r);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+/* conditions(i) -> [dict, ...]: the rule and the format it applies, as
+ * get_format gives one. */
+static PyObject *
+m_conditions (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Sheet *sheet;
+  GArray *cs;
+  PyObject *list;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &index) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  cs = o42_sheet_conditions (sheet);
+  list = PyList_New (0);
+  for (guint i = 0; i < cs->len; i++)
+    {
+      const O42Condition *c = &g_array_index (cs, O42Condition, i);
+      PyObject *d = PyDict_New ();
+      dict_set (d, "range", Py_BuildValue ("(iiii)", c->range.row0, c->range.col0, c->range.row1, c->range.col1));
+      dict_set (d, "op", PyUnicode_FromString (COND_OPS[CLAMP (c->op, 0, 7)]));
+      dict_set (d, "value", PyFloat_FromDouble (c->value));
+      dict_set (d, "value2", PyFloat_FromDouble (c->value2));
+      dict_set (d, "format", fmt_to_dict (&c->fmt));
+      PyList_Append (list, d);
+      Py_DECREF (d);
+    }
+  return list;
+}
+
+/* add_condition(i, r0, c0, r1, c1, op, value, value2, **format) */
+static PyObject *
+m_add_condition (PyObject *self, PyObject *args, PyObject *kwargs)
+{
+  int index;
+  O42Range r;
+  const char *op;
+  double value, value2;
+  O42Condition c;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiisdd", &index, &r.row0, &r.col0, &r.row1, &r.col1, &op, &value, &value2) ||
+      (sheet = sheet_arg (index)) == NULL || !range_ok (&r))
+    return NULL;
+  memset (&c, 0, sizeof c);
+  c.range = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+  if (!cond_op_parse (op, &c.op))
+    return NULL;
+  c.value = value;
+  c.value2 = value2;
+  o42_fmt_init_default (&c.fmt);
+  {
+    O42Fmt plain;
+    o42_fmt_init_default (&plain);
+    if (kwargs != NULL && !apply_format_kwargs (&c.fmt, &c.mask, kwargs, &plain))
+      return NULL;
+  }
+  o42_sheet_add_condition (sheet, &c);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_clear_conditions (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!RANGE_ARGS (args, index, r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_clear_conditions (sheet, &r);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
 }
 
 /* A cell formula calling a function a script defined. */
@@ -1673,6 +2447,7 @@ static PyMethodDef METHODS[] = {
   { "open",           m_open,           METH_VARARGS, "Opens a file in a window of its own." },
   { "close",          m_close,          METH_NOARGS,  "Closes the window showing the book." },
   { "calculate",      m_calculate,      METH_NOARGS,  "Recalculates every sheet." },
+  { "undo",           m_undo,           METH_VARARGS, "One step back on the history (or forward, with True)." },
   { "personal_folder", m_personal_folder, METH_NOARGS, "The personal scripts folder." },
   { "get_input",      m_get_input,      METH_VARARGS, "What was typed into a cell." },
   { "set_input",      m_set_input,      METH_VARARGS, "Types into a cell." },
@@ -1691,6 +2466,26 @@ static PyMethodDef METHODS[] = {
   { "is_builtin",     m_is_builtin,     METH_VARARGS, "Whether a name is a built-in function." },
   { "function_names", m_function_names, METH_NOARGS,  "Every function the evaluator knows." },
   { "evaluate",       m_evaluate,       METH_VARARGS, "Evaluates a formula on the current sheet." },
+  { "events_count",   m_events_count,   METH_VARARGS, "How many event handlers are registered." },
+  { "debug_pause",    m_debug_pause,    METH_VARARGS, "Stops a stepped script on a line until the user says." },
+  { "objects",        m_objects,        METH_VARARGS, "The sheet's objects, back to front: (type, id)." },
+  { "add_chart",      m_add_chart,      METH_VARARGS, "Adds a chart over a range at a cell; its id." },
+  { "add_shape",      m_add_shape,      METH_VARARGS, "Adds a shape at a cell; its id." },
+  { "add_picture",    m_add_picture,    METH_VARARGS, "Adds a picture from a file at a cell; its id." },
+  { "remove_object",  m_remove_object,  METH_VARARGS, "Removes a chart, shape or picture." },
+  { "object_get",     m_object_get,     METH_VARARGS, "An object's properties as a dict." },
+  { "object_set",     m_object_set,     METH_VARARGS, "Sets an object's properties from a dict." },
+  { "reorder_object", m_reorder_object, METH_VARARGS, "Brings an object forward or sends it back." },
+  { "get_note",       m_get_note,       METH_VARARGS, "A cell's note, or None." },
+  { "set_note",       m_set_note,       METH_VARARGS, "Sets (or with None removes) a cell's note." },
+  { "get_link",       m_get_link,       METH_VARARGS, "A cell's hyperlink, or None." },
+  { "set_link",       m_set_link,       METH_VARARGS, "Sets (or with None removes) a cell's hyperlink." },
+  { "validations",    m_validations,    METH_VARARGS, "The sheet's validation rules." },
+  { "add_validation", m_add_validation, METH_VARARGS, "Adds a validation rule to a range." },
+  { "clear_validations", m_clear_validations, METH_VARARGS, "Removes the validation rules touching a range." },
+  { "conditions",     m_conditions,     METH_VARARGS, "The sheet's conditional formats." },
+  { "add_condition",  (PyCFunction) (void (*) (void)) m_add_condition, METH_VARARGS | METH_KEYWORDS, "Adds a conditional format to a range." },
+  { "clear_conditions", m_clear_conditions, METH_VARARGS, "Removes the conditional formats touching a range." },
   { NULL, NULL, 0, NULL }
 };
 
@@ -1838,21 +2633,24 @@ o42_python_version (void)
   return PY_VERSION;
 }
 
-gboolean
-o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *filename, char **output)
+/* Runs one of the module's runners -- _run or _debug -- with `args`
+ * (a new reference, taken over) against the book: what o42_python_run
+ * and o42_python_debug share. */
+static gboolean
+run_method (O42Book *book, O42Sheet *sheet, const char *method, PyObject *args, char **output)
 {
   O42Sheet *saved_sheet = current_sheet;
   O42Book *saved_book = current_book;
   gboolean saved_touched = book_touched, saved_sheets = sheets_touched;
   gboolean was_trusted;
-  PyObject *result;
+  PyObject *result, *callable;
   gboolean ok = FALSE;
   const char *text = "";
 
-  g_return_val_if_fail (book != NULL && code != NULL, FALSE);
   was_trusted = o42_book_scripts_trusted (book);
   if (!ensure_interpreter ())
     {
+      Py_XDECREF (args);
       if (output != NULL)
         *output = g_strdup_printf ("%s\n", init_failure);
       return FALSE;
@@ -1866,7 +2664,10 @@ o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *fi
   o42_book_set_scripts_trusted (book, TRUE);
   if (current_sheet != NULL)
     o42_sheet_begin_group (current_sheet);
-  result = PyObject_CallMethod (module, "_run", "ss", code, filename != NULL ? filename : "<console>");
+  callable = PyObject_GetAttrString (module, method);
+  result = callable != NULL ? PyObject_CallObject (callable, args) : NULL;
+  Py_XDECREF (callable);
+  Py_XDECREF (args);
   /* The group is the book's, so it is ended on whichever sheet is still
    * there: a script that removed its own sheet once left it open, and
    * every edit after that fell into it. */
@@ -1907,6 +2708,89 @@ o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *fi
   book_touched = saved_touched;
   sheets_touched = saved_sheets;
   return ok;
+}
+
+gboolean
+o42_python_run (O42Book *book, O42Sheet *sheet, const char *code, const char *filename, char **output)
+{
+  g_return_val_if_fail (book != NULL && code != NULL, FALSE);
+  if (!ensure_interpreter ())
+    {
+      if (output != NULL)
+        *output = g_strdup_printf ("%s\n", init_failure);
+      return FALSE;
+    }
+  return run_method (book, sheet, "_run",
+                     Py_BuildValue ("(ss)", code, filename != NULL ? filename : "<console>"), output);
+}
+
+gboolean
+o42_python_debug (O42Book *book, O42Sheet *sheet, const char *code, const char *filename,
+                  const int *breakpoints, int n_breakpoints, gboolean step_first, char **output)
+{
+  PyObject *lines, *args;
+  const char *saved = debug_filename;
+  gboolean ok;
+
+  g_return_val_if_fail (book != NULL && code != NULL, FALSE);
+  if (!ensure_interpreter ())
+    {
+      if (output != NULL)
+        *output = g_strdup_printf ("%s\n", init_failure);
+      return FALSE;
+    }
+  lines = PyList_New (n_breakpoints);
+  for (int i = 0; i < n_breakpoints; i++)
+    PyList_SetItem (lines, i, PyLong_FromLong (breakpoints[i]));
+  args = Py_BuildValue ("(ssNO)", code, filename != NULL ? filename : "<script>", lines,
+                        step_first ? Py_True : Py_False);
+  debug_filename = filename != NULL ? filename : "<script>";
+  ok = run_method (book, sheet, "_debug", args, output);
+  debug_filename = saved;
+  return ok;
+}
+
+void
+o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet, const O42Range *range, char **output)
+{
+  O42Sheet *saved_sheet = current_sheet;
+  O42Book *saved_book = current_book;
+  gboolean saved_touched = book_touched, saved_sheets = sheets_touched;
+  PyObject *result;
+  int index = -1;
+
+  if (output != NULL)
+    *output = NULL;
+  if (book == NULL || event == NULL || handler_count == 0 || firing > 0 || module == NULL ||
+      !o42_book_scripts_trusted (book))
+    return;
+  if (sheet != NULL)
+    index = o42_book_sheet_index (book, sheet);
+  firing++;
+  current_book = book;
+  current_sheet = sheet != NULL ? sheet : o42_book_sheet (book, 0);
+  book_touched = sheets_touched = FALSE;
+  result = PyObject_CallMethod (module, "_fire", "siiiii", event, index,
+                                range != NULL ? range->row0 : -1, range != NULL ? range->col0 : -1,
+                                range != NULL ? range->row1 : -1, range != NULL ? range->col1 : -1);
+  if (result != NULL && PyUnicode_Check (result))
+    {
+      const char *text = PyUnicode_AsUTF8 (result);
+      if (output != NULL && text != NULL && *text != '\0')
+        *output = g_strdup (text);
+    }
+  else
+    PyErr_Clear ();
+  Py_XDECREF (result);
+  if (sheets_touched)
+    o42_book_changed (book, "sheets");
+  else if (book_touched)
+    o42_book_changed (book, "cells");
+  current_sheet = saved_sheet;
+  current_book = saved_book;
+  book_touched = saved_touched;
+  sheets_touched = saved_sheets;
+  firing--;
 }
 
 gboolean

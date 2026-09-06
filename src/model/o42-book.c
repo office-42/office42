@@ -65,6 +65,7 @@ struct _O42Book {
   gboolean      scripts_trusted; /* the user has said the book's Python may
                                   * run: a new book's may, a file's may not
                                   * until they run its scripts */
+  GHashTable   *kept_parts;   /* name -> GBytes: an .xlsm's VBA, for Excel */
 };
 
 typedef struct {
@@ -320,6 +321,8 @@ o42_book_free (O42Book *book)
   g_free (book->db_path);
   if (book->custom_lists != NULL)
     g_ptr_array_unref (book->custom_lists);
+  if (book->kept_parts != NULL)
+    g_hash_table_unref (book->kept_parts);
   for (guint i = 0; i < book->styles->len; i++)
     g_free (g_array_index (book->styles, Style, i).name);
   g_array_free (book->styles, TRUE);
@@ -821,6 +824,39 @@ o42_book_set_database (O42Book *book, const char *path, gboolean embedded)
   book->db_path = (path != NULL && *path != '\0') ? g_strdup (path) : NULL;
   book->db_embedded = book->db_path != NULL && embedded;
   book->scripts_modified = TRUE;   /* the book, not a sheet, has changed */
+}
+
+void
+o42_book_keep_part (O42Book *book, const char *name, GBytes *bytes)
+{
+  g_return_if_fail (book != NULL && name != NULL);
+  if (book->kept_parts == NULL)
+    book->kept_parts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
+                                              (GDestroyNotify) g_bytes_unref);
+  if (bytes == NULL)
+    g_hash_table_remove (book->kept_parts, name);
+  else
+    g_hash_table_replace (book->kept_parts, g_strdup (name), g_bytes_ref (bytes));
+}
+
+GBytes *
+o42_book_kept_part (O42Book *book, const char *name)
+{
+  g_return_val_if_fail (book != NULL && name != NULL, NULL);
+  return book->kept_parts != NULL ? g_hash_table_lookup (book->kept_parts, name) : NULL;
+}
+
+GList *
+o42_book_kept_parts (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  return book->kept_parts != NULL ? g_hash_table_get_keys (book->kept_parts) : NULL;
+}
+
+gboolean
+o42_book_has_vba (O42Book *book)
+{
+  return o42_book_kept_part (book, "xl/vbaProject.bin") != NULL;
 }
 
 gboolean

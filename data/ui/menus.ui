@@ -273,6 +273,7 @@
           </section>
           <section>
             <item><attribute name="label" translatable="yes">_Scripts in this Book...</attribute><attribute name="action">win.scripts</attribute></item>
+            <item><attribute name="label" translatable="yes">S_tep Into Script</attribute><attribute name="action">win.script-step</attribute></item>
             <item><attribute name="label" translatable="yes">_Python Console...</attribute><attribute name="action">win.python-console</attribute></item>
             <item><attribute name="label" translatable="yes">Run Python Script _File...</attribute><attribute name="action">win.python-run</attribute></item>
           </section>

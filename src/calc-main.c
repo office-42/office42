@@ -208,7 +208,7 @@ static void
 calc_install_host (O42Book *book)
 {
   O42PythonHost host = { NULL, calc_get_selection, calc_set_selection, calc_message,
-                         calc_input, calc_status, NULL, NULL, NULL, NULL };
+                         calc_input, calc_status, NULL, NULL, NULL, NULL, NULL };
   calc_selection.sheet = o42_book_sheet (book, 0);
   calc_selection.range = o42_range_normalise (0, 0, 0, 0);
   o42_python_set_host (&host);
@@ -262,7 +262,7 @@ main (int argc, char *argv[])
               "          picture pictures pictureset objects order objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
               "          pagebreak margin pageopt header footer titlerows titlecols\n"
-              "Python    py pyfile script scripts runscript delscript record select\n"
+              "Python    py pyfile script scripts runscript delscript record select fire\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname spell view views shown calcmode iterate recalc\n"
               "          evaluate watch watches unwatch check date1904 precision fixeddecimals\n"
@@ -538,7 +538,7 @@ main (int argc, char *argv[])
           GFile *file = g_file_new_for_path (path);
           GError *error = NULL;
           gboolean csv = g_str_has_suffix (path, ".csv");
-          gboolean xlsx = g_str_has_suffix (path, ".xlsx");
+          gboolean xlsx = g_str_has_suffix (path, ".xlsx") || g_str_has_suffix (path, ".xlsm");
           gboolean xls = g_str_has_suffix (path, ".xls");
           gboolean ods = g_str_has_suffix (path, ".ods") || g_str_has_suffix (path, ".fods");
           gboolean html = g_str_has_suffix (path, ".html") || g_str_has_suffix (path, ".htm");
@@ -1139,6 +1139,30 @@ main (int argc, char *argv[])
 
       /* select A1:B2 [C2] -- what office42.selection answers, and what a
        * macro being recorded writes down before its next line */
+      /* fire open|before_save|close|selection A1:B2: an event, as the
+       * window would fire it. */
+      if (g_str_has_prefix (text, "fire "))
+        {
+          char **words = g_strsplit (text + 5, " ", 2);
+          O42Range r = { 0, 0, 0, 0 };
+          gboolean ranged = words[1] != NULL;
+          char *said = NULL;
+
+          if (ranged)
+            {
+              gsize at = 0;
+              if (!o42_ref_parse (words[1], &r.row0, &r.col0, &at) ||
+                  (words[1][at] == ':' && !o42_ref_parse (words[1] + at + 1, &r.row1, &r.col1, NULL)))
+                { fprintf (stderr, "usage: fire EVENT [A1:B2]\n"); g_strfreev (words); continue; }
+              if (words[1][at] != ':') { r.row1 = r.row0; r.col1 = r.col0; }
+            }
+          o42_python_fire (book, words[0], ranged ? sheet : NULL, ranged ? &r : NULL, &said);
+          if (said != NULL)
+            fputs (said, stdout);
+          g_free (said);
+          g_strfreev (words);
+          continue;
+        }
       if (g_str_has_prefix (text, "select "))
         {
           char **words = g_strsplit (text + 7, " ", -1);
@@ -3580,6 +3604,15 @@ main (int argc, char *argv[])
             char *fixed = o42_entry_fixed_decimals_apply (eq);
             o42_sheet_set_input (sheet, row, col, fixed != NULL ? fixed : eq);
             g_free (fixed);
+          }
+          {
+            /* Typed by hand, as far as a script's on_change is concerned. */
+            O42Range one = { row, col, row, col };
+            char *said = NULL;
+            o42_python_fire (book, "change", sheet, &one, &said);
+            if (said != NULL)
+              fputs (said, stdout);
+            g_free (said);
           }
         }
       else if (*eq == '\0')

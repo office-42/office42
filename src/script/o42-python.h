@@ -32,6 +32,14 @@ gboolean o42_python_run      (O42Book *book, O42Sheet *sheet, const char *code,
 gboolean o42_python_run_file (O42Book *book, O42Sheet *sheet, GFile *file,
                               char **output);
 
+/* The same run, stepped: the script pauses at each of `breakpoints` (line
+ * numbers from 1), or at every line when `step_first`, and the host's
+ * debug_pause says whether to go on, step or stop.  Without a host it
+ * runs through. */
+gboolean o42_python_debug    (O42Book *book, O42Sheet *sheet, const char *code,
+                              const char *filename, const int *breakpoints, int n_breakpoints,
+                              gboolean step_first, char **output);
+
 /* Forgets the console's variables and the functions the current
  * book's scripts defined; the personal scripts' stay. */
 void o42_python_reset (void);
@@ -54,6 +62,19 @@ char **o42_python_personal_scripts (void);
  * them; otherwise it starts with the first script run.  TRUE if it
  * is running. */
 gboolean o42_python_start (void);
+
+/* ---- Events ----------------------------------------------------------- */
+
+/* Something happened that a book's script may have asked to hear of:
+ * "change" (cells of `range` on `sheet` were edited by hand), "selection"
+ * (the selection moved to `range`), "before_save", "open" or "close"
+ * (the book; sheet and range NULL).  Nothing happens unless Python is
+ * up, the book's scripts are trusted and a handler is registered, so
+ * the call costs nothing when no script listens; a handler's own
+ * changes do not fire it again.  `output` (may be NULL) gets what the
+ * handlers printed, tracebacks included; the caller frees it. */
+void o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet,
+                      const O42Range *range, char **output);
 
 /* ---- What the window does for a script ------------------------------- */
 
@@ -91,6 +112,12 @@ typedef struct {
   /* Closes the window showing the book, asking about unsaved work as
    * the close button would. */
   void     (*close)         (gpointer user, O42Book *book);
+  /* A script being stepped has reached `line` of `filename`, with the
+   * frame's variables as text: shows them and waits for the user.
+   * Answers 0 to go on to the next breakpoint, 1 to the next line, 2 to
+   * stop the script. */
+  int      (*debug_pause)   (gpointer user, O42Book *book, const char *filename,
+                             int line, const char *variables);
 } O42PythonHost;
 
 void o42_python_set_host (const O42PythonHost *host);
