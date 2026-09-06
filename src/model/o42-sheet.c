@@ -109,6 +109,7 @@ struct _O42UndoStack {
 
 struct _O42Sheet {
   char        *name;
+  const char  *key;           /* the name upper-cased and interned, for the evaluator */
   O42Book     *book;       /* not owned; NULL for a sheet on its own */
   GHashTable  *cells;      /* guint64 key -> O42Cell* */
   GHashTable  *formulas;   /* set of keys of cells that hold a formula */
@@ -234,8 +235,15 @@ value_input_text (const O42Value *value)
 static guint
 key_hash (gconstpointer p)
 {
+  /* The cell's place down its column, columns a million apart: the
+   * cells of a column hash to neighbouring values, so a walk down A:A
+   * stays in cache, and no two cells of a block share one.  Row XOR
+   * column, which this was, put a dense block of 500 by 500 into a few
+   * hundred buckets and walked chains of hundreds for each cell. */
   guint64 k = *(const guint64 *) p;
-  return (guint) (k ^ (k >> 32));
+  guint32 row = (guint32) (k >> 32), col = (guint32) k;
+
+  return row + (col << 20);
 }
 
 static gboolean
@@ -1024,8 +1032,9 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
   if (strcmp (what, "width") == 0)
     {
       /* Excel counts a column's width in characters of the standard
-       * font; ours are in pixels, at about seven to the character. */
-      *out = o42_value_number (floor (o42_sheet_col_width (sheet, col) / 7.0 + 0.5));
+       * font, the padding taken off; ours are in pixels, at seven to
+       * the character and five of padding, so the default 64 is 8. */
+      *out = o42_value_number (floor ((o42_sheet_col_width (sheet, col) - 5) / 7.0));
       return TRUE;
     }
   if (strcmp (what, "protect") == 0)
@@ -1084,7 +1093,14 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
     }
   if (strcmp (what, "color") == 0 || strcmp (what, "parentheses") == 0)
     {
-      *out = o42_value_number (0);
+      /* 1 when the negative section is coloured ([Red]) or in parentheses. */
+      const char *neg = fmt->custom != NULL ? strchr (fmt->custom, ';') : NULL;
+      gboolean yes = FALSE;
+
+      if (neg != NULL)
+        yes = what[0] == 'c' ? (neg[1] == '[' && g_ascii_isalpha (neg[2]))
+                             : strchr (neg + 1, '(') != NULL;
+      *out = o42_value_number (yes ? 1 : 0);
       return TRUE;
     }
   return FALSE;
@@ -1713,10 +1729,13 @@ tree_has_range (const O42Node *node)
 static const char *
 sheet_key_of (O42Sheet *sheet)
 {
-  char *upper = g_ascii_strup (sheet->name, -1);
-  const char *key = g_intern_string (upper);
-  g_free (upper);
-  return key;
+  if (sheet->key == NULL)
+    {
+      char *upper = g_ascii_strup (sheet->name, -1);
+      sheet->key = g_intern_string (upper);
+      g_free (upper);
+    }
+  return sheet->key;
 }
 
 static const char *
@@ -1737,13 +1756,23 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
   DepBand *candidates[4] = { NULL, NULL, NULL, NULL };
   gboolean any_candidate = FALSE;
 
-  {
-    /* The evaluator's caches over that cell are stale now. */
-    char *upper = g_ascii_strup (changed, -1);
-    o42_eval_cell_touched (g_intern_string (upper), row, col);
-    g_free (upper);
-  }
+  const char *changed_key;
+
+  /* The evaluator's caches over that cell are stale now. */
+  if (g_ascii_strcasecmp (changed, sheet->name) == 0)
+    changed_key = sheet_key_of (sheet);
+  else
+    {
+      char *upper = g_ascii_strup (changed, -1);
+      changed_key = g_intern_string (upper);
+      g_free (upper);
+    }
+  o42_eval_cell_touched (changed_key, row, col);
   if (g_hash_table_size (sheet->formulas) == 0)
+    return;
+  /* Nothing indexed and nothing volatile: a spill of a quarter of a
+   * million cells asks this once per cell, and need not build keys. */
+  if (g_hash_table_size (sheet->dependents) == 0 && g_hash_table_size (sheet->volatiles) == 0)
     return;
 
   /* Only the formulas whose precedents reach this band of rows on the
@@ -1751,23 +1780,19 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
    * sheet's name, and under "" when the sheet is this one; the ones
    * over a whole column sit under the whole band. */
   {
-    char *upper = g_ascii_strup (changed, -1);
-    char *key = g_strdup_printf ("%s\001%d", upper, row / DEP_BAND);
+    char key[300];
+
+    g_snprintf (key, sizeof key, "%s\001%d", changed_key, row / DEP_BAND);
     candidates[0] = g_hash_table_lookup (sheet->dependents, key);
-    g_free (key);
-    key = g_strdup_printf ("%s\001%d", upper, DEP_WHOLE);
+    g_snprintf (key, sizeof key, "%s\001%d", changed_key, DEP_WHOLE);
     candidates[2] = g_hash_table_lookup (sheet->dependents, key);
-    g_free (key);
-    if (g_ascii_strcasecmp (changed, sheet->name) == 0)
+    if (changed_key == sheet_key_of (sheet))
       {
-        key = g_strdup_printf ("\001%d", row / DEP_BAND);
+        g_snprintf (key, sizeof key, "\001%d", row / DEP_BAND);
         candidates[1] = g_hash_table_lookup (sheet->dependents, key);
-        g_free (key);
-        key = g_strdup_printf ("\001%d", DEP_WHOLE);
+        g_snprintf (key, sizeof key, "\001%d", DEP_WHOLE);
         candidates[3] = g_hash_table_lookup (sheet->dependents, key);
-        g_free (key);
       }
-    g_free (upper);
   }
   /* A band whose formulas read nothing in this column has no candidate. */
   for (int which = 0; which < 4; which++)
@@ -2243,6 +2268,7 @@ o42_sheet_set_name (O42Sheet *sheet, const char *name)
 {
   g_return_if_fail (sheet != NULL);
   o42_eval_sheet_changed (sheet_key_of (sheet));
+  sheet->key = NULL;
 
   g_free (sheet->name);
   sheet->name = g_strdup (name != NULL ? name : "Sheet1");

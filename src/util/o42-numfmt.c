@@ -1606,6 +1606,44 @@ o42_format_string (const char *format, double n, const char *text)
   return o42_format_string_layout (format, n, text, NULL);
 }
 
+/* A section's condition, "[<1000]" or "[>=0]" at its start: TRUE with
+ * whether the number meets it; FALSE when the section has none. */
+static gboolean
+section_condition (const Section *s, double n, gboolean *met)
+{
+  const char *p = s->start;
+  char op[3] = { 0, 0, 0 };
+  double value;
+  char *end = NULL;
+
+  while (p < s->end && *p == '[')
+    {
+      const char *q = p + 1;
+
+      if (*q == '<' || *q == '>' || *q == '=')
+        {
+          op[0] = *q++;
+          if (*q == '=' || (op[0] == '<' && *q == '>'))
+            op[1] = *q++;
+          value = g_ascii_strtod (q, &end);
+          if (end != NULL && end > q && *end == ']')
+            {
+              if (strcmp (op, "<") == 0)       *met = n < value;
+              else if (strcmp (op, "<=") == 0) *met = n <= value;
+              else if (strcmp (op, ">") == 0)  *met = n > value;
+              else if (strcmp (op, ">=") == 0) *met = n >= value;
+              else if (strcmp (op, "<>") == 0) *met = n != value;
+              else                             *met = n == value;
+              return TRUE;
+            }
+        }
+      /* [Red], [$-409]: over to the next bracket. */
+      while (p < s->end && *p != ']') p++;
+      if (p < s->end) p++;
+    }
+  return FALSE;
+}
+
 char *
 o42_format_string_layout (const char *format, double n, const char *text,
                           O42FormatLayout *layout)
@@ -1659,15 +1697,35 @@ o42_format_string_layout (const char *format, double n, const char *text,
     return g_strdup ("#NUM!");
 
   negative = (n < 0);
-  if (count >= 2 && negative)
-    {
-      use = &sections[1];
-      n = -n;              /* the negative section supplies its own sign */
-    }
-  else if (count >= 3 && n == 0)
-    use = &sections[2];
-  else
-    use = &sections[0];
+  {
+    /* "[<1000]0;#,##0": a section with a condition takes the numbers
+     * that meet it, the next section the rest, and neither turns a
+     * negative round -- the sign shows as the number's own. */
+    gboolean conditional = FALSE, met = FALSE;
+
+    for (int i = 0; i < count; i++)
+      if (section_condition (&sections[i], n, &met))
+        conditional = TRUE;
+    if (conditional)
+      {
+        use = &sections[count - 1];
+        for (int i = 0; i < count; i++)
+          {
+            if (!section_condition (&sections[i], n, &met) || met)
+              { use = &sections[i]; break; }
+          }
+        count = 1;   /* the section supplies no sign; the minus goes in front */
+      }
+    else if (count >= 2 && negative)
+      {
+        use = &sections[1];
+        n = -n;              /* the negative section supplies its own sign */
+      }
+    else if (count >= 3 && n == 0)
+      use = &sections[2];
+    else
+      use = &sections[0];
+  }
 
   /* "General" in a section is the General display. */
   if (use->end - use->start == 7 && g_ascii_strncasecmp (use->start, "General", 7) == 0)
