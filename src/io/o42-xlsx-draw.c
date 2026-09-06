@@ -528,6 +528,20 @@ xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
   return buffer;
 }
 
+/* A picture's brightness and contrast as a:lum, in thousandths of a
+ * per cent; nothing when both are as they were.  A static buffer. */
+static const char *
+lum_xml (const O42Picture *pic)
+{
+  static char buffer[64];
+
+  if (pic->brightness == 0 && pic->contrast == 0)
+    return "";
+  g_snprintf (buffer, sizeof buffer, "<a:lum bright=\"%.0f\" contrast=\"%.0f\"/>",
+              pic->brightness * 100000, pic->contrast * 100000);
+  return buffer;
+}
+
 /* A cropped picture's a:srcRect, the margins in thousandths of a per
  * cent; nothing for one that is whole.  A static buffer, as above. */
 static const char *
@@ -594,10 +608,10 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, pic->anchor);
             g_string_append_printf (dr,
               "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"%d\"/></xdr:cNvPicPr></xdr:nvPicPr>"
-              "<xdr:blipFill><a:blip r:embed=\"rId%d\"/>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
+              "<xdr:blipFill><a:blip r:embed=\"rId%d\">%s</a:blip>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
               "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
               "<xdr:clientData/></xdr:twoCellAnchor>",
-              shape, i + 1, pic->lock_aspect ? 1 : 0, rid, src_rect (pic),
+              shape, i + 1, pic->lock_aspect ? 1 : 0, rid, lum_xml (pic), src_rect (pic),
               xfrm_attrs (pic->rotation, pic->flip_h, pic->flip_v),
               pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
             rid++;
@@ -1184,6 +1198,7 @@ typedef struct
   double      rotation;    /* degrees, from a:xfrm */
   gboolean    flip_h, flip_v;
   double      crop[4];     /* a:srcRect l, t, r, b as fractions */
+  double      bright, contrast;   /* a:lum, as fractions */
   gboolean    lock_aspect;
   GString    *body;
 
@@ -1272,6 +1287,7 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->rotation = 0;
       d->flip_h = d->flip_v = FALSE;
       d->crop[0] = d->crop[1] = d->crop[2] = d->crop[3] = 0;
+      d->bright = d->contrast = 0;
       d->lock_aspect = TRUE;
       d->head_start = d->head_end = O42_HEAD_NONE;
       d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
@@ -1310,6 +1326,12 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *x = attr (names, values, "x"), *y = attr (names, values, "y");
       if (x) d->abs_x = g_ascii_strtod (x, NULL) / EMU_PER_PX;
       if (y) d->abs_y = g_ascii_strtod (y, NULL) / EMU_PER_PX;
+    }
+  else if (strcmp (n, "lum") == 0)
+    {
+      const char *b = attr (names, values, "bright"), *c = attr (names, values, "contrast");
+      d->bright = b != NULL ? CLAMP (g_ascii_strtod (b, NULL) / 100000, -1, 1) : 0;
+      d->contrast = c != NULL ? CLAMP (g_ascii_strtod (c, NULL) / 100000, -1, 1) : 0;
     }
   else if (strcmp (n, "srcRect") == 0)
     {
@@ -1643,6 +1665,8 @@ finish_anchor (DrawReader *d)
               pic->crop_r = d->crop[2]; pic->crop_b = d->crop[3];
               pic->lock_aspect = d->lock_aspect;
               pic->anchor = d->anchor_mode;
+              pic->brightness = d->bright;
+              pic->contrast = d->contrast;
             }
         }
       g_free (part);

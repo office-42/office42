@@ -4213,6 +4213,7 @@ typedef struct {
   GtkWidget *width, *height, *rotation, *flip_h, *flip_v;
   GtkWidget *crop[4], *lock_aspect;     /* left, top, right, bottom, per cent */
   GtkWidget *anchor[3];
+  GtkWidget *brightness, *contrast;
 } PicturePrompt;
 
 static void
@@ -4237,6 +4238,8 @@ on_picture_format_ok (GtkWidget *w, gpointer data)
       pic->crop_b = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[3])) / 100;
       pic->lock_aspect = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->lock_aspect));
       pic->anchor = anchor_chosen (prompt->anchor);
+      pic->brightness = gtk_range_get_value (GTK_RANGE (prompt->brightness)) / 100;
+      pic->contrast = gtk_range_get_value (GTK_RANGE (prompt->contrast)) / 100;
       o42_sheet_end_group (prompt->window->sheet);
       o42_sheet_set_modified (prompt->window->sheet, TRUE);
       o42_grid_refresh (prompt->window->grid);
@@ -4292,6 +4295,14 @@ action_format_picture (GSimpleAction *a, GVariant *p, gpointer data)
         prompt->crop[i] = labelled (grid, 3 + i, _(sides[i]), gtk_spin_button_new_with_range (0, 99, 1));
         gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->crop[i]), crops[i] * 100);
       }
+    /* Excel's picture toolbar: More and Less Brightness, More and Less
+     * Contrast, as two sliders. */
+    prompt->brightness = labelled (grid, 7, _("Brightness (%):"), gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL, -100, 100, 5));
+    gtk_range_set_value (GTK_RANGE (prompt->brightness), pic->brightness * 100);
+    gtk_widget_set_size_request (prompt->brightness, 180, -1);
+    prompt->contrast = labelled (grid, 8, _("Contrast (%):"), gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL, -100, 100, 5));
+    gtk_range_set_value (GTK_RANGE (prompt->contrast), pic->contrast * 100);
+    gtk_widget_set_size_request (prompt->contrast, 180, -1);
   }
   gtk_box_append (GTK_BOX (content), grid);
   prompt->lock_aspect = gtk_check_button_new_with_mnemonic ( _("_Lock aspect ratio"));

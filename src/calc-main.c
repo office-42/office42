@@ -1431,11 +1431,13 @@ main (int argc, char *argv[])
               else if (strcmp (words[2], "height") == 0) pic->height = number;
               else if (strcmp (words[2], "anchor") == 0)
                 { if (!o42_anchor_mode_parse (words[3], &pic->anchor)) fprintf (stderr, "twoCell, oneCell or absolute\n"); }
+              else if (strcmp (words[2], "brightness") == 0) pic->brightness = CLAMP (number, -1, 1);
+              else if (strcmp (words[2], "contrast") == 0) pic->contrast = CLAMP (number, -1, 1);
               else fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: pictureset ID rotation|fliph|flipv|width|height|"
-                             "cropl|cropr|cropt|cropb|lockaspect|anchor VALUE\n");
+                             "cropl|cropr|cropt|cropb|lockaspect|anchor|brightness|contrast VALUE\n");
           g_strfreev (words);
           continue;
         }
@@ -1527,6 +1529,8 @@ main (int argc, char *argv[])
                     printf (" crop %g %g %g %g", pic->crop_l, pic->crop_t, pic->crop_r, pic->crop_b);
                   if (!pic->lock_aspect)
                     printf (" free");
+                  if (pic->brightness != 0 || pic->contrast != 0)
+                    printf (" brightness %g contrast %g", pic->brightness, pic->contrast);
                   printf ("\n");
                   g_free (at);
                 }

@@ -467,9 +467,10 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
     "ObjectAnchorType=\"16 16 16 16\" Direction=\"17\" "
     "crop-top=\"%s\" crop-bottom=\"%s\" crop-left=\"%s\" crop-right=\"%s\" "
     "o42-z=\"%u\" o42-group=\"%u\" o42-rotation=\"%g\" o42-flip-h=\"%d\" o42-flip-v=\"%d\" "
-    "o42-lock-aspect=\"%d\" o42-anchor=\"%s\">\n",
+    "o42-lock-aspect=\"%d\" o42-anchor=\"%s\" o42-brightness=\"%g\" o42-contrast=\"%g\">\n",
     a, b, fx0s, fy0s, fx1s, fy1s, ct, cb, cl, cr, pic->z, pic->group, pic->rotation,
-    pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0, o42_anchor_mode_name (pic->anchor));
+    pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0, o42_anchor_mode_name (pic->anchor),
+    pic->brightness, pic->contrast);
 
   encoded = g_base64_encode (g_bytes_get_data (pic->data, NULL),
                              g_bytes_get_size (pic->data));
@@ -1604,6 +1605,7 @@ typedef struct {
   double      object_crop[4];   /* left, top, right, bottom */
   gboolean    object_lock_aspect;
   O42AnchorMode object_anchor;
+  double      object_brightness, object_contrast;
   O42AnchorMode graph_anchor;
   char       *graph_trend_name, *graph_err_name, *graph_font, *graph_data_sheet;
   char       *graph_marker_name;
@@ -2641,6 +2643,8 @@ start_element (GMarkupParseContext *context, const char *element,
       r->object_lock_aspect = attr_int (names, values, "o42-lock-aspect", 1) != 0;
       r->object_anchor = O42_ANCHOR_TWO_CELL;
       o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->object_anchor);
+      r->object_brightness = attr_double (names, values, "o42-brightness", 0);
+      r->object_contrast = attr_double (names, values, "o42-contrast", 0);
       r->object_flip_h = attr_int (names, values, "o42-flip-h", 0) != 0;
       r->object_flip_v = attr_int (names, values, "o42-flip-v", 0) != 0;
 
@@ -2858,6 +2862,8 @@ finish_picture (Reader *r)
   pic->crop_b = CLAMP (r->object_crop[3], 0, 0.99);
   pic->lock_aspect = r->object_lock_aspect;
   pic->anchor = r->object_anchor;
+  pic->brightness = r->object_brightness;
+  pic->contrast = r->object_contrast;
 
   x0 = offset_px (r->sheet, TRUE, r->object_bound.col0) +
        r->object_offset[0] * o42_sheet_col_width (r->sheet, r->object_bound.col0);
