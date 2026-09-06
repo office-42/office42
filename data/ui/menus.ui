@@ -9,6 +9,7 @@
       <attribute name="label" translatable="yes">_File</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_New</attribute><attribute name="action">win.new</attribute></item>
+        <item><attribute name="label" translatable="yes">New from _Template...</attribute><attribute name="action">win.new-from-template</attribute></item>
         <item><attribute name="label" translatable="yes">_Open...</attribute><attribute name="action">win.open</attribute></item>
         <item><attribute name="label" translatable="yes">_Close</attribute><attribute name="action">win.close</attribute></item>
       </section>

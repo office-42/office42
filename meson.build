@@ -22,6 +22,7 @@ add_project_arguments(
   '-DG_LOG_DOMAIN="office42"',
   '-DGETTEXT_PACKAGE="office42"',
   '-DO42_LOCALEDIR="' + get_option('prefix') / get_option('localedir') + '"',
+  '-DO42_TEMPLATEDIR="' + get_option('prefix') / get_option('datadir') / 'office42' / 'templates' + '"',
   language: 'c',
 )
 

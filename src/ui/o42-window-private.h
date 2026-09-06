@@ -133,6 +133,10 @@ void action_validation (GSimpleAction *a, GVariant *p, gpointer data);
 void action_circle_invalid (GSimpleAction *a, GVariant *p, gpointer data);
 void action_outline_settings (GSimpleAction *a, GVariant *p, gpointer data);
 void action_euro_convert (GSimpleAction *a, GVariant *p, gpointer data);
+void action_new_from_template (GSimpleAction *a, GVariant *p, gpointer data);
+
+/* A book that came from a template is nobody's file yet. */
+void o42_window_forget_file (O42Window *self);
 void action_clear_circles (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_rows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_cols (GSimpleAction *a, GVariant *p, gpointer data);

@@ -2738,6 +2738,30 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* colwidth A 120 / rowheight 3 30: in pixels, as the grid lays them out. */
+      if (g_str_has_prefix (text, "colwidth ") || g_str_has_prefix (text, "rowheight "))
+        {
+          char **w = g_strsplit (text, " ", -1);
+          if (g_strv_length (w) >= 3)
+            {
+              int size = atoi (w[2]);
+              if (text[0] == 'c')
+                {
+                  int crow, ccol;
+                  char *ref = g_strconcat (w[1], "1", NULL);
+                  if (o42_ref_parse (ref, &crow, &ccol, NULL) && size > 0)
+                    o42_sheet_set_col_width (sheet, ccol, size);
+                  g_free (ref);
+                }
+              else if (atoi (w[1]) >= 1 && size > 0)
+                o42_sheet_set_row_height (sheet, atoi (w[1]) - 1, size);
+            }
+          else
+            fprintf (stderr, "usage: colwidth A 120; rowheight 3 30\n");
+          g_strfreev (w);
+          continue;
+        }
+
       /* euroconvert A1:A5 C1 DEM EUR [formulas] [full] [tri N] */
       if (g_str_has_prefix (text, "euroconvert "))
         {
