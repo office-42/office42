@@ -103,6 +103,22 @@ things Excel XP has that were not here at all are: Insert > Picture >
 From Scanner or Camera, and the Evaluate Formula and Watch Window
 auditing tools.
 
+**The second pass**, the day after, went by the same method over
+what the first had left: a second battery of fifteen hundred formulas
+(IF turned out to work out both its branches, which made a LAMBDA that
+called itself twice take forever; empty references gave blank where
+Excel gives 0; names could not hold a formula); hidden sheets, the
+view state, conditional-format formulas, validation prompts and
+charts' legends in `.xls`; text set properly inside shapes, freeforms,
+gradients, anchoring that moves and sizes with the cells; pivot
+grouping, a live TABLE(), the input message and the three error styles
+of a validation; charts and shapes in the Python API, events, a step
+debugger, and `.xlsm` files that keep their Visual Basic for Excel;
+several print areas, title rows from anywhere, the Custom Header
+dialog, Page Break Preview as Excel draws it; shrink to fit, which the
+model had no bit for.  Six streams again, each checked against
+LibreOffice or Excel's documented answers.
+
 ---
 
 ## 2. Parity with Excel, area by area
@@ -114,7 +130,7 @@ has. The last column says what is missing, not what is there.
 |---|---:|---:|---:|---|
 | Entering and editing | 8 | 100% | 8.0 | |
 | Selecting and navigating | 5 | 100% | 5.0 | |
-| Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (612 in all), lifted over arrays as Excel lifts them |
+| Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (637 in all), lifted over arrays as Excel lifts them |
 | Number formats | 6 | 100% | 6.0 | |
 | Fonts, borders, colours | 8 | 100% | 8.0 | |
 | Styles and conditional formats | 6 | 100% | 6.0 | |
@@ -208,7 +224,7 @@ against.
 | Area | Weight | Here | Score | What is missing |
 |---|---:|---:|---:|---|
 | Editing and navigation | 10 | 98% | 9.8 | |
-| Formulas and functions | 18 | 98% | 17.6 | 612 of ~650 functions; Miltersen and Schwartz on commodities, and the odd corner of the rest |
+| Formulas and functions | 18 | 98% | 17.6 | 637 of ~650 functions; Miltersen and Schwartz on commodities, and the odd corner of the rest |
 | Formatting | 10 | 97% | 9.7 | as above |
 | Rows, columns, sheets | 8 | 97% | 7.8 | |
 | Data tools | 12 | 100% | 12.0 | |

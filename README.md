@@ -58,7 +58,7 @@ references, ranges, whole rows and columns, array constants, 3-D references
 across sheets, structured references into tables, names, `LET` and
 `LAMBDA`. Array formulas with Ctrl+Shift+Enter and dynamic arrays that
 spill. Recalculation is demand-driven with dirty flags, and circular
-references are reported rather than followed. **612 functions**: every one
+references are reported rather than followed. **637 functions**: every one
 Excel 2003 has, the statistics computed in two passes so they are accurate,
 the distributions on regularised incomplete gamma and beta functions, the
 whole bond arithmetic on the five day-count bases, the `.INTL` dates, the

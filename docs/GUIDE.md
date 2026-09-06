@@ -380,14 +380,22 @@ number, or drag the boundary between two headers. Format ▸ Row ▸ Hide
 and Column ▸ Hide take a band out of sight; Unhide brings it back.
 
 Data ▸ Group Rows and Group Columns make an outline, with the level
-buttons above the headers to fold and unfold it.
+buttons above the headers to fold and unfold it; Auto Outline finds the
+groups from the SUM rows and columns, Clear Outline takes them away,
+Show Detail and Hide Detail work one group, and Settings says whether
+the summary rows lie below or above the detail, the summary columns
+right or left.
 
 Format ▸ Merge Cells joins the selection into one; the top-left cell's
 content is what shows.
 
 Insert ▸ Worksheet adds a sheet before the current one, Format ▸ Rename
 Sheet names it, Edit ▸ Delete Sheet removes it -- and Ctrl+Z brings it
-back with everything on it. Click a tab to go to that sheet.
+back with everything on it. Click a tab to go to that sheet. Format ▸
+Sheet ▸ Hide takes a sheet out of the tab strip, Unhide lists the hidden
+ones and brings one back; a hidden sheet's cells are still there for
+formulas. Each sheet keeps its own zoom, gridlines, zeros, selection and
+active cell, and the file keeps them.
 
 Drag a tab sideways to move the sheet where you let it go. The tab's
 right-click menu has **Tab Colour...** and **No Tab Colour**; the colour
@@ -442,8 +450,14 @@ you type.
 
 **Validation.** Data ▸ Validation says what a cell may hold: a whole
 number, a decimal, a date, a time, a text length -- between, outside,
-equal to, greater or less than the bounds you give -- or one of a list
-of values. Anything else is refused with a message of your own.
+equal to, greater or less than the bounds you give -- one of a list of
+values, or whatever a formula of your own allows. An input message with
+a title shows under the cell while it is chosen; a list gets an arrow
+in the cell that drops the choices. What happens to an entry the rule
+refuses is Excel's three styles: Stop refuses it with the title and
+message, Warning asks whether to keep it anyway, Information tells and
+keeps it. Data ▸ Circle Invalid Data draws a red ring round every cell
+that breaks its rule; Clear Validation Circles takes them away.
 
 **Tables.** Data ▸ Table turns a range into a named table with banded
 rows, filter buttons and an optional total row; formulas can name its
@@ -463,7 +477,10 @@ it the source table, one or two fields down the rows, one or two
 across the columns, a field to summarise and a function for it (sum,
 count, average, min, max) -- or a calculated field written as a
 formula over the column names, `=Sales-Costs` -- and a field to filter
-on. It is
+on. Several data fields stand side by side, or down the rows; a date
+field groups by years, quarters, months or days, a number field into
+buckets of a size from a start, and any field into named groups; the
+subtotals and the grand totals can be turned off. It is
 written as values, not as Excel's own pivot part, so a file opened in
 Excel shows the table but does not offer to refresh it. Data ▸ Refresh
 Pivot Table rebuilds it here.
@@ -485,11 +502,24 @@ rate down column B.
 a value.
 
 **Solver.** Tools ▸ Solver maximises, minimises or hits a target by
-changing several cells, subject to constraints, by a Nelder-Mead search
-with penalties.
+changing any number of cells, subject to constraints that may hold a
+cell to a whole number or to 0 and 1, by a Nelder-Mead search with
+penalties and a branch-and-bound over the whole-number ones; Assume
+Non-Negative keeps the cells above zero, and the Answer Report is
+written to a sheet of its own.
+
+**What-If tables.** Data ▸ What-If Table fills a row or column (or
+both) of inputs through a formula, and the results are Excel's own
+`=TABLE(row_input, column_input)` array, worked out again whenever the
+inputs or the formula change.
+
+**Euro Conversion.** Tools ▸ Euro Conversion converts a range between
+the euro and the currencies that joined it, at the fixed rates, as
+values or as EUROCONVERT formulas, with the rounding Excel's tool used.
 
 **Scenarios.** Tools ▸ Scenarios keeps named sets of values for the
-same cells and puts any of them back.
+same cells and puts any of them back; Summary writes a report sheet
+with the changing cells and the result cells under each scenario.
 
 **Protection.** Format ▸ Protect Sheet locks the sheet and asks for a
 password, which may be left empty; taking the protection off asks for
@@ -609,6 +639,17 @@ of its own.
 - **Insert ▸ Control** puts a form control on the sheet: a button, a
   check box, an option button, a spinner, a scroll bar, a list box, a
   combo box, a label or a group box. See the next section.
+- **Shift+click** adds an object to the selection; a set is dragged,
+  deleted, ordered or grouped together. The handle on a stalk above a
+  shape turns it (Shift snaps to 15 degrees); Shift on a corner keeps
+  the proportions. Insert ▸ Shape ▸ Freeform draws an outline click by
+  click, double-click ending it.
+- **Format ▸ Shape** has tabs: Colors and Lines (a solid, gradient or
+  pattern fill, a shadow, the line, its dash and heads), Size (width,
+  height, rotation, flips), Text (font, size, colour, alignment, wrap,
+  inset) and Properties -- whether the object moves and sizes with the
+  cells under it, only moves, or stays put, as Excel's Format dialog
+  asks. Format ▸ Picture crops, turns, and sets brightness and contrast.
 - **Format ▸ Group Objects** puts everything anchored in the selection
   into a group: dragging one then moves them all. Ungroup takes them
   apart.
@@ -723,14 +764,19 @@ as a PDF. It needs poppler, and says so if the build has none.
 
 ## 15. Files
 
+File ▸ New from Template starts an untitled book from one of the
+templates that came with the program -- a loan amortization schedule,
+an invoice, an expense report, a balance sheet -- or from a `.gnumeric`
+of your own in the templates folder.
+
 File ▸ Open and Save As choose the format by the name you give:
 
 | Extension | What it is | What travels |
 |---|---|---|
 | `.gnumeric` | Gnumeric's own, gzipped XML | everything office42 has, including the things no other format holds |
-| `.xlsx` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, charts, shapes, pictures, print setup, protection, chart sheets, custom views, scripts |
-| `.xls` | Excel 5 to 2003, BIFF8 | cells, formulas as Excel's own tokens, formats, notes, pictures, charts, form controls |
-| `.ods` | OpenDocument, LibreOffice Calc's own | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, frozen panes, pictures, shapes, charts, form controls |
+| `.xlsx`, `.xlsm` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, validations, conditional formats, charts, shapes, pictures, print setup, protection, chart sheets, hidden sheets, custom views, scripts; an `.xlsm`'s Visual Basic is kept for Excel, not run |
+| `.xls` | Excel 5 to 2003, BIFF8 | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view |
+| `.ods`, `.fods` | OpenDocument, LibreOffice Calc's own, zipped or flat | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, validations, frozen panes, print setup, pictures, shapes, charts, form controls |
 | `.html` | a table per sheet | values, fonts, fills, borders, alignments, merges, links |
 | `.csv` | comma separated | the values as shown, quoted where they need it |
 | `.dif` | VisiCalc's Data Interchange Format | one sheet: the numbers as numbers and everything else as text |
