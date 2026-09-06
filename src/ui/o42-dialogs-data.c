@@ -982,8 +982,19 @@ typedef struct {
   GtkWidget *dialog;
   GtkWidget *source, *row_field, *row_field2, *col_field, *col_field2, *data_field, *agg;
   GtkWidget *calc, *filter_field, *filter_value;
+  GtkWidget *agg2, *data_field2, *data_on_rows;      /* a second data field */
+  GtkWidget *group_field, *group_kind, *bucket_start, *bucket_size, *manual_groups;
+  GtkWidget *subtotals, *grand_rows, *grand_cols;
   GStrv      fields;
 } PivotPrompt;
+
+/* How a field may be grouped, in the drop-down's order; the specs are
+ * what O42Pivot.groups spells. */
+static const char *const PIVOT_GROUP_KINDS[] = {
+  "(not grouped)", "Years", "Years and quarters", "Years, quarters and months",
+  "Quarters", "Months", "Days", "Number buckets", "Named groups", NULL
+};
+static const char *const PIVOT_GROUP_SPECS[] = { "", "y", "y,q", "y,q,m", "q", "m", "d", "n", "g" };
 
 
 
@@ -1036,9 +1047,46 @@ on_pivot_ok (GtkWidget *w, gpointer data)
         p.filter_value = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->filter_value));
       }
   }
+  {
+    /* The further parts: a second data field, a grouping, the totals. */
+    guint di2 = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->data_field2));
+    guint gf = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->group_field));
+    guint gk = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->group_kind));
+    GString *groups = g_string_new (NULL);
+
+    if (di2 > 0 && di2 != GTK_INVALID_LIST_POSITION)
+      {
+        char *spec = g_strdup_printf ("%s:%s", PIVOT_AGGS[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->agg2))],
+                                      prompt->fields[MIN (di2 - 1, n - 1)]);
+        p.data_fields = g_new0 (char *, 2);
+        p.data_fields[0] = spec;
+      }
+    p.data_on_rows = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->data_on_rows));
+    if (gf > 0 && gf != GTK_INVALID_LIST_POSITION && gk > 0 && gk < G_N_ELEMENTS (PIVOT_GROUP_SPECS))
+      {
+        const char *field = prompt->fields[MIN (gf - 1, n - 1)];
+        if (strcmp (PIVOT_GROUP_SPECS[gk], "n") == 0)
+          {
+            char a[G_ASCII_DTOSTR_BUF_SIZE], b[G_ASCII_DTOSTR_BUF_SIZE];
+            g_string_append_printf (groups, "%s=n,%s,%s", field,
+                                    g_ascii_formatd (a, sizeof a, "%g", gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->bucket_start))),
+                                    g_ascii_formatd (b, sizeof b, "%g", gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->bucket_size))));
+          }
+        else if (strcmp (PIVOT_GROUP_SPECS[gk], "g") == 0)
+          g_string_append_printf (groups, "%s=g,%s", field, gtk_editable_get_text (GTK_EDITABLE (prompt->manual_groups)));
+        else
+          g_string_append_printf (groups, "%s=%s", field, PIVOT_GROUP_SPECS[gk]);
+      }
+    p.groups = g_string_free (groups, FALSE);
+    p.subtotals = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->subtotals));
+    p.no_grand_rows = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->grand_rows));
+    p.no_grand_cols = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->grand_cols));
+  }
 
   dest = o42_book_add_sheet (self->book, NULL, -1);
   o42_sheet_add_pivot (dest, &p);
+  g_strfreev (p.data_fields);
+  g_free (p.groups);
   g_free (calc_text);
   g_ptr_array_free (rows, TRUE);
   g_ptr_array_free (cols, TRUE);
@@ -1130,6 +1178,18 @@ action_pivot (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content), row);
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("and:")));
+  prompt->agg2 = drop_down_of (PIVOT_AGGS);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->agg2), 1);
+  gtk_box_append (GTK_BOX (row), prompt->agg2);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("of")));
+  prompt->data_field2 = gtk_drop_down_new_from_strings ((const char * const *) col_choices->pdata);
+  gtk_box_append (GTK_BOX (row), prompt->data_field2);
+  prompt->data_on_rows = gtk_check_button_new_with_mnemonic (_("Data fields _down the rows"));
+  gtk_box_append (GTK_BOX (row), prompt->data_on_rows);
+  gtk_box_append (GTK_BOX (content), row);
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("or calculated field:")));
   prompt->calc = gtk_entry_new ();
   gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->calc), _("=Sales-Costs"));
@@ -1146,6 +1206,43 @@ action_pivot (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_set_hexpand (prompt->filter_value, TRUE);
   gtk_box_append (GTK_BOX (row), prompt->filter_value);
   gtk_box_append (GTK_BOX (content), row);
+  /* Grouping: one field, by dates, buckets or named groups. */
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Group:")));
+  prompt->group_field = gtk_drop_down_new_from_strings ((const char * const *) col_choices->pdata);
+  gtk_box_append (GTK_BOX (row), prompt->group_field);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("by")));
+  prompt->group_kind = drop_down_of (PIVOT_GROUP_KINDS);
+  gtk_box_append (GTK_BOX (row), prompt->group_kind);
+  gtk_box_append (GTK_BOX (content), row);
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Buckets from")));
+  prompt->bucket_start = gtk_spin_button_new_with_range (-1e9, 1e9, 1);
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->bucket_start), 0);
+  gtk_box_append (GTK_BOX (row), prompt->bucket_start);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("of")));
+  prompt->bucket_size = gtk_spin_button_new_with_range (0.01, 1e9, 1);
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->bucket_size), 100);
+  gtk_box_append (GTK_BOX (row), prompt->bucket_size);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("or groups:")));
+  prompt->manual_groups = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->manual_groups), _("Coast=East|West,Inland=Central"));
+  gtk_widget_set_hexpand (prompt->manual_groups, TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->manual_groups);
+  gtk_box_append (GTK_BOX (content), row);
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  prompt->subtotals = gtk_check_button_new_with_mnemonic (_("_Subtotals"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->subtotals), TRUE);
+  prompt->grand_rows = gtk_check_button_new_with_mnemonic (_("Grand total for _rows"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->grand_rows), TRUE);
+  prompt->grand_cols = gtk_check_button_new_with_mnemonic (_("Grand total for _columns"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->grand_cols), TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->subtotals);
+  gtk_box_append (GTK_BOX (row), prompt->grand_rows);
+  gtk_box_append (GTK_BOX (row), prompt->grand_cols);
+  gtk_box_append (GTK_BOX (content), row);
+
   gtk_box_append (GTK_BOX (content), gtk_label_new (_("The table is laid out on a new sheet; Data > Refresh Pivot Table lays it out again.")));
   g_ptr_array_free (col_choices, TRUE);
 
@@ -1207,6 +1304,66 @@ action_auto_outline (GSimpleAction *a, GVariant *p, gpointer data)
                         _("No formula sums up the rows above it or the columns to its left."));
 }
 
+/* Data > Group and Outline > Settings: which side the summaries are on. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *above, *left, *auto_outline;
+} OutlineSettingsPrompt;
+
+static void
+on_outline_settings_ok (GtkWidget *w, gpointer data)
+{
+  OutlineSettingsPrompt *prompt = data;
+  O42Window *self = prompt->window;
+
+  (void) w;
+  o42_sheet_set_outline_settings (self->sheet,
+                                  gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->above)),
+                                  gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->left)));
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->auto_outline)))
+    o42_sheet_auto_outline (self->sheet);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_outline_settings (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  OutlineSettingsPrompt *prompt = g_new0 (OutlineSettingsPrompt, 1);
+  GtkWidget *content, *buttons, *ok, *label;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Outline Settings"), TRUE, &content, &buttons);
+  label = gtk_label_new (_("Direction"));
+  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+  gtk_widget_add_css_class (label, "heading");
+  gtk_box_append (GTK_BOX (content), label);
+  prompt->above = gtk_check_button_new_with_mnemonic (_("Summary rows _above detail"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->above), o42_sheet_summary_above (self->sheet));
+  gtk_box_append (GTK_BOX (content), prompt->above);
+  prompt->left = gtk_check_button_new_with_mnemonic (_("Summary columns to _left of detail"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->left), o42_sheet_summary_left (self->sheet));
+  gtk_box_append (GTK_BOX (content), prompt->left);
+  prompt->auto_outline = gtk_check_button_new_with_mnemonic (_("_Create the outline now (Auto Outline)"));
+  gtk_box_append (GTK_BOX (content), prompt->auto_outline);
+  label = gtk_label_new (_("Auto Outline, Show Detail, Hide Detail and the fold boxes follow the direction."));
+  gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+  gtk_widget_add_css_class (label, "dim-label");
+  gtk_box_append (GTK_BOX (content), label);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_outline_settings_ok), prompt);
+  dialog_button (buttons, _("Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
 void
 action_clear_outline (GSimpleAction *a, GVariant *p, gpointer data)
 {
@@ -1250,11 +1407,13 @@ typedef struct {
   GtkWidget *kind, *op;
   GtkWidget *value, *value2;
   GtkWidget *message, *blank;
+  GtkWidget *dropdown, *prompt_title, *prompt_text, *style, *title, *show_error;
 } ValidPrompt;
 
 static const char *VALID_KINDS[] = {
   N_("Any value"), N_("Whole number"), N_("Decimal"), N_("List"), N_("Date"), N_("Time"), N_("Text length"), NULL
 };
+static const char *VALID_STYLES[] = { N_("Stop"), N_("Warning"), N_("Information"), NULL };
 
 static void
 on_valid_ok (GtkWidget *w, gpointer data)
@@ -1272,6 +1431,12 @@ on_valid_ok (GtkWidget *w, gpointer data)
   v.value2 = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->value2));
   v.message = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->message));
   v.allow_blank = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->blank));
+  v.no_dropdown = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->dropdown));
+  v.prompt_title = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->prompt_title));
+  v.prompt = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->prompt_text));
+  v.style = (O42ValidStyle) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->style));
+  v.title = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->title));
+  v.no_error = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->show_error));
 
   o42_sheet_clear_validations (self->sheet, &v.range);
   if (v.kind != O42_VALID_ANY)
@@ -1340,17 +1505,50 @@ action_validation (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content),
                   gtk_label_new (_("For a list, put the entries in the first box, comma-separated, or a range holding them.")));
 
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  prompt->blank = gtk_check_button_new_with_mnemonic ( _("Ignore _blank"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->blank), existing ? existing->allow_blank : TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->blank);
+  prompt->dropdown = gtk_check_button_new_with_mnemonic ( _("In-cell _dropdown"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->dropdown), existing ? !existing->no_dropdown : TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->dropdown);
+  gtk_box_append (GTK_BOX (content), row);
+
+  /* Input Message: shown under the cell while it is chosen. */
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Error message:")));
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Input message:")));
+  prompt->prompt_title = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->prompt_title), _("Title"));
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->prompt_title), 12);
+  if (existing && existing->prompt_title) gtk_editable_set_text (GTK_EDITABLE (prompt->prompt_title), existing->prompt_title);
+  gtk_box_append (GTK_BOX (row), prompt->prompt_title);
+  prompt->prompt_text = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->prompt_text), _("Shown when the cell is selected"));
+  gtk_widget_set_hexpand (prompt->prompt_text, TRUE);
+  if (existing && existing->prompt) gtk_editable_set_text (GTK_EDITABLE (prompt->prompt_text), existing->prompt);
+  gtk_box_append (GTK_BOX (row), prompt->prompt_text);
+  gtk_box_append (GTK_BOX (content), row);
+
+  /* Error Alert: the style, a title and the message. */
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Error alert:")));
+  prompt->style = drop_down_of (VALID_STYLES);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->style), existing ? existing->style : O42_VALID_STOP);
+  gtk_box_append (GTK_BOX (row), prompt->style);
+  prompt->title = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->title), _("Title"));
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->title), 12);
+  if (existing && existing->title) gtk_editable_set_text (GTK_EDITABLE (prompt->title), existing->title);
+  gtk_box_append (GTK_BOX (row), prompt->title);
   prompt->message = gtk_entry_new ();
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->message), _("Error message"));
   gtk_widget_set_hexpand (prompt->message, TRUE);
   if (existing) gtk_editable_set_text (GTK_EDITABLE (prompt->message), existing->message);
   gtk_box_append (GTK_BOX (row), prompt->message);
   gtk_box_append (GTK_BOX (content), row);
-
-  prompt->blank = gtk_check_button_new_with_mnemonic ( _("Ignore _blank"));
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->blank), existing ? existing->allow_blank : TRUE);
-  gtk_box_append (GTK_BOX (content), prompt->blank);
+  prompt->show_error = gtk_check_button_new_with_mnemonic ( _("Show error alert after invalid data is _entered"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->show_error), existing ? !existing->no_error : TRUE);
+  gtk_box_append (GTK_BOX (content), prompt->show_error);
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_valid_ok), prompt);
   dialog_button (buttons, _("_Clear"), G_CALLBACK (on_valid_clear), prompt);
@@ -1360,6 +1558,23 @@ action_validation (GSimpleAction *a, GVariant *p, gpointer data)
   g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
   gtk_widget_grab_focus (prompt->value);
+}
+
+/* Data > Validation > Circle Invalid Data, and Clear Validation Circles. */
+void
+action_circle_invalid (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  o42_grid_set_circle_invalid (self->grid, TRUE);
+}
+
+void
+action_clear_circles (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  o42_grid_set_circle_invalid (self->grid, FALSE);
 }
 
 /* ---- Data > Text to Columns -------------------------------------------- */

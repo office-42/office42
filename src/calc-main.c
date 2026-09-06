@@ -2802,22 +2802,33 @@ main (int argc, char *argv[])
               p.data_field = words[3];
               for (guint i = 0; i < G_N_ELEMENTS (aggs); i++)
                 if (strcmp (words[4], aggs[i]) == 0) p.agg = (O42PivotAgg) i;
-              if (g_strv_length (words) >= 6 && strchr (words[5], '=') != NULL)
+              for (guint k = 5; k < g_strv_length (words); k++)
                 {
-                  /* A page filter, Field=Value. */
-                  char *at = strchr (words[5], '=');
-                  *at = '\0';
-                  p.filter_field = words[5];
-                  p.filter_value = at + 1;
+                  if (g_str_has_prefix (words[k], "opts="))
+                    {
+                      /* The further parts: data=Count:Orders|Average:Price;groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=r;dataon=rows */
+                      o42_pivot_options_apply (&p, words[k] + 5);
+                    }
+                  else if (strchr (words[k], '=') != NULL)
+                    {
+                      /* A page filter, Field=Value. */
+                      char *at = strchr (words[k], '=');
+                      *at = '\0';
+                      p.filter_field = words[k];
+                      p.filter_value = at + 1;
+                    }
                 }
               o42_sheet_add_pivot (dest, &p);
               g_strfreev (p.row_fields);
               g_strfreev (p.col_fields);
+              g_strfreev (p.data_fields);
+              g_free (p.groups);
               sheet = dest;
               printf ("pivot on %s\n", o42_sheet_get_name (dest));
             }
           else
-            fprintf (stderr, "usage: pivot A1:C9 Region|Year Quarter|- Sales|=Sales-Costs sum [Field=Value]\n");
+            fprintf (stderr, "usage: pivot A1:C9 Region|Year Quarter|- Sales|=Sales-Costs sum [Field=Value] "
+                             "[opts=data=Count:Orders;groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=rc;dataon=rows]\n");
           g_strfreev (words);
           continue;
         }
@@ -2825,6 +2836,71 @@ main (int argc, char *argv[])
       if (strcmp (text, "refresh") == 0)
         {
           o42_sheet_refresh_pivots (sheet);
+          continue;
+        }
+
+      /* colwidth A 120 / rowheight 3 30: in pixels, as the grid lays them out. */
+      if (g_str_has_prefix (text, "colwidth ") || g_str_has_prefix (text, "rowheight "))
+        {
+          char **w = g_strsplit (text, " ", -1);
+          if (g_strv_length (w) >= 3)
+            {
+              int size = atoi (w[2]);
+              if (text[0] == 'c')
+                {
+                  int crow, ccol;
+                  char *ref = g_strconcat (w[1], "1", NULL);
+                  if (o42_ref_parse (ref, &crow, &ccol, NULL) && size > 0)
+                    o42_sheet_set_col_width (sheet, ccol, size);
+                  g_free (ref);
+                }
+              else if (atoi (w[1]) >= 1 && size > 0)
+                o42_sheet_set_row_height (sheet, atoi (w[1]) - 1, size);
+            }
+          else
+            fprintf (stderr, "usage: colwidth A 120; rowheight 3 30\n");
+          g_strfreev (w);
+          continue;
+        }
+
+      /* euroconvert A1:A5 C1 DEM EUR [formulas] [full] [tri N] */
+      if (g_str_has_prefix (text, "euroconvert "))
+        {
+          char **w = g_strsplit (text + 12, " ", -1);
+          int n = (int) g_strv_length (w);
+          O42Range r;
+          int drow, dcol;
+          gsize len = 0;
+
+          if (n >= 4 && o42_ref_parse (w[0], &r.row0, &r.col0, &len) && w[0][len] == ':' &&
+              o42_ref_parse (w[0] + len + 1, &r.row1, &r.col1, NULL) && o42_ref_parse (w[1], &drow, &dcol, NULL))
+            {
+              gboolean formulas = FALSE, full = FALSE;
+              int tri = 0;
+              for (int i = 4; i < n; i++)
+                {
+                  if (strcmp (w[i], "formulas") == 0) formulas = TRUE;
+                  else if (strcmp (w[i], "full") == 0) full = TRUE;
+                  else if (strcmp (w[i], "tri") == 0 && i + 1 < n) tri = atoi (w[++i]);
+                }
+              printf ("%d cells converted\n", o42_sheet_euro_convert (sheet, &r, drow, dcol, w[2], w[3], formulas, full, tri));
+            }
+          else
+            fprintf (stderr, "usage: euroconvert A1:A5 C1 DEM EUR [formulas] [full] [tri N]\n");
+          g_strfreev (w);
+          continue;
+        }
+
+      /* outlinesettings above|below left|right: where the summaries stand. */
+      if (g_str_has_prefix (text, "outlinesettings"))
+        {
+          gboolean above = o42_sheet_summary_above (sheet), left = o42_sheet_summary_left (sheet);
+          if (strstr (text, "above") != NULL) above = TRUE;
+          if (strstr (text, "below") != NULL) above = FALSE;
+          if (strstr (text, "left") != NULL) left = TRUE;
+          if (strstr (text, "right") != NULL) left = FALSE;
+          o42_sheet_set_outline_settings (sheet, above, left);
+          printf ("summary rows %s, summary columns %s\n", above ? "above" : "below", left ? "left" : "right");
           continue;
         }
 
@@ -3020,19 +3096,32 @@ main (int argc, char *argv[])
                * style=stop|warning|info words before the text. */
               for (int i = next; i < n; i++)
                 {
-                  if (g_str_has_prefix (words[i], "title=")) { v.error_title = words[i] + 6; continue; }
-                  if (g_str_has_prefix (words[i], "prompt=")) { v.prompt = words[i] + 7; continue; }
-                  if (g_str_has_prefix (words[i], "prompttitle=")) { v.prompt_title = words[i] + 12; continue; }
+                  /* style=stop|warning|info title=... prompt=Title|Text nodrop noerror
+                   * noblank, or words of the message. */
                   if (g_str_has_prefix (words[i], "style="))
+                    v.style = strcmp (words[i] + 6, "warning") == 0 ? O42_VALID_WARNING
+                            : strcmp (words[i] + 6, "info") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+                  else if (g_str_has_prefix (words[i], "title="))
+                    v.title = words[i] + 6;
+                  else if (g_str_has_prefix (words[i], "prompt="))
                     {
-                      v.error_style = strcmp (words[i] + 6, "warning") == 0 ? O42_VALID_WARNING
-                                    : strcmp (words[i] + 6, "info") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
-                      continue;
+                      char *bar = strchr (words[i] + 7, '|');
+                      if (bar != NULL) { *bar = '\0'; v.prompt_title = words[i] + 7; v.prompt = bar + 1; }
+                      else v.prompt = words[i] + 7;
                     }
-                  if (msg->len > 0) g_string_append_c (msg, ' ');
-                  g_string_append (msg, words[i]);
+                  else if (strcmp (words[i], "nodrop") == 0) v.no_dropdown = TRUE;
+                  else if (strcmp (words[i], "noerror") == 0) v.no_error = TRUE;
+                  else if (strcmp (words[i], "noblank") == 0) v.allow_blank = FALSE;
+                  else
+                    {
+                      if (msg->len > 0) g_string_append_c (msg, ' ');
+                      g_string_append (msg, words[i]);
+                    }
                 }
               v.message = msg->str;
+              for (char *q = v.prompt; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
+              for (char *q = v.prompt_title; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
+              for (char *q = v.title; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
               o42_sheet_add_validation (sheet, &v);
               g_string_free (msg, TRUE);
             }
@@ -3055,6 +3144,24 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* invalid: the cells whose rule their value breaks, as Circle Invalid Data marks them. */
+      if (strcmp (text, "invalid") == 0)
+        {
+          O42Range extent;
+          int n_bad = 0;
+          o42_sheet_used_range (sheet, &extent);
+          for (int r = extent.row0; r <= extent.row1; r++)
+            for (int c = extent.col0; c <= extent.col1; c++)
+              if (o42_sheet_cell_invalid (sheet, r, c))
+                {
+                  char *ref = o42_ref_name (r, c);
+                  printf ("%s%s", n_bad++ > 0 ? " " : "", ref);
+                  g_free (ref);
+                }
+          printf ("%s\n", n_bad > 0 ? "" : "none");
+          continue;
+        }
+
       if (strcmp (text, "validations") == 0)
         {
           GArray *rules = o42_sheet_validations (sheet);
@@ -3063,13 +3170,11 @@ main (int argc, char *argv[])
               const O42Validation *v = &g_array_index (rules, O42Validation, i);
               char *a = o42_ref_name (v->range.row0, v->range.col0);
               char *b = o42_ref_name (v->range.row1, v->range.col1);
-              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\"",
-                      a, b, (int) v->kind, (int) v->op, v->value, v->value2, v->allow_blank, v->message);
-              if (v->error_title != NULL && *v->error_title) printf (" title \"%s\"", v->error_title);
-              if (v->error_style != O42_VALID_STOP) printf (" style %s", v->error_style == O42_VALID_WARNING ? "warning" : "info");
-              if (v->prompt_title != NULL && *v->prompt_title) printf (" prompttitle \"%s\"", v->prompt_title);
-              if (v->prompt != NULL && *v->prompt) printf (" prompt \"%s\"", v->prompt);
-              printf ("\n");
+              static const char *const styles[] = { "stop", "warning", "info" };
+              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\" style %s title \"%s\" prompt \"%s|%s\"%s%s\n",
+                      a, b, (int) v->kind, (int) v->op, v->value, v->value2, v->allow_blank, v->message,
+                      styles[CLAMP (v->style, 0, 2)], v->title ? v->title : "", v->prompt_title ? v->prompt_title : "",
+                      v->prompt ? v->prompt : "", v->no_dropdown ? " nodrop" : "", v->no_error ? " noerror" : "");
               g_free (a);
               g_free (b);
             }

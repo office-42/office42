@@ -6,6 +6,10 @@
 
 #include "o42-window-private.h"
 
+#ifdef G_OS_WIN32
+#include <windows.h>
+#endif
+
 #include "o42-analysis.h"
 #include "o42-book.h"
 #include "o42-eval.h"
@@ -127,6 +131,286 @@ action_goal_seek (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_grab_focus (prompt->value);
 }
 
+
+/* ---- File > New from Template ------------------------------------------ */
+
+/* The folders templates are looked for in: the one the build names,
+ * the share folder beside the program (the Windows and macOS bundles),
+ * the source tree's data folder when running from a build, and the
+ * user's own.  Each is a .gnumeric whose file name, less the
+ * extension and with dashes as spaces, is what the list shows. */
+static GPtrArray *
+template_folders (void)
+{
+  GPtrArray *folders = g_ptr_array_new_with_free_func (g_free);
+  char *exe = NULL;
+
+#ifdef O42_TEMPLATEDIR
+  g_ptr_array_add (folders, g_strdup (O42_TEMPLATEDIR));
+#endif
+#ifdef G_OS_WIN32
+  {
+    wchar_t path[MAX_PATH];
+    if (GetModuleFileNameW (NULL, path, MAX_PATH) > 0)
+      exe = g_utf16_to_utf8 (path, -1, NULL, NULL, NULL);
+  }
+#else
+  exe = g_file_read_link ("/proc/self/exe", NULL);
+#endif
+  if (exe != NULL)
+    {
+      char *bin = g_path_get_dirname (exe);
+      g_ptr_array_add (folders, g_build_filename (bin, "..", "share", "office42", "templates", NULL));
+      g_ptr_array_add (folders, g_build_filename (bin, "..", "..", "data", "templates", NULL));
+      g_free (bin);
+      g_free (exe);
+    }
+  g_ptr_array_add (folders, g_build_filename (g_get_user_data_dir (), "office42", "templates", NULL));
+  return folders;
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+  GPtrArray *paths;    /* char*, one per row */
+} TemplatePrompt;
+
+static void
+on_template_open (GtkWidget *w, gpointer data)
+{
+  TemplatePrompt *prompt = data;
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+  O42Window *self = prompt->window;
+  GtkWidget *target;
+  GFile *file;
+
+  (void) w;
+  if (row == NULL)
+    return;
+  file = g_file_new_for_path (g_ptr_array_index (prompt->paths, gtk_list_box_row_get_index (row)));
+  /* Into this window when it is still blank, else a new one; the book
+   * is untitled afterwards, as a template's copy should be. */
+  target = o42_window_is_blank (self) ? GTK_WIDGET (self)
+           : o42_window_new (gtk_window_get_application (GTK_WINDOW (self)));
+  if (o42_window_open_file (O42_WINDOW (target), file))
+    {
+      o42_window_forget_file (O42_WINDOW (target));
+      o42_book_set_scripts_trusted (O42_WINDOW (target)->book, TRUE);
+      gtk_revealer_set_reveal_child (GTK_REVEALER (O42_WINDOW (target)->scripts_bar), FALSE);
+    }
+  g_object_unref (file);
+  gtk_window_present (GTK_WINDOW (target));
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_template_row_activated (GtkListBox *box, GtkListBoxRow *row, gpointer data)
+{
+  (void) box; (void) row;
+  on_template_open (NULL, data);
+}
+
+static void
+on_template_destroy (gpointer data)
+{
+  TemplatePrompt *prompt = data;
+  g_ptr_array_unref (prompt->paths);
+  g_free (prompt);
+}
+
+static int
+compare_paths (gconstpointer a, gconstpointer b)
+{
+  return g_utf8_collate (*(const char *const *) a, *(const char *const *) b);
+}
+
+void
+action_new_from_template (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  TemplatePrompt *prompt = g_new0 (TemplatePrompt, 1);
+  GtkWidget *content, *buttons, *scroller, *ok;
+  GPtrArray *folders = template_folders ();
+  GHashTable *seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->paths = g_ptr_array_new_with_free_func (g_free);
+  prompt->dialog = dialog_frame (self, _("New from Template"), TRUE, &content, &buttons);
+
+  for (guint i = 0; i < folders->len; i++)
+    {
+      GDir *dir = g_dir_open (g_ptr_array_index (folders, i), 0, NULL);
+      const char *name;
+
+      if (dir == NULL)
+        continue;
+      while ((name = g_dir_read_name (dir)) != NULL)
+        {
+          if (!g_str_has_suffix (name, ".gnumeric") || g_hash_table_contains (seen, name))
+            continue;
+          g_hash_table_add (seen, g_strdup (name));
+          g_ptr_array_add (prompt->paths, g_build_filename (g_ptr_array_index (folders, i), name, NULL));
+        }
+      g_dir_close (dir);
+    }
+  g_ptr_array_sort (prompt->paths, compare_paths);
+
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  for (guint i = 0; i < prompt->paths->len; i++)
+    {
+      char *base = g_path_get_basename (g_ptr_array_index (prompt->paths, i));
+      char *dot = strrchr (base, '.');
+      GtkWidget *label;
+
+      if (dot != NULL) *dot = '\0';
+      for (char *q = base; *q != '\0'; q++)
+        if (*q == '-' || *q == '_') *q = ' ';
+      if (g_ascii_islower (base[0])) base[0] = g_ascii_toupper (base[0]);
+      label = gtk_label_new (base);
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_widget_set_margin_top (label, 4);
+      gtk_widget_set_margin_bottom (label, 4);
+      gtk_widget_set_margin_start (label, 8);
+      gtk_list_box_append (GTK_LIST_BOX (prompt->list), label);
+      g_free (base);
+    }
+  if (prompt->paths->len > 0)
+    gtk_list_box_select_row (GTK_LIST_BOX (prompt->list), gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), 0));
+  g_signal_connect (prompt->list, "row-activated", G_CALLBACK (on_template_row_activated), prompt);
+
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_widget_set_size_request (scroller, 360, 220);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_box_append (GTK_BOX (content), scroller);
+  {
+    char *own = g_build_filename (g_get_user_data_dir (), "office42", "templates", NULL);
+    char *hint = g_strdup_printf (_("A .gnumeric in %s is offered here too."), own);
+    GtkWidget *label = gtk_label_new (hint);
+    gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_max_width_chars (GTK_LABEL (label), 50);
+    gtk_widget_add_css_class (label, "dim-label");
+    gtk_box_append (GTK_BOX (content), label);
+    g_free (hint);
+    g_free (own);
+  }
+
+  ok = dialog_button (buttons, _("_Open"), G_CALLBACK (on_template_open), prompt);
+  dialog_button (buttons, _("Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  gtk_widget_set_sensitive (ok, prompt->paths->len > 0);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (on_template_destroy), prompt);
+  g_ptr_array_unref (folders);
+  g_hash_table_unref (seen);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Tools > Euro Conversion ------------------------------------------ */
+
+/* Excel's Euro Currency Tools: a range of sums in one member currency
+ * written out in another, as values or as EUROCONVERT formulas. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *source, *dest, *from, *to, *formulas, *full, *tri, *status;
+} EuroPrompt;
+
+static void
+on_euro_ok (GtkWidget *w, gpointer data)
+{
+  EuroPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const char *st = gtk_editable_get_text (GTK_EDITABLE (prompt->source));
+  const char *dt = gtk_editable_get_text (GTK_EDITABLE (prompt->dest));
+  const char **codes;
+  O42Range r;
+  int drow, dcol, n;
+  gsize len = 0;
+
+  (void) w;
+  o42_euro_members (&codes);
+  if (!(o42_ref_parse (st, &r.row0, &r.col0, &len) &&
+        (st[len] == '\0' || (st[len] == ':' && o42_ref_parse (st + len + 1, &r.row1, &r.col1, NULL)))) ||
+      !o42_ref_parse (dt, &drow, &dcol, NULL))
+    {
+      gtk_label_set_text (GTK_LABEL (prompt->status), _("Give a source range and a destination cell."));
+      return;
+    }
+  if (st[len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
+  n = o42_sheet_euro_convert (self->sheet, &r, drow, dcol,
+                              codes[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->from))],
+                              codes[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->to))],
+                              gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->formulas)),
+                              gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->full)),
+                              gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->tri)));
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  {
+    char *msg = g_strdup_printf (n == 1 ? _("%d cell converted.") : _("%d cells converted."), n);
+    gtk_label_set_text (GTK_LABEL (prompt->status), msg);
+    g_free (msg);
+  }
+}
+
+void
+action_euro_convert (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  EuroPrompt *prompt = g_new0 (EuroPrompt, 1);
+  GtkWidget *content, *buttons, *grid, *ok;
+  const char **codes;
+  O42Range sel;
+  char *x, *y, *text;
+
+  (void) a; (void) p;
+  o42_euro_members (&codes);
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Euro Conversion"), FALSE, &content, &buttons);
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->source = labelled (grid, 0, _("Source range:"), gtk_entry_new ());
+  prompt->dest = labelled (grid, 1, _("Destination range:"), gtk_entry_new ());
+  prompt->from = labelled (grid, 2, _("From:"), gtk_drop_down_new_from_strings (codes));
+  prompt->to = labelled (grid, 3, _("To:"), gtk_drop_down_new_from_strings (codes));
+  prompt->tri = labelled (grid, 4, _("Triangulation precision:"), gtk_spin_button_new_with_range (0, 15, 1));
+  gtk_box_append (GTK_BOX (content), grid);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->from), 3);   /* DEM */
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->to), 0);     /* EUR */
+
+  o42_grid_get_selection (self->grid, &sel);
+  x = o42_ref_name (sel.row0, sel.col0);
+  y = o42_ref_name (sel.row1, sel.col1);
+  text = g_strdup_printf ("%s:%s", x, y);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->source), text);
+  g_free (text); g_free (y);
+  y = o42_ref_name (sel.row0, MIN (sel.col1 + 2, O42_MAX_COLS - 1));
+  gtk_editable_set_text (GTK_EDITABLE (prompt->dest), y);
+  g_free (x); g_free (y);
+
+  prompt->formulas = gtk_check_button_new_with_mnemonic (_("Write EUROCONVERT _formulas rather than values"));
+  gtk_box_append (GTK_BOX (content), prompt->formulas);
+  prompt->full = gtk_check_button_new_with_mnemonic (_("Full _precision (no rounding to the currency's decimals)"));
+  gtk_box_append (GTK_BOX (content), prompt->full);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Triangulation 0 leaves the euro amount unrounded; 3 to 15 round it on the way.")));
+
+  prompt->status = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->status), 0.0);
+  gtk_box_append (GTK_BOX (content), prompt->status);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_euro_ok), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
 
 /* ---- Tools > Python Console ------------------------------------------- */
 

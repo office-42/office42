@@ -10,6 +10,9 @@ o42_resources = gnome.compile_resources(
 # The desktop entry and application icon, for the platforms that have
 # such things; on Windows and macOS the icon rides inside the binary's
 # resources.
+# The templates File > New from Template offers.
+install_subdir('templates', install_dir: get_option('datadir') / 'office42')
+
 install_data('net.office42.office42.desktop',
   install_dir: get_option('datadir') / 'applications')
 install_data('icons/scalable/apps/net.office42.office42.svg',

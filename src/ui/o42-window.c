@@ -5306,6 +5306,16 @@ window_book_calls (O42Window *self, const char *name)
   return FALSE;
 }
 
+void
+o42_window_forget_file (O42Window *self)
+{
+  g_return_if_fail (O42_IS_WINDOW (self));
+  window_set_file (self, NULL);
+  for (int i = 0; i < o42_book_n_sheets (self->book); i++)
+    o42_sheet_set_modified (o42_book_sheet (self->book, i), TRUE);
+  window_sync (self);
+}
+
 gboolean
 o42_window_is_blank (O42Window *self)
 {
@@ -5860,6 +5870,11 @@ static const GActionEntry ACTIONS[] = {
   { "text-to-columns", action_text_to_columns, NULL, NULL, NULL, { 0 } },
   { "conditional",    action_conditional,    NULL, NULL, NULL, { 0 } },
   { "validation",     action_validation,     NULL, NULL, NULL, { 0 } },
+  { "circle-invalid", action_circle_invalid, NULL, NULL, NULL, { 0 } },
+  { "clear-circles",  action_clear_circles,  NULL, NULL, NULL, { 0 } },
+  { "outline-settings", action_outline_settings, NULL, NULL, NULL, { 0 } },
+  { "euro-convert",   action_euro_convert,   NULL, NULL, NULL, { 0 } },
+  { "new-from-template", action_new_from_template, NULL, NULL, NULL, { 0 } },
   { "pivot",          action_pivot,          NULL, NULL, NULL, { 0 } },
   { "refresh-pivot",  action_refresh_pivot,  NULL, NULL, NULL, { 0 } },
   { "group-rows",     action_group_rows,     NULL, NULL, NULL, { 0 } },

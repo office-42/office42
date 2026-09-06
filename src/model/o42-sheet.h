@@ -456,6 +456,14 @@ gboolean o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gbool
  * everything at or above it shown. */
 void o42_sheet_outline_to_level (O42Sheet *sheet, gboolean rows, int level);
 
+/* Data > Group and Outline > Settings: where the summary rows stand,
+ * below their detail (Excel's default) or above, and the summary
+ * columns to the right or the left.  Auto Outline, Show and Hide
+ * Detail and the fold boxes follow it. */
+void     o42_sheet_set_outline_settings (O42Sheet *sheet, gboolean summary_above, gboolean summary_left);
+gboolean o42_sheet_summary_above (O42Sheet *sheet);
+gboolean o42_sheet_summary_left  (O42Sheet *sheet);
+
 /* ---- Pivot tables -------------------------------------------------------- */
 
 /* A pivot table: a source table with a header row, a field whose values
@@ -479,12 +487,34 @@ typedef struct {
   char        *filter_value;   /* owned */
   int          row, col;       /* where the table is laid out */
   int          rows, cols;     /* the extent of the last layout, for clearing */
+
+  /* Excel's further parts.  More data fields, each "Agg:Header" with
+   * Agg one of Sum Count Average Min Max, laid side by side under each
+   * column key (or down the rows, one per row key, when data_on_rows).
+   * Grouping, per field: "Date=y,q,m" groups a date field by any of
+   * years (y), quarters (q), months (m), days (d), outer to inner;
+   * "Amount=n,0,100" puts a number into buckets of 100 from 0;
+   * "Region=g,Coast=East|West,Inland=Central" gathers items into named
+   * groups, the rest standing alone.  Fields are separated by ';'.
+   * Subtotals close each outer key of an axis with a "key Total" line;
+   * the grand totals can be left out. */
+  char       **data_fields;    /* owned; NULL or empty for the one data_field */
+  gboolean     data_on_rows;
+  char        *groups;         /* owned; NULL or "" for none */
+  gboolean     subtotals;
+  gboolean     no_grand_rows, no_grand_cols;
 } O42Pivot;
 
 /* The fields of one axis as text, "Region|Year", and back: how the
  * files and office42-calc spell them. */
 char  *o42_pivot_fields_to_string (char **fields);
 char **o42_pivot_fields_from_string (const char *text);
+
+/* The further parts as one text -- "data=Count:Orders|Average:Price;
+ * groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=r;dataon=rows" -- and
+ * back, for the files. */
+char  *o42_pivot_options_to_string (const O42Pivot *pivot);
+void   o42_pivot_options_apply     (O42Pivot *pivot, const char *text);   /* sets owned copies */
 
 /* Adds a pivot (copying the strings) and lays it out; `define` only
  * remembers one, for a file whose cells already hold the layout;
@@ -765,13 +795,42 @@ void        o42_sheet_auto_format (O42Sheet *sheet, const O42Range *range, int w
 
 /* Excel's Data > Table.  The rectangle's edges hold what an input may
  * be and its corner the formula -- or, with one variable, the top row
- * or left column holds the formulas.  Each value is put into the input
- * cell named, everything is worked out, and the answer is written into
- * the inside of the rectangle.  Pass -1 for an input that is not used;
+ * or left column holds the formulas.  The inside is filled with
+ * =TABLE(row_input, column_input), Excel's own array formula, whose
+ * cells show what the corner comes to with each edge value put into
+ * the input cell: worked out again whenever anything on the sheet
+ * changes, as Excel does.  Pass -1 for an input that is not used;
  * FALSE if neither is given or the rectangle is too small. */
+typedef struct {
+  O42Range range;                      /* edges included */
+  int      row_input_row, row_input_col;   /* -1 when not used */
+  int      col_input_row, col_input_col;
+} O42DataTable;
+
 gboolean o42_sheet_data_table (O42Sheet *sheet, const O42Range *range,
                                int row_input_row, int row_input_col,
                                int col_input_row, int col_input_col);
+
+/* For the files: remembers a table and fills it (the cells' own TABLE
+ * formulas are written by the reader or here); the table whose inside
+ * holds a cell; all of them; one taken away, its cells left as values. */
+void                o42_sheet_define_data_table (O42Sheet *sheet, const O42DataTable *table);
+const O42DataTable *o42_sheet_data_table_at    (O42Sheet *sheet, int row, int col);
+GArray             *o42_sheet_data_tables      (O42Sheet *sheet);   /* O42DataTable */
+void                o42_sheet_remove_data_table (O42Sheet *sheet, const O42Range *range);
+void                o42_sheet_refresh_data_tables (O42Sheet *sheet);
+
+/* ---- Euro Conversion ----------------------------------------------------- */
+
+/* Excel's Euro Currency Tools: every number in `source` converted from
+ * one member currency to another, written at `row`,`col` and on, as
+ * EUROCONVERT formulas or as the values they give, in the target's
+ * currency format.  `triangulation` is the decimals the euro amount is
+ * rounded to on the way (0 for none); `full_precision` keeps the
+ * result's.  Returns how many cells were written; one undo step. */
+int o42_sheet_euro_convert (O42Sheet *sheet, const O42Range *source, int row, int col,
+                            const char *from, const char *to, gboolean as_formulas,
+                            gboolean full_precision, int triangulation);
 
 /* ---- Database queries --------------------------------------------------- */
 
@@ -825,11 +884,11 @@ typedef enum {
                                * standing in the range's top-left cell */
 } O42ValidKind;
 
-/* What refusing an entry does: Excel's Stop, Warning and Information. */
+/* What happens to an entry the rule refuses: Excel's three styles. */
 typedef enum {
-  O42_VALID_STOP = 0,
-  O42_VALID_WARNING,
-  O42_VALID_INFORMATION
+  O42_VALID_STOP = 0,       /* refused, with the message */
+  O42_VALID_WARNING,        /* the message, and a Yes/No: keep it anyway? */
+  O42_VALID_INFORMATION     /* the message, and the entry stands */
 } O42ValidStyle;
 
 typedef struct {
@@ -838,12 +897,14 @@ typedef struct {
   O42CondOp     op;
   char         *value;        /* owned by the sheet once added */
   char         *value2;
-  char         *message;      /* shown when an entry is refused; may be NULL */
+  char         *message;      /* the error's text, shown when an entry is refused; may be NULL */
   gboolean      allow_blank;
-  char         *prompt_title; /* the input message, shown when the cell is chosen; may be NULL */
+  char         *title;        /* the error's title; may be NULL */
+  O42ValidStyle style;
+  char         *prompt_title; /* the input message, shown while the cell is chosen; may be NULL */
   char         *prompt;
-  char         *error_title;  /* the refusal's title; may be NULL */
-  O42ValidStyle error_style;
+  gboolean      no_error;     /* Excel's showErrorMessage off: anything goes, quietly */
+  gboolean      no_dropdown;  /* a list without the in-cell arrow */
 } O42Validation;
 
 void       o42_sheet_add_validation    (O42Sheet *sheet, const O42Validation *v);   /* copies */
@@ -854,6 +915,15 @@ GArray    *o42_sheet_validations       (O42Sheet *sheet);   /* O42Validation, ow
  * not, `message` (if given) receives the rule's message, to free. */
 gboolean   o42_sheet_validate (O42Sheet *sheet, int row, int col,
                                const char *input, char **message);
+
+/* The rule over a cell, or NULL; and whether what the cell holds now
+ * breaks its rule, for Circle Invalid Data. */
+const O42Validation *o42_sheet_validation_at (O42Sheet *sheet, int row, int col);
+gboolean   o42_sheet_cell_invalid (O42Sheet *sheet, int row, int col);
+
+/* A list rule's entries -- the comma-separated ones, or the cells of
+ * the range it names -- as a NULL-terminated vector, to free. */
+char     **o42_sheet_validation_items (O42Sheet *sheet, const O42Validation *v);
 
 /* ---- Text to Columns --------------------------------------------------- */
 

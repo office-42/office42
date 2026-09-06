@@ -9,6 +9,7 @@
       <attribute name="label" translatable="yes">_File</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_New</attribute><attribute name="action">win.new</attribute></item>
+        <item><attribute name="label" translatable="yes">New from _Template...</attribute><attribute name="action">win.new-from-template</attribute></item>
         <item><attribute name="label" translatable="yes">_Open...</attribute><attribute name="action">win.open</attribute></item>
         <item><attribute name="label" translatable="yes">_Close</attribute><attribute name="action">win.close</attribute></item>
       </section>
@@ -248,6 +249,7 @@
       <attribute name="label" translatable="yes">_Tools</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_Goal Seek...</attribute><attribute name="action">win.goal-seek</attribute></item>
+        <item><attribute name="label" translatable="yes">_Euro Conversion...</attribute><attribute name="action">win.euro-convert</attribute></item>
         <item><attribute name="label" translatable="yes">Sol_ver...</attribute><attribute name="action">win.solver</attribute></item>
         <item><attribute name="label" translatable="yes">_Protect Sheet</attribute><attribute name="action">win.protect</attribute></item>
       </section>
@@ -295,6 +297,8 @@
         <item><attribute name="label" translatable="yes">Ad_vanced Filter...</attribute><attribute name="action">win.advanced-filter</attribute></item>
         <item><attribute name="label" translatable="yes">Te_xt to Columns...</attribute><attribute name="action">win.text-to-columns</attribute></item>
         <item><attribute name="label" translatable="yes">_Validation...</attribute><attribute name="action">win.validation</attribute></item>
+        <item><attribute name="label" translatable="yes">Circle _Invalid Data</attribute><attribute name="action">win.circle-invalid</attribute></item>
+        <item><attribute name="label" translatable="yes">Clear Validation Circles</attribute><attribute name="action">win.clear-circles</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">_Table...</attribute><attribute name="action">win.table</attribute></item>
@@ -329,6 +333,7 @@
           <item><attribute name="label" translatable="yes">_Hide Detail</attribute><attribute name="action">win.hide-detail</attribute></item>
           <item><attribute name="label" translatable="yes">_Auto Outline</attribute><attribute name="action">win.auto-outline</attribute></item>
           <item><attribute name="label" translatable="yes">Cl_ear Outline</attribute><attribute name="action">win.clear-outline</attribute></item>
+          <item><attribute name="label" translatable="yes">_Settings...</attribute><attribute name="action">win.outline-settings</attribute></item>
         </submenu>
       </section>
     </submenu>

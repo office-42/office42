@@ -1194,6 +1194,27 @@ static const struct {
   { "LTL", 3.45280,  2 }, { "HRK", 7.53450,  2 },
 };
 
+int
+o42_euro_members (const char ***codes)
+{
+  static const char *names[G_N_ELEMENTS (EURO_RATES) + 1];
+
+  for (guint i = 0; i < G_N_ELEMENTS (EURO_RATES); i++)
+    names[i] = EURO_RATES[i].code;
+  names[G_N_ELEMENTS (EURO_RATES)] = NULL;
+  if (codes != NULL) *codes = names;
+  return (int) G_N_ELEMENTS (EURO_RATES);
+}
+
+int
+o42_euro_decimals (const char *code)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (EURO_RATES); i++)
+    if (g_ascii_strcasecmp (code, EURO_RATES[i].code) == 0)
+      return EURO_RATES[i].decimals;
+  return 2;
+}
+
 static int
 euro_member (const char *code)
 {

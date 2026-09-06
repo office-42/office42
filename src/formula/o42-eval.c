@@ -4487,14 +4487,73 @@ fn_subtotal (O42EvalContext *ctx, O42Operand *args, int n)
   double which;
   const O42Function *fn;
 
+  gboolean skip_hidden;
+  GArray *kept;
+  ArrayConst *a;
+  O42Operand one;
+
   ARG_NUMBER (0, which);
-  if (which >= 101) which -= 100;   /* 101-111 skip hidden rows; the same aggregates here */
+  skip_hidden = which >= 101;
+  if (which >= 101) which -= 100;   /* 101-111 leave hidden rows out */
   if (which < 1 || which > 11)
     return o42_value_error (O42_ERR_VALUE);
   fn = find_function (names[(int) which - 1]);
   if (fn == NULL)
     return o42_value_error (O42_ERR_NAME);
-  return fn->fn (ctx, args + 1, n - 1);
+
+  /* The cells, less the ones that hold a SUBTOTAL of their own -- a
+   * grand total over subtotal rows must not count them twice, which is
+   * Excel's rule -- and less the hidden rows for 101 to 111.  Gathered
+   * into one array for the aggregate. */
+  kept = g_array_new (FALSE, FALSE, sizeof (O42Value));
+  for (int i = 1; i < n; i++)
+    {
+      const O42Operand *op = &args[i];
+
+      if (!op->is_range)
+        {
+          O42Value v = o42_value_copy (&op->value);
+          if (v.type != O42_VALUE_EMPTY)
+            g_array_append_val (kept, v);
+          else
+            o42_value_clear (&v);
+          continue;
+        }
+      for (int r = op->range.row0; r <= op->range.row1; r++)
+        {
+          if (skip_hidden && ctx->row_hidden != NULL && ctx->row_hidden (ctx, op->sheet, r))
+            continue;
+          for (int c = op->range.col0; c <= op->range.col1; c++)
+            {
+              O42Value v, nested;
+
+              if (ctx->get_cell_info != NULL && op->sheet == NULL &&
+                  ctx->get_cell_info (ctx, NULL, r, c, "subtotal", &nested))
+                {
+                  gboolean is_nested = nested.type == O42_VALUE_BOOL && nested.as.boolean;
+                  o42_value_clear (&nested);
+                  if (is_nested)
+                    continue;
+                }
+              ctx->get_cell (ctx, op->sheet, r, c, &v);
+              if (v.type == O42_VALUE_EMPTY)
+                { o42_value_clear (&v); continue; }
+              g_array_append_val (kept, v);
+            }
+        }
+    }
+  if (kept->len == 0)
+    {
+      g_array_free (kept, TRUE);
+      return (which == 2 || which == 3) ? o42_value_number (0) : o42_value_number (0);
+    }
+  a = array_const_new ((int) kept->len, 1);
+  for (guint i = 0; i < kept->len; i++)
+    a->cells[i] = g_array_index (kept, O42Value, i);
+  g_array_free (kept, TRUE);
+  memset (&one, 0, sizeof one);
+  one = array_operand (a);
+  return fn->fn (ctx, &one, 1);
 }
 
 /* ---- XLOOKUP ---- */
@@ -10494,7 +10553,8 @@ static const O42Function *const FAMILY_FUNCS[] = {
   O42_FUNCS_INFO,
   O42_FUNCS_RANDOM,
   O42_FUNCS_BESSEL,
-  O42_FUNCS_OPTIONS
+  O42_FUNCS_OPTIONS,
+  O42_FUNCS_TABLE
 };
 
 static const O42FunctionHelp *const FAMILY_HELP[] = {
@@ -10508,7 +10568,8 @@ static const O42FunctionHelp *const FAMILY_HELP[] = {
   O42_HELP_INFO,
   O42_HELP_RANDOM,
   O42_HELP_BESSEL,
-  O42_HELP_OPTIONS
+  O42_HELP_OPTIONS,
+  O42_HELP_TABLE
 };
 
 static int

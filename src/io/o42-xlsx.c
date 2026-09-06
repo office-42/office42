@@ -218,6 +218,52 @@ append_cell (Writer *w, GString *out, O42Sheet *sheet, int row, int col, guint x
   if (xf != 0)
     g_string_append_printf (out, " s=\"%u\"", xf);
 
+  {
+    /* The inside of a What-If table: Excel's <f t="dataTable"> on the
+     * first cell, r1 the row input and r2 the column input, and bare
+     * values on the rest. */
+    const O42DataTable *table = input != NULL && input[0] == '=' ? o42_sheet_data_table_at (sheet, row, col) : NULL;
+
+    if (table != NULL)
+      {
+        g_free (input);
+        input = NULL;
+        if (row == table->range.row0 + 1 && col == table->range.col0 + 1)
+          {
+            char *a = o42_ref_name (row, col);
+            char *b = o42_ref_name (table->range.row1, table->range.col1);
+            gboolean two = table->row_input_row >= 0 && table->col_input_row >= 0;
+            char *r1 = two || table->row_input_row >= 0 ? o42_ref_name (table->row_input_row, table->row_input_col)
+                                                         : o42_ref_name (table->col_input_row, table->col_input_col);
+            char *r2 = two ? o42_ref_name (table->col_input_row, table->col_input_col) : NULL;
+
+            g_string_append_printf (out, "><f t=\"dataTable\" ref=\"%s:%s\" dt2D=\"%d\" dtr=\"%d\" r1=\"%s\"%s%s%s ca=\"1\"/>",
+                                    a, b, two ? 1 : 0, !two && table->row_input_row >= 0 ? 1 : 0, r1,
+                                    r2 != NULL ? " r2=\"" : "", r2 != NULL ? r2 : "", r2 != NULL ? "\"" : "");
+            g_free (a); g_free (b); g_free (r1); g_free (r2);
+          }
+        else
+          g_string_append_c (out, '>');
+        switch (value.type)
+          {
+          case O42_VALUE_NUMBER:
+            g_string_append (out, "<v>");
+            append_number (out, value.as.number);
+            g_string_append (out, "</v>");
+            break;
+          case O42_VALUE_ERROR:
+            g_string_append_printf (out, "<v>%s</v>", o42_error_name (value.as.error));
+            break;
+          default:
+            break;
+          }
+        g_string_append (out, "</c>");
+        o42_value_clear (&value);
+        g_free (ref);
+        return;
+      }
+  }
+
   if (input != NULL && input[0] == '=')
     {
       char *escaped;
@@ -390,11 +436,14 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     guint32 tab = o42_sheet_tab_colour (sheet);
     gboolean fit = ps->fit_wide > 0 || ps->fit_tall > 0;
 
-    if (fit || tab != O42_TAB_NO_COLOUR)
+    if (fit || tab != O42_TAB_NO_COLOUR || o42_sheet_summary_above (sheet) || o42_sheet_summary_left (sheet))
       {
         g_string_append (out, "<sheetPr>");
         if (tab != O42_TAB_NO_COLOUR)
           g_string_append_printf (out, "<tabColor rgb=\"FF%06X\"/>", tab & 0xFFFFFF);
+        if (o42_sheet_summary_above (sheet) || o42_sheet_summary_left (sheet))
+          g_string_append_printf (out, "<outlinePr summaryBelow=\"%d\" summaryRight=\"%d\"/>",
+                                  o42_sheet_summary_above (sheet) ? 0 : 1, o42_sheet_summary_left (sheet) ? 0 : 1);
         if (fit)
           g_string_append (out, "<pageSetUpPr fitToPage=\"1\"/>");
         g_string_append (out, "</sheetPr>");
@@ -672,7 +721,6 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
         static const char *types[] = { "none", "whole", "decimal", "list", "date", "time", "textLength", "custom" };
         static const char *ops[] = { "between", "notBetween", "equal", "notEqual",
                                      "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual" };
-        static const char *styles[] = { "stop", "warning", "information" };
         g_string_append_printf (out, "<dataValidations count=\"%u\">", rules->len);
         for (guint i = 0; i < rules->len; i++)
           {
@@ -682,19 +730,27 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
             char *f1, *f2 = NULL, *msg = g_markup_escape_text (v->message ? v->message : "", -1);
             char *pt = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
             char *pr = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
-            char *et = g_markup_escape_text (v->error_title ? v->error_title : "", -1);
-            gboolean list_is_range = FALSE;
+            char *et = g_markup_escape_text (v->title ? v->title : "", -1);
             if (v->kind == O42_VALID_LIST)
               {
+                /* A list of entries is quoted; a range of cells stands as
+                 * it is, absolute, which is how Excel writes it. */
+                const char *lv = v->value ? v->value : "";
                 O42Range lr;
                 gsize lused = 0;
-                const char *text = v->value ? v->value : "";
-                list_is_range = o42_ref_parse (text + (text[0] == '='), &lr.row0, &lr.col0, &lused) && text[(text[0] == '=') + lused] == ':';
-                if (list_is_range)
-                  f1 = g_markup_escape_text (text + (text[0] == '='), -1);
+
+                while (*lv == '=' || *lv == ' ') lv++;
+                if (o42_ref_parse (lv, &lr.row0, &lr.col0, &lused) &&
+                    (lv[lused] == '\0' || (lv[lused] == ':' && o42_ref_parse (lv + lused + 1, &lr.row1, &lr.col1, NULL))))
+                  {
+                    char *x = o42_ref_name_full (lr.row0, lr.col0, TRUE, TRUE);
+                    char *y = lv[lused] == ':' ? o42_ref_name_full (lr.row1, lr.col1, TRUE, TRUE) : NULL;
+                    f1 = y != NULL ? g_strdup_printf ("%s:%s", x, y) : g_strdup (x);
+                    g_free (x); g_free (y);
+                  }
                 else
                   {
-                    char *quoted = g_strdup_printf ("\"%s\"", text);
+                    char *quoted = g_strdup_printf ("\"%s\"", lv);
                     f1 = g_markup_escape_text (quoted, -1);
                     g_free (quoted);
                   }
@@ -702,16 +758,28 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
             else
               f1 = g_markup_escape_text (v->value ? v->value + (v->value[0] == '=') : "", -1);
             if (v->value2 != NULL && v->value2[0] != '\0')
-              f2 = g_markup_escape_text (v->value2 + (v->value2[0] == '='), -1);
-            g_string_append_printf (out,
-              "<dataValidation type=\"%s\" operator=\"%s\" allowBlank=\"%d\" showInputMessage=\"%d\" "
-              "showErrorMessage=\"1\" errorStyle=\"%s\"%s%s%s%s%s%s%s%s%s%s%s%s sqref=\"%s:%s\"><formula1>%s</formula1>",
-              types[MIN (v->kind, 7)], ops[v->op], v->allow_blank ? 1 : 0, pt[0] || pr[0] ? 1 : 0,
-              styles[MIN (v->error_style, 2)],
-              et[0] ? " errorTitle=\"" : "", et, et[0] ? "\"" : "",
-              msg[0] ? " error=\"" : "", msg, msg[0] ? "\"" : "",
-              pt[0] ? " promptTitle=\"" : "", pt, pt[0] ? "\"" : "",
-              pr[0] ? " prompt=\"" : "", pr, pr[0] ? "\"" : "", a, b, f1);
+              f2 = g_markup_escape_text (v->value2, -1);
+            {
+              static const char *styles[] = { "stop", "warning", "information" };
+              char *title = g_markup_escape_text (v->title ? v->title : "", -1);
+              char *ptitle = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+              char *prompt = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+              gboolean has_prompt = ptitle[0] || prompt[0];
+
+              g_string_append_printf (out,
+                "<dataValidation type=\"%s\"%s operator=\"%s\" allowBlank=\"%d\" showInputMessage=\"%d\" "
+                "showErrorMessage=\"%d\"%s",
+                types[v->kind], v->kind == O42_VALID_LIST && v->no_dropdown ? " showDropDown=\"1\"" : "",
+                ops[v->op], v->allow_blank ? 1 : 0, has_prompt ? 1 : 0, v->no_error ? 0 : 1,
+                v->style != O42_VALID_STOP ? (v->style == O42_VALID_WARNING ? " errorStyle=\"warning\"" : " errorStyle=\"information\"") : "");
+              (void) styles;
+              if (title[0]) g_string_append_printf (out, " errorTitle=\"%s\"", title);
+              if (msg[0]) g_string_append_printf (out, " error=\"%s\"", msg);
+              if (ptitle[0]) g_string_append_printf (out, " promptTitle=\"%s\"", ptitle);
+              if (prompt[0]) g_string_append_printf (out, " prompt=\"%s\"", prompt);
+              g_string_append_printf (out, " sqref=\"%s:%s\"><formula1>%s</formula1>", a, b, f1);
+              g_free (title); g_free (ptitle); g_free (prompt);
+            }
             if (f2 != NULL)
               g_string_append_printf (out, "<formula2>%s</formula2>", f2);
             g_string_append (out, "</dataValidation>");
@@ -1972,10 +2040,17 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
             char *a1 = o42_ref_name (p->source.row0, p->source.col0);
             char *b1 = o42_ref_name (p->source.row1, p->source.col1);
             char *at = o42_ref_name (p->row, p->col);
-            char *text = g_strdup_printf ("%s;%s:%s;%s;%s;%s;%d;%s;%d;%d;%s;%s",
-                                          p->source_sheet ? p->source_sheet : "", a1, b1, rf, cf,
-                                          p->data_field ? p->data_field : "", (int) p->agg, at, p->rows, p->cols,
-                                          p->filter_field ? p->filter_field : "", p->filter_value ? p->filter_value : "");
+            char *opts = o42_pivot_options_to_string (p);
+            char *text;
+
+            /* The options' own ';' become '\t' inside the ';'-separated text. */
+            for (char *q = opts; *q != '\0'; q++)
+              if (*q == ';') *q = '\t';
+            text = g_strdup_printf ("%s;%s:%s;%s;%s;%s;%d;%s;%d;%d;%s;%s;%s",
+                                    p->source_sheet ? p->source_sheet : "", a1, b1, rf, cf,
+                                    p->data_field ? p->data_field : "", (int) p->agg, at, p->rows, p->cols,
+                                    p->filter_field ? p->filter_field : "", p->filter_value ? p->filter_value : "", opts);
+            g_free (opts);
             char *quoted = g_strdup_printf ("\"%s\"", text);
             char *esc = g_markup_escape_text (quoted, -1);
             g_string_append_printf (defs, "<definedName name=\"_o42.pivot.%u\" localSheetId=\"%d\" hidden=\"1\">%s</definedName>",
@@ -2243,6 +2318,7 @@ typedef struct
   gboolean    in_f, in_v, in_is, has_f;
   char       *shared_si;
   char       *array_ref;    /* <f t="array" ref=...>: the block to spread over */
+  GArray     *data_tables;  /* O42DataTable from <f t="dataTable">, made when the sheet is read */
   GHashTable *shared;       /* si -> master formula "row,col,text" */
   int         default_width, default_height;
   char       *drawing_rid;  /* the sheet's <drawing r:id>, if any */
@@ -2927,6 +3003,9 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
   const char *n = local (name);
   (void) ctx; (void) error;
 
+  if (strcmp (n, "outlinePr") == 0 && r->sheet != NULL)
+    o42_sheet_set_outline_settings (r->sheet, attr_int (names, values, "summaryBelow", 1) == 0,
+                                    attr_int (names, values, "summaryRight", 1) == 0);
   if (strcmp (n, "pageSetUpPr") == 0 && r->sheet != NULL)
     r->fit_to_page = attr_int (names, values, "fitToPage", 0) != 0;
   if (strcmp (n, "tabColor") == 0 && r->sheet != NULL)
@@ -3146,6 +3225,43 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         r->shared_si = g_strdup (si);
       if (t != NULL && strcmp (t, "array") == 0 && attr (names, values, "ref") != NULL)
         r->array_ref = g_strdup (attr (names, values, "ref"));
+      if (t != NULL && strcmp (t, "dataTable") == 0 && attr (names, values, "ref") != NULL &&
+          attr (names, values, "r1") != NULL)
+        {
+          /* A What-If table's inside: ref is the inside, the edges lie
+           * one row and column outside it; dt2D has r1 the row input and
+           * r2 the column input, else dtr says which r1 is. */
+          O42DataTable table;
+          const char *ref = attr (names, values, "ref");
+          gsize used = 0;
+          int a_row, a_col;
+
+          memset (&table, 0, sizeof table);
+          table.row_input_row = table.row_input_col = table.col_input_row = table.col_input_col = -1;
+          if (o42_ref_parse (ref, &table.range.row0, &table.range.col0, &used) && ref[used] == ':' &&
+              o42_ref_parse (ref + used + 1, &table.range.row1, &table.range.col1, NULL) &&
+              table.range.row0 > 0 && table.range.col0 > 0 &&
+              o42_ref_parse (attr (names, values, "r1"), &a_row, &a_col, NULL))
+            {
+              gboolean two = attr_int (names, values, "dt2D", 0) != 0;
+              gboolean row_wise = attr_int (names, values, "dtr", 0) != 0;
+              int b_row = -1, b_col = -1;
+
+              table.range.row0--;
+              table.range.col0--;
+              if (two && attr (names, values, "r2") != NULL)
+                o42_ref_parse (attr (names, values, "r2"), &b_row, &b_col, NULL);
+              if (two)
+                { table.row_input_row = a_row; table.row_input_col = a_col; table.col_input_row = b_row; table.col_input_col = b_col; }
+              else if (row_wise)
+                { table.row_input_row = a_row; table.row_input_col = a_col; }
+              else
+                { table.col_input_row = a_row; table.col_input_col = a_col; }
+              if (r->data_tables == NULL)
+                r->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
+              g_array_append_val (r->data_tables, table);
+            }
+        }
     }
   else if (strcmp (n, "v") == 0)
     r->in_v = TRUE;
@@ -3218,7 +3334,6 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *op = attr (names, values, "operator");
       const char *sqref = attr (names, values, "sqref");
       const char *err_text = attr (names, values, "error");
-      const char *style = attr (names, values, "errorStyle");
       gsize used;
 
       memset (&r->dv, 0, sizeof r->dv);
@@ -3230,13 +3345,20 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         if (strcmp (op, ops[i]) == 0) r->dv.op = (O42CondOp) i;
       r->dv.allow_blank = attr_flag (names, values, "allowBlank");
       r->dv.message = g_strdup (err_text ? err_text : "");
-      r->dv.error_title = g_strdup (attr (names, values, "errorTitle") ? attr (names, values, "errorTitle") : "");
-      r->dv.prompt_title = g_strdup (attr (names, values, "promptTitle") ? attr (names, values, "promptTitle") : "");
-      r->dv.prompt = g_strdup (attr (names, values, "prompt") ? attr (names, values, "prompt") : "");
-      r->dv.error_style = style != NULL && strcmp (style, "warning") == 0 ? O42_VALID_WARNING
-                        : style != NULL && strcmp (style, "information") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
       r->dv.value = g_strdup ("");
       r->dv.value2 = g_strdup ("");
+      {
+        const char *style = attr (names, values, "errorStyle");
+        const char *show_err = attr (names, values, "showErrorMessage");
+        r->dv.title = g_strdup (attr (names, values, "errorTitle") ? attr (names, values, "errorTitle") : "");
+        r->dv.prompt_title = g_strdup (attr (names, values, "promptTitle") ? attr (names, values, "promptTitle") : "");
+        r->dv.prompt = g_strdup (attr (names, values, "prompt") ? attr (names, values, "prompt") : "");
+        r->dv.style = style == NULL || strcmp (style, "stop") == 0 ? O42_VALID_STOP
+                    : strcmp (style, "warning") == 0 ? O42_VALID_WARNING : O42_VALID_INFORMATION;
+        r->dv.no_error = show_err != NULL && (strcmp (show_err, "0") == 0 || strcmp (show_err, "false") == 0);
+        /* Excel's showDropDown is inverted: 1 hides the arrow. */
+        r->dv.no_dropdown = attr_flag (names, values, "showDropDown");
+      }
       if (sqref != NULL && o42_ref_parse (sqref, &r->dv.range.row0, &r->dv.range.col0, &used))
         {
           if (sqref[used] == ':')
@@ -3507,6 +3629,14 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
       r->in_dv_formula = FALSE;
       if (len >= 2 && text[0] == '"' && text[len - 1] == '"')
         { text[len - 1] = '\0'; memmove (text, text + 1, len - 1); }
+      else if (r->dv.kind == O42_VALID_LIST && strchr (text, '$') != NULL)
+        {
+          /* $C$1:$C$3: a range of entries, kept without its dollars. */
+          char *w = text;
+          for (const char *q = text; *q != '\0'; q++)
+            if (*q != '$') *w++ = *q;
+          *w = '\0';
+        }
       g_free (*slot);
       *slot = text;
     }
@@ -3514,7 +3644,8 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
     {
       if (r->in_dv)
         o42_sheet_add_validation (r->sheet, &r->dv);
-      g_free (r->dv.value); g_free (r->dv.value2); g_free (r->dv.message); g_free (r->dv.prompt_title); g_free (r->dv.prompt); g_free (r->dv.error_title);
+      g_free (r->dv.value); g_free (r->dv.value2); g_free (r->dv.message);
+      g_free (r->dv.title); g_free (r->dv.prompt_title); g_free (r->dv.prompt);
       memset (&r->dv, 0, sizeof r->dv);
       r->in_dv = FALSE;
     }
@@ -3834,6 +3965,17 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           r.fit_to_page = FALSE;
           r.sheet_rels = o42_xlsx_read_rels (parts, part);
           ok = parse_part (parts, part, &sheet_parser, &r, error);
+          if (r.data_tables != NULL)
+            {
+              /* The tables, now that the edges and the corner are in. */
+              for (guint k = 0; k < r.data_tables->len; k++)
+                {
+                  const O42DataTable *t = &g_array_index (r.data_tables, O42DataTable, k);
+                  o42_sheet_data_table (r.sheet, &t->range, t->row_input_row, t->row_input_col,
+                                        t->col_input_row, t->col_input_col);
+                }
+              g_clear_pointer (&r.data_tables, g_array_unref);
+            }
           g_clear_pointer (&r.sheet_rels, g_hash_table_unref);
           if (ok)
             {
@@ -3996,9 +4138,17 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                           p.filter_field = f[9][0] ? f[9] : NULL;
                           p.filter_value = f[10];
                         }
+                      if (g_strv_length (f) >= 12)
+                        {
+                          for (char *q = f[11]; *q != '\0'; q++)
+                            if (*q == '\t') *q = ';';
+                          o42_pivot_options_apply (&p, f[11]);
+                        }
                       o42_sheet_define_pivot (target, &p);
                       g_strfreev (p.row_fields);
                       g_strfreev (p.col_fields);
+                      g_strfreev (p.data_fields);
+                      g_free (p.groups);
                     }
                 }
               g_strfreev (f);

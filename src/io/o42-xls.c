@@ -2047,19 +2047,19 @@ read_dv (Reader *r, const guchar *p, gsize len)
   v.kind = (O42ValidKind) MIN (flags & 0x0F, 7);
   v.op = (O42CondOp) MIN ((flags >> 20) & 0x0F, 7);
   v.allow_blank = (flags & 0x100) != 0;
-  v.error_style = (O42ValidStyle) MIN ((flags >> 4) & 0x07, 2);
+  v.style = (O42ValidStyle) MIN ((flags >> 4) & 0x07, 2);
   p += 4;
   {
     /* The four texts: the input message's title and text, the error's
      * title and text.  Excel writes a single NUL for an empty one. */
     gboolean show_prompt = (flags & 0x40000) != 0, show_error = (flags & 0x80000) != 0;
     v.prompt_title = read_str (r, &p, end, TRUE);
-    v.error_title = read_str (r, &p, end, TRUE);
+    v.title = read_str (r, &p, end, TRUE);
     v.prompt = read_str (r, &p, end, TRUE);
     v.message = read_str (r, &p, end, TRUE);
     if (v.prompt_title[0] == '\0' || !show_prompt) v.prompt_title[0] = '\0';
     if (v.prompt[0] == '\0' || !show_prompt) v.prompt[0] = '\0';
-    if (v.error_title[0] == '\0' || !show_error) v.error_title[0] = '\0';
+    if (v.title[0] == '\0' || !show_error) v.title[0] = '\0';
     if (v.message[0] == '\0' || !show_error) v.message[0] = '\0';
   }
   /* The formulas' relative references are offsets from the first
@@ -2110,7 +2110,7 @@ read_dv (Reader *r, const guchar *p, gsize len)
   g_free (v.message);
   g_free (v.prompt_title);
   g_free (v.prompt);
-  g_free (v.error_title);
+  g_free (v.title);
 }
 
 /* A chart substream's records: the series' ranges, the kind, the title. */
@@ -5558,7 +5558,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             gboolean has_prompt = (v->prompt != NULL && *v->prompt != '\0') ||
                                   (v->prompt_title != NULL && *v->prompt_title != '\0');
             guint32 flags = ((guint) v->kind & 0x0F) | (((guint) v->op & 0x0F) << 20) |
-                            (((guint) v->error_style & 0x07) << 4) |
+                            (((guint) v->style & 0x07) << 4) |
                             (v->allow_blank ? 0x100 : 0) | 0x200 | 0x80000 | (has_prompt ? 0x40000 : 0);
             GByteArray *f1 = g_byte_array_new (), *f2 = g_byte_array_new ();
             O42Node *tree;
@@ -5623,7 +5623,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               /* The four texts, in the record's order -- the prompt's
                * title, the error's title, the prompt, the error; an
                * empty one is a single NUL, as Excel writes them. */
-              const char *texts[4] = { v->prompt_title, v->error_title, v->prompt, v->message };
+              const char *texts[4] = { v->prompt_title, v->title, v->prompt, v->message };
               for (int k = 0; k < 4; k++)
                 {
                   if (texts[k] != NULL && texts[k][0] != '\0')

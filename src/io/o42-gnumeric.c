@@ -692,7 +692,7 @@ write_sheet (GString *out, O42Sheet *sheet)
   char zoom_text[G_ASCII_DTOSTR_BUF_SIZE];
   g_string_append_printf (w.out,
     "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"%d\" HideGrid=\"%d\" HideColHeader=\"0\" "
-    "HideRowHeader=\"0\" DisplayOutlines=\"%d\" OutlineSymbolsBelow=\"1\" OutlineSymbolsRight=\"1\" "
+    "HideRowHeader=\"0\" DisplayOutlines=\"%d\" OutlineSymbolsBelow=\"%d\" OutlineSymbolsRight=\"%d\" "
     "Visibility=\"%s\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
     "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\"%s>\n"
     "      <gnm:Name>%s</gnm:Name>\n"
@@ -700,6 +700,7 @@ write_sheet (GString *out, O42Sheet *sheet)
     "      <gnm:Zoom>%s</gnm:Zoom>\n",
     o42_sheet_view (sheet)->zeros ? 0 : 1, o42_sheet_view (sheet)->gridlines ? 0 : 1,
     o42_sheet_view (sheet)->outline_symbols ? 1 : 0,
+    o42_sheet_summary_above (sheet) ? 0 : 1, o42_sheet_summary_left (sheet) ? 0 : 1,
     o42_sheet_hidden (sheet) ? "GNM_SHEET_VISIBILITY_HIDDEN" : "GNM_SHEET_VISIBILITY_VISIBLE",
     o42_sheet_protected (sheet) ? 1 : 0, o42_sheet_is_chart_sheet (sheet) ? 1 : 0,
     o42_sheet_tab_colour (sheet), o42_sheet_password_hash (sheet),
@@ -934,11 +935,12 @@ write_sheet (GString *out, O42Sheet *sheet)
         e1 = g_markup_escape_text (v->value2 ? v->value2 : "", -1);
 
         {
-          char *title = g_markup_escape_text (v->error_title ? v->error_title : "", -1);
-          char *pt = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
-          char *pr = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+          /* Gnumeric's Style: 0 none, 1 stop, 2 warning, 3 information;
+           * the input message is its own element. */
+          char *title = g_markup_escape_text (v->title ? v->title : "", -1);
+          char *ptitle = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+          char *prompt = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
 
-          /* Gnumeric's Style: 0 none, 1 stop, 2 warning, 3 information. */
           g_string_append_printf (w.out,
             "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
             "        <gnm:Style o42-validation=\"1\">\n"
@@ -946,17 +948,17 @@ write_sheet (GString *out, O42Sheet *sheet)
             "UseDropdown=\"%d\" Title=\"%s\" Message=\"%s\">\n"
             "            <gnm:Expression0>%s</gnm:Expression0>\n",
             v->range.col0, v->range.row0, v->range.col1, v->range.row1,
-            (int) v->error_style + 1, (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0,
-            v->kind == O42_VALID_LIST ? 1 : 0, title, message, e0);
+            v->no_error ? 0 : (int) v->style + 1, (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0,
+            v->kind == O42_VALID_LIST && !v->no_dropdown ? 1 : 0, title, message, e0);
           if (v->value2 != NULL && v->value2[0] != '\0')
             g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
           g_string_append (w.out, "          </gnm:Validation>\n");
-          if (pt[0] != '\0' || pr[0] != '\0')
-            g_string_append_printf (w.out, "          <gnm:InputMessage Title=\"%s\" Message=\"%s\"/>\n", pt, pr);
+          if (ptitle[0] || prompt[0])
+            g_string_append_printf (w.out, "          <gnm:InputMessage Title=\"%s\" Message=\"%s\"/>\n", ptitle, prompt);
           g_string_append (w.out,
             "        </gnm:Style>\n"
             "      </gnm:StyleRegion>\n");
-          g_free (title); g_free (pt); g_free (pr);
+          g_free (title); g_free (ptitle); g_free (prompt);
         }
         g_free (message);
         g_free (e0);
@@ -1031,6 +1033,23 @@ write_sheet (GString *out, O42Sheet *sheet)
                                 row, PX_TO_PT (height), outline);
     }
   g_string_append (w.out, "      </gnm:Rows>\n");
+
+  /* What-If tables: the rectangle and its input cells; the inside holds
+   * TABLE formulas, which Gnumeric would not know, so the values are in
+   * the cells too. */
+  {
+    GArray *tables = o42_sheet_data_tables (sheet);
+    for (guint i = 0; i < tables->len; i++)
+      {
+        const O42DataTable *t = &g_array_index (tables, O42DataTable, i);
+        char *a = o42_ref_name (t->range.row0, t->range.col0);
+        char *b = o42_ref_name (t->range.row1, t->range.col1);
+        char *ri = t->row_input_row >= 0 ? o42_ref_name (t->row_input_row, t->row_input_col) : g_strdup ("");
+        char *ci = t->col_input_row >= 0 ? o42_ref_name (t->col_input_row, t->col_input_col) : g_strdup ("");
+        g_string_append_printf (w.out, "      <gnm:o42-DataTable Range=\"%s:%s\" RowInput=\"%s\" ColInput=\"%s\"/>\n", a, b, ri, ci);
+        g_free (a); g_free (b); g_free (ri); g_free (ci);
+      }
+  }
 
   /* Pivot tables: office42's own element, since Gnumeric has none. */
   for (int i = 0; i < o42_sheet_n_scenarios (sheet); i++)
@@ -1155,12 +1174,14 @@ write_sheet (GString *out, O42Sheet *sheet)
         char *a1 = o42_ref_name (p->source.row0, p->source.col0);
         char *b1 = o42_ref_name (p->source.row1, p->source.col1);
         char *at = o42_ref_name (p->row, p->col);
+        char *opts_raw = o42_pivot_options_to_string (p);
+        char *opts = g_markup_escape_text (opts_raw, -1);
         g_string_append_printf (w.out,
           "      <gnm:o42-Pivot Source=\"%s\" Range=\"%s:%s\" RowField=\"%s\" ColField=\"%s\" "
-          "DataField=\"%s\" Agg=\"%d\" At=\"%s\" Rows=\"%d\" Cols=\"%d\" Filter=\"%s\" FilterValue=\"%s\"/>\n",
-          src, a1, b1, rf, cf, df, (int) p->agg, at, p->rows, p->cols, ff, fv);
+          "DataField=\"%s\" Agg=\"%d\" At=\"%s\" Rows=\"%d\" Cols=\"%d\" Filter=\"%s\" FilterValue=\"%s\" Options=\"%s\"/>\n",
+          src, a1, b1, rf, cf, df, (int) p->agg, at, p->rows, p->cols, ff, fv, opts);
         g_free (src); g_free (rf); g_free (cf); g_free (df); g_free (a1); g_free (b1); g_free (at);
-        g_free (ff); g_free (fv);
+        g_free (ff); g_free (fv); g_free (opts); g_free (opts_raw);
       }
   }
 
@@ -1562,6 +1583,7 @@ typedef struct {
   gboolean    in_names;         /* inside gnm:Names */
   gboolean    in_print_info;    /* inside gnm:PrintInformation */
   gboolean    saw_selection;    /* the sheet's first gnm:Selection was read */
+  GArray     *data_tables;      /* O42DataTable, defined when the sheet ends */
   int         print_text;       /* 1 in its order, 2 orientation, 3 paper */
   GString    *text;             /* what they say */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
@@ -1581,6 +1603,8 @@ typedef struct {
   /* A gnm:Validation inside a style, with its expressions. */
   O42Validation validation;
   gboolean    in_validation;
+  gboolean    validation_ready;     /* read, waiting for its Style to close */
+  char       *pending_prompt_title, *pending_prompt;   /* an InputMessage read before its Validation */
   int         expr_index;     /* 0 or 1 while inside an Expression, else -1 */
   GString    *expr;
 
@@ -1593,9 +1617,6 @@ typedef struct {
   /* A gnm:Condition inside it: the style that follows is the rule's. */
   gboolean    in_condition;
   gboolean    condition_has_value;   /* Value0 was given: a number, ours */
-  char       *pending_prompt_title;  /* a gnm:InputMessage read */
-  char       *pending_prompt;
-  int         last_validation;       /* the rule just added, for its InputMessage */
   O42Condition condition;
   gboolean    region_is_conditional;   /* a region we wrote for a rule only */
   GString    *font_name;
@@ -2089,6 +2110,8 @@ start_element (GMarkupParseContext *context, const char *element,
               o42_sheet_set_hidden (r->sheet, TRUE);
           }
           o42_sheet_set_chart_sheet (r->sheet, attr_int (names, values, "o42-chart-sheet", 0) != 0);
+          o42_sheet_set_outline_settings (r->sheet, attr_int (names, values, "OutlineSymbolsBelow", 1) == 0,
+                                          attr_int (names, values, "OutlineSymbolsRight", 1) == 0);
           {
             const char *tab = attr (names, values, "o42-tab-colour");
 
@@ -2140,36 +2163,37 @@ start_element (GMarkupParseContext *context, const char *element,
       v->op = (O42CondOp) attr_int (names, values, "Operator", 0);
       v->allow_blank = attr_int (names, values, "AllowBlank", 1) != 0;
       v->message = g_strdup (attr (names, values, "Message") ? attr (names, values, "Message") : "");
-      v->error_title = g_strdup (attr (names, values, "Title") ? attr (names, values, "Title") : "");
-      v->error_style = (O42ValidStyle) CLAMP (attr_int (names, values, "Style", 1) - 1, 0, 2);
-      v->prompt_title = g_strdup (r->pending_prompt_title != NULL ? r->pending_prompt_title : "");
-      v->prompt = g_strdup (r->pending_prompt != NULL ? r->pending_prompt : "");
+      v->title = g_strdup (attr (names, values, "Title") ? attr (names, values, "Title") : "");
       v->value = g_strdup ("");
       v->value2 = g_strdup ("");
+      {
+        int style = attr_int (names, values, "Style", 1);
+        v->no_error = style == 0;
+        v->style = style == 2 ? O42_VALID_WARNING : style == 3 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+        v->no_dropdown = v->kind == O42_VALID_LIST && attr_int (names, values, "UseDropdown", 1) == 0;
+      }
+      /* An input message read before the rule waits for it. */
+      v->prompt_title = r->pending_prompt_title; r->pending_prompt_title = NULL;
+      v->prompt = r->pending_prompt; r->pending_prompt = NULL;
       r->in_validation = TRUE;
       return;
     }
 
   if (r->in_style && strcmp (name, "InputMessage") == 0)
     {
-      /* Gnumeric writes the input message after the Validation; ours
-       * are kept for the rule when the region closes, theirs for the
-       * validation already read. */
-      const char *t = attr (names, values, "Title"), *m = attr (names, values, "Message");
-
-      g_free (r->pending_prompt_title); g_free (r->pending_prompt);
-      r->pending_prompt_title = g_strdup (t != NULL ? t : "");
-      r->pending_prompt = g_strdup (m != NULL ? m : "");
-      if (r->last_validation >= 0 && r->sheet != NULL)
+      /* Gnumeric writes it after the Validation; either order is read. */
+      const char *title = attr (names, values, "Title"), *text = attr (names, values, "Message");
+      if (r->validation.kind != O42_VALID_ANY || r->validation.value != NULL)
         {
-          GArray *rules = o42_sheet_validations (r->sheet);
-          if ((guint) r->last_validation < rules->len)
-            {
-              O42Validation *v = &g_array_index (rules, O42Validation, r->last_validation);
-              g_free (v->prompt_title); g_free (v->prompt);
-              v->prompt_title = g_strdup (r->pending_prompt_title);
-              v->prompt = g_strdup (r->pending_prompt);
-            }
+          g_free (r->validation.prompt_title); g_free (r->validation.prompt);
+          r->validation.prompt_title = g_strdup (title ? title : "");
+          r->validation.prompt = g_strdup (text ? text : "");
+        }
+      else
+        {
+          g_free (r->pending_prompt_title); g_free (r->pending_prompt);
+          r->pending_prompt_title = g_strdup (title ? title : "");
+          r->pending_prompt = g_strdup (text ? text : "");
         }
       return;
     }
@@ -2485,6 +2509,29 @@ start_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (strcmp (name, "o42-DataTable") == 0 && r->sheet != NULL)
+    {
+      O42DataTable t;
+      const char *range = attr (names, values, "Range");
+      const char *ri = attr (names, values, "RowInput"), *ci = attr (names, values, "ColInput");
+      gsize used;
+
+      memset (&t, 0, sizeof t);
+      t.row_input_row = t.row_input_col = t.col_input_row = t.col_input_col = -1;
+      if (range != NULL && o42_ref_parse (range, &t.range.row0, &t.range.col0, &used) && range[used] == ':' &&
+          o42_ref_parse (range + used + 1, &t.range.row1, &t.range.col1, NULL))
+        {
+          if (ri != NULL && *ri != '\0') o42_ref_parse (ri, &t.row_input_row, &t.row_input_col, NULL);
+          if (ci != NULL && *ci != '\0') o42_ref_parse (ci, &t.col_input_row, &t.col_input_col, NULL);
+          /* The cells hold the TABLE formulas already; the table is defined
+           * and worked out once every cell is in, at the sheet's end. */
+          if (r->data_tables == NULL)
+            r->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
+          g_array_append_val (r->data_tables, t);
+        }
+      return;
+    }
+
   if (strcmp (name, "o42-Pivot") == 0)
     {
       /* The definition only: the values are in the cells already, and
@@ -2509,9 +2556,12 @@ start_element (GMarkupParseContext *context, const char *element,
           p.agg = (O42PivotAgg) attr_int (names, values, "Agg", 0);
           p.rows = attr_int (names, values, "Rows", 0);
           p.cols = attr_int (names, values, "Cols", 0);
+          o42_pivot_options_apply (&p, attr (names, values, "Options"));
           o42_sheet_define_pivot (r->sheet, &p);
           g_strfreev (p.row_fields);
           g_strfreev (p.col_fields);
+          g_strfreev (p.data_fields);
+          g_free (p.groups);
         }
       return;
     }
@@ -3131,6 +3181,12 @@ end_element (GMarkupParseContext *context, const char *element,
     return;
 
   /* The filter's choices were applied before the cells arrived. */
+  if (strcmp (name, "Sheet") == 0 && r->data_tables != NULL && r->sheet != NULL)
+    {
+      for (guint i = 0; i < r->data_tables->len; i++)
+        o42_sheet_define_data_table (r->sheet, &g_array_index (r->data_tables, O42DataTable, i));
+      g_clear_pointer (&r->data_tables, g_array_unref);
+    }
   if (strcmp (name, "Sheet") == 0)
     {
       o42_sheet_autofilter_refresh (r->sheet);
@@ -3203,23 +3259,28 @@ end_element (GMarkupParseContext *context, const char *element,
 
   if (strcmp (name, "Validation") == 0 && r->in_validation)
     {
+      /* Added when the Style closes, so an InputMessage after the rule
+       * is taken up first. */
       r->in_validation = FALSE;
-      r->last_validation = -1;
+      r->validation_ready = TRUE;
+      return;
+    }
+  if (strcmp (name, "Style") == 0 && r->validation_ready)
+    {
+      r->validation_ready = FALSE;
       if (r->validation.kind != O42_VALID_ANY && r->validation.range.row1 - r->validation.range.row0 < 2000)
         {
           o42_sheet_add_validation (r->sheet, &r->validation);
-          r->last_validation = (int) o42_sheet_validations (r->sheet)->len - 1;
         }
       g_free (r->validation.value);
       g_free (r->validation.value2);
       g_free (r->validation.message);
+      g_free (r->validation.title);
       g_free (r->validation.prompt_title);
       g_free (r->validation.prompt);
-      g_free (r->validation.error_title);
+      memset (&r->validation, 0, sizeof r->validation);
       g_clear_pointer (&r->pending_prompt_title, g_free);
       g_clear_pointer (&r->pending_prompt, g_free);
-      memset (&r->validation, 0, sizeof r->validation);
-      return;
     }
 
   if (strcmp (name, "Condition") == 0 && r->in_condition)
@@ -3598,7 +3659,6 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   r.merge = g_string_new (NULL);
   r.expr = g_string_new (NULL);
   r.expr_index = -1;
-  r.last_validation = -1;
   r.dimension = g_string_new (NULL);
   r.graph_title = g_string_new (NULL);
   r.shape_text = g_string_new (NULL);
