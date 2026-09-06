@@ -29,6 +29,7 @@ struct _O42Window {
   gpointer    scripts_prompt;  /* the Scripts dialog while it is open, for the debugger */
   GtkEventController *macro_keys;  /* Ctrl+Shift+letter for the book's macros */
   GtkWidget  *scripts_bar;     /* "this book has scripts", shown on opening one */
+  GtkWidget  *scripts_bar_label, *scripts_bar_run;
   O42Grid    *grid;
   GtkWidget  *tabs;
 

@@ -174,6 +174,15 @@ gboolean  o42_book_move_sheet (O42Book *book, int from, int to);
  * the script layer's business, and never happens on opening. */
 int         o42_book_n_scripts     (O42Book *book);
 
+/* Parts of an Excel file that office42 does not read but keeps for
+ * Excel: a Visual Basic project (xl/vbaProject.bin and its
+ * neighbours) from an .xlsm.  Names are the zip's; the bytes are held
+ * as they came and written back as they were. */
+void        o42_book_keep_part     (O42Book *book, const char *name, GBytes *bytes);   /* NULL forgets */
+GBytes     *o42_book_kept_part     (O42Book *book, const char *name);
+GList      *o42_book_kept_parts    (O42Book *book);    /* the names; free the list, not them */
+gboolean    o42_book_has_vba       (O42Book *book);    /* an xl/vbaProject.bin is kept */
+
 /* Whether the book's Python may run: a script in it, or =PY() in a
  * cell.  A new book's may; a book read from a file may not until the
  * user runs its scripts, as Excel's "Enable content" has it, so that a

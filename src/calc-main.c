@@ -480,7 +480,7 @@ main (int argc, char *argv[])
           GFile *file = g_file_new_for_path (path);
           GError *error = NULL;
           gboolean csv = g_str_has_suffix (path, ".csv");
-          gboolean xlsx = g_str_has_suffix (path, ".xlsx");
+          gboolean xlsx = g_str_has_suffix (path, ".xlsx") || g_str_has_suffix (path, ".xlsm");
           gboolean xls = g_str_has_suffix (path, ".xls");
           gboolean ods = g_str_has_suffix (path, ".ods");
           gboolean html = g_str_has_suffix (path, ".html") || g_str_has_suffix (path, ".htm");

@@ -4688,7 +4688,7 @@ static gboolean
 file_is_xlsx (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  gboolean xlsx = name != NULL && g_str_has_suffix (name, ".xlsx");
+  gboolean xlsx = name != NULL && (g_str_has_suffix (name, ".xlsx") || g_str_has_suffix (name, ".xlsm"));
   g_free (name);
   return xlsx;
 }
@@ -4765,9 +4765,20 @@ o42_window_open_file (O42Window *self, GFile *file)
    * offers, for scripts in the book and for =PY() in its cells alike. */
   if (ok)
     o42_book_set_scripts_trusted (self->book, FALSE);
-  gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar),
-                                 ok && o42_python_available () &&
-                                 (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY")));
+  {
+    gboolean scripts = ok && o42_python_available () &&
+                       (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY"));
+    gboolean vba = ok && o42_book_has_vba (self->book);
+
+    /* A Visual Basic project is not run -- office42 runs Python -- but
+     * it is kept, and the bar says so. */
+    gtk_label_set_text (GTK_LABEL (self->scripts_bar_label),
+                        scripts ? _("This book has Python scripts in it. They have not been run.")
+                                : _("This book has Visual Basic macros, which office42 does not run; "
+                                    "they are kept for Excel when it is saved as .xlsm."));
+    gtk_widget_set_visible (self->scripts_bar_run, scripts);
+    gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), scripts || vba);
+  }
   o42_window_bind_macro_keys (self);
   return ok;
 }
@@ -4873,6 +4884,7 @@ book_filters (void)
 
   g_list_store_append (filters, pattern_filter ("Gnumeric Spreadsheets (*.gnumeric)", "*.gnumeric"));
   g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
+  g_list_store_append (filters, pattern_filter ("Excel Macro-Enabled Workbooks (*.xlsm)", "*.xlsm"));
   g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
   g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods)", "*.ods"));
   g_list_store_append (filters, pattern_filter ("Web Pages (*.html)", "*.html"));
@@ -6456,6 +6468,10 @@ o42_window_init (O42Window *self)
     GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget *label = gtk_label_new (_("This book has Python scripts in it. They have not been run."));
     GtkWidget *run = gtk_button_new_with_mnemonic (_("_Run Scripts"));
+
+    self->scripts_bar_label = label;
+    self->scripts_bar_run = run;
+    gtk_label_set_wrap (GTK_LABEL (label), TRUE);
     GtkWidget *show = gtk_button_new_with_mnemonic (_("_Scripts..."));
     GtkWidget *hide = gtk_button_new_with_mnemonic (_("_Hide"));
 
