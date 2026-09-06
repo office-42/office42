@@ -22,6 +22,21 @@
 
 /* ---- Text ------------------------------------------------------------- */
 
+/* The upper or lower case of each character on its own, which is how
+ * Excel's UPPER and LOWER work: no ß to SS, no final sigma. */
+static char *
+case_by_char (const char *s, gboolean upper)
+{
+  GString *out = g_string_new (NULL);
+
+  for (const char *p = s; *p != '\0'; p = g_utf8_next_char (p))
+    {
+      gunichar c = g_utf8_get_char (p);
+      g_string_append_unichar (out, upper ? g_unichar_toupper (c) : g_unichar_tolower (c));
+    }
+  return g_string_free (out, FALSE);
+}
+
 static O42Value
 fn_len (O42EvalContext *ctx, O42Operand *args, int n)
 {
@@ -109,7 +124,9 @@ fn_upper (O42EvalContext *ctx, O42Operand *args, int n)
 
   (void) n;
   ARG_TEXT (0, s);
-  result = g_utf8_strup (s, -1);
+  /* Character by character, as Excel does it: ß stays ß rather than
+   * becoming SS, and a final sigma lowers to the plain one. */
+  result = case_by_char (s, TRUE);
   g_free (s);
   return o42_value_take (result);
 }
@@ -122,7 +139,7 @@ fn_lower (O42EvalContext *ctx, O42Operand *args, int n)
 
   (void) n;
   ARG_TEXT (0, s);
-  result = g_utf8_strdown (s, -1);
+  result = case_by_char (s, FALSE);
   g_free (s);
   return o42_value_take (result);
 }
@@ -648,6 +665,27 @@ fn_text (O42EvalContext *ctx, O42Operand *args, int n)
     o42_value_clear (&f);
   }
 
+  if (v.type == O42_VALUE_TEXT)
+    {
+      /* Text that reads as a number or a date -- "2024-03-15" -- is that
+       * number, as Excel takes it; other text passes through. */
+      double as_number = 0;
+      O42ErrorCode e = O42_ERR_VALUE;
+
+      if (o42_value_to_number (&v, &as_number, &e))
+        {
+          o42_value_clear (&v);
+          v = o42_value_number (as_number);
+        }
+    }
+  if (v.type == O42_VALUE_BOOL)
+    {
+      /* TRUE and FALSE are the words. */
+      char *word = g_strdup (v.as.boolean ? "TRUE" : "FALSE");
+      o42_value_clear (&v);
+      g_free (format);
+      return o42_value_take (word);
+    }
   if (v.type != O42_VALUE_NUMBER)
     {
       char *text = o42_value_to_text (&v);
@@ -658,11 +696,15 @@ fn_text (O42EvalContext *ctx, O42Operand *args, int n)
       return o42_value_take (shown);
     }
 
-  /* General, and the presets by their plain spellings, go the preset way
-   * so that TEXT(x, "0.00") and a cell formatted Fixed agree to the digit;
+  /* General shows every digit a double has, fifteen of them, as TEXT
+   * does; the presets by their plain spellings go the preset way so
+   * that TEXT(x, "0.00") and a cell formatted Fixed agree to the digit;
    * anything else is the format language. */
   if (g_ascii_strcasecmp (format, "General") == 0)
-    result = o42_number_format (v.as.number, O42_NUM_GENERAL, 0);
+    {
+      char buf[G_ASCII_DTOSTR_BUF_SIZE];
+      result = g_strdup (g_ascii_formatd (buf, sizeof buf, "%.15G", v.as.number));
+    }
   else
     result = o42_format_string (format, v.as.number, NULL);
   o42_value_clear (&v);

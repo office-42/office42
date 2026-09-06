@@ -3172,73 +3172,151 @@ fn_formulatext (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_error (O42_ERR_NA);
 }
 
+/* The delimiters an argument gives, one or an array of them, lowered
+ * when the match ignores case. */
+static GPtrArray *
+delimiters_of (O42EvalContext *ctx, const O42Operand *op, gboolean fold)
+{
+  GPtrArray *out = g_ptr_array_new_with_free_func (g_free);
+  int rows, cols;
+
+  operand_dims (op, &rows, &cols);
+  for (int r = 0; r < rows; r++)
+    for (int c = 0; c < cols; c++)
+      {
+        O42Value v = operand_cell (ctx, op, r, c);
+        char *text = o42_value_to_text (&v);
+
+        o42_value_clear (&v);
+        if (fold)
+          {
+            char *lower = g_utf8_strdown (text, -1);
+            g_free (text);
+            text = lower;
+          }
+        if (*text != '\0')
+          g_ptr_array_add (out, text);
+        else
+          g_free (text);
+      }
+  return out;
+}
+
 /* TEXTBEFORE and TEXTAFTER: the part of a text on one side of the
- * delimiter, counting from the start or, for a negative instance, from
- * the end. */
+ * delimiter (or of any of an array of them), counting from the start
+ * or, for a negative instance, from the end; match_mode 1 ignores case;
+ * match_end 1 lets the end of the text (the start, counting backwards)
+ * stand as a delimiter; if_not_found is the answer when there is no
+ * such instance, else #N/A. */
 static O42Value
 text_around (O42EvalContext *ctx, O42Operand *args, int n, gboolean before)
 {
-  char *text = NULL, *needle = NULL;
-  double instance = 1;
+  char *text = NULL, *scan;
+  double instance = 1, match_mode = 0, match_end = 0;
+  GPtrArray *delims;
+  GArray *hits;        /* byte offsets of the matches in the text, and their lengths */
+  int which;
+  gsize length;
   const char *found = NULL;
+  gsize found_len = 0;
   char *answer;
 
   ARG_TEXT (0, text);
-  ARG_TEXT (1, needle);
-  if (n >= 3)
+  if (n >= 3 && args[2].value.type != O42_VALUE_EMPTY)
     {
       O42Value v = operand_value (ctx, &args[2]);
       O42ErrorCode e = O42_ERR_VALUE;
-      gboolean ok = o42_value_to_number (&v, &instance, &e);
+      gboolean ok = v.type == O42_VALUE_EMPTY || o42_value_to_number (&v, &instance, &e);
 
       o42_value_clear (&v);
       if (!ok)
-        { g_free (text); g_free (needle); return o42_value_error (e); }
+        { g_free (text); return o42_value_error (e); }
     }
-  if (*needle == '\0' || instance == 0)
-    { g_free (text); g_free (needle); return o42_value_error (O42_ERR_VALUE); }
+  if (n >= 4 && args[3].value.type != O42_VALUE_EMPTY) ARG_NUMBER (3, match_mode);
+  if (n >= 5 && args[4].value.type != O42_VALUE_EMPTY) ARG_NUMBER (4, match_end);
+  if (instance == 0)
+    { g_free (text); return o42_value_error (O42_ERR_VALUE); }
 
-  if (instance > 0)
+  delims = delimiters_of (ctx, &args[1], match_mode != 0);
+  if (delims->len == 0)
+    { g_free (text); g_ptr_array_free (delims, TRUE); return o42_value_error (O42_ERR_VALUE); }
+
+  /* The matches, in order, none overlapping; case is ignored on a
+   * lowered copy, whose characters stand where the text's do. */
+  scan = match_mode != 0 ? g_utf8_strdown (text, -1) : g_strdup (text);
+  length = strlen (text);
+  hits = g_array_new (FALSE, FALSE, sizeof (gsize));
+  for (const char *p = scan; *p != '\0'; )
     {
-      const char *p = text;
+      gsize hit_len = 0;
 
-      for (int i = 0; i < (int) instance; i++)
+      for (guint k = 0; k < delims->len && hit_len == 0; k++)
         {
-          p = strstr (found == NULL ? p : found + strlen (needle), needle);
-          if (p == NULL)
-            break;
-          found = p;
+          const char *d = g_ptr_array_index (delims, k);
+          if (g_str_has_prefix (p, d))
+            hit_len = strlen (d);
         }
+      if (hit_len > 0)
+        {
+          gsize at = (gsize) g_utf8_pointer_to_offset (scan, p);   /* in characters */
+          gsize len_chars = g_utf8_strlen (p, (gssize) hit_len);
+          g_array_append_val (hits, at);
+          g_array_append_val (hits, len_chars);
+          p += hit_len;
+        }
+      else
+        p = g_utf8_next_char (p);
     }
-  else
-    {
-      /* From the end: walk every match and keep the one asked for. */
-      GPtrArray *hits = g_ptr_array_new ();
-      const char *p = text;
+  g_free (scan);
+  g_ptr_array_free (delims, TRUE);
 
-      while ((p = strstr (p, needle)) != NULL)
-        {
-          g_ptr_array_add (hits, (gpointer) p);
-          p += strlen (needle);
-        }
+  {
+    int n_hits = (int) hits->len / 2;
+    gsize text_chars = (gsize) g_utf8_strlen (text, -1);
+
+    /* match_end: the far end of the text counts as one more delimiter,
+     * of no width. */
+    if (match_end != 0)
       {
-        int which = (int) hits->len + (int) instance;
-
-        if (which >= 0 && which < (int) hits->len)
-          found = g_ptr_array_index (hits, which);
+        gsize zero = 0;
+        if (instance > 0)
+          {
+            g_array_append_val (hits, text_chars);
+            g_array_append_val (hits, zero);
+          }
+        else
+          {
+            g_array_prepend_val (hits, zero);
+            g_array_prepend_val (hits, zero);
+          }
+        n_hits++;
       }
-      g_ptr_array_free (hits, TRUE);
-    }
+    which = instance > 0 ? (int) instance - 1 : n_hits + (int) instance;
+    if (which >= 0 && which < n_hits)
+      {
+        gsize at = g_array_index (hits, gsize, 2 * which);
+        gsize len_chars = g_array_index (hits, gsize, 2 * which + 1);
+
+        found = g_utf8_offset_to_pointer (text, (glong) at);
+        found_len = (gsize) (g_utf8_offset_to_pointer (found, (glong) len_chars) - found);
+      }
+  }
+  g_array_free (hits, TRUE);
+  (void) length;
 
   if (found == NULL)
-    { g_free (text); g_free (needle); return o42_value_error (O42_ERR_NA); }
+    {
+      g_free (text);
+      if (n >= 6 && args[5].value.type != O42_VALUE_EMPTY)
+        return operand_value (ctx, &args[5]);
+      return o42_value_error (O42_ERR_NA);
+    }
 
   if (before)
     answer = g_strndup (text, (gsize) (found - text));
   else
-    answer = g_strdup (found + strlen (needle));
+    answer = g_strdup (found + found_len);
   g_free (text);
-  g_free (needle);
   return o42_value_take (answer);
 }
 
@@ -3253,7 +3331,19 @@ value_as_text (const O42Value *value, gboolean strict)
   switch (value->type)
     {
     case O42_VALUE_TEXT:
-      return strict ? g_strdup_printf ("\"%s\"", value->as.text) : g_strdup (value->as.text);
+      if (strict)
+        {
+          /* Quoted, a quote inside doubled, as a formula would write it. */
+          GString *q = g_string_new ("\"");
+          for (const char *c = value->as.text; *c != '\0'; c++)
+            {
+              if (*c == '"') g_string_append_c (q, '"');
+              g_string_append_c (q, *c);
+            }
+          g_string_append_c (q, '"');
+          return g_string_free (q, FALSE);
+        }
+      return g_strdup (value->as.text);
     case O42_VALUE_BOOL:
       return g_strdup (value->as.boolean ? "TRUE" : "FALSE");
     case O42_VALUE_ERROR:
@@ -4194,14 +4284,20 @@ fn_switch (O42EvalContext *ctx, O42Operand *args, int n)
 static O42Value
 fn_textjoin (O42EvalContext *ctx, O42Operand *args, int n)
 {
-  char *delim = NULL;
+  GPtrArray *delims;
+  guint next_delim = 0;
   gboolean skip_empty = TRUE;
   GString *out = g_string_new (NULL);
   gboolean first = TRUE;
 
-  ARG_TEXT (0, delim);
+  /* One delimiter, or an array of them used in turn: TEXTJOIN({",",";"},
+   * TRUE,"a","b","c","d") is a,b;c,d. */
+  delims = delimiters_of (ctx, &args[0], FALSE);
+  if (delims->len == 0)
+    g_ptr_array_add (delims, g_strdup (""));
   if (!optional_bool (ctx, args, n, 1, TRUE, &skip_empty))
-    { g_free (delim); g_string_free (out, TRUE); return o42_value_error (O42_ERR_VALUE); }
+    { g_ptr_array_free (delims, TRUE); g_string_free (out, TRUE); return o42_value_error (O42_ERR_VALUE); }
+#define NEXT_DELIM() ((const char *) g_ptr_array_index (delims, (next_delim++) % delims->len))
 
   for (int i = 2; i < n; i++)
     {
@@ -4218,7 +4314,7 @@ fn_textjoin (O42EvalContext *ctx, O42Operand *args, int n)
                 o42_value_clear (&v);
                 if (!(skip_empty && *text == '\0'))
                   {
-                    if (!first) g_string_append (out, delim);
+                    if (!first) g_string_append (out, NEXT_DELIM ());
                     g_string_append (out, text);
                     first = FALSE;
                   }
@@ -4230,15 +4326,15 @@ fn_textjoin (O42EvalContext *ctx, O42Operand *args, int n)
           char *text = o42_value_to_text (&args[i].value);
           if (!(skip_empty && *text == '\0'))
             {
-              if (!first) g_string_append (out, delim);
+              if (!first) g_string_append (out, NEXT_DELIM ());
               g_string_append (out, text);
               first = FALSE;
             }
           g_free (text);
         }
     }
-
-  g_free (delim);
+#undef NEXT_DELIM
+  g_ptr_array_free (delims, TRUE);
   if (g_utf8_strlen (out->str, -1) > 32767)
     {
       /* A cell holds 32,767 characters and no more. */
@@ -6496,49 +6592,130 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
     }
 
   /* TEXTSPLIT: a text cut into a rectangle at its delimiters. */
-  if (strcmp (node->as.call.name, "TEXTSPLIT") == 0 && n_args >= 2 && n_args <= 3)
+  /* TEXTSPLIT(text, col_delimiter, [row_delimiter], [ignore_empty],
+   * [match_mode], [pad_with]): a text cut into a rectangle, either
+   * delimiter one text or an array of them, case ignored for match_mode
+   * 1, the empty pieces left out when asked, the short rows padded. */
+  if (strcmp (node->as.call.name, "TEXTSPLIT") == 0 && n_args >= 2 && n_args <= 6)
     {
       O42Value text_value = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 0));
-      O42Value across_value = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 1));
-      O42Value down_value = n_args >= 3
-                            ? o42_eval (ctx, g_ptr_array_index (node->as.call.args, 2))
-                            : o42_value_empty ();
-      char *text = o42_value_display (&text_value);
-      char *across = o42_value_display (&across_value);
-      char *down = down_value.type != O42_VALUE_EMPTY ? o42_value_display (&down_value) : NULL;
-      char **lines;
-      int n_lines, widest = 0;
+      O42Operand across_op = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
+      O42Operand down_op;
+      gboolean have_down = FALSE, ignore_empty = FALSE;
+      double match_mode = 0;
+      O42Value pad;
+      char *text;
+      GPtrArray *across, *down = NULL;
+      GPtrArray *lines;
+      int widest = 0;
       ArrayConst *a;
 
+      memset (&down_op, 0, sizeof down_op);
+      if (text_value.type == O42_VALUE_ERROR)
+        { operand_clear (&across_op); out->value = text_value; return TRUE; }
+      if (n_args >= 3)
+        {
+          const O42Node *arg = g_ptr_array_index (node->as.call.args, 2);
+          if (arg->type != O42_NODE_EMPTY)
+            {
+              down_op = eval_operand (ctx, arg);
+              have_down = !(!down_op.is_range && down_op.value.type == O42_VALUE_EMPTY);
+            }
+        }
+      if (n_args >= 4) eval_bool_arg (ctx, node, 3, &ignore_empty);
+      if (n_args >= 5 && !eval_number_arg (ctx, node, 4, &match_mode)) match_mode = 0;
+      pad = n_args >= 6 ? o42_eval (ctx, g_ptr_array_index (node->as.call.args, 5)) : o42_value_error (O42_ERR_NA);
+      if (pad.type == O42_VALUE_EMPTY)
+        { o42_value_clear (&pad); pad = o42_value_error (O42_ERR_NA); }
+
+      text = o42_value_display (&text_value);
       o42_value_clear (&text_value);
-      o42_value_clear (&across_value);
-      o42_value_clear (&down_value);
+      across = delimiters_of (ctx, &across_op, match_mode != 0);
+      operand_clear (&across_op);
+      if (have_down)
+        {
+          down = delimiters_of (ctx, &down_op, match_mode != 0);
+          operand_clear (&down_op);
+        }
 
-      lines = (down != NULL && *down != '\0') ? g_strsplit (text, down, -1)
-                                              : g_strsplit (text, "\n", -1);
-      n_lines = (int) g_strv_length (lines);
+      /* Cut at any of the delimiters, the way TEXTBEFORE finds them. */
       {
-        char ***cut = g_new0 (char **, n_lines);
+        GPtrArray *(*split) (const char *, GPtrArray *, gboolean) = NULL;
+        (void) split;
+      }
+#define SPLIT_AT(source, delims, pieces) G_STMT_START {                              \
+        char *scan_ = match_mode != 0 ? g_utf8_strdown ((source), -1) : g_strdup (source); \
+        const char *start_ = scan_;                                                  \
+        for (const char *p_ = scan_; ; )                                             \
+          {                                                                          \
+            gsize hit_ = 0;                                                          \
+            if (*p_ != '\0')                                                         \
+              for (guint k_ = 0; k_ < (delims)->len && hit_ == 0; k_++)              \
+                if (g_str_has_prefix (p_, g_ptr_array_index ((delims), k_)))         \
+                  hit_ = strlen (g_ptr_array_index ((delims), k_));                  \
+            if (hit_ > 0 || *p_ == '\0')                                             \
+              {                                                                      \
+                glong from_ = g_utf8_pointer_to_offset (scan_, start_);              \
+                glong to_ = g_utf8_pointer_to_offset (scan_, p_);                    \
+                const char *o0_ = g_utf8_offset_to_pointer ((source), from_);        \
+                const char *o1_ = g_utf8_offset_to_pointer ((source), to_);          \
+                g_ptr_array_add ((pieces), g_strndup (o0_, (gsize) (o1_ - o0_)));    \
+                if (*p_ == '\0') break;                                              \
+                p_ += hit_;                                                          \
+                start_ = p_;                                                         \
+              }                                                                      \
+            else                                                                     \
+              p_ = g_utf8_next_char (p_);                                            \
+          }                                                                          \
+        g_free (scan_);                                                              \
+      } G_STMT_END
 
-        for (int i = 0; i < n_lines; i++)
+      lines = g_ptr_array_new_with_free_func (g_free);
+      if (down != NULL && down->len > 0)
+        SPLIT_AT (text, down, lines);
+      else
+        g_ptr_array_add (lines, g_strdup (text));
+      {
+        GPtrArray **cut = g_new0 (GPtrArray *, lines->len);
+        guint n_rows = 0;
+
+        for (guint i = 0; i < lines->len; i++)
           {
-            cut[i] = (*across != '\0') ? g_strsplit (lines[i], across, -1)
-                                       : g_strsplit (lines[i], "\t", -1);
-            widest = MAX (widest, (int) g_strv_length (cut[i]));
+            GPtrArray *pieces = g_ptr_array_new_with_free_func (g_free);
+            if (across->len > 0)
+              SPLIT_AT ((const char *) g_ptr_array_index (lines, i), across, pieces);
+            else
+              g_ptr_array_add (pieces, g_strdup (g_ptr_array_index (lines, i)));
+            if (ignore_empty)
+              for (guint k = 0; k < pieces->len; )
+                {
+                  if (*(const char *) g_ptr_array_index (pieces, k) == '\0')
+                    g_ptr_array_remove_index (pieces, k);
+                  else
+                    k++;
+                }
+            if (pieces->len == 0 && ignore_empty)
+              { g_ptr_array_free (pieces, TRUE); continue; }
+            cut[n_rows++] = pieces;
+            widest = MAX (widest, (int) pieces->len);
           }
-        a = array_const_new (MAX (n_lines, 1), MAX (widest, 1));
-        for (int i = 0; i < n_lines; i++)
-          for (int j = 0; j < widest; j++)
-            a->cells[i * MAX (widest, 1) + j] =
-              (cut[i][j] != NULL) ? o42_value_text (cut[i][j]) : o42_value_error (O42_ERR_NA);
-        for (int i = 0; i < n_lines; i++)
-          g_strfreev (cut[i]);
+        a = array_const_new (MAX ((int) n_rows, 1), MAX (widest, 1));
+        for (guint i = 0; i < n_rows; i++)
+          for (int j = 0; j < MAX (widest, 1); j++)
+            a->cells[i * MAX (widest, 1) + j] = j < (int) cut[i]->len
+              ? o42_value_text (g_ptr_array_index (cut[i], j)) : o42_value_copy (&pad);
+        if (n_rows == 0)
+          a->cells[0] = o42_value_error (O42_ERR_CALC);
+        for (guint i = 0; i < n_rows; i++)
+          g_ptr_array_free (cut[i], TRUE);
         g_free (cut);
       }
-      g_strfreev (lines);
+#undef SPLIT_AT
+      g_ptr_array_free (lines, TRUE);
+      g_ptr_array_free (across, TRUE);
+      if (down != NULL) g_ptr_array_free (down, TRUE);
       g_free (text);
-      g_free (across);
-      g_free (down);
+      o42_value_clear (&pad);
       *out = array_operand (a);
       return TRUE;
     }
@@ -8884,8 +9061,10 @@ fn_unichar (O42EvalContext *ctx, O42Operand *args, int n)
   char buf[8];
   (void) n;
   ARG_NUMBER (0, code);
-  if (code < 1 || code > 0x10FFFF || !g_unichar_validate ((gunichar) code))
+  if (code < 1 || code > 0x10FFFF)
     return o42_value_error (O42_ERR_VALUE);
+  if (!g_unichar_validate ((gunichar) code))
+    return o42_value_error (O42_ERR_NA);   /* a surrogate: no character, as Excel says */
   buf[g_unichar_to_utf8 ((gunichar) code, buf)] = '\0';
   return o42_value_text (buf);
 }
@@ -10473,8 +10652,8 @@ static const O42Function FUNCTIONS[] = {
   { "T.TEST", 4, 4, fn_ttest },
   { "TAN", 1, 1, fn_tan },
   { "TANH", 1, 1, fn_tanh },
-  { "TEXTAFTER", 2, 3, fn_textafter },
-  { "TEXTBEFORE", 2, 3, fn_textbefore },
+  { "TEXTAFTER", 2, 6, fn_textafter },
+  { "TEXTBEFORE", 2, 6, fn_textbefore },
   { "TEXTJOIN", 3, -1, fn_textjoin },
   { "TREND", 1, 4, fn_offset },
   { "TRUE", 0, 0, fn_true },
@@ -10704,7 +10883,7 @@ static const struct {
   { "REGEXEXTRACT", "REGEXEXTRACT(text, pattern, [return_mode], [case])", "What a regular expression matches: the first match, all of them, or the groups." },
   { "GETPIVOTDATA", "GETPIVOTDATA(data_field, pivot_table, ...)", "A value from a pivot table; #REF! here, whose pivots are plain cells." },
   { "DROP", "DROP(array, rows, cols)", "The rectangle with so many rows and columns left off." },
-  { "TEXTSPLIT", "TEXTSPLIT(text, across, down)", "A text cut into a rectangle at its delimiters." },
+  { "TEXTSPLIT", "TEXTSPLIT(text, col_delimiter, [row_delimiter], [ignore_empty], [match_mode], [pad_with])", "A text cut into a rectangle at its delimiters." },
   { "MODE.MULT", "MODE.MULT(number1, number2, ...)", "Every value that turns up as often as the commonest." },
   { "CHOLESKY", "CHOLESKY(matrix)", "Gnumeric's: the lower triangle whose product with its transpose is the matrix." },
   { "EIGEN", "EIGEN(matrix)", "Gnumeric's: the eigenvalues of a symmetric matrix, each with its vector under it." },
@@ -11068,8 +11247,8 @@ static const struct {
   { "T.TEST", "T.TEST(array1, array2, tails, type)", "Student's t-test probability." },
   { "TAN", "TAN(number)", "The tangent of an angle in radians." },
   { "TANH", "TANH(number)", "The hyperbolic tangent." },
-  { "TEXTAFTER", "TEXTAFTER(text, delimiter, instance)", "The part of a text after the delimiter." },
-  { "TEXTBEFORE", "TEXTBEFORE(text, delimiter, instance)", "The part of a text before the delimiter." },
+  { "TEXTAFTER", "TEXTAFTER(text, delimiter, [instance], [match_mode], [match_end], [if_not_found])", "The part of a text after the delimiter, or the nth of them." },
+  { "TEXTBEFORE", "TEXTBEFORE(text, delimiter, [instance], [match_mode], [match_end], [if_not_found])", "The part of a text before the delimiter, or the nth of them." },
   { "TEXTJOIN", "TEXTJOIN(delimiter, ignore_empty, text1, ...)", "Joins texts with a delimiter between them." },
   { "TREND", "TREND(known_ys, known_xs, new_xs, const)", "Values on the line fitted to the points." },
   { "TRUE", "TRUE()", "The logical value TRUE." },
