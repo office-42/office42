@@ -41,6 +41,7 @@
   "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\" " \
   "xmlns:chart=\"urn:oasis:names:tc:opendocument:xmlns:chart:1.0\" " \
   "xmlns:form=\"urn:oasis:names:tc:opendocument:xmlns:form:1.0\" " \
+  "xmlns:calcext=\"urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0\" " \
   "office:version=\"1.2\""
 
 /* ====================================================================== */
@@ -279,6 +280,8 @@ typedef struct {
   GString    *master_pages; /* and the master page that uses it, with the header and footer */
   GHashTable *hf_styles;    /* "B1I0U0S12F" -> "MT3", text styles the header parts wear */
   GString    *hf_style_xml;
+  GString    *cond_styles;  /* styles.xml: the named styles conditional formats switch to */
+  int         next_cond;
   GString    *fill_defs;    /* styles.xml: the gradients and hatches the shapes use */
 } Styles;
 
@@ -2145,6 +2148,8 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
   g_free (input);
 }
 
+static void write_conditional_formats (GString *out, Styles *s, O42Sheet *sheet, const char *table_name);
+
 static void
 write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
 {
@@ -2323,7 +2328,107 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
     }
   if (last_row < 0)
     g_string_append (out, "<table:table-row><table:table-cell/></table:table-row>");
+  write_conditional_formats (out, s, sheet, o42_sheet_get_name (sheet));
   g_string_append (out, "</table:table>");
+}
+
+/* A rule's operand as a condition writes it: the number, or the
+ * formula in OpenFormula without its "of:=". */
+static char *
+cond_operand (const char *expr, double value)
+{
+  if (expr != NULL)
+    {
+      char *with = g_strconcat ("=", expr + (expr[0] == '='), NULL);
+      char *of = of_formula (with);
+      char *plain = g_strdup (g_str_has_prefix (of, "of:=") ? of + 4 : of);
+
+      g_free (with);
+      g_free (of);
+      return plain;
+    }
+  {
+    char buffer[G_ASCII_DTOSTR_BUF_SIZE];
+    return g_strdup (g_ascii_dtostr (buffer, sizeof buffer, value));
+  }
+}
+
+/* The conditional formats of a sheet, as LibreOffice keeps them: a
+ * calcext:conditional-formats element at the end of the table, each
+ * rule a condition naming a style in styles.xml, or a colour scale
+ * with its entries. */
+static void
+write_conditional_formats (GString *out, Styles *s, O42Sheet *sheet, const char *table_name)
+{
+  GArray *conds = o42_sheet_conditions (sheet);
+  char *esc;
+
+  if (conds->len == 0)
+    return;
+  esc = g_markup_escape_text (table_name, -1);
+  g_string_append (out, "<calcext:conditional-formats>");
+  for (guint i = 0; i < conds->len; i++)
+    {
+      const O42Condition *c = &g_array_index (conds, O42Condition, i);
+      char *a = o42_ref_name (c->range.row0, c->range.col0);
+      char *b = o42_ref_name (c->range.row1, c->range.col1);
+
+      g_string_append_printf (out, "<calcext:conditional-format calcext:target-range-address=\"%s.%s:%s.%s\">", esc, a, esc, b);
+      if (c->kind == O42_COND_SCALE)
+        {
+          static const char *const kinds[] = { "minimum", "maximum", "number", "percent", "percentile" };
+
+          g_string_append (out, "<calcext:color-scale>");
+          for (int k = 0; k < CLAMP (c->stops, 2, 3); k++)
+            {
+              char sv[G_ASCII_DTOSTR_BUF_SIZE];
+              g_ascii_dtostr (sv, sizeof sv, c->stop_value[k]);
+              g_string_append_printf (out, "<calcext:color-scale-entry calcext:value=\"%s\" calcext:type=\"%s\" calcext:color=\"#%06x\"/>",
+                                      sv, kinds[CLAMP (c->stop_type[k], 0, 4)], c->stop_colour[k] & 0xFFFFFF);
+            }
+          g_string_append (out, "</calcext:color-scale>");
+        }
+      else
+        {
+          static const char *const ops[] = { "between", "not-between", "=", "!=", ">", "<", ">=", "<=" };
+          char *style = g_strdup_printf ("ConditionalStyle_%d", ++s->next_cond);
+          char *v1 = cond_operand (c->expr1, c->value);
+          char *v2 = cond_operand (c->expr2, c->value2);
+          GString *value = g_string_new (NULL);
+          char *escaped;
+
+          /* The style: only what the rule sets, over the cell's own. */
+          g_string_append_printf (s->cond_styles,
+            "<style:style style:name=\"%s\" style:family=\"table-cell\" style:parent-style-name=\"Default\">", style);
+          if ((c->mask & O42_FMT_FILL) && c->fmt.fill != O42_FILL_NONE)
+            g_string_append_printf (s->cond_styles, "<style:table-cell-properties fo:background-color=\"#%06x\"/>", c->fmt.fill & 0xFFFFFF);
+          g_string_append (s->cond_styles, "<style:text-properties");
+          if (c->mask & O42_FMT_BOLD)      g_string_append_printf (s->cond_styles, " fo:font-weight=\"%s\"", c->fmt.bold ? "bold" : "normal");
+          if (c->mask & O42_FMT_ITALIC)    g_string_append_printf (s->cond_styles, " fo:font-style=\"%s\"", c->fmt.italic ? "italic" : "normal");
+          if ((c->mask & O42_FMT_UNDERLINE) && c->fmt.underline)
+            g_string_append (s->cond_styles, " style:text-underline-style=\"solid\" style:text-underline-width=\"auto\" style:text-underline-color=\"font-color\"");
+          if (c->mask & O42_FMT_COLOUR)    g_string_append_printf (s->cond_styles, " fo:color=\"#%06x\"", c->fmt.colour & 0xFFFFFF);
+          g_string_append (s->cond_styles, "/></style:style>");
+
+          if (c->is_formula)
+            g_string_append_printf (value, "formula-is(%s)", v1);
+          else if (c->op == O42_COND_BETWEEN || c->op == O42_COND_NOT_BETWEEN)
+            g_string_append_printf (value, "%s(%s,%s)", ops[c->op], v1, v2);
+          else
+            g_string_append_printf (value, "%s%s", ops[CLAMP ((int) c->op, 0, 7)], v1);
+          escaped = g_markup_escape_text (value->str, -1);
+          g_string_append_printf (out, "<calcext:condition calcext:apply-style-name=\"%s\" calcext:value=\"%s\" calcext:base-cell-address=\"%s.%s\"/>",
+                                  style, escaped, esc, a);
+          g_free (escaped);
+          g_string_free (value, TRUE);
+          g_free (v1); g_free (v2); g_free (style);
+        }
+      g_string_append (out, "</calcext:conditional-format>");
+      g_free (a);
+      g_free (b);
+    }
+  g_string_append (out, "</calcext:conditional-formats>");
+  g_free (esc);
 }
 
 static void
@@ -2564,6 +2669,8 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   s.master_pages = g_string_new (NULL);
   s.hf_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   s.hf_style_xml = g_string_new (NULL);
+  s.cond_styles = g_string_new (NULL);
+  s.next_cond = 0;
   s.fill_defs = g_string_new (NULL);
 
   for (int i = 0; i < o42_book_n_sheets (book); i++)
@@ -2616,6 +2723,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
       "<draw:marker draw:name=\"Circle\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0c-5.5 0-10 4.5-10 10s4.5 10 10 10 10-4.5 10-10-4.5-10-10-10z\"/>"
       "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>");
     g_string_append (styles, s.fill_defs->str);
+    g_string_append (styles, s.cond_styles->str);
     g_string_append (styles, "</office:styles><office:automatic-styles>");
 
     g_string_append (styles, s.hf_style_xml->str);
@@ -2645,6 +2753,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   g_string_free (s.page_layouts, TRUE);
   g_string_free (s.master_pages, TRUE);
   g_string_free (s.hf_style_xml, TRUE);
+  g_string_free (s.cond_styles, TRUE);
   g_string_free (s.fill_defs, TRUE);
   g_hash_table_unref (s.hf_styles);
   g_hash_table_unref (s.col_styles);
@@ -2741,6 +2850,12 @@ typedef struct {
   GHashTable *hatches;       /* a draw:hatch name -> OdsHatch */
   GHashTable *num_styles;    /* name -> NumStyle */
   Style      *style;         /* the style being read */
+  /* A calcext:conditional-format being read: its range, and the
+   * colour scale gathering its entries. */
+  O42Range     cf_range;
+  gboolean     cf_have_range;
+  O42Condition cf_scale;
+  gboolean     cf_in_scale;
   NumStyle   *num;           /* the number style being read */
   gboolean    in_num_style;
 
@@ -4878,6 +4993,127 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       return;
     }
 
+  if (strcmp (name, "conditional-format") == 0 && r->sheet != NULL)
+    {
+      char *sheet_name = NULL;
+
+      r->cf_have_range = ods_range (attr (names, values, "target-range-address"), &sheet_name, &r->cf_range);
+      g_free (sheet_name);
+      return;
+    }
+  if (strcmp (name, "condition") == 0 && r->cf_have_range && r->sheet != NULL)
+    {
+      /* "=5", ">=[.B1]", "between(1,5)", "formula-is([.B1]>2)": the rule,
+       * and the named style it switches to. */
+      const char *value = attr (names, values, "value");
+      const char *sname = attr (names, values, "apply-style-name");
+      Style *st = sname != NULL ? g_hash_table_lookup (r->styles, sname) : NULL;
+      O42Condition c;
+      static const struct { const char *prefix; O42CondOp op; } OPS[] = {
+        { "!=", O42_COND_NOT_EQUAL }, { ">=", O42_COND_GREATER_EQUAL }, { "<=", O42_COND_LESS_EQUAL },
+        { "=", O42_COND_EQUAL }, { ">", O42_COND_GREATER }, { "<", O42_COND_LESS },
+      };
+      const char *operand = NULL;
+      char *inner = NULL;
+
+      if (value == NULL || st == NULL)
+        return;
+      memset (&c, 0, sizeof c);
+      c.range = r->cf_range;
+      c.fmt = st->fmt;
+      if (st->fmt.bold) c.mask |= O42_FMT_BOLD;
+      if (st->fmt.italic) c.mask |= O42_FMT_ITALIC;
+      if (st->fmt.underline) c.mask |= O42_FMT_UNDERLINE;
+      if (st->fmt.colour != 0) c.mask |= O42_FMT_COLOUR;
+      if (st->fmt.fill != O42_FILL_NONE) c.mask |= O42_FMT_FILL;
+      if (g_str_has_prefix (value, "formula-is(") && g_str_has_suffix (value, ")"))
+        {
+          inner = g_strndup (value + 11, strlen (value) - 12);
+          c.is_formula = TRUE;
+          c.op = O42_COND_EQUAL;
+          {
+            char *f = formula_from_of (inner);
+            c.expr1 = g_intern_string (f);
+            g_free (f);
+          }
+        }
+      else if ((g_str_has_prefix (value, "between(") || g_str_has_prefix (value, "not-between(")) &&
+               g_str_has_suffix (value, ")"))
+        {
+          const char *open = strchr (value, '(');
+          char *comma;
+
+          c.op = value[0] == 'n' ? O42_COND_NOT_BETWEEN : O42_COND_BETWEEN;
+          inner = g_strndup (open + 1, strlen (open) - 2);
+          comma = strrchr (inner, ',');
+          if (comma != NULL)
+            {
+              char *end = NULL;
+              double n;
+
+              *comma = '\0';
+              n = g_ascii_strtod (comma + 1, &end);
+              if (end != NULL && *end == '\0' && end != comma + 1)
+                c.value2 = n;
+              else
+                { char *f = formula_from_of (comma + 1); c.expr2 = g_intern_string (f); g_free (f); }
+            }
+          operand = inner;
+        }
+      else
+        {
+          for (guint i = 0; i < G_N_ELEMENTS (OPS); i++)
+            if (g_str_has_prefix (value, OPS[i].prefix))
+              { c.op = OPS[i].op; operand = value + strlen (OPS[i].prefix); break; }
+          if (operand == NULL)
+            return;
+        }
+      if (operand != NULL)
+        {
+          char *end = NULL;
+          double n = g_ascii_strtod (operand, &end);
+
+          if (end != NULL && *end == '\0' && end != operand)
+            c.value = n;
+          else
+            { char *f = formula_from_of (operand); c.expr1 = g_intern_string (f); g_free (f); }
+        }
+      if (c.expr2 == NULL && c.op != O42_COND_BETWEEN && c.op != O42_COND_NOT_BETWEEN)
+        c.value2 = c.value;
+      o42_sheet_add_condition (r->sheet, &c);
+      g_free (inner);
+      return;
+    }
+  if (strcmp (name, "color-scale") == 0 && r->cf_have_range)
+    {
+      memset (&r->cf_scale, 0, sizeof r->cf_scale);
+      o42_fmt_init_default (&r->cf_scale.fmt);
+      r->cf_scale.range = r->cf_range;
+      r->cf_scale.kind = O42_COND_SCALE;
+      r->cf_in_scale = TRUE;
+      return;
+    }
+  if (strcmp (name, "color-scale-entry") == 0 && r->cf_in_scale && r->cf_scale.stops < 3)
+    {
+      const char *type = attr (names, values, "type");
+      const char *val = attr (names, values, "value");
+      const char *colour = attr (names, values, "color");
+      int k = r->cf_scale.stops;
+      int kind = O42_SCALE_MIN;
+
+      if (type != NULL)
+        {
+          if (strcmp (type, "maximum") == 0) kind = O42_SCALE_MAX;
+          else if (strcmp (type, "number") == 0 || strcmp (type, "formula") == 0) kind = O42_SCALE_NUM;
+          else if (strcmp (type, "percent") == 0) kind = O42_SCALE_PERCENT;
+          else if (strcmp (type, "percentile") == 0) kind = O42_SCALE_PERCENTILE;
+        }
+      r->cf_scale.stop_type[k] = kind;
+      r->cf_scale.stop_value[k] = val != NULL ? g_ascii_strtod (val, NULL) : 0;
+      r->cf_scale.stop_colour[k] = colour != NULL ? colour_of (colour, 0xFFFFFF) : 0xFFFFFF;
+      r->cf_scale.stops = k + 1;
+      return;
+    }
   if (strcmp (name, "table") == 0)
     {
       const char *tname = attr (names, values, "name");
@@ -5214,6 +5450,14 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
       r->in_num_style = FALSE;
       r->num = NULL;
     }
+  else if (strcmp (name, "color-scale") == 0 && r->cf_in_scale)
+    {
+      r->cf_in_scale = FALSE;
+      if (r->cf_scale.stops >= 2 && r->sheet != NULL)
+        o42_sheet_add_condition (r->sheet, &r->cf_scale);
+    }
+  else if (strcmp (name, "conditional-format") == 0)
+    r->cf_have_range = FALSE;
   else if (strcmp (name, "table-row") == 0 && r->sheet != NULL)
     row_finish (r);
   else if (strcmp (name, "forms") == 0)

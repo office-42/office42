@@ -3578,6 +3578,15 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       r->in_cf_rule = TRUE;
       r->cf_is_cellis = type != NULL && strcmp (type, "cellIs") == 0 && op != NULL;
       r->cf_is_expression = type != NULL && strcmp (type, "expression") == 0;
+      /* Excel's text rules -- contains, begins with, ends with, blanks,
+       * errors and their opposites -- come with the formula that says
+       * the same, and are that formula here. */
+      if (type != NULL && (strcmp (type, "containsText") == 0 || strcmp (type, "notContainsText") == 0 ||
+                           strcmp (type, "beginsWith") == 0 || strcmp (type, "endsWith") == 0 ||
+                           strcmp (type, "containsBlanks") == 0 || strcmp (type, "notContainsBlanks") == 0 ||
+                           strcmp (type, "containsErrors") == 0 || strcmp (type, "notContainsErrors") == 0 ||
+                           strcmp (type, "timePeriod") == 0))
+        r->cf_is_expression = TRUE;
       r->cf_is_scale = type != NULL && strcmp (type, "colorScale") == 0;
       r->cf_stop_count = r->cf_colour_count = 0;
       g_clear_pointer (&r->cf_exprs[0], g_free);
