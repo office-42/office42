@@ -249,7 +249,7 @@ read_fraction (const char *text, O42Entry *out)
 gboolean
 o42_entry_parse (const char *text, O42Entry *out)
 {
-  O42Entry entry = { 0, O42_NUM_GENERAL, 0 };
+  O42Entry entry = { 0, O42_NUM_GENERAL, 0, NULL };
   gboolean has_date = FALSE, has_time = FALSE;
 
   g_return_val_if_fail (out != NULL, FALSE);
@@ -273,6 +273,10 @@ o42_entry_parse (const char *text, O42Entry *out)
     {
       entry.format = (has_date && has_time) ? O42_NUM_DATETIME
                    : has_date ? O42_NUM_DATE : O42_NUM_TIME;
+      /* A time past a day -- 24:00, 25:30 -- shows as elapsed hours,
+       * which is what Excel gives such an entry. */
+      if (!has_date && has_time && entry.number >= 1.0)
+        entry.custom = g_intern_static_string ("[h]:mm:ss");
       *out = entry;
       return TRUE;
     }

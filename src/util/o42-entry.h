@@ -21,6 +21,7 @@ typedef struct {
   double          number;
   O42NumberFormat format;    /* the format the text asks for, or General */
   int             decimals;  /* for Percent, Currency and Comma */
+  const char     *custom;    /* a code no preset says, interned; "[h]:mm:ss" for 25:30 */
 } O42Entry;
 
 /* Reads `text` as a number, a date or a time.  FALSE means it is text. */

@@ -2498,15 +2498,16 @@ o42_sheet_name_changed (O42Sheet *sheet, const char *upper)
  * date rather than 46261. */
 static void
 cell_take_format (O42Sheet *sheet, O42Cell *cell, O42NumberFormat which,
-                  int decimals)
+                  int decimals, const char *custom)
 {
   O42Fmt fmt = *o42_fmt_table_get (sheet->formats, cell->fmt);
 
-  if (fmt.number != O42_NUM_GENERAL)
+  if (fmt.number != O42_NUM_GENERAL || fmt.custom != NULL)
     return;
 
   fmt.number = which;
   fmt.decimals = decimals;
+  fmt.custom = custom;
   cell->fmt = o42_fmt_table_intern (sheet->formats, &fmt);
 }
 
@@ -2857,7 +2858,7 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
 
           date_fmt = formula_date_format (cell->ast);
           if (date_fmt != O42_NUM_GENERAL)
-            cell_take_format (sheet, cell, date_fmt, 0);
+            cell_take_format (sheet, cell, date_fmt, 0, NULL);
 
           stored = g_new (guint64, 1);
           *stored = key;
@@ -2903,7 +2904,7 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
                    * them from now on, unless it already had a format. */
                   cell->value = o42_value_number (entry.number);
                   if (entry.format != O42_NUM_GENERAL)
-                    cell_take_format (sheet, cell, entry.format, entry.decimals);
+                    cell_take_format (sheet, cell, entry.format, entry.decimals, entry.custom);
                   round_to_display (sheet, cell);
                 }
               else
@@ -3485,21 +3486,99 @@ autofill_value (O42Sheet *sheet, const int *rows, const int *cols, int count,
 
       if (all_numbers && count >= 2)
         {
-          delta = (last.as.number - first.as.number) / (count - 1);
-          {
-            double base = (n >= count) ? last.as.number : first.as.number;
-            O42Value r = o42_value_number (base + delta * step);
-            input = value_input_text (&r);
-          }
+          const O42Fmt *fmt = o42_sheet_get_fmt (sheet, rows[0], cols[0]);
+          gboolean dated = (fmt->number == O42_NUM_DATE || fmt->number == O42_NUM_DATETIME);
+          int y1, m1, d1, y2, m2, d2;
+          int months = 0;
+          gboolean by_month = FALSE, month_ends = FALSE;
+
+          /* Dates a whole number of months apart go on by the month:
+           * 15 January, 15 February give 15 March; 31 January, 28
+           * February -- both month ends -- give 31 March, 30 April. */
+          if (dated && o42_date_from_serial (first.as.number, &y1, &m1, &d1) &&
+              o42_date_from_serial (last.as.number, &y2, &m2, &d2))
+            {
+              months = (y2 - y1) * 12 + (m2 - m1);
+              if (months != 0 && months % (count - 1) == 0)
+                {
+                  gboolean same_day = TRUE, ends = TRUE;
+
+                  for (int i = 0; i < count; i++)
+                    {
+                      O42Value w;
+                      int y, m, d;
+
+                      o42_sheet_get_value (sheet, rows[i], cols[i], &w);
+                      if (!o42_date_from_serial (w.as.number, &y, &m, &d) ||
+                          (y - y1) * 12 + (m - m1) != i * (months / (count - 1)))
+                        same_day = ends = FALSE;
+                      else
+                        {
+                          if (d != d1) same_day = FALSE;
+                          if (o42_date_serial (y, m + 1, 0) != floor (w.as.number)) ends = FALSE;
+                        }
+                      o42_value_clear (&w);
+                    }
+                  by_month = same_day || ends;
+                  month_ends = ends && !same_day;
+                }
+            }
+
+          if (by_month)
+            {
+              int mstep = months / (count - 1);
+              int k = (n >= count) ? n - (count - 1) : n;   /* months on from the nearer end */
+              int y = (n >= count) ? y2 : y1, m = (n >= count) ? m2 : m1;
+              double serial;
+
+              if (month_ends)
+                serial = o42_date_serial (y, m + k * mstep + 1, 0);
+              else
+                {
+                  /* The same day of the month, or the last of a shorter one. */
+                  double last_day = o42_date_serial (y, m + k * mstep + 1, 0);
+                  serial = MIN (o42_date_serial (y, m + k * mstep, 1) + d1 - 1, last_day);
+                }
+              {
+                O42Value r = o42_value_number (serial + (first.as.number - floor (first.as.number)));
+                input = value_input_text (&r);
+              }
+            }
+          else
+            {
+              /* The straight line through the values, by least squares,
+               * which is the trend Excel continues: 1, 4, 9 go on to
+               * 12.67, 16.67; two values, or evenly spaced ones, go on
+               * by their step. */
+              double sx = 0, sy = 0, sxx = 0, sxy = 0, slope, intercept;
+
+              for (int i = 0; i < count; i++)
+                {
+                  O42Value w;
+                  o42_sheet_get_value (sheet, rows[i], cols[i], &w);
+                  sx += i; sy += w.as.number; sxx += (double) i * i; sxy += i * w.as.number;
+                  o42_value_clear (&w);
+                }
+              slope = (count * sxy - sx * sy) / (count * sxx - sx * sx);
+              intercept = (sy - slope * sx) / count;
+              {
+                O42Value r = o42_value_number (intercept + slope * n);
+                input = value_input_text (&r);
+              }
+            }
+          (void) delta;
         }
       else
         {
           const O42Fmt *fmt = o42_sheet_get_fmt (sheet, rows[period_index], cols[period_index]);
           O42Value r;
 
-          /* A lone date steps by the day; a lone number is copied. */
+          /* A lone date steps by the day, a lone time by the hour; a
+           * lone number is copied. */
           if (fmt->number == O42_NUM_DATE || fmt->number == O42_NUM_DATETIME)
             r = o42_value_number (v.as.number + step);
+          else if (fmt->number == O42_NUM_TIME)
+            r = o42_value_number (v.as.number + step / 24.0);
           else
             r = o42_value_copy (&v);
           input = value_input_text (&r);
@@ -3528,6 +3607,28 @@ autofill_value (O42Sheet *sheet, const int *rows, const int *cols, int count,
           input = cycle_name (text, DAYS, (((idx + n - period_index) % 7) + 7) % 7, abbreviated);
           goto done_text;
         }
+
+      /* Quarters go round too: Q1 to Q4, Qtr 1, Quarter 1, and back
+       * to the first after the fourth. */
+      {
+        static const char *const QUARTERS[] = { "Q", "Qtr ", "Qtr", "Quarter " };
+
+        for (guint i = 0; i < G_N_ELEMENTS (QUARTERS); i++)
+          {
+            gsize plen = strlen (QUARTERS[i]);
+
+            if (len == plen + 1 && g_ascii_strncasecmp (text, QUARTERS[i], plen) == 0 &&
+                text[plen] >= '1' && text[plen] <= '4')
+              {
+                int q = text[plen] - '1';
+                char *prefix = g_strndup (text, plen);
+
+                input = g_strdup_printf ("%s%d", prefix, (((q + n - period_index) % 4) + 4) % 4 + 1);
+                g_free (prefix);
+                goto done_text;
+              }
+          }
+      }
 
       /* A list the book was given: it goes round the same way the days
        * and the months do. */

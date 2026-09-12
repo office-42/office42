@@ -286,6 +286,12 @@ read_date (const char **p, double *serial)
                   q = r;
                   y = widen_year (c, dc);
                 }
+              else if (db == 4 && sep != '.' && a >= 1 && a <= 12)
+                {
+                  /* "12/2021": a month and a year, the first of the month. */
+                  y = b; mo = a; d = 1;
+                  goto have_date;
+                }
               if (!day_first && a > 12 && b <= 12)
                 day_first = TRUE;
               if (day_first) { d = a; mo = b; }
@@ -363,6 +369,7 @@ read_date (const char **p, double *serial)
   else
     return FALSE;
 
+have_date:
   if (y < 0)
     y = this_year ();
   if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 1 || y > 9999)
@@ -390,7 +397,7 @@ read_time (const char **p, double *fraction)
   double second_fraction = 0;
   gboolean colon;
 
-  if (!read_number (&q, &h, &dh) || dh > 2)
+  if (!read_number (&q, &h, &dh) || dh > 4)
     return FALSE;
   colon = (*q == ':');
   if (colon)
@@ -436,7 +443,12 @@ read_time (const char **p, double *fraction)
       return FALSE;
   }
 
-  if (h > 23 || mi > 59 || s > 59)
+  /* "24:00" and "25:30" are hours past a day, as they are to Excel,
+   * which shows them as [h]:mm:ss; a clock with AM or PM after it
+   * cannot pass twelve.  Minutes and seconds past sixty carry over. */
+  if (h > 9999 || mi > 9999 || s > 9999)
+    return FALSE;
+  if (dh > 2 && !colon)
     return FALSE;
 
   *fraction = o42_time_fraction (h, mi, s + second_fraction);
