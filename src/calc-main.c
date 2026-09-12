@@ -3292,6 +3292,38 @@ main (int argc, char *argv[])
         }
 
       /* cond A1:A9 > 5 [bold] [italic] [red] [fill]; uncond A1:A9 */
+      /* scale A1:A10 [2|3]: Excel's colour scale, red to green with
+       * yellow between for three stops. */
+      if (g_str_has_prefix (text, "scale "))
+        {
+          O42Condition c;
+          gsize len = 0;
+          char **words = g_strsplit (text + 6, " ", -1);
+
+          memset (&c, 0, sizeof c);
+          o42_fmt_init_default (&c.fmt);
+          if (g_strv_length (words) >= 1 &&
+              o42_ref_parse (words[0], &c.range.row0, &c.range.col0, &len) && words[0][len] == ':' &&
+              o42_ref_parse (words[0] + len + 1, &c.range.row1, &c.range.col1, NULL))
+            {
+              gboolean three = words[1] != NULL && strcmp (words[1], "3") == 0;
+
+              c.kind = O42_COND_SCALE;
+              c.stops = three ? 3 : 2;
+              c.stop_type[0] = O42_SCALE_MIN;   c.stop_colour[0] = 0xF8696B;
+              if (three)
+                { c.stop_type[1] = O42_SCALE_PERCENTILE; c.stop_value[1] = 50; c.stop_colour[1] = 0xFFEB84;
+                  c.stop_type[2] = O42_SCALE_MAX; c.stop_colour[2] = 0x63BE7B; }
+              else
+                { c.stop_type[1] = O42_SCALE_MAX; c.stop_colour[1] = 0x63BE7B; }
+              o42_sheet_add_condition (sheet, &c);
+            }
+          else
+            fprintf (stderr, "usage: scale A1:A10 [2|3]\n");
+          g_strfreev (words);
+          continue;
+        }
+
       if (g_str_has_prefix (text, "cond "))
         {
           char **words = g_strsplit (text + 5, " ", -1);

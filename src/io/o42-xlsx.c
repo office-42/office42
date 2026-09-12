@@ -690,6 +690,30 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
         char *b = o42_ref_name (c->range.row1, c->range.col1);
         char v[G_ASCII_DTOSTR_BUF_SIZE], v2[G_ASCII_DTOSTR_BUF_SIZE];
 
+        if (c->kind == O42_COND_SCALE)
+          {
+            static const char *const kinds[] = { "min", "max", "num", "percent", "percentile" };
+
+            g_string_append_printf (out, "<conditionalFormatting sqref=\"%s:%s\"><cfRule type=\"colorScale\" priority=\"%u\"><colorScale>",
+                                    a, b, i + 1);
+            for (int k = 0; k < CLAMP (c->stops, 2, 3); k++)
+              {
+                char sv[G_ASCII_DTOSTR_BUF_SIZE];
+                int kind = CLAMP (c->stop_type[k], 0, 4);
+
+                g_ascii_dtostr (sv, sizeof sv, c->stop_value[k]);
+                if (kind == O42_SCALE_MIN || kind == O42_SCALE_MAX)
+                  g_string_append_printf (out, "<cfvo type=\"%s\"/>", kinds[kind]);
+                else
+                  g_string_append_printf (out, "<cfvo type=\"%s\" val=\"%s\"/>", kinds[kind], sv);
+              }
+            for (int k = 0; k < CLAMP (c->stops, 2, 3); k++)
+              g_string_append_printf (out, "<color rgb=\"FF%06X\"/>", c->stop_colour[k]);
+            g_string_append (out, "</colorScale></cfRule></conditionalFormatting>");
+            g_free (a);
+            g_free (b);
+            continue;
+          }
         g_array_append_vals (w->dxfs, c, 1);
         g_ascii_dtostr (v, sizeof v, c->value);
         g_ascii_dtostr (v2, sizeof v2, c->value2);
@@ -2290,6 +2314,11 @@ typedef struct
   gboolean    in_dxfs, in_dxf, in_dxf_font, in_dxf_fill, in_dxf_border;
   O42Condition cur_dxf;
   GHashTable *numfmts;      /* id -> code */
+  guint32     theme[12];    /* the theme's colours: lt1, dk1, lt2, dk2, accent1-6, hlink, folHlink */
+  guint32     indexed[64];  /* the indexed palette, the default or the file's own */
+  guint       indexed_seen; /* how many the file's <indexedColors> has given */
+  int         theme_slot;   /* the theme colour being read, or -1 */
+  gboolean    in_clr_scheme;
   GArray     *fonts;        /* O42Fmt with font fields */
   GArray     *fills;        /* guint32 */
   GArray     *borders;      /* guint8 bit mask: 1 left 2 right 4 top 8 bottom */
@@ -2337,6 +2366,11 @@ typedef struct
   char       *cf_exprs[2];      /* formula operands, "=..." or NULL */
   gboolean    cf_is_expression;
   GString    *cf_formula;
+  gboolean    cf_is_scale;      /* a colorScale rule */
+  int         cf_stop_count, cf_colour_count;
+  int         cf_stop_type[3];
+  double      cf_stop_value[3];
+  guint32     cf_stop_colour[3];
 
   /* A dataValidation being read */
   O42Validation dv;
@@ -2470,7 +2504,7 @@ workbook_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer u
 
 /* ---- shared strings ---- */
 
-static guint32 rgb_attr (const char **names, const char **values);
+static guint32 rgb_attr (Reader *r, const char **names, const char **values);
 
 static void
 sst_start (GMarkupParseContext *ctx, const char *name, const char **names,
@@ -2516,7 +2550,7 @@ sst_start (GMarkupParseContext *ctx, const char *name, const char **names,
         }
       else if (strcmp (n, "color") == 0)
         {
-          guint32 colour = rgb_attr (names, values);
+          guint32 colour = rgb_attr (r, names, values);
           if (colour != 0xFFFFFFFFu) fmt->colour = colour;
         }
       else if (strcmp (n, "rFont") == 0)
@@ -2580,6 +2614,12 @@ o42_xlsx_builtin_number_format (int id)
     case 20: return "h:mm";
     case 21: return "hh:mm:ss";
     case 22: return "yyyy-mm-dd hh:mm:ss";
+    /* 5 to 8 are the currency presets, in the locale Excel wrote them in;
+     * the dollar is what en-US files carry. */
+    case 5: return "\"$\"#,##0_);(\"$\"#,##0)";
+    case 6: return "\"$\"#,##0_);[Red](\"$\"#,##0)";
+    case 7: return "\"$\"#,##0.00_);(\"$\"#,##0.00)";
+    case 8: return "\"$\"#,##0.00_);[Red](\"$\"#,##0.00)";
     /* ECMA-376 prints these four with a space and no pad; what Excel
      * itself has under the ids, and shows in Format Cells, is the pad. */
     case 37: return "#,##0_);(#,##0)";
@@ -2681,13 +2721,138 @@ xlsx_border_style (const char *name)
   return O42_BORDER_THIN;
 }
 
+/* The 56 colours of Excel's palette after the eight EGA ones: what an
+ * indexed colour names when the file brings no palette of its own. */
+static const guint32 DEFAULT_INDEXED[64] = {
+  0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF,
+  0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF,
+  0x800000, 0x008000, 0x000080, 0x808000, 0x800080, 0x008080, 0xC0C0C0, 0x808080,
+  0x9999FF, 0x993366, 0xFFFFCC, 0xCCFFFF, 0x660066, 0xFF8080, 0x0066CC, 0xCCCCFF,
+  0x000080, 0xFF00FF, 0xFFFF00, 0x00FFFF, 0x800080, 0x800000, 0x008080, 0x0000FF,
+  0x00CCFF, 0xCCFFFF, 0xCCFFCC, 0xFFFF99, 0x99CCFF, 0xFF99CC, 0xCC99FF, 0xFFCC99,
+  0x3366FF, 0x33CCCC, 0x99CC00, 0xFFCC00, 0xFF9900, 0xFF6600, 0x666699, 0x969696,
+  0x003366, 0x339966, 0x003300, 0x333300, 0x993300, 0x993366, 0x333399, 0x333333,
+};
+
+/* The Office theme's colours, for a file that names a theme colour and
+ * brings no theme part: in the order theme="0" onward names them. */
+static const guint32 DEFAULT_THEME[12] = {
+  0xFFFFFF, 0x000000, 0xE7E6E6, 0x44546A, 0x4472C4, 0xED7D31,
+  0xA5A5A5, 0xFFC000, 0x5B9BD5, 0x70AD47, 0x0563C1, 0x954F72,
+};
+
+/* A theme colour lightened or darkened by a tint, as Excel does it: in
+ * HSL, the luminance moved towards white for a positive tint and
+ * towards black for a negative one.  Accent 1 at 0.4 is "Lighter 40%". */
 static guint32
-rgb_attr (const char **names, const char **values)
+apply_tint (guint32 rgb, double tint)
+{
+  double r = ((rgb >> 16) & 0xFF) / 255.0, g = ((rgb >> 8) & 0xFF) / 255.0, b = (rgb & 0xFF) / 255.0;
+  double hi = MAX (r, MAX (g, b)), lo = MIN (r, MIN (g, b));
+  double l = (hi + lo) / 2, h = 0, s = 0;
+  double q, p, out[3];
+
+  if (tint == 0)
+    return rgb;
+  if (hi != lo)
+    {
+      double d = hi - lo;
+      s = l > 0.5 ? d / (2 - hi - lo) : d / (hi + lo);
+      if (hi == r)      h = (g - b) / d + (g < b ? 6 : 0);
+      else if (hi == g) h = (b - r) / d + 2;
+      else              h = (r - g) / d + 4;
+      h /= 6;
+    }
+  l = tint < 0 ? l * (1 + tint) : l * (1 - tint) + tint;
+  q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  p = 2 * l - q;
+  for (int i = 0; i < 3; i++)
+    {
+      double t = h + (i == 0 ? 1.0 / 3 : i == 1 ? 0 : -1.0 / 3);
+      double c;
+
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1.0 / 6)      c = p + (q - p) * 6 * t;
+      else if (t < 0.5)     c = q;
+      else if (t < 2.0 / 3) c = p + (q - p) * (2.0 / 3 - t) * 6;
+      else                  c = p;
+      out[i] = s == 0 ? l : c;
+    }
+  return ((guint32) (out[0] * 255 + 0.5) << 16) | ((guint32) (out[1] * 255 + 0.5) << 8) | (guint32) (out[2] * 255 + 0.5);
+}
+
+/* A colour as a file names it: rgb="FFRRGGBB", theme="4" with a tint,
+ * or indexed="10".  0xFFFFFFFF for none. */
+static guint32
+rgb_attr (Reader *r, const char **names, const char **values)
 {
   const char *rgb = attr (names, values, "rgb");
+  const char *theme = attr (names, values, "theme");
+  const char *indexed = attr (names, values, "indexed");
+
   if (rgb != NULL && strlen (rgb) >= 6)
     return (guint32) g_ascii_strtoull (rgb + strlen (rgb) - 6, NULL, 16);
+  if (theme != NULL)
+    {
+      int slot = atoi (theme);
+      const char *tint = attr (names, values, "tint");
+
+      if (slot >= 0 && slot < 12)
+        return apply_tint (r->theme[slot], tint != NULL ? g_ascii_strtod (tint, NULL) : 0);
+    }
+  if (indexed != NULL)
+    {
+      int slot = atoi (indexed);
+
+      if (slot >= 0 && slot < 64)
+        return r->indexed[slot];
+      if (slot == 64) return 0x000000;   /* the system's text colour */
+      if (slot == 65) return 0xFFFFFF;   /* and its window */
+    }
   return 0xFFFFFFFFu;
+}
+
+/* xl/theme/theme1.xml: only the colour scheme is wanted, twelve
+ * colours by name, each an srgbClr or a sysClr with its lastClr. */
+static void
+theme_start (GMarkupParseContext *ctx, const char *name, const char **names,
+             const char **values, gpointer user, GError **error)
+{
+  static const char *const SLOTS[12] = { "lt1", "dk1", "lt2", "dk2", "accent1", "accent2",
+                                         "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink" };
+  Reader *r = user;
+  const char *n = local (name);
+  (void) ctx; (void) error;
+
+  if (strcmp (n, "clrScheme") == 0)
+    { r->in_clr_scheme = TRUE; return; }
+  if (!r->in_clr_scheme)
+    return;
+  for (int i = 0; i < 12; i++)
+    if (strcmp (n, SLOTS[i]) == 0)
+      { r->theme_slot = i; return; }
+  if (r->theme_slot >= 0 && (strcmp (n, "srgbClr") == 0 || strcmp (n, "sysClr") == 0))
+    {
+      const char *val = strcmp (n, "srgbClr") == 0 ? attr (names, values, "val") : attr (names, values, "lastClr");
+
+      if (val != NULL && strlen (val) >= 6)
+        r->theme[r->theme_slot] = (guint32) g_ascii_strtoull (val + strlen (val) - 6, NULL, 16);
+    }
+}
+
+static void
+theme_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **error)
+{
+  Reader *r = user;
+  const char *n = local (name);
+  (void) ctx; (void) error;
+
+  if (strcmp (n, "clrScheme") == 0)
+    r->in_clr_scheme = FALSE;
+  else if (r->theme_slot >= 0 && (n[0] == 'l' || n[0] == 'd' || n[0] == 'a' || n[0] == 'h' || n[0] == 'f') &&
+           strcmp (n, "srgbClr") != 0 && strcmp (n, "sysClr") != 0)
+    r->theme_slot = -1;
 }
 
 static void
@@ -2698,6 +2863,14 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
   const char *n = local (name);
   (void) ctx; (void) error;
 
+  if (strcmp (n, "rgbColor") == 0)
+    {
+      /* <colors><indexedColors>: the file's own palette, in order. */
+      const char *rgb = attr (names, values, "rgb");
+
+      if (rgb != NULL && strlen (rgb) >= 6 && r->indexed_seen < 64)
+        r->indexed[r->indexed_seen++] = (guint32) g_ascii_strtoull (rgb + strlen (rgb) - 6, NULL, 16);
+    }
   if (strcmp (n, "numFmt") == 0)
     {
       const char *code = attr (names, values, "formatCode");
@@ -2727,13 +2900,13 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
           else if (strcmp (n, "strike") == 0) { c->fmt.strikeout = TRUE; c->mask |= O42_FMT_STRIKEOUT; }
           else if (strcmp (n, "color") == 0)
             {
-              guint32 colour = rgb_attr (names, values);
+              guint32 colour = rgb_attr (r, names, values);
               if (colour != 0xFFFFFFFFu) { c->fmt.colour = colour; c->mask |= O42_FMT_COLOUR; }
             }
         }
       else if (r->in_dxf_fill && (strcmp (n, "bgColor") == 0 || strcmp (n, "fgColor") == 0))
         {
-          guint32 colour = rgb_attr (names, values);
+          guint32 colour = rgb_attr (r, names, values);
           if (colour != 0xFFFFFFFFu && !(c->mask & O42_FMT_FILL && strcmp (n, "fgColor") == 0))
             { c->fmt.fill = colour; c->mask |= O42_FMT_FILL; }
         }
@@ -2776,7 +2949,7 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
         }
       else if (strcmp (n, "color") == 0)
         {
-          guint32 c = rgb_attr (names, values);
+          guint32 c = rgb_attr (r, names, values);
           if (c != 0xFFFFFFFFu) r->cur_font.colour = c;
         }
     }
@@ -2803,7 +2976,7 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
         }
       else if (strcmp (n, "fgColor") == 0 && (r->cur_fill_solid || r->cur_pattern != O42_PATTERN_NONE))
         {
-          guint32 c = rgb_attr (names, values);
+          guint32 c = rgb_attr (r, names, values);
           if (c != 0xFFFFFFFFu)
             {
               if (r->cur_fill_solid) r->cur_fill = c;
@@ -2812,7 +2985,7 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
         }
       else if (strcmp (n, "bgColor") == 0 && r->cur_pattern != O42_PATTERN_NONE)
         {
-          guint32 c = rgb_attr (names, values);
+          guint32 c = rgb_attr (r, names, values);
           if (c != 0xFFFFFFFFu) r->cur_fill = c;
         }
     }
@@ -2837,7 +3010,7 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
         }
       else if (strcmp (n, "color") == 0 && r->bside >= 0)
         {
-          guint32 rgb = rgb_attr (names, values);
+          guint32 rgb = rgb_attr (r, names, values);
           if (rgb != 0xFFFFFFFFu)
             r->cur_bdef.colour[r->bside] = rgb;
         }
@@ -3027,7 +3200,7 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     r->fit_to_page = attr_int (names, values, "fitToPage", 0) != 0;
   if (strcmp (n, "tabColor") == 0 && r->sheet != NULL)
     {
-      guint32 colour = rgb_attr (names, values);
+      guint32 colour = rgb_attr (r, names, values);
 
       if (colour != 0xFFFFFFFFu)
         o42_sheet_set_tab_colour (r->sheet, colour);
@@ -3405,6 +3578,8 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       r->in_cf_rule = TRUE;
       r->cf_is_cellis = type != NULL && strcmp (type, "cellIs") == 0 && op != NULL;
       r->cf_is_expression = type != NULL && strcmp (type, "expression") == 0;
+      r->cf_is_scale = type != NULL && strcmp (type, "colorScale") == 0;
+      r->cf_stop_count = r->cf_colour_count = 0;
       g_clear_pointer (&r->cf_exprs[0], g_free);
       g_clear_pointer (&r->cf_exprs[1], g_free);
       r->cf_dxf = attr_int (names, values, "dxfId", -1);
@@ -3418,6 +3593,29 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       r->in_cf_formula = TRUE;
       g_string_truncate (r->cf_formula, 0);
+    }
+  else if (strcmp (n, "cfvo") == 0 && r->in_cf_rule && r->cf_is_scale && r->cf_stop_count < 3)
+    {
+      /* A stop of the scale: where it falls, and (below) its colour. */
+      const char *type = attr (names, values, "type");
+      const char *val = attr (names, values, "val");
+      int kind = O42_SCALE_MIN;
+
+      if (type != NULL)
+        {
+          if (strcmp (type, "max") == 0 || strcmp (type, "autoMax") == 0) kind = O42_SCALE_MAX;
+          else if (strcmp (type, "num") == 0 || strcmp (type, "formula") == 0) kind = O42_SCALE_NUM;
+          else if (strcmp (type, "percent") == 0) kind = O42_SCALE_PERCENT;
+          else if (strcmp (type, "percentile") == 0) kind = O42_SCALE_PERCENTILE;
+        }
+      r->cf_stop_type[r->cf_stop_count] = kind;
+      r->cf_stop_value[r->cf_stop_count] = val != NULL ? g_ascii_strtod (val, NULL) : 0;
+      r->cf_stop_count++;
+    }
+  else if (strcmp (n, "color") == 0 && r->in_cf_rule && r->cf_is_scale && r->cf_colour_count < 3)
+    {
+      guint32 rgb = rgb_attr (r, names, values);
+      r->cf_stop_colour[r->cf_colour_count++] = rgb != 0xFFFFFFFFu ? rgb : 0xFFFFFF;
     }
   else if (strcmp (n, "sheetProtection") == 0)
     {
@@ -3669,7 +3867,24 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
   else if (strcmp (n, "cfRule") == 0)
     {
       r->in_cf_rule = FALSE;
-      if ((r->cf_is_cellis || r->cf_is_expression) && r->cf_have_range && r->cf_n_formulas >= 1 &&
+      if (r->cf_is_scale && r->cf_have_range && r->cf_stop_count >= 2 && r->cf_colour_count >= r->cf_stop_count)
+        {
+          O42Condition c;
+
+          memset (&c, 0, sizeof c);
+          o42_fmt_init_default (&c.fmt);
+          c.range = r->cf_range;
+          c.kind = O42_COND_SCALE;
+          c.stops = MIN (r->cf_stop_count, 3);
+          for (int i = 0; i < c.stops; i++)
+            {
+              c.stop_type[i] = r->cf_stop_type[i];
+              c.stop_value[i] = r->cf_stop_value[i];
+              c.stop_colour[i] = r->cf_stop_colour[i];
+            }
+          o42_sheet_add_condition (r->sheet, &c);
+        }
+      else if ((r->cf_is_cellis || r->cf_is_expression) && r->cf_have_range && r->cf_n_formulas >= 1 &&
           r->cf_dxf >= 0 && (guint) r->cf_dxf < r->dxfs->len)
         {
           O42Condition c = g_array_index (r->dxfs, O42Condition, r->cf_dxf);
@@ -3859,6 +4074,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   static const GMarkupParser workbook_parser = { workbook_start, workbook_end, workbook_text, NULL, NULL };
   static const GMarkupParser sst_parser = { sst_start, sst_end, sst_text, NULL, NULL };
   static const GMarkupParser styles_parser = { styles_start, styles_end, NULL, NULL, NULL };
+  static const GMarkupParser theme_parser = { theme_start, theme_end, NULL, NULL, NULL };
   static const GMarkupParser sheet_parser = { sheet_start, sheet_end, sheet_text, NULL, NULL };
   static const GMarkupParser comments_parser = { comments_start, comments_end, comments_text, NULL, NULL };
   static const GMarkupParser tables_parser = { tables_start, NULL, NULL, NULL, NULL };
@@ -3929,6 +4145,13 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   r.is = g_string_new (NULL);
   r.shared = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
 
+  memcpy (r.theme, DEFAULT_THEME, sizeof r.theme);
+  memcpy (r.indexed, DEFAULT_INDEXED, sizeof r.indexed);
+  r.theme_slot = -1;
+  /* The theme's colours first, since the styles name them; a file
+   * without a theme part keeps the Office defaults. */
+  if (g_hash_table_contains (parts, "xl/theme/theme1.xml"))
+    parse_part (parts, "xl/theme/theme1.xml", &theme_parser, &r, NULL);
   ok = parse_part (parts, "xl/_rels/workbook.xml.rels", &rels_parser, &r, error) &&
        parse_part (parts, "xl/workbook.xml", &workbook_parser, &r, error) &&
        parse_part (parts, "xl/sharedStrings.xml", &sst_parser, &r, error) &&

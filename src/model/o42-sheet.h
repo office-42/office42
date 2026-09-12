@@ -408,7 +408,19 @@ typedef struct {
   const char *expr1;
   const char *expr2;
   gboolean    is_formula;
+  /* Excel's colour scale: a fill that runs from one colour to another
+   * (and a third between) as the value runs from the range's least to
+   * its greatest.  `kind` is O42_COND_SCALE, and the rest above is not
+   * looked at. */
+  int         kind;             /* O42_COND_CELL or O42_COND_SCALE */
+  int         stops;            /* 2 or 3 */
+  int         stop_type[3];     /* O42_SCALE_MIN .. */
+  double      stop_value[3];    /* for NUM, PERCENT and PERCENTILE */
+  guint32     stop_colour[3];   /* RGB */
 } O42Condition;
+
+enum { O42_COND_CELL = 0, O42_COND_SCALE = 1 };
+enum { O42_SCALE_MIN = 0, O42_SCALE_MAX, O42_SCALE_NUM, O42_SCALE_PERCENT, O42_SCALE_PERCENTILE };
 
 void       o42_sheet_add_condition    (O42Sheet *sheet, const O42Condition *cond);
 void       o42_sheet_clear_conditions (O42Sheet *sheet, const O42Range *range);   /* those touching it */

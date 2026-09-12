@@ -872,9 +872,23 @@ write_sheet (GString *out, O42Sheet *sheet)
         g_string_append_printf (w.out,
           "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
           "        <gnm:Style o42-conditional=\"1\">\n"
-          "          <gnm:Condition Operator=\"%d\" Value0=\"%s\" Value1=\"%s\" o42-mask=\"%u\">\n",
+          "          <gnm:Condition Operator=\"%d\" Value0=\"%s\" Value1=\"%s\" o42-mask=\"%u\"",
           c->range.col0, c->range.row0, c->range.col1, c->range.row1,
           c->is_formula ? 8 : (int) c->op, v0, v1, (unsigned) c->mask);
+        if (c->kind == O42_COND_SCALE)
+          {
+            /* A colour scale, in an attribute Gnumeric passes over:
+             * "type,value,rrggbb" per stop, semicolons between. */
+            g_string_append (w.out, " o42-scale=\"");
+            for (int k = 0; k < CLAMP (c->stops, 2, 3); k++)
+              {
+                char sv[G_ASCII_DTOSTR_BUF_SIZE];
+                g_ascii_dtostr (sv, sizeof sv, c->stop_value[k]);
+                g_string_append_printf (w.out, "%s%d,%s,%06X", k > 0 ? ";" : "", c->stop_type[k], sv, c->stop_colour[k]);
+              }
+            g_string_append_c (w.out, '"');
+          }
+        g_string_append (w.out, ">\n");
         /* The operands as Gnumeric writes them, without the '=': a
          * formula, or the number itself. */
         for (int k = 0; k < 2; k++)
@@ -2264,6 +2278,26 @@ start_element (GMarkupParseContext *context, const char *element,
       r->condition_has_value = attr (names, values, "Value0") != NULL;
       r->condition.mask = (O42FmtMask) attr_int (names, values, "o42-mask", 0);
       o42_fmt_init_default (&r->condition.fmt);
+      if (attr (names, values, "o42-scale") != NULL)
+        {
+          char **stops = g_strsplit (attr (names, values, "o42-scale"), ";", 4);
+
+          r->condition.kind = O42_COND_SCALE;
+          for (int k = 0; stops[k] != NULL && k < 3; k++)
+            {
+              char **parts = g_strsplit (stops[k], ",", 3);
+
+              if (g_strv_length (parts) == 3)
+                {
+                  r->condition.stop_type[k] = atoi (parts[0]);
+                  r->condition.stop_value[k] = g_ascii_strtod (parts[1], NULL);
+                  r->condition.stop_colour[k] = (guint32) g_ascii_strtoull (parts[2], NULL, 16);
+                  r->condition.stops = k + 1;
+                }
+              g_strfreev (parts);
+            }
+          g_strfreev (stops);
+        }
       /* The nested style is read into fmt/mask like any other; it is
        * taken over when the Condition closes. */
       o42_fmt_init_default (&r->fmt);

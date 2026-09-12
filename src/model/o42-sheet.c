@@ -151,6 +151,13 @@ struct _O42Sheet {
   GHashTable  *notes;         /* guint64 key -> char* */
   GHashTable  *links;        /* guint64 key -> char*: hyperlinks */
   GArray      *conditions;    /* O42Condition */
+  /* A colour scale needs the least, the greatest and the sorted values
+   * of its range for every cell painted; one range's are kept, with
+   * the content stamp they were taken at. */
+  guint        content_stamp; /* bumped whenever a cell's content changes */
+  O42Range     scale_range;
+  guint        scale_stamp;
+  GArray      *scale_values;  /* double, sorted; NULL when nothing is kept */
   GArray      *validations;   /* O42Validation */
   GArray      *arrays;        /* O42Range: array formulas, top-left holds the formula */
   GArray      *tables;        /* O42Table, owned */
@@ -1782,6 +1789,7 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
       changed_key = g_intern_string (upper);
       g_free (upper);
     }
+  sheet->content_stamp++;
   o42_eval_cell_touched (changed_key, row, col);
   if (g_hash_table_size (sheet->formulas) == 0)
     return;
@@ -2217,6 +2225,7 @@ o42_sheet_free (O42Sheet *sheet)
 {
   if (sheet == NULL)
     return;
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
 
   if (sheet->owns_stack)
@@ -2242,6 +2251,8 @@ o42_sheet_free (O42Sheet *sheet)
   g_hash_table_destroy (sheet->notes);
   g_hash_table_destroy (sheet->links);
   g_array_free (sheet->conditions, TRUE);
+  if (sheet->scale_values != NULL)
+    g_array_free (sheet->scale_values, TRUE);
   o42_sheet_clear_validations (sheet, NULL);
   g_array_free (sheet->validations, TRUE);
   for (guint i = 0; i < sheet->tables->len; i++)
@@ -2282,6 +2293,7 @@ void
 o42_sheet_set_name (O42Sheet *sheet, const char *name)
 {
   g_return_if_fail (sheet != NULL);
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
   sheet->key = NULL;
 
@@ -3157,6 +3169,7 @@ o42_sheet_clear_range (O42Sheet *sheet, const O42Range *range)
 {
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (range != NULL);
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
 
   {
@@ -4709,6 +4722,7 @@ o42_sheet_shift_cells (O42Sheet *sheet, const O42Range *range,
 {
   int count;
 
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
 
   g_return_if_fail (sheet != NULL);
@@ -4739,6 +4753,7 @@ void
 o42_sheet_insert_rows (O42Sheet *sheet, int at, int count)
 {
   g_return_if_fail (sheet != NULL);
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
   if (count > 0)
     {
@@ -4755,6 +4770,7 @@ void
 o42_sheet_delete_rows (O42Sheet *sheet, int at, int count)
 {
   g_return_if_fail (sheet != NULL);
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
   if (count > 0)
     {
@@ -4771,6 +4787,7 @@ void
 o42_sheet_insert_cols (O42Sheet *sheet, int at, int count)
 {
   g_return_if_fail (sheet != NULL);
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
   if (count > 0)
     {
@@ -4787,6 +4804,7 @@ void
 o42_sheet_delete_cols (O42Sheet *sheet, int at, int count)
 {
   g_return_if_fail (sheet != NULL);
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
   if (count > 0)
     {
@@ -5858,6 +5876,111 @@ o42_sheet_condition_holds (O42Sheet *sheet, const O42Condition *c, int row, int 
   }
 }
 
+static int
+compare_doubles (gconstpointer a, gconstpointer b)
+{
+  double x = *(const double *) a, y = *(const double *) b;
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/* The numbers in a scale's range, sorted, kept from one cell to the
+ * next while nothing changes. */
+static const GArray *
+scale_values (O42Sheet *sheet, const O42Range *range)
+{
+  if (sheet->scale_values != NULL && sheet->scale_stamp == sheet->content_stamp &&
+      memcmp (&sheet->scale_range, range, sizeof *range) == 0)
+    return sheet->scale_values;
+  if (sheet->scale_values == NULL)
+    sheet->scale_values = g_array_new (FALSE, FALSE, sizeof (double));
+  g_array_set_size (sheet->scale_values, 0);
+  for (int r = range->row0; r <= range->row1; r++)
+    for (int c = range->col0; c <= range->col1; c++)
+      {
+        O42Value v;
+        o42_sheet_get_value (sheet, r, c, &v);
+        if (v.type == O42_VALUE_NUMBER)
+          g_array_append_val (sheet->scale_values, v.as.number);
+        o42_value_clear (&v);
+      }
+  g_array_sort (sheet->scale_values, compare_doubles);
+  sheet->scale_range = *range;
+  sheet->scale_stamp = sheet->content_stamp;
+  return sheet->scale_values;
+}
+
+/* Where a stop of a colour scale falls among the range's values. */
+static double
+scale_stop_value (const O42Condition *c, int i, const GArray *values)
+{
+  double lo = g_array_index (values, double, 0);
+  double hi = g_array_index (values, double, values->len - 1);
+
+  switch (c->stop_type[i])
+    {
+    case O42_SCALE_MIN:     return lo;
+    case O42_SCALE_MAX:     return hi;
+    case O42_SCALE_NUM:     return c->stop_value[i];
+    case O42_SCALE_PERCENT: return lo + (hi - lo) * c->stop_value[i] / 100.0;
+    case O42_SCALE_PERCENTILE:
+      {
+        /* Excel's PERCENTILE, inclusive: the k-th value with the
+         * fraction between neighbours. */
+        double k = c->stop_value[i] / 100.0 * (values->len - 1);
+        guint at = (guint) floor (k);
+        double frac = k - at;
+
+        if (at + 1 >= values->len)
+          return hi;
+        return g_array_index (values, double, at) * (1 - frac) + g_array_index (values, double, at + 1) * frac;
+      }
+    default: return lo;
+    }
+}
+
+/* The fill a colour scale gives a value: the colour of the stop it
+ * sits on, or between the two stops it falls between. */
+static gboolean
+scale_fill (O42Sheet *sheet, const O42Condition *c, int row, int col, guint32 *fill)
+{
+  O42Value v;
+  const GArray *values;
+  double x, at[3];
+  int n = CLAMP (c->stops, 2, 3);
+
+  o42_sheet_get_value (sheet, row, col, &v);
+  if (v.type != O42_VALUE_NUMBER)
+    { o42_value_clear (&v); return FALSE; }
+  x = v.as.number;
+  o42_value_clear (&v);
+
+  values = scale_values (sheet, &c->range);
+  if (values->len == 0)
+    return FALSE;
+  for (int i = 0; i < n; i++)
+    at[i] = scale_stop_value (c, i, values);
+
+  if (x <= at[0]) { *fill = c->stop_colour[0]; return TRUE; }
+  if (x >= at[n - 1]) { *fill = c->stop_colour[n - 1]; return TRUE; }
+  for (int i = 0; i + 1 < n; i++)
+    if (x >= at[i] && x <= at[i + 1])
+      {
+        double t = at[i + 1] > at[i] ? (x - at[i]) / (at[i + 1] - at[i]) : 0;
+        guint32 a = c->stop_colour[i], b = c->stop_colour[i + 1];
+        guint32 rgb = 0;
+
+        for (int shift = 16; shift >= 0; shift -= 8)
+          {
+            double ca = (a >> shift) & 0xFF, cb = (b >> shift) & 0xFF;
+            rgb |= (guint32) (ca + (cb - ca) * t + 0.5) << shift;
+          }
+        *fill = rgb;
+        return TRUE;
+      }
+  *fill = c->stop_colour[0];
+  return TRUE;
+}
+
 gboolean
 o42_sheet_conditional_fmt (O42Sheet *sheet, int row, int col, O42Fmt *out)
 {
@@ -5874,7 +5997,21 @@ o42_sheet_conditional_fmt (O42Sheet *sheet, int row, int col, O42Fmt *out)
     {
       const O42Condition *c = &g_array_index (sheet->conditions, O42Condition, i);
 
-      if (!o42_range_contains (&c->range, row, col) || !o42_sheet_condition_holds (sheet, c, row, col))
+      if (!o42_range_contains (&c->range, row, col))
+        continue;
+      if (c->kind == O42_COND_SCALE)
+        {
+          guint32 fill;
+
+          if (!scale_fill (sheet, c, row, col, &fill))
+            continue;
+          if (!any)
+            *out = *o42_sheet_get_fmt (sheet, row, col);
+          out->fill = fill;
+          any = TRUE;
+          continue;
+        }
+      if (!o42_sheet_condition_holds (sheet, c, row, col))
         continue;
       if (!any)
         *out = *o42_sheet_get_fmt (sheet, row, col);
@@ -12648,6 +12785,7 @@ o42_sheet_move_range (O42Sheet *sheet, const O42Range *from, int to_row, int to_
   int drow, dcol, rows, cols;
   char **inputs;
 
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
   O42FmtIdx *formats;
 
@@ -12904,6 +13042,7 @@ o42_sheet_recalculate (O42Sheet *sheet)
   double tolerance = 0.001;
   gboolean iterate;
 
+  sheet->content_stamp++;
   o42_eval_sheet_changed (sheet_key_of (sheet));
 
   g_return_if_fail (sheet != NULL);
