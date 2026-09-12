@@ -145,6 +145,32 @@ drawn: it names its colours the old way now.  Each was checked
 through office42-calc, and the files through openpyxl and xlrd
 reading what office42 wrote and office42 reading what they wrote.
 
+**The fourth pass** went outward again, to what a file from Excel
+or LibreOffice brings and what a keyboard types.  A font or a fill an
+.xlsx names by theme colour and tint -- which is nearly every colour
+picked from Excel's palette -- or by palette index came in black or
+not at all: the theme part is read now, tinted as Excel tints, and
+the 64-colour palette is there.  Excel's colour scales were dropped
+on reading and could not be made; they are a kind of condition now,
+painted from the range's least to its greatest, kept in .xlsx and
+.gnumeric, and Excel's contains, begins-with and blanks rules come
+in as the formula Excel writes beside them.  An .ods carried no
+conditional formats either way; they go in the form LibreOffice
+writes and reads, colour scales included.  The database functions
+judged a computed criterion once rather than per record, matched
+whole words where Excel matches what begins with the text, and
+DGET could not return text.  A structured reference with no table
+name -- =[@Qty]*[@Price] in a table's column -- said #NAME?, and an
+.xlsx is written with the table's name and [#This Row] spelled out,
+as Excel keeps them.  A .txt was refused where Excel opens
+tab-delimited text, and a UTF-16 .csv came in as noise.  Two smaller
+things: the currency presets an en-US Excel names by number came in
+as General, and =B1#+0 did not spill.  Data bars and icon sets are
+still passed over, and are the one gap left in the row below.  Each
+was checked through office42-calc, and the files through openpyxl
+and xlrd reading what office42 wrote and office42 reading what they
+and xlwt wrote.
+
 ---
 
 ## 2. Parity with Excel, area by area
@@ -159,7 +185,7 @@ has. The last column says what is missing, not what is there.
 | Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (637 in all), lifted over arrays as Excel lifts them |
 | Number formats | 6 | 100% | 6.0 | |
 | Fonts, borders, colours | 8 | 100% | 8.0 | |
-| Styles and conditional formats | 6 | 100% | 6.0 | |
+| Styles and conditional formats | 6 | 98% | 5.9 | data bars and icon sets, which an .xlsx carries and this does not yet |
 | Rows, columns, sheets | 7 | 100% | 7.0 | |
 | Data tools | 10 | 99% | 9.9 | Excel's own pivot parts, and its live TABLE() -- ours writes the numbers |
 | Charts | 8 | 100% | 8.0 | |
@@ -169,9 +195,9 @@ has. The last column says what is missing, not what is there.
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 6 | 97% | 5.8 | arranging windows, which GTK 4 gives a program no way to do |
 | Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice; the recorder writes one line per operation, Alt+F8 and Ctrl+Shift+letter run them |
-| **Total** | 110 | | **109.6** | |
+| **Total** | 110 | | **109.5** | |
 
-**About 99.6% of Excel 2003** (109.6 of a weight of 110). Against **Excel 365** the number is nearer
+**About 99.5% of Excel 2003** (109.5 of a weight of 110). Against **Excel 365** the number is nearer
 45%: dynamic arrays and tables are here, but Power Query, the modern
 pivot engine, co-authoring, LAMBDA's whole environment, threaded
 comments, sparklines, slicers and the ribbon are not.
