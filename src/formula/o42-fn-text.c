@@ -457,14 +457,14 @@ fn_clean (O42EvalContext *ctx, O42Operand *args, int n)
  * by SEARCH, which wants the earliest position at which the pattern
  * begins. */
 static gboolean
-glob_matches_prefix (const char *pattern, const char *text)
+glob_match (const char *pattern, const char *text, gboolean whole)
 {
   for (;;)
     {
       gunichar pc, tc;
 
       if (*pattern == '\0')
-        return TRUE;
+        return whole ? *text == '\0' : TRUE;
 
       pc = g_utf8_get_char (pattern);
 
@@ -485,7 +485,7 @@ glob_matches_prefix (const char *pattern, const char *text)
           const char *rest = g_utf8_next_char (pattern);
           for (const char *t = text; ; t = g_utf8_next_char (t))
             {
-              if (glob_matches_prefix (rest, t))
+              if (glob_match (rest, t, whole))
                 return TRUE;
               if (*t == '\0')
                 return FALSE;
@@ -502,6 +502,20 @@ glob_matches_prefix (const char *pattern, const char *text)
       pattern = g_utf8_next_char (pattern);
       text = g_utf8_next_char (text);
     }
+}
+
+static gboolean
+glob_matches_prefix (const char *pattern, const char *text)
+{
+  return glob_match (pattern, text, FALSE);
+}
+
+/* The whole of a text against a wildcard pattern, both already
+ * case-folded: what COUNTIF, MATCH and VLOOKUP mean by a match. */
+gboolean
+o42_glob_matches (const char *pattern, const char *text)
+{
+  return glob_match (pattern, text, TRUE);
 }
 
 static O42Value
@@ -638,6 +652,15 @@ fn_dollar (O42EvalContext *ctx, O42Operand *args, int n)
       decimals = 0;
     }
 
+  /* Excel's DOLLAR uses the currency format with negatives in
+   * parentheses: DOLLAR(-1234.567, -2) is "($1,200)". */
+  if (x < 0)
+    {
+      char *inner = o42_number_format (-x, O42_NUM_CURRENCY, (int) decimals);
+      char *wrapped = g_strdup_printf ("(%s)", inner);
+      g_free (inner);
+      return o42_value_take (wrapped);
+    }
   return o42_value_take (o42_number_format (x, O42_NUM_CURRENCY, (int) decimals));
 }
 

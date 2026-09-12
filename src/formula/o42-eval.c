@@ -924,7 +924,6 @@ fn_na (O42EvalContext *ctx, O42Operand *args, int n)
 
 UNARY_MATH (fn_abs,   fabs (x))
 UNARY_MATH (fn_int,   floor (x))
-UNARY_MATH (fn_trunc, trunc (x))
 UNARY_MATH (fn_exp,   exp (x))
 UNARY_MATH (fn_sin,   sin (x))
 UNARY_MATH (fn_cos,   cos (x))
@@ -981,8 +980,10 @@ fn_log (O42EvalContext *ctx, O42Operand *args, int n)
   if (n >= 2)
     ARG_NUMBER (1, base);
 
-  if (x <= 0 || base <= 0 || base == 1.0)
+  if (x <= 0 || base <= 0)
     return o42_value_error (O42_ERR_NUM);
+  if (base == 1.0)
+    return o42_value_error (O42_ERR_DIV0);   /* log(1) is 0, and Excel divides by it */
 
   return o42_value_number (log (x) / log (base));
 }
@@ -997,20 +998,14 @@ fn_power (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_NUMBER (1, exponent);
 
   /* Excel's edges: 0^0 is #NUM!, 0 to a negative power #DIV/0!, and a
-   * negative base to 1/3 (or any odd root) is the real root, -2. */
+   * negative base to a fractional power #NUM! -- (-8)^(1/3) is #NUM! in
+   * Excel, not -2, which is why people write SIGN(x)*ABS(x)^(1/3). */
   if (base == 0 && exponent == 0)
     return o42_value_error (O42_ERR_NUM);
   if (base == 0 && exponent < 0)
     return o42_value_error (O42_ERR_DIV0);
   if (base < 0 && exponent != floor (exponent))
-    {
-      double inverse = 1 / exponent;
-      double odd = round (inverse);
-
-      if (fabs (inverse - odd) < 1e-9 && fmod (fabs (odd), 2) == 1)
-        return o42_value_number (-pow (-base, exponent));
-      return o42_value_error (O42_ERR_NUM);
-    }
+    return o42_value_error (O42_ERR_NUM);
   result = pow (base, exponent);
   if (isnan (result) || isinf (result))
     return o42_value_error (O42_ERR_NUM);
@@ -1092,6 +1087,13 @@ fn_rounddown (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (trunc (x * scale) / scale);
 }
 
+/* TRUNC(number, digits) is ROUNDDOWN by another name. */
+static O42Value
+fn_trunc (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  return fn_rounddown (ctx, args, n);
+}
+
 static O42Value
 fn_roundup (O42EvalContext *ctx, O42Operand *args, int n)
 {
@@ -1123,7 +1125,7 @@ typedef enum { CRIT_EQ, CRIT_NE, CRIT_LT, CRIT_GT, CRIT_LE, CRIT_GE } CritOp;
 typedef struct {
   CritOp        op;
   O42Value      value;
-  GPatternSpec *pattern;    /* when the value is text with * or ? in it */
+  char         *pattern;    /* case-folded, when the value is text with * or ? in it */
 } Criterion;
 
 static void
@@ -1158,15 +1160,13 @@ criterion_init (Criterion *c, const O42Value *from)
       c->value = o42_value_bool (TRUE);
     else if (g_ascii_strcasecmp (s, "FALSE") == 0)
       c->value = o42_value_bool (FALSE);
+    else if (o42_error_code_parse (s, &err))
+      c->value = o42_value_error (err);   /* "#N/A" counts the cells that say so */
     else
       {
         c->value = o42_value_text (s);
         if (strchr (s, '*') != NULL || strchr (s, '?') != NULL)
-          {
-            char *folded = g_utf8_casefold (s, -1);
-            c->pattern = g_pattern_spec_new (folded);
-            g_free (folded);
-          }
+          c->pattern = g_utf8_casefold (s, -1);
       }
     o42_value_clear (&probe);
   }
@@ -1176,8 +1176,30 @@ static void
 criterion_clear (Criterion *c)
 {
   o42_value_clear (&c->value);
-  if (c->pattern != NULL)
-    g_pattern_spec_free (c->pattern);
+  g_free (c->pattern);
+}
+
+/* Whether a cell equals a criterion's value.  A number matches text
+ * that reads as that number -- COUNTIF(A1:A9, 5) counts a '5 typed
+ * as text, as Excel's does -- and an error matches an error of its
+ * kind. */
+static gboolean
+criterion_equal (const Criterion *c, const O42Value *v)
+{
+  if (v->type == c->value.type)
+    {
+      if (v->type == O42_VALUE_ERROR)
+        return v->as.error == c->value.as.error;
+      return o42_value_compare (v, &c->value) == 0;
+    }
+  if (c->value.type == O42_VALUE_NUMBER && v->type == O42_VALUE_TEXT)
+    {
+      double num;
+      O42ErrorCode err = O42_ERR_VALUE;
+
+      return o42_value_to_number (v, &num, &err) && num == c->value.as.number;
+    }
+  return FALSE;
 }
 
 static gboolean
@@ -1192,7 +1214,7 @@ criterion_match (const Criterion *c, const O42Value *v)
       if (v->type == O42_VALUE_TEXT)
         {
           char *folded = g_utf8_casefold (v->as.text, -1);
-          hit = g_pattern_spec_match_string (c->pattern, folded);
+          hit = o42_glob_matches (c->pattern, folded);
           g_free (folded);
         }
       return (c->op == CRIT_NE) ? !hit : hit;
@@ -1205,16 +1227,19 @@ criterion_match (const Criterion *c, const O42Value *v)
       /* "<>" alone means "not blank". */
       if (c->value.type == O42_VALUE_TEXT && c->value.as.text[0] == 0)
         return v->type != O42_VALUE_EMPTY;
-      return !(v->type == c->value.type && o42_value_compare (v, &c->value) == 0);
+      return !criterion_equal (c, v);
     }
 
-  if (v->type != c->value.type)
+  if (c->op == CRIT_EQ)
     {
       if (v->type == O42_VALUE_EMPTY && c->value.type == O42_VALUE_TEXT &&
           c->value.as.text[0] == 0)
-        return c->op == CRIT_EQ;
-      return FALSE;
+        return TRUE;
+      return criterion_equal (c, v);
     }
+
+  if (v->type != c->value.type || v->type == O42_VALUE_ERROR)
+    return FALSE;
 
   cmp = o42_value_compare (v, &c->value);
 
@@ -1302,6 +1327,14 @@ fn_sumif_averageif (O42EvalContext *ctx, O42Operand *args, int n, gboolean avera
           O42Value sv;
 
           ctx->get_cell (ctx, (n >= 3) ? args[2].sheet : args[0].sheet, srow, scol, &sv);
+          if (sv.type == O42_VALUE_ERROR)
+            {
+              /* An error among the cells to add is the answer, as it
+               * is for SUM; only cells the criterion passed over are
+               * left alone. */
+              criterion_clear (&crit);
+              return sv;
+            }
           if (sv.type == O42_VALUE_NUMBER)
             {
               total += sv.as.number;
@@ -1562,7 +1595,7 @@ match_in_vector (O42EvalContext *ctx, const O42Value *needle,
 
   if (type == 0)
     {
-      GPatternSpec *pattern = NULL;
+      char *pattern = NULL;
       int indexed = lookup_index_find (ctx, needle, op, vertical);
 
       if (indexed != -2)
@@ -1573,11 +1606,7 @@ match_in_vector (O42EvalContext *ctx, const O42Value *needle,
        * * and ? standing for any characters in text. */
       if (needle->type == O42_VALUE_TEXT &&
           (strchr (needle->as.text, '*') != NULL || strchr (needle->as.text, '?') != NULL))
-        {
-          char *folded = g_utf8_casefold (needle->as.text, -1);
-          pattern = g_pattern_spec_new (folded);
-          g_free (folded);
-        }
+        pattern = g_utf8_casefold (needle->as.text, -1);
       for (int i = 0; i < len; i++)
         {
           O42Value v;
@@ -1587,7 +1616,7 @@ match_in_vector (O42EvalContext *ctx, const O42Value *needle,
           if (pattern != NULL)
             {
               char *folded = v.type == O42_VALUE_TEXT ? g_utf8_casefold (v.as.text, -1) : NULL;
-              hit = folded != NULL && g_pattern_spec_match_string (pattern, folded);
+              hit = folded != NULL && o42_glob_matches (pattern, folded);
               g_free (folded);
             }
           else
@@ -1595,8 +1624,7 @@ match_in_vector (O42EvalContext *ctx, const O42Value *needle,
           o42_value_clear (&v);
           if (hit) { best = i; break; }
         }
-      if (pattern != NULL)
-        g_pattern_spec_free (pattern);
+      g_free (pattern);
       return best;
     }
 
@@ -1857,6 +1885,14 @@ fn_iseven_odd (O42EvalContext *ctx, O42Operand *args, int n, gboolean even)
   double x;
   gboolean is_even;
   (void) n;
+  {
+    /* TRUE is not a number to these two, whatever it is to the rest. */
+    O42Value probe = operand_value (ctx, &args[0]);
+    gboolean logical = probe.type == O42_VALUE_BOOL;
+    o42_value_clear (&probe);
+    if (logical)
+      return o42_value_error (O42_ERR_VALUE);
+  }
   ARG_NUMBER (0, x);
   is_even = fmod (trunc (fabs (x)), 2.0) == 0.0;
   return o42_value_bool (even ? is_even : !is_even);
@@ -2420,8 +2456,10 @@ annuity_fv (double rate, double nper, double pmt, double pv, int type)
   if (rate == 0)
     return -(pv + pmt * nper);
   {
-    double f = pow (1 + rate, nper);
-    return -(pv * f + pmt * (1 + rate * type) * (f - 1) / rate);
+    /* expm1 keeps (f - 1) / rate exact as the rate nears zero, which is
+     * where RATE's Newton steps end up when the true rate is 0. */
+    double g = expm1 (nper * log1p (rate));
+    return -(pv * (1 + g) + pmt * (1 + rate * type) * g / rate);
   }
 }
 
@@ -2696,7 +2734,7 @@ fn_ddb (O42EvalContext *ctx, O42Operand *args, int n)
 
   ARG_NUMBER (0, cost); ARG_NUMBER (1, salvage); ARG_NUMBER (2, life); ARG_NUMBER (3, per);
   if (n >= 5) ARG_NUMBER (4, factor);
-  if (life <= 0 || per < 1 || per > life || cost < 0) return o42_value_error (O42_ERR_NUM);
+  if (life <= 0 || per < 1 || per > life || cost < 0 || factor <= 0) return o42_value_error (O42_ERR_NUM);
 
   book = cost;
   for (int i = 1; i <= (int) per; i++)
@@ -2783,6 +2821,13 @@ fn_ifs (O42EvalContext *ctx, O42Operand *args, int n, IfsKind kind)
 
             ctx->get_cell (ctx, args[0].sheet, args[0].range.row0 + r,
                            args[0].range.col0 + c, &v);
+            if (v.type == O42_VALUE_ERROR)
+              {
+                for (int i = 0; i < pairs; i++)
+                  criterion_clear (&crits[i]);
+                g_free (crits);
+                return v;
+              }
             if (v.type == O42_VALUE_NUMBER)
               {
                 if (count == 0 || (kind == IFS_MAX ? v.as.number > best : v.as.number < best))
@@ -4683,7 +4728,7 @@ fn_xlookup (O42EvalContext *ctx, O42Operand *args, int n)
   O42Value needle, result;
   double mode = 0, search = 1;
   int length, best = -1;
-  GPatternSpec *pattern = NULL;
+  char *pattern = NULL;
 
   if (!args[1].is_range || !args[2].is_range)
     return o42_value_error (O42_ERR_VALUE);
@@ -4697,11 +4742,7 @@ fn_xlookup (O42EvalContext *ctx, O42Operand *args, int n)
   length = xl_vector_length (&args[1].range);
 
   if (mode == 2 && needle.type == O42_VALUE_TEXT)
-    {
-      char *folded = g_utf8_casefold (needle.as.text, -1);
-      pattern = g_pattern_spec_new (folded);
-      g_free (folded);
-    }
+    pattern = g_utf8_casefold (needle.as.text, -1);
 
   for (int step = 0; step < length; step++)
     {
@@ -4715,7 +4756,7 @@ fn_xlookup (O42EvalContext *ctx, O42Operand *args, int n)
           if (v.type == O42_VALUE_TEXT)
             {
               char *folded = g_utf8_casefold (v.as.text, -1);
-              hit = g_pattern_spec_match_string (pattern, folded);
+              hit = o42_glob_matches (pattern, folded);
               g_free (folded);
             }
           o42_value_clear (&v);
@@ -4741,8 +4782,7 @@ fn_xlookup (O42EvalContext *ctx, O42Operand *args, int n)
         }
       o42_value_clear (&v);
     }
-  if (pattern != NULL)
-    g_pattern_spec_free (pattern);
+  g_free (pattern);
   o42_value_clear (&needle);
 
   if (best < 0)
@@ -9949,10 +9989,13 @@ typedef struct { const char *unit; int group; double factor; gboolean prefixable
 static const Unit UNITS[] = {
   { "g", 1, 1, TRUE }, { "sg", 1, 14593.9029372064, FALSE }, { "lbm", 1, 453.59237, FALSE },
   { "u", 1, 1.66053886282828e-24, TRUE }, { "ozm", 1, 28.349523125, FALSE }, { "stone", 1, 6350.29318, FALSE },
-  { "ton", 1, 907184.74, FALSE }, { "uk_ton", 1, 1016046.9088, FALSE },
+  { "ton", 1, 907184.74, FALSE }, { "uk_ton", 1, 1016046.9088, FALSE }, { "brton", 1, 1016046.9088, FALSE },
+  { "grain", 1, 0.06479891, FALSE }, { "cwt", 1, 45359.237, FALSE }, { "shweight", 1, 45359.237, FALSE },
+  { "uk_cwt", 1, 50802.34544, FALSE }, { "lcwt", 1, 50802.34544, FALSE }, { "hweight", 1, 50802.34544, FALSE },
   { "m", 2, 1, TRUE }, { "mi", 2, 1609.344, FALSE }, { "Nmi", 2, 1852, FALSE }, { "in", 2, 0.0254, FALSE },
   { "ft", 2, 0.3048, FALSE }, { "yd", 2, 0.9144, FALSE }, { "ang", 2, 1e-10, TRUE }, { "ell", 2, 1.143, FALSE },
   { "ly", 2, 9.46073047258e15, FALSE }, { "parsec", 2, 3.08567758128e16, FALSE }, { "pc", 2, 3.08567758128e16, FALSE },
+  { "survey_mi", 2, 1609.34721869444, FALSE },
   { "sec", 3, 1, TRUE }, { "s", 3, 1, TRUE }, { "min", 3, 60, FALSE }, { "mn", 3, 60, FALSE }, { "hr", 3, 3600, FALSE },
   { "day", 3, 86400, FALSE }, { "d", 3, 86400, FALSE }, { "yr", 3, 31557600, FALSE },
   { "Pa", 4, 1, TRUE }, { "p", 4, 1, TRUE }, { "atm", 4, 101325, TRUE }, { "at", 4, 101325, TRUE },
@@ -9969,7 +10012,9 @@ static const Unit UNITS[] = {
   { "qt", 9, 0.946352946, FALSE }, { "uk_qt", 9, 1.1365225, FALSE }, { "gal", 9, 3.785411784, FALSE }, { "uk_gal", 9, 4.54609, FALSE },
   { "m3", 9, 1000, TRUE }, { "in3", 9, 0.016387064, FALSE }, { "ft3", 9, 28.316846592, FALSE }, { "yd3", 9, 764.554857984, FALSE },
   { "barrel", 9, 158.987294928, FALSE }, { "bushel", 9, 35.23907016688, FALSE }, { "MTON", 9, 1132.67386368, FALSE },
-  { "m2", 10, 1, TRUE }, { "ha", 10, 10000, TRUE }, { "ar", 10, 100, TRUE }, { "us_acre", 10, 4046.8564224, FALSE }, { "uk_acre", 10, 4046.8564224, FALSE },
+  { "GRT", 9, 2831.6846592, FALSE }, { "regton", 9, 2831.6846592, FALSE }, { "mi3", 9, 4168181825.44058, FALSE },
+  { "m2", 10, 1, TRUE }, { "ha", 10, 10000, TRUE }, { "ar", 10, 100, TRUE }, { "us_acre", 10, 4046.87261, FALSE }, { "uk_acre", 10, 4046.8564224, FALSE },
+  { "Morgen", 10, 2500, FALSE },
   { "in2", 10, 0.00064516, FALSE }, { "ft2", 10, 0.09290304, FALSE }, { "yd2", 10, 0.83612736, FALSE }, { "mi2", 10, 2589988.110336, FALSE },
   { "m/s", 11, 1, TRUE }, { "m/sec", 11, 1, TRUE }, { "m/h", 11, 1.0 / 3600, TRUE }, { "m/hr", 11, 1.0 / 3600, TRUE },
   { "mph", 11, 0.44704, FALSE }, { "kn", 11, 0.514444444444444, FALSE }, { "admkn", 11, 0.514773333333333, FALSE },
@@ -10486,6 +10531,9 @@ fn_xnpv (O42EvalContext *ctx, O42Operand *args, int n)
     return o42_value_error (err);
   if (values->len == 0 || rate <= -1)
     { g_array_free (values, TRUE); g_array_free (dates, TRUE); return o42_value_error (O42_ERR_NUM); }
+  for (guint i = 1; i < dates->len; i++)
+    if (g_array_index (dates, double, i) < g_array_index (dates, double, 0))
+      { g_array_free (values, TRUE); g_array_free (dates, TRUE); return o42_value_error (O42_ERR_NUM); }
   result = xnpv_at (values, dates, rate);
   g_array_free (values, TRUE);
   g_array_free (dates, TRUE);
@@ -11609,18 +11657,11 @@ binary_values (O42Op op, O42Value a, O42Value b)
 
     case O42_OP_POW:
       {
-        /* The same edges as POWER: 0^0 #NUM!, 0^-1 #DIV/0!, (-8)^(1/3) -2. */
+        /* The same edges as POWER: 0^0 #NUM!, 0^-1 #DIV/0!, (-8)^(1/3) #NUM!. */
         double p;
         if (x == 0 && y == 0) { result = o42_value_error (O42_ERR_NUM); break; }
         if (x == 0 && y < 0) { result = o42_value_error (O42_ERR_DIV0); break; }
-        if (x < 0 && y != floor (y))
-          {
-            double inverse = 1 / y, odd = round (inverse);
-            if (fabs (inverse - odd) < 1e-9 && fmod (fabs (odd), 2) == 1)
-              { result = o42_value_number (-pow (-x, y)); break; }
-            result = o42_value_error (O42_ERR_NUM);
-            break;
-          }
+        if (x < 0 && y != floor (y)) { result = o42_value_error (O42_ERR_NUM); break; }
         p = pow (x, y);
         result = (isnan (p) || isinf (p)) ? o42_value_error (O42_ERR_NUM)
                                           : o42_value_number (p);

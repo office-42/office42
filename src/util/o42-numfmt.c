@@ -1050,9 +1050,46 @@ append_short (GString *out, const char *name)
   g_string_append_len (out, name, end - name);
 }
 
+/* How many places of a second the section shows: the noughts after
+ * "s." or "ss.", as in "hh:mm:ss.00"; none when it shows whole seconds
+ * or no seconds at all. */
+static int
+section_second_places (const Section *s)
+{
+  for (const char *p = s->start; p < s->end; p++)
+    {
+      if (*p == '"') { p++; while (p < s->end && *p != '"') p++; continue; }
+      if (*p == '\\') { p++; continue; }
+      if (*p == '[')
+        {
+          /* "[s]" and "[ss]", the elapsed seconds, take places too. */
+          const char *q = p + 1;
+
+          while (q < s->end && (*q == 's' || *q == 'S')) q++;
+          if (q > p + 1 && q < s->end && *q == ']')
+            p = q;
+          else
+            { while (p < s->end && *p != ']') p++; continue; }
+        }
+      if (*p == 's' || *p == 'S' || *p == ']')
+        {
+          int places = 0;
+
+          while (p < s->end && (*p == 's' || *p == 'S' || *p == ']')) p++;
+          if (p < s->end && *p == '.')
+            for (p++; p < s->end && *p == '0'; p++)
+              places++;
+          return places;
+        }
+    }
+  return 0;
+}
+
 /* Writes a date or time section.  "m" is a month unless it follows an
  * hour code or precedes a second code, in which case it is minutes -- the
- * rule Excel uses and everyone else copied. */
+ * rule Excel uses and everyone else copied.  The time is rounded to the
+ * finest unit the section shows, so 23:59:59.7 as "h:mm:ss" is the
+ * next day's 0:00:00, as in Excel, and as "h:mm:ss.0" is itself. */
 static void
 format_date_section (GString *out, const Section *s, double n, O42FormatLayout *layout)
 {
@@ -1063,13 +1100,31 @@ format_date_section (GString *out, const Section *s, double n, O42FormatLayout *
   const DateNames *names = date_names (section_language (s));
   const char *const *months = names != NULL ? names->months : LONG_MONTHS;
   const char *const *days = names != NULL ? names->days : LONG_DAYS;
+  int second_places = section_second_places (s);
+  double unit = pow (10.0, second_places);
+  double whole = floor (n);
+  double seconds = floor ((n - whole) * 86400.0 * unit + 0.5) / unit;
+  double second_fraction;
+  int total;
 
   if (names != NULL && names->dated[0] != NULL && section_has_day (s))
     months = names->dated;
 
-  o42_date_from_serial (n, &y, &mo, &d);
-  o42_time_from_serial (n, &h, &mi, &sec);
-  if (n >= 0 && n < 1)
+  if (seconds >= 86400.0)
+    {
+      /* Rounded up to midnight: the date moves on with it. */
+      seconds -= 86400.0;
+      whole += 1;
+    }
+  total = (int) floor (seconds);
+  second_fraction = seconds - total;
+  h = total / 3600;
+  mi = (total / 60) % 60;
+  sec = total % 60;
+  n = whole + seconds / 86400.0;
+
+  o42_date_from_serial (whole, &y, &mo, &d);
+  if (whole == 0)
     {
       /* Serial 0 is the day before the epoch, which Excel calls
        * January 0, 1900. */
@@ -1109,21 +1164,28 @@ format_date_section (GString *out, const Section *s, double n, O42FormatLayout *
            * and the like are skipped. */
           const char *close = memchr (p, ']', (gsize) (s->end - p));
           int letters = close != NULL ? (int) (close - p - 1) : 0;
-          char unit = letters > 0 ? g_ascii_tolower (p[1]) : '\0';
+          char code = letters > 0 ? g_ascii_tolower (p[1]) : '\0';
           gboolean same = TRUE;
 
           if (close == NULL) { p++; continue; }
           for (int i = 1; i <= letters; i++)
-            if (g_ascii_tolower (p[i]) != unit)
+            if (g_ascii_tolower (p[i]) != code)
               same = FALSE;
-          if (same && unit == 'h')
-            g_string_append_printf (out, "%0*.0f", letters, floor (n * 24 + 1e-9));
-          else if (same && unit == 'm')
-            g_string_append_printf (out, "%0*.0f", letters, floor (n * 24 * 60 + 1e-9));
-          else if (same && unit == 's')
-            g_string_append_printf (out, "%0*.0f", letters, floor (n * 24 * 3600 + 1e-9));
-          last_was_hour = same && unit == 'h';
+          if (same && code == 'h')
+            g_string_append_printf (out, "%0*.0f", letters, whole * 24 + floor (seconds / 3600));
+          else if (same && code == 'm')
+            g_string_append_printf (out, "%0*.0f", letters, whole * 1440 + floor (seconds / 60));
+          else if (same && code == 's')
+            g_string_append_printf (out, "%0*.0f", letters, whole * 86400 + floor (seconds));
+          last_was_hour = same && code == 'h';
           p = close + 1;
+          if (same && code == 's' && p < s->end && *p == '.' && second_places > 0)
+            {
+              /* "[s].00": the places of a second after the whole count. */
+              g_string_append_printf (out, ".%0*d", second_places,
+                                      (int) floor (second_fraction * unit + 0.5));
+              p += 1 + second_places;
+            }
           continue;
         }
       if (g_ascii_strncasecmp (p, "AM/PM", 5) == 0)
@@ -1199,6 +1261,14 @@ format_date_section (GString *out, const Section *s, double n, O42FormatLayout *
         case 's':
           g_string_append_printf (out, run >= 2 ? "%02d" : "%d", sec);
           last_was_hour = FALSE;
+          if (p + run < s->end && p[run] == '.' && second_places > 0)
+            {
+              /* "ss.00": the places of a second the section asked for. */
+              g_string_append_printf (out, ".%0*d", second_places,
+                                      (int) floor (second_fraction * unit + 0.5));
+              p += run + 1 + second_places;
+              continue;
+            }
           break;
 
         case '_':
@@ -1226,8 +1296,8 @@ static void
 format_number_section (GString *out, const Section *s, double n, O42FormatLayout *layout)
 {
   int int_places = 0, dec_places = 0;
-  gboolean grouping = FALSE, percent = FALSE, exponent = FALSE, exp_plus = FALSE;
-  int scale_commas = 0;
+  gboolean grouping = FALSE, exponent = FALSE, exp_plus = FALSE;
+  int scale_commas = 0, percents = 0;
   gboolean seen_point = FALSE, seen_digit = FALSE, int_zero_place = FALSE;
   const char *p;
   char digits[400];
@@ -1280,7 +1350,7 @@ format_number_section (GString *out, const Section *s, double n, O42FormatLayout
           p = q - 1;
         }
       else if (*p == '%')
-        percent = TRUE;
+        percents++;
       else if ((*p == 'E' || *p == 'e') && p + 1 < s->end && (p[1] == '+' || p[1] == '-'))
         {
           exponent = TRUE;
@@ -1289,7 +1359,9 @@ format_number_section (GString *out, const Section *s, double n, O42FormatLayout
         }
     }
 
-  if (percent)
+  /* Each percent sign is another hundredfold: "0%%" shows 12.5 as
+   * 125000%%, as Excel does. */
+  for (int i = 0; i < percents; i++)
     n *= 100;
   for (int i = 0; i < scale_commas; i++)
     n /= 1000;
@@ -1644,6 +1716,38 @@ section_condition (const Section *s, double n, gboolean *met)
   return FALSE;
 }
 
+/* Whether a section has "@" in it outside quotes and brackets: the
+ * mark of a text section. */
+static gboolean
+section_has_at (const Section *s)
+{
+  for (const char *p = s->start; p < s->end; p++)
+    {
+      if (*p == '"') { p++; while (p < s->end && *p != '"') p++; continue; }
+      if (*p == '\\') { p++; continue; }
+      if (*p == '[') { while (p < s->end && *p != ']') p++; continue; }
+      if (*p == '@') return TRUE;
+    }
+  return FALSE;
+}
+
+/* Writes a text section: the text where the "@" stands, the literals
+ * around it as themselves. */
+static void
+format_text_section (GString *out, const Section *use, const char *text, O42FormatLayout *layout)
+{
+  for (const char *p = use->start; p < use->end; )
+    {
+      if (*p == '@') { g_string_append (out, text); p++; }
+      else if (*p == '"') { p++; while (p < use->end && *p != '"') g_string_append_c (out, *p++); if (p < use->end) p++; }
+      else if (*p == '\\' && p + 1 < use->end) { g_string_append_c (out, p[1]); p += 2; }
+      else if (*p == '[') { while (p < use->end && *p != ']') p++; if (p < use->end) p++; }
+      else if (*p == '_') p = note_pad (out, p, use->end, layout);
+      else if (*p == '*') p = note_fill (out, p, use->end, layout);
+      else g_string_append_c (out, *p++);
+    }
+}
+
 char *
 o42_format_string_layout (const char *format, double n, const char *text,
                           O42FormatLayout *layout)
@@ -1673,23 +1777,13 @@ o42_format_string_layout (const char *format, double n, const char *text,
     {
       if (count >= 4)
         use = &sections[3];
-      else if (count == 1 && memchr (sections[0].start, '@',
-                                     (gsize) (sections[0].end - sections[0].start)) != NULL)
+      else if (count == 1 && section_has_at (&sections[0]))
         use = &sections[0];
       else
         return g_strdup (text);
 
       out = g_string_new (NULL);
-      for (const char *p = use->start; p < use->end; )
-        {
-          if (*p == '@') { g_string_append (out, text); p++; }
-          else if (*p == '"') { p++; while (p < use->end && *p != '"') g_string_append_c (out, *p++); if (p < use->end) p++; }
-          else if (*p == '\\' && p + 1 < use->end) { g_string_append_c (out, p[1]); p += 2; }
-          else if (*p == '[') { while (p < use->end && *p != ']') p++; if (p < use->end) p++; }
-          else if (*p == '_') p = note_pad (out, p, use->end, layout);
-          else if (*p == '*') p = note_fill (out, p, use->end, layout);
-          else g_string_append_c (out, *p++);
-        }
+      format_text_section (out, use, text, layout);
       return g_string_free (out, FALSE);
     }
 
@@ -1730,6 +1824,18 @@ o42_format_string_layout (const char *format, double n, const char *text,
   /* "General" in a section is the General display. */
   if (use->end - use->start == 7 && g_ascii_strncasecmp (use->start, "General", 7) == 0)
     return o42_number_format (negative && count >= 2 ? -n : n, O42_NUM_GENERAL, 0);
+
+  /* A number under a section with "@" in it shows as its General text
+   * would: TEXT(5, "@") is "5", not "@". */
+  if (section_has_at (use))
+    {
+      char *general = o42_number_format (negative && count >= 2 ? -n : n, O42_NUM_GENERAL, 0);
+
+      out = g_string_new (NULL);
+      format_text_section (out, use, general, layout);
+      g_free (general);
+      return g_string_free (out, FALSE);
+    }
 
   /* A date before the epoch or after 9999 has no picture: Excel's
    * TEXT says #VALUE!, and its cell fills with hashes. */

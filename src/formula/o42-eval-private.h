@@ -151,6 +151,10 @@ void     o42_accum_init  (Accum *a, gboolean keep_values);
 void     o42_accum_clear (Accum *a);
 gboolean o42_accumulate  (double n, gpointer user);   /* a NumberVisitor */
 
+/* Whether a case-folded text matches a case-folded wildcard pattern in
+ * full: * and ? stand for any characters, ~ makes the next one literal. */
+gboolean o42_glob_matches (const char *pattern, const char *text);
+
 /* Whether a serial date is one of the holidays an operand lists. */
 gboolean o42_is_holiday (O42EvalContext *ctx, const O42Operand *holidays, double serial);
 

@@ -50,8 +50,8 @@ fn_date (O42EvalContext *ctx, O42Operand *args, int n)
     y += 1900;
 
   serial = o42_date_serial ((int) y, (int) m, (int) d);
-  if (serial < 0)
-    return o42_value_error (O42_ERR_NUM);
+  if (serial < 0 || serial > 2958465)
+    return o42_value_error (O42_ERR_NUM);   /* before 1900 or past 9999-12-31 */
   return o42_value_number (serial);
 }
 
@@ -157,8 +157,8 @@ fn_date_part (O42EvalContext *ctx, O42Operand *args, int n, DatePart part)
   (void) n;
   ARG_NUMBER (0, serial);
 
-  if (serial < 0)
-    return o42_value_error (O42_ERR_NUM);
+  if (serial < 0 || serial >= 2958466)
+    return o42_value_error (O42_ERR_NUM);   /* before 1900 or past 9999-12-31 */
 
   if (part <= PART_DAY)
     {
@@ -215,7 +215,7 @@ fn_edate_eomonth (O42EvalContext *ctx, O42Operand *args, int n, gboolean end)
   ARG_NUMBER (0, serial);
   ARG_NUMBER (1, months);
 
-  if (!o42_date_from_serial (serial, &y, &m, &d))
+  if (serial < 0 || !o42_date_from_serial (serial, &y, &m, &d))
     return o42_value_error (O42_ERR_NUM);
 
   if (end)
@@ -229,8 +229,8 @@ fn_edate_eomonth (O42EvalContext *ctx, O42Operand *args, int n, gboolean end)
       result = MIN (first + d - 1, last);
     }
 
-  if (result < 0)
-    return o42_value_error (O42_ERR_NUM);
+  if (result < 0 || result > 2958465)
+    return o42_value_error (O42_ERR_NUM);   /* before 1900 or past 9999 */
   return o42_value_number (result);
 }
 
@@ -302,8 +302,16 @@ o42_is_holiday (O42EvalContext *ctx, const O42Operand *holidays, double serial)
 {
   const O42Range *r;
 
-  if (holidays == NULL || !holidays->is_range)
+  if (holidays == NULL)
     return FALSE;
+  if (!holidays->is_range)
+    {
+      /* One date, as WORKDAY(A1, 5, DATE(2021,12,27)) gives it. */
+      O42Value v = o42_operand_value (ctx, holidays);
+      gboolean hit = v.type == O42_VALUE_NUMBER && floor (v.as.number) == floor (serial);
+      o42_value_clear (&v);
+      return hit;
+    }
 
   r = &holidays->range;
   for (int row = r->row0; row <= r->row1; row++)

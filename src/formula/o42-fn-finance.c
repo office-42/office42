@@ -78,7 +78,10 @@ basis_year (double from, double to, int basis)
    * less and a 29 February falls inside it, and 365 when it does not;
    * only a term longer than a year takes the average of the years it
    * touches. */
-  if (floor (to) - floor (from) <= 365)
+  /* "A year or less" is by the calendar, as Excel counts it: 15
+   * December 2019 to 15 December 2020 is one year exactly, 366 days
+   * though it spans, and takes the 366 of the leap year it ends in. */
+  if (y1 == y2 || (y2 == y1 + 1 && (m2 < m1 || (m2 == m1 && d2 <= d1))))
     {
       /* A term inside one leap year counts 366 whether or not it takes
        * in the leap day itself. */
@@ -319,6 +322,22 @@ fn_fvschedule (O42EvalContext *ctx, O42Operand *args, int n)
   O42ErrorCode err = O42_ERR_VALUE;
 
   ARG_NUMBER (0, principal);
+  if (args[1].is_range)
+    {
+      /* Text among the rates is #VALUE!, where SUM would pass it over. */
+      const O42Range *r = &args[1].range;
+      for (int row = r->row0; row <= r->row1; row++)
+        for (int col = r->col0; col <= r->col1; col++)
+          {
+            O42Value v;
+            gboolean text;
+            ctx->get_cell (ctx, args[1].sheet, row, col, &v);
+            text = v.type == O42_VALUE_TEXT;
+            o42_value_clear (&v);
+            if (text)
+              return o42_value_error (O42_ERR_VALUE);
+          }
+    }
   if (!collect_numbers (ctx, args + 1, n - 1, &rates, &err))
     return o42_value_error (err);
 
