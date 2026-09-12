@@ -784,6 +784,325 @@ append_date_style (GString *out, const char *name, const char *code)
   g_string_free (literal, TRUE);
 }
 
+/* The eight colours a format code can name, as ODF spells them. */
+static const struct { const char *name; const char *hex; } CODE_COLOURS[] = {
+  { "Black", "#000000" }, { "Blue", "#0000ff" }, { "Cyan", "#00ffff" }, { "Green", "#00ff00" },
+  { "Magenta", "#ff00ff" }, { "Red", "#ff0000" }, { "White", "#ffffff" }, { "Yellow", "#ffff00" },
+};
+
+/* One section of a number code -- "#,##0.00", "[Red]($#,##0.00)",
+ * "0.0%", "0.00E+00", "#,##0 \"kg\"" -- as the body of an ODF number
+ * style: the literals as number:text, the digit places as
+ * number:number, the colour as text properties and the currency
+ * symbol where ODF keeps it.  FALSE for a shape ODF has no element
+ * for: a fraction, a condition, General, @. */
+static gboolean
+number_section_body (GString *body, GString *props, const char *sec, gsize len,
+                     gboolean *percent, gboolean *currency)
+{
+  GString *literal = g_string_new (NULL);
+  const char *p = sec, *end = sec + len;
+  gboolean have_number = FALSE, ok = TRUE;
+
+  while (p < end && ok)
+    {
+      char c = *p;
+
+      if (c == '"')
+        {
+          p++;
+          while (p < end && *p != '"') g_string_append_c (literal, *p++);
+          if (p < end) p++;
+          continue;
+        }
+      if (c == '\\')
+        {
+          if (p + 1 < end)
+            {
+              const char *next = g_utf8_next_char (p + 1);
+              g_string_append_len (literal, p + 1, next - (p + 1));
+              p = next;
+            }
+          else
+            p++;
+          continue;
+        }
+      if (c == '_')
+        {
+          /* A pad the width of a character: a space is the nearest
+           * ODF comes. */
+          g_string_append_c (literal, ' ');
+          p = p + 1 < end ? g_utf8_next_char (p + 1) : end;
+          continue;
+        }
+      if (c == '*')
+        {
+          if (p + 1 < end)
+            {
+              const char *next = g_utf8_next_char (p + 1);
+              char *esc = g_markup_escape_text (p + 1, next - (p + 1));
+              flush_literal (body, literal);
+              g_string_append_printf (body, "<number:fill-character>%s</number:fill-character>", esc);
+              g_free (esc);
+              p = next;
+            }
+          else
+            p++;
+          continue;
+        }
+      if (c == '[')
+        {
+          const char *close = memchr (p, ']', (gsize) (end - p));
+          gboolean known = FALSE;
+
+          if (close == NULL) { ok = FALSE; break; }
+          if (p[1] == '$')
+            {
+              /* [$€-407]: the symbol, and the language after the dash. */
+              const char *dash = memchr (p, '-', (gsize) (close - p));
+              const char *sym_end = dash != NULL ? dash : close;
+              char *esc = g_markup_escape_text (p + 2, sym_end - (p + 2));
+
+              flush_literal (body, literal);
+              g_string_append (body, "<number:currency-symbol");
+              if (dash != NULL)
+                {
+                  guint lang = (guint) g_ascii_strtoull (dash + 1, NULL, 16);
+                  if (lang != 0)
+                    g_string_append_printf (body, " number:language=\"%s\"", language_tag (lang & 0x3FF));
+                }
+              g_string_append_printf (body, ">%s</number:currency-symbol>", esc);
+              g_free (esc);
+              *currency = TRUE;
+              known = TRUE;
+            }
+          else
+            for (guint i = 0; i < G_N_ELEMENTS (CODE_COLOURS); i++)
+              if ((gsize) (close - p - 1) == strlen (CODE_COLOURS[i].name) &&
+                  g_ascii_strncasecmp (p + 1, CODE_COLOURS[i].name, (gsize) (close - p - 1)) == 0)
+                {
+                  g_string_printf (props, "<style:text-properties fo:color=\"%s\"/>", CODE_COLOURS[i].hex);
+                  known = TRUE;
+                }
+          if (!known) { ok = FALSE; break; }   /* a condition, or an elapsed time */
+          p = close + 1;
+          continue;
+        }
+      if (c == '%')
+        {
+          *percent = TRUE;
+          g_string_append_c (literal, '%');
+          p++;
+          continue;
+        }
+      if (c == '#' || c == '0' || c == '?' || (c == '.' && p + 1 < end && strchr ("#0?", p[1]) != NULL))
+        {
+          /* The digit places: the integer ones, the point and the
+           * decimal ones, with grouping commas among the former and
+           * scaling commas after the last, and an exponent if one
+           * follows. */
+          int int_zeros = 0, dec_places = 0, dec_zeros = 0, scale = 0, exp_digits = 0;
+          gboolean grouping = FALSE, seen_point = FALSE, exponent = FALSE, exp_plus = FALSE;
+          const char *run_end = p;
+
+          while (run_end < end && strchr ("#0?", *run_end) != NULL) run_end++;
+          if (run_end < end && *run_end == '/')
+            {
+              /* A fraction: these places are the numerator's, what
+               * follows the slash the denominator's places or the
+               * denominator itself, and a number written just before,
+               * with a space between, the whole part. */
+              const char *q = run_end + 1;
+              int num_places = (int) (run_end - p), den_digits = 0, whole = 0;
+              double den_value = 0;
+              char *prior = strstr (body->str, "<number:number ");
+
+              while (q < end && strchr ("#0?", *q) != NULL) { den_digits++; q++; }
+              if (den_digits == 0)
+                while (q < end && g_ascii_isdigit (*q)) { den_value = den_value * 10 + (*q - '0'); q++; }
+              if (den_digits == 0 && den_value == 0) { ok = FALSE; break; }
+              if (have_number && prior != NULL && literal->len == 1 && literal->str[0] == ' ')
+                {
+                  g_string_truncate (body, (gsize) (prior - body->str));
+                  g_string_truncate (literal, 0);
+                  whole = 1;
+                }
+              else if (have_number) { ok = FALSE; break; }
+              have_number = TRUE;
+              flush_literal (body, literal);
+              g_string_append_printf (body, "<number:fraction number:min-integer-digits=\"%d\" number:min-numerator-digits=\"%d\"",
+                                      whole, num_places);
+              if (den_digits > 0)
+                g_string_append_printf (body, " number:min-denominator-digits=\"%d\"/>", den_digits);
+              else
+                g_string_append_printf (body, " number:denominator-value=\"%.0f\"/>", den_value);
+              p = q;
+              continue;
+            }
+
+          if (have_number) { ok = FALSE; break; }
+          have_number = TRUE;
+          flush_literal (body, literal);
+          while (p < end)
+            {
+              if (*p == '#' || *p == '0' || *p == '?')
+                {
+                  if (seen_point) { dec_places++; if (*p == '0') dec_zeros++; }
+                  else if (*p == '0') int_zeros++;
+                  p++;
+                }
+              else if (*p == '.' && !seen_point)
+                { seen_point = TRUE; p++; }
+              else if (*p == ',')
+                {
+                  const char *q = p;
+                  while (q < end && *q == ',') q++;
+                  if (q < end && strchr ("#0?", *q) != NULL && !seen_point)
+                    grouping = TRUE;
+                  else
+                    scale += (int) (q - p);
+                  p = q;
+                }
+              else if ((*p == 'E' || *p == 'e') && p + 1 < end && (p[1] == '+' || p[1] == '-'))
+                {
+                  exponent = TRUE;
+                  exp_plus = (p[1] == '+');
+                  p += 2;
+                  while (p < end && *p == '0') { exp_digits++; p++; }
+                  break;
+                }
+              else
+                break;
+            }
+          if (exponent)
+            g_string_append_printf (body,
+              "<number:scientific-number number:decimal-places=\"%d\" number:min-decimal-places=\"%d\" number:min-integer-digits=\"%d\" number:min-exponent-digits=\"%d\"%s/>",
+              dec_places, dec_zeros, int_zeros, exp_digits, exp_plus ? " number:forced-exponent-sign=\"true\"" : "");
+          else
+            {
+              g_string_append_printf (body,
+                "<number:number number:decimal-places=\"%d\" number:min-decimal-places=\"%d\" number:min-integer-digits=\"%d\"",
+                dec_places, dec_zeros, int_zeros);
+              if (grouping)
+                g_string_append (body, " number:grouping=\"true\"");
+              if (scale > 0)
+                g_string_append_printf (body, " number:display-factor=\"%.0f\"", pow (1000, scale));
+              g_string_append (body, "/>");
+            }
+          continue;
+        }
+      if (c == '/' || c == '@' || g_ascii_strncasecmp (p, "General", 7) == 0)
+        { ok = FALSE; break; }
+      if (c == '$')
+        {
+          flush_literal (body, literal);
+          g_string_append (body, "<number:currency-symbol>$</number:currency-symbol>");
+          *currency = TRUE;
+          p++;
+          continue;
+        }
+      {
+        const char *next = g_utf8_next_char (p);
+        g_string_append_len (literal, p, next - p);
+        p = next;
+      }
+    }
+  flush_literal (body, literal);
+  g_string_free (literal, TRUE);
+  return ok && have_number;
+}
+
+/* A custom number code as ODF number styles: one style per section,
+ * the positive and the negative ones marked volatile and the last
+ * carrying the maps that choose among them by the value's sign --
+ * the arrangement LibreOffice writes and reads.  FALSE, with nothing
+ * written, for a code that will not go. */
+static gboolean
+append_number_style (GString *out, const char *name, const char *code)
+{
+  const char *starts[4];
+  gsize lens[4];
+  int count = 0, numeric;
+  const char *p = code, *sec = code;
+  GString *bodies[3], *props[3], *all;
+  gboolean percent[3] = { FALSE, FALSE, FALSE }, currency[3] = { FALSE, FALSE, FALSE };
+  gboolean ok = TRUE;
+
+  /* The sections: positive, negative, zero, and a fourth for text
+   * that has no place here. */
+  for (;; p++)
+    {
+      if (*p == '"') { p++; while (*p != '\0' && *p != '"') p++; if (*p == '\0') break; continue; }
+      if (*p == '[') { while (*p != '\0' && *p != ']') p++; if (*p == '\0') break; continue; }
+      if (*p == ';' || *p == '\0')
+        {
+          if (count < 4) { starts[count] = sec; lens[count] = (gsize) (p - sec); count++; }
+          sec = p + 1;
+          if (*p == '\0') break;
+        }
+    }
+  numeric = MIN (count, 3);
+  if (numeric == 0)
+    return FALSE;
+
+  for (int i = 0; i < numeric; i++)
+    {
+      bodies[i] = g_string_new (NULL);
+      props[i] = g_string_new (NULL);
+      if (ok && !number_section_body (bodies[i], props[i], starts[i], lens[i], &percent[i], &currency[i]))
+        ok = FALSE;
+    }
+
+  all = g_string_new (NULL);
+  if (ok)
+    {
+      for (int i = 0; i < numeric; i++)
+        {
+          const char *kind = currency[i] ? "currency" : percent[i] ? "percentage" : "number";
+          gboolean last = (i == numeric - 1);
+
+          if (last)
+            g_string_append_printf (all, "<number:%s-style style:name=\"%s\">%s%s", kind, name, props[i]->str, bodies[i]->str);
+          else
+            g_string_append_printf (all, "<number:%s-style style:name=\"%sP%d\" style:volatile=\"true\">%s%s</number:%s-style>",
+                                    kind, name, i, props[i]->str, bodies[i]->str, kind);
+          if (last && numeric == 2)
+            g_string_append_printf (all, "<style:map style:condition=\"value()&gt;=0\" style:apply-style-name=\"%sP0\"/>", name);
+          if (last && numeric == 3)
+            g_string_append_printf (all, "<style:map style:condition=\"value()&gt;0\" style:apply-style-name=\"%sP0\"/>"
+                                         "<style:map style:condition=\"value()&lt;0\" style:apply-style-name=\"%sP1\"/>", name, name);
+          if (last)
+            g_string_append_printf (all, "</number:%s-style>", kind);
+        }
+      g_string_append (out, all->str);
+    }
+  for (int i = 0; i < numeric; i++)
+    {
+      g_string_free (bodies[i], TRUE);
+      g_string_free (props[i], TRUE);
+    }
+  g_string_free (all, TRUE);
+  return ok;
+}
+
+/* Does a custom code draw a date or a time: a day, year, hour or
+ * second letter outside quotes and brackets, and no digit place. */
+static gboolean
+code_is_dated (const char *code)
+{
+  gboolean dated = FALSE;
+
+  for (const char *p = code; *p != '\0'; p++)
+    {
+      if (*p == '"') { p++; while (*p != '\0' && *p != '"') p++; if (*p == '\0') break; continue; }
+      if (*p == '\\') { if (p[1] != '\0') p++; continue; }
+      if (*p == '[') { while (*p != '\0' && *p != ']') p++; if (*p == '\0') break; continue; }
+      if (strchr ("yYdDhHsS", *p) != NULL) dated = TRUE;
+      if (strchr ("#0?", *p) != NULL) return FALSE;
+    }
+  return dated;
+}
+
 static const char *
 num_style (Styles *s, const O42Fmt *fmt)
 {
@@ -805,9 +1124,15 @@ num_style (Styles *s, const O42Fmt *fmt)
   /* A code of its own, if it is one ODF can hold: a date or a time,
    * where the shape of the code becomes the shape of the style. */
   if (fmt->custom != NULL && (fmt->number == O42_NUM_DATE || fmt->number == O42_NUM_TIME ||
-                              fmt->number == O42_NUM_DATETIME))
+                              fmt->number == O42_NUM_DATETIME || code_is_dated (fmt->custom)))
     {
       append_date_style (s->styles, name, fmt->custom);
+      g_hash_table_insert (s->num_styles, g_strdup (key), name);
+      return name;
+    }
+  /* Any other code: its sections as styles, if ODF has the elements. */
+  if (fmt->custom != NULL && append_number_style (s->styles, name, fmt->custom))
+    {
       g_hash_table_insert (s->num_styles, g_strdup (key), name);
       return name;
     }
@@ -2383,11 +2708,28 @@ typedef struct {
   O42NumberFormat number;
   int decimals;
   gboolean grouping;
-  GString *code;      /* a date or time style, rebuilt as a format code */
+  GString *code;      /* the style rebuilt as a format code */
   guint    lang;      /* the language it named, as an Excel LCID */
   char     symbol[32];   /* a currency style's symbol, as written */
   gboolean in_symbol;    /* reading it */
+  gboolean in_currency_symbol;   /* the symbol element itself, for the code */
+  gboolean in_fill;      /* reading a fill character */
+  gboolean custom;       /* more than a preset holds: text, a colour, a map */
+  char    *map_ge, *map_gt, *map_lt;   /* the styles its maps name, by the sign */
 } NumStyle;
+
+static void
+num_style_free (gpointer data)
+{
+  NumStyle *ns = data;
+
+  if (ns->code != NULL)
+    g_string_free (ns->code, TRUE);
+  g_free (ns->map_ge);
+  g_free (ns->map_gt);
+  g_free (ns->map_lt);
+  g_free (ns);
+}
 
 typedef struct {
   O42Book    *book;
@@ -2478,6 +2820,13 @@ attr (const char **names, const char **values, const char *want)
     if (strcmp (local (names[i]), want) == 0)
       return values[i];
   return NULL;
+}
+
+static double
+attr_double (const char **names, const char **values, const char *want, double fallback)
+{
+  const char *v = attr (names, values, want);
+  return v != NULL ? g_ascii_strtod (v, NULL) : fallback;
 }
 
 static int
@@ -2946,12 +3295,18 @@ apply_named_style (Reader *r, const char *name, int row0, int col0, int row1, in
         {
           fmt.number = ns->number == O42_NUM_FIXED && ns->grouping ? O42_NUM_COMMA : ns->number;
           fmt.decimals = ns->decimals;
-          if (ns->code != NULL && ns->code->len > 0)
-            fmt.custom = g_intern_string (ns->code->str);
+          if (ns->code != NULL && ns->code->len > 0 &&
+              (ns->custom || ns->number == O42_NUM_DATE || ns->number == O42_NUM_TIME ||
+               ns->number == O42_NUM_DATETIME))
+            {
+              fmt.custom = g_intern_string (ns->code->str);
+              if (ns->custom)
+                fmt.number = O42_NUM_GENERAL;   /* the code says it all */
+            }
           /* A currency the file names that is not this machine's stays
            * as it was written, as a code: a $ from an American file must
            * not turn into kr here. */
-          if ((ns->number == O42_NUM_CURRENCY || ns->number == O42_NUM_ACCOUNTING) &&
+          if ((ns->number == O42_NUM_CURRENCY || ns->number == O42_NUM_ACCOUNTING) && !ns->custom &&
               ns->symbol[0] != '\0' && strcmp (ns->symbol, o42_numfmt_currency ()) != 0)
             {
               GString *digits = g_string_new ("#,##0");
@@ -4306,11 +4661,13 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                  : strcmp (name, "time-style") == 0 ? O42_NUM_TIME
                  : strcmp (name, "text-style") == 0 ? O42_NUM_TEXT : O42_NUM_GENERAL;
       ns->decimals = 2;
-      if (ns->number == O42_NUM_DATE || ns->number == O42_NUM_TIME)
+      if (ns->number != O42_NUM_TEXT)
         {
-          /* A date style says its shape in elements; they are put back
+          /* A style says its shape in elements; they are put back
            * together as the code they came from, so the format keeps
-           * the order and the names it was written with. */
+           * the order and the names it was written with.  A number
+           * style's code is used only when it holds more than a
+           * preset does. */
           const char *lang = attr (names, values, "language");
 
           ns->code = g_string_new (NULL);
@@ -4333,17 +4690,122 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           if (dp != NULL) ns->decimals = atoi (dp);
           else if (ns->number == O42_NUM_FIXED) ns->number = O42_NUM_GENERAL;
           if (grouping != NULL && strcmp (grouping, "true") == 0) ns->grouping = TRUE;
+          if (ns->code != NULL)
+            {
+              /* The digit places back as a code: "#,##0.00" and its kin. */
+              int mi = attr_int (names, values, "min-integer-digits", 1);
+              int places = dp != NULL ? atoi (dp) : 0;
+              int min_places = attr_int (names, values, "min-decimal-places", places);
+              double factor = attr_double (names, values, "display-factor", 1);
+              GString *digits = g_string_new (NULL);
+
+              for (int i = 0; i < mi; i++) g_string_append_c (digits, '0');
+              if (mi == 0) g_string_append_c (digits, '#');
+              if (ns->grouping)
+                {
+                  GString *grouped = g_string_new (NULL);
+                  while (digits->len < 4) g_string_prepend_c (digits, '#');
+                  for (gsize i = 0; i < digits->len; i++)
+                    {
+                      if (i > 0 && (digits->len - i) % 3 == 0) g_string_append_c (grouped, ',');
+                      g_string_append_c (grouped, digits->str[i]);
+                    }
+                  g_string_free (digits, TRUE);
+                  digits = grouped;
+                }
+              if (places > 0)
+                {
+                  g_string_append_c (digits, '.');
+                  for (int i = 0; i < places; i++) g_string_append_c (digits, i < min_places ? '0' : '#');
+                }
+              for (; factor >= 1000; factor /= 1000) g_string_append_c (digits, ',');
+              g_string_append (ns->code, digits->str);
+              g_string_free (digits, TRUE);
+              /* More than a preset says: a scale, several leading
+               * noughts or none, or optional decimals. */
+              if (attr_double (names, values, "display-factor", 1) >= 1000 || mi != 1 || min_places != places)
+                ns->custom = TRUE;
+            }
+        }
+      else if (strcmp (name, "fraction") == 0 && ns->code != NULL)
+        {
+          /* "# ?/?", "# ??/??" or "# ?/8": the whole number when the
+           * style asks for integer digits, then the numerator's places
+           * over the denominator's, or over the denominator itself. */
+          int mi = attr_int (names, values, "min-integer-digits", 0);
+          int num = attr_int (names, values, "min-numerator-digits", 1);
+          int den = attr_int (names, values, "min-denominator-digits", 0);
+          double den_value = attr_double (names, values, "denominator-value", 0);
+
+          if (mi > 0) g_string_append (ns->code, "# ");
+          for (int i = 0; i < MAX (num, 1); i++) g_string_append_c (ns->code, '?');
+          g_string_append_c (ns->code, '/');
+          if (den_value > 0) g_string_append_printf (ns->code, "%.0f", den_value);
+          else for (int i = 0; i < MAX (den, 1); i++) g_string_append_c (ns->code, '?');
+          ns->custom = TRUE;
         }
       else if (strcmp (name, "scientific-number") == 0)
         {
+          int exp_digits = attr_int (names, values, "min-exponent-digits", 2);
+          int mi = attr_int (names, values, "min-integer-digits", 1);
           ns->number = O42_NUM_SCIENTIFIC;
           ns->decimals = attr_int (names, values, "decimal-places", 2);
+          if (ns->code != NULL)
+            {
+              for (int i = 0; i < MAX (mi, 1); i++) g_string_append_c (ns->code, '0');
+              if (ns->decimals > 0) g_string_append_c (ns->code, '.');
+              for (int i = 0; i < ns->decimals; i++) g_string_append_c (ns->code, '0');
+              g_string_append (ns->code, "E+");
+              for (int i = 0; i < MAX (exp_digits, 1); i++) g_string_append_c (ns->code, '0');
+            }
         }
       else if (strcmp (name, "hours") == 0 && ns->number == O42_NUM_DATE)
         ns->number = O42_NUM_DATETIME;
-      else if (strcmp (name, "fill-character") == 0 && ns->number == O42_NUM_CURRENCY)
-        ns->number = O42_NUM_ACCOUNTING;
-      else if ((strcmp (name, "currency-symbol") == 0 || strcmp (name, "text") == 0) &&
+      else if (strcmp (name, "fill-character") == 0)
+        {
+          if (ns->number == O42_NUM_CURRENCY)
+            ns->number = O42_NUM_ACCOUNTING;
+          else
+            ns->custom = TRUE;
+          ns->in_fill = TRUE;
+        }
+      else if (strcmp (name, "map") == 0)
+        {
+          /* value()>=0, value()>0, value()<0: the other sections. */
+          const char *condition = attr (names, values, "condition");
+          const char *apply = attr (names, values, "apply-style-name");
+
+          if (condition != NULL && apply != NULL)
+            {
+              if (strstr (condition, ">=0") != NULL) { g_free (ns->map_ge); ns->map_ge = g_strdup (apply); }
+              else if (strstr (condition, ">0") != NULL) { g_free (ns->map_gt); ns->map_gt = g_strdup (apply); }
+              else if (strstr (condition, "<0") != NULL) { g_free (ns->map_lt); ns->map_lt = g_strdup (apply); }
+              ns->custom = TRUE;
+            }
+        }
+      else if (strcmp (name, "text-properties") == 0 && ns->code != NULL)
+        {
+          /* A colour on a number style: [Red] and the others. */
+          const char *colour = attr (names, values, "color");
+
+          if (colour != NULL)
+            for (guint i = 0; i < G_N_ELEMENTS (CODE_COLOURS); i++)
+              if (g_ascii_strcasecmp (colour, CODE_COLOURS[i].hex) == 0)
+                {
+                  g_string_append_printf (ns->code, "[%s]", CODE_COLOURS[i].name);
+                  ns->custom = TRUE;
+                }
+        }
+      else if (strcmp (name, "currency-symbol") == 0)
+        {
+          const char *lang = attr (names, values, "language");
+
+          ns->in_symbol = (ns->number == O42_NUM_CURRENCY || ns->number == O42_NUM_ACCOUNTING);
+          ns->in_currency_symbol = TRUE;
+          if (ns->code != NULL && lang != NULL && language_lcid (lang) != 0)
+            g_string_append_printf (ns->code, "[$%s-%03X]", "", 0x400 | language_lcid (lang));
+        }
+      else if (strcmp (name, "text") == 0 &&
                (ns->number == O42_NUM_CURRENCY || ns->number == O42_NUM_ACCOUNTING))
         ns->in_symbol = TRUE;
 
@@ -4731,6 +5193,24 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
           g_string_prepend (r->num->code, lead);
           g_free (lead);
         }
+      if (r->num != NULL && r->num->code != NULL &&
+          (r->num->map_ge != NULL || (r->num->map_gt != NULL && r->num->map_lt != NULL)))
+        {
+          /* The sections the maps name come first, in the order a code
+           * has them: positive, negative, and this one for zero -- or
+           * this one for the negatives when there are two. */
+          NumStyle *pos = g_hash_table_lookup (r->num_styles, r->num->map_ge != NULL ? r->num->map_ge : r->num->map_gt);
+          NumStyle *neg = r->num->map_lt != NULL ? g_hash_table_lookup (r->num_styles, r->num->map_lt) : NULL;
+          GString *whole = g_string_new (NULL);
+
+          if (pos != NULL && pos->code != NULL)
+            g_string_append_printf (whole, "%s;", pos->code->str);
+          if (neg != NULL && neg->code != NULL)
+            g_string_append_printf (whole, "%s;", neg->code->str);
+          g_string_append (whole, r->num->code->str);
+          g_string_assign (r->num->code, whole->str);
+          g_string_free (whole, TRUE);
+        }
       r->in_num_style = FALSE;
       r->num = NULL;
     }
@@ -4757,6 +5237,50 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
 {
   Reader *r = user;
   (void) ctx; (void) error;
+  if (r->in_num_style && r->num != NULL && r->num->in_fill)
+    {
+      /* "* " in a code: the character that fills the cell. */
+      if (r->num->code != NULL && len > 0)
+        {
+          g_string_append_c (r->num->code, '*');
+          g_string_append_len (r->num->code, text, g_utf8_next_char (text) - text);
+        }
+      r->num->in_fill = FALSE;
+      return;
+    }
+  if (r->in_num_style && r->num != NULL && r->num->in_currency_symbol)
+    {
+      /* The symbol goes into the code in brackets, [$€-407] when the
+       * element named a language and [$€] when not; the language was
+       * opened already. */
+      char *piece = g_strndup (text, len);
+
+      if (r->num->code != NULL && *piece != '\0')
+        {
+          if (r->num->code->len >= 2 && g_str_has_suffix (r->num->code->str, "]") &&
+              strrchr (r->num->code->str, '[') != NULL && strrchr (r->num->code->str, '[')[1] == '$' &&
+              strrchr (r->num->code->str, '[')[2] == '-')
+            {
+              /* "[$-407]" is open for the symbol: put it after the "$". */
+              char *open = strrchr (r->num->code->str, '[');
+              gsize at = (gsize) (open + 2 - r->num->code->str);
+              g_string_insert (r->num->code, (gssize) at, piece);
+            }
+          else
+            g_string_append_printf (r->num->code, "[$%s]", piece);
+        }
+      if (r->num->in_symbol)
+        {
+          char *stripped = g_strstrip (g_strdup (piece));
+          if (*stripped != '\0' && strlen (r->num->symbol) + strlen (stripped) < sizeof r->num->symbol)
+            strcat (r->num->symbol, stripped);
+          g_free (stripped);
+          r->num->in_symbol = FALSE;
+        }
+      g_free (piece);
+      r->num->in_currency_symbol = FALSE;
+      return;
+    }
   if (r->in_num_style && r->num != NULL && r->num->in_symbol)
     {
       /* The currency's symbol, or the text before or after the number
@@ -4767,22 +5291,44 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
         strcat (r->num->symbol, piece);
       g_free (piece);
       r->num->in_symbol = FALSE;
+      /* And into the code, where "-" before the symbol is what marks a
+       * negative section. */
+      if (r->num->code != NULL)
+        {
+          char *literal = g_strndup (text, len);
+          gboolean plain = *literal != 0;
+
+          for (const char *q = literal; plain && *q != 0; q++)
+            if (strchr ("/-.:, ()", *q) == NULL)
+              plain = FALSE;
+          if (*literal != 0)
+            g_string_append_printf (r->num->code, plain ? "%s" : "\"%s\"", literal);
+          if (*literal != 0 && g_strstrip (literal)[0] != '\0' && strcmp (literal, "-") != 0)
+            r->num->custom = TRUE;
+          g_free (literal);
+        }
       return;
     }
   if (r->in_num_style && r->num != NULL && r->num->code != NULL)
     {
       /* What stands between the fields of a date style is part of the
-       * code, quoted so that a letter in it stays a letter. */
+       * code, quoted so that a letter in it stays a letter; in a
+       * number style it is what makes the code more than a preset --
+       * except the % that every percentage carries. */
       char *literal = g_strndup (text, len);
       gboolean plain = *literal != 0;
 
       /* A separator that the code language reads as itself needs no
        * quotes; anything with a letter in it does. */
       for (const char *q = literal; plain && *q != 0; q++)
-        if (strchr ("/-.:, ()", *q) == NULL)
+        if (strchr ("/-.:, ()%", *q) == NULL)
           plain = FALSE;
       if (*literal != 0)
         g_string_append_printf (r->num->code, plain ? "%s" : "\"%s\"", literal);
+      if (*literal != 0 && r->num->number != O42_NUM_DATE && r->num->number != O42_NUM_TIME &&
+          r->num->number != O42_NUM_DATETIME &&
+          !(r->num->number == O42_NUM_PERCENT && strcmp (literal, "%") == 0))
+        r->num->custom = TRUE;
       g_free (literal);
       return;
     }
@@ -5017,7 +5563,7 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   r.gradients = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.hatches = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
   r.form_controls = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, form_control_free);
-  r.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  r.num_styles = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, num_style_free);
   r.col_styles = g_ptr_array_new_with_free_func (g_free);
 
   /* LibreOffice keeps number styles in styles.xml; the same walker

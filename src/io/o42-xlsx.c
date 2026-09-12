@@ -2427,6 +2427,17 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
           r->in_defined_name = TRUE;
           g_string_truncate (r->name_text, 0);
         }
+      else if (dname != NULL && !g_str_has_prefix (dname, "_xlnm.") && !g_str_has_prefix (dname, "_o42."))
+        {
+          /* A name local to one sheet.  office42's names are the
+           * book's, so it comes in as one of those, after the book's
+           * own and only if none of them has its name: better a name
+           * that reaches a sheet too many than a formula saying
+           * #NAME?. */
+          r->name_name = g_strdup_printf ("\003%s", dname);
+          r->in_defined_name = TRUE;
+          g_string_truncate (r->name_text, 0);
+        }
     }
 }
 
@@ -2565,10 +2576,12 @@ o42_xlsx_builtin_number_format (int id)
     case 20: return "h:mm";
     case 21: return "hh:mm:ss";
     case 22: return "yyyy-mm-dd hh:mm:ss";
-    case 37: return "#,##0 ;(#,##0)";
-    case 38: return "#,##0 ;[Red](#,##0)";
-    case 39: return "#,##0.00;(#,##0.00)";
-    case 40: return "#,##0.00;[Red](#,##0.00)";
+    /* ECMA-376 prints these four with a space and no pad; what Excel
+     * itself has under the ids, and shows in Format Cells, is the pad. */
+    case 37: return "#,##0_);(#,##0)";
+    case 38: return "#,##0_);[Red](#,##0)";
+    case 39: return "#,##0.00_);(#,##0.00)";
+    case 40: return "#,##0.00_);[Red](#,##0.00)";
     case 41: return "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"_);_(@_)";
     case 42: return "_(\"$\"* #,##0_);_(\"$\"* \\(#,##0\\);_(\"$\"* \"-\"_);_(@_)";
     case 43: return "_(* #,##0.00_);_(* \\(#,##0.00\\);_(* \"-\"??_);_(@_)";
@@ -4043,11 +4056,24 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
         }
 
       /* Names last, when every sheet they may point at exists. */
+      for (int pass = 0; pass < 2; pass++)
       for (guint i = 0; ok && i + 1 < r.names->len; i += 2)
         {
           const char *nm = g_ptr_array_index (r.names, i);
           const char *val = g_ptr_array_index (r.names, i + 1);
           O42Node *tree;
+
+          /* The sheet-local names go in on the second pass, and only
+           * where the book has no name of their own. */
+          if ((nm[0] == '\003') != (pass == 1))
+            continue;
+          if (nm[0] == '\003')
+            {
+              nm++;
+              if (o42_book_lookup_name (book, nm, NULL, NULL) ||
+                  o42_book_lookup_name_formula (book, nm) != NULL)
+                continue;
+            }
 
           if (nm[0] == '\002')
             {
