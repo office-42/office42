@@ -174,4 +174,9 @@ char    *o42_node_to_string_marked (const O42Node *node, const O42Node *mark,
 void     o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
                                     const char *prefix);
 
+/* Writes the table's name in front of every structured reference that
+ * has none -- [@Qty], [Qty], [#Headers] -- as Excel's files spell
+ * them: Table[[#This Row],[Qty]], Table[Qty], Table[#Headers]. */
+void     o42_node_qualify_structured (O42Node *node, const char *table);
+
 G_END_DECLS

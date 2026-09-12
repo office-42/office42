@@ -5294,7 +5294,9 @@ static gboolean
 file_is_csv (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  gboolean csv = name != NULL && g_str_has_suffix (name, ".csv");
+  /* .txt, .tsv and .tab are the same thing with tabs, as Excel has them. */
+  gboolean csv = name != NULL && (g_str_has_suffix (name, ".csv") || g_str_has_suffix (name, ".txt") ||
+                                  g_str_has_suffix (name, ".tsv") || g_str_has_suffix (name, ".tab"));
   g_free (name);
   return csv;
 }

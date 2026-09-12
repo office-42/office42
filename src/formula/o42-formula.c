@@ -148,12 +148,28 @@ next_token (Parser *ps)
 
   /* An error literal. */
   /* [y]: a LAMBDA parameter that may be left out, brackets and all. */
-  if (*p == '[' && (g_ascii_isalpha (p[1]) || p[1] == '_'))
+  /* [Sales], [@Sales], [#Headers]: a structured reference into the
+   * table the formula is in, with no table name in front. */
+  if (*p == '[' && (g_ascii_isalpha (p[1]) || p[1] == '_' || p[1] == '@' || p[1] == '#' || p[1] == '['))
     {
       const char *q = p + 1;
 
       while (g_ascii_isalnum (*q) || *q == '_' || *q == '.')
         q++;
+      if (*q != ']')
+        {
+          /* Not a bare word in brackets: the whole specifier to the
+           * bracket that closes it, [@[Qty]] and [[#Data],[Qty]] too. */
+          int depth = 0;
+
+          for (q = p; *q != '\0'; q++)
+            {
+              if (*q == '[') depth++;
+              else if (*q == ']' && --depth == 0) break;
+            }
+          if (*q != ']')
+            q = p + 1;   /* unclosed: back to the error literal */
+        }
       if (*q == ']')
         {
           ps->tok.type = TOK_IDENT;
@@ -2025,6 +2041,66 @@ prefix_walk (O42Node *node, gboolean (*is_future) (const char *),
     default:
       break;
     }
+}
+
+static void
+qualify_walk (O42Node *node, const char *table)
+{
+  if (node == NULL)
+    return;
+  switch (node->type)
+    {
+    case O42_NODE_UNARY:
+    case O42_NODE_BINARY:
+      qualify_walk (node->as.op.a, table);
+      qualify_walk (node->as.op.b, table);
+      break;
+    case O42_NODE_CALL:
+      if (node->as.call.args != NULL)
+        for (guint i = 0; i < node->as.call.args->len; i++)
+          qualify_walk (g_ptr_array_index (node->as.call.args, i), table);
+      break;
+    case O42_NODE_APPLY:
+      qualify_walk (node->as.apply.callee, table);
+      if (node->as.apply.args != NULL)
+        for (guint i = 0; i < node->as.apply.args->len; i++)
+          qualify_walk (g_ptr_array_index (node->as.apply.args, i), table);
+      break;
+    case O42_NODE_NAME:
+      if (node->as.name[0] == '[')
+        {
+          const char *inner = node->as.name + 1;
+          gsize len = strlen (inner);
+          char *renamed;
+
+          if (len > 0 && inner[len - 1] == ']')
+            len--;
+          if (inner[0] == '@')
+            {
+              /* [@Qty] and [@[Qty]] both to [[#This Row],[Qty]]. */
+              const char *column = inner + 1;
+              gsize clen = len - 1;
+
+              if (clen >= 2 && column[0] == '[' && column[clen - 1] == ']')
+                { column++; clen -= 2; }
+              renamed = g_strdup_printf ("%s[[#This Row],[%.*s]]", table, (int) clen, column);
+            }
+          else
+            renamed = g_strdup_printf ("%s[%.*s]", table, (int) len, inner);
+          g_free (node->as.name);
+          node->as.name = renamed;
+        }
+      break;
+    default:
+      break;
+    }
+}
+
+void
+o42_node_qualify_structured (O42Node *node, const char *table)
+{
+  if (table != NULL)
+    qualify_walk (node, table);
 }
 
 void

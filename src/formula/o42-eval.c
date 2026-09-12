@@ -2906,9 +2906,11 @@ fn_db (O42EvalContext *ctx, O42Operand *args, int n, DbKind kind)
   int col, crit_cols, crit_rows;
   int *crit_field;
   Criterion *crits;
+  O42Node **computed;
   GArray *values;
   O42Value result;
-  int counta = 0;
+  O42Value got = o42_value_empty ();
+  int counta = 0, matched = 0;
 
   (void) n;
 
@@ -2917,15 +2919,23 @@ fn_db (O42EvalContext *ctx, O42Operand *args, int n, DbKind kind)
 
   field = operand_value (ctx, &args[1]);
   col = db_find_field (ctx, db, &field);
+  /* DCOUNT and DCOUNTA with the field left out count the records that
+   * match; any other function needs a column. */
+  if (col < 0 && field.type != O42_VALUE_EMPTY)
+    { o42_value_clear (&field); return o42_value_error (O42_ERR_VALUE); }
   o42_value_clear (&field);
-  if (col < 0 && kind != DB_COUNT)
+  if (col < 0 && kind != DB_COUNT && kind != DB_COUNTA)
     return o42_value_error (O42_ERR_VALUE);
 
-  /* Each criteria column is a condition on a database column. */
+  /* Each criteria column is a condition on a database column -- or,
+   * under a heading that names no column, a formula judged against
+   * each record in turn: Excel's computed criterion, written for the
+   * first record and moved down the database from there. */
   crit_cols = crit->range.col1 - crit->range.col0 + 1;
   crit_rows = crit->range.row1 - crit->range.row0;       /* conditions below the heading */
   crit_field = g_new (int, (gsize) crit_cols);
   crits = g_new0 (Criterion, (gsize) crit_cols * MAX (crit_rows, 0));
+  computed = g_new0 (O42Node *, (gsize) crit_cols * MAX (crit_rows, 0));
 
   for (int c = 0; c < crit_cols; c++)
     {
@@ -2937,8 +2947,33 @@ fn_db (O42EvalContext *ctx, O42Operand *args, int n, DbKind kind)
       for (int r = 0; r < crit_rows; r++)
         {
           O42Value cv;
-          ctx->get_cell (ctx, crit->sheet, crit->range.row0 + 1 + r, crit->range.col0 + c, &cv);
+          int crow = crit->range.row0 + 1 + r, ccol = crit->range.col0 + c;
+
+          if (crit_field[c] < 0 && ctx->get_cell_info != NULL)
+            {
+              O42Value ftext;
+
+              if (ctx->get_cell_info (ctx, crit->sheet, crow, ccol, "formulatext", &ftext))
+                {
+                  if (ftext.type == O42_VALUE_TEXT && ftext.as.text[0] == '=')
+                    computed[r * crit_cols + c] = o42_formula_parse (ftext.as.text + 1);
+                  o42_value_clear (&ftext);
+                }
+            }
+          ctx->get_cell (ctx, crit->sheet, crow, ccol, &cv);
           criterion_init (&crits[r * crit_cols + c], &cv);
+          /* Text with no operator matches what begins with it: "App"
+           * finds Apple, as in Excel's database criteria.  ="=Apple"
+           * is the whole word. */
+          if (cv.type == O42_VALUE_TEXT && cv.as.text[0] != '=' &&
+              crits[r * crit_cols + c].op == CRIT_EQ &&
+              crits[r * crit_cols + c].value.type == O42_VALUE_TEXT &&
+              crits[r * crit_cols + c].pattern == NULL)
+            {
+              char *folded = g_utf8_casefold (cv.as.text, -1);
+              crits[r * crit_cols + c].pattern = g_strconcat (folded, "*", NULL);
+              g_free (folded);
+            }
           o42_value_clear (&cv);
         }
     }
@@ -2956,7 +2991,24 @@ fn_db (O42EvalContext *ctx, O42Operand *args, int n, DbKind kind)
           for (int c = 0; c < crit_cols && all; c++)
             {
               O42Value v;
+              O42Node *formula = computed[r * crit_cols + c];
 
+              if (formula != NULL)
+                {
+                  /* The formula moved to this record's row, true or a
+                   * number that is not zero. */
+                  O42Node *moved = o42_node_copy (formula);
+                  O42Value t;
+                  gboolean truth = FALSE;
+                  O42ErrorCode e = O42_ERR_VALUE;
+
+                  o42_node_relocate (moved, row - (db->range.row0 + 1), 0);
+                  t = eval_node (ctx, moved);   /* on this context, not a wrapper of it */
+                  all = t.type != O42_VALUE_ERROR && o42_value_to_bool (&t, &truth, &e) && truth;
+                  o42_value_clear (&t);
+                  o42_node_free (moved);
+                  continue;
+                }
               if (crit_field[c] < 0 || crits[r * crit_cols + c].value.type == O42_VALUE_EMPTY)
                 continue;      /* an empty condition is no condition */
 
@@ -2979,6 +3031,8 @@ fn_db (O42EvalContext *ctx, O42Operand *args, int n, DbKind kind)
             g_array_append_val (values, v.as.number);
           if (v.type != O42_VALUE_EMPTY)
             counta++;
+          if (matched++ == 0)
+            { o42_value_clear (&got); got = o42_value_copy (&v); }
           o42_value_clear (&v);
         }
       else
@@ -2986,8 +3040,13 @@ fn_db (O42EvalContext *ctx, O42Operand *args, int n, DbKind kind)
     }
 
   for (int i = 0; i < crit_cols * crit_rows; i++)
-    criterion_clear (&crits[i]);
+    {
+      criterion_clear (&crits[i]);
+      if (computed[i] != NULL)
+        o42_node_free (computed[i]);
+    }
   g_free (crits);
+  g_free (computed);
   g_free (crit_field);
 
   {
@@ -3007,16 +3066,18 @@ fn_db (O42EvalContext *ctx, O42Operand *args, int n, DbKind kind)
       {
       case DB_SUM:     result = o42_value_number (sum); break;
       case DB_PRODUCT: result = o42_value_number (count ? product : 0); break;
-      case DB_COUNT:   result = o42_value_number (count); break;
+      case DB_COUNT:   result = o42_value_number (col < 0 ? counta : (int) count); break;
       case DB_COUNTA:  result = o42_value_number (counta); break;
       case DB_MAX:
       case DB_MIN:     result = o42_value_number (count ? best : 0); break;
       case DB_AVERAGE: result = count ? o42_value_number (sum / count)
                                       : o42_value_error (O42_ERR_DIV0); break;
       case DB_GET:
-        result = (count == 1) ? o42_value_number (g_array_index (values, double, 0))
-               : (count == 0) ? o42_value_error (O42_ERR_VALUE)
-                              : o42_value_error (O42_ERR_NUM);
+        /* The one record's field, whatever it holds: text as well as
+         * a number.  None is #VALUE!, several #NUM!. */
+        result = (matched == 1) ? o42_value_copy (&got)
+               : (matched == 0) ? o42_value_error (O42_ERR_VALUE)
+                                : o42_value_error (O42_ERR_NUM);
         break;
       case DB_STDEVP:
       case DB_VARP:
@@ -3043,6 +3104,7 @@ fn_db (O42EvalContext *ctx, O42Operand *args, int n, DbKind kind)
       }
   }
 
+  o42_value_clear (&got);
   g_array_free (values, TRUE);
   return result;
 }

@@ -438,23 +438,38 @@ sheet_get_name (O42EvalContext *ctx, const char *name,
   O42Sheet *sheet = ctx->user_data;
   O42Sheet *target = NULL;
 
-  /* A structured reference, Table1[Sales], names part of a table. */
+  /* A structured reference, Table1[Sales], names part of a table;
+   * [@Sales] or [Sales] alone names part of the table the formula is
+   * in. */
   if (strchr (name, '[') != NULL || o42_sheet_find_table (sheet, name) != NULL ||
       (sheet->book != NULL && o42_book_find_table (sheet->book, name) != NULL))
     {
       char *table_name = g_strdup (name);
       char *bracket = strchr (table_name, '[');
       O42Sheet *holder;
+      char *qualified = NULL;
 
       if (bracket != NULL) *bracket = '\0';
+      if (name[0] == '[')
+        {
+          const O42Table *own = o42_sheet_table_at (sheet, ctx->row, ctx->col);
+
+          if (own == NULL)
+            { g_free (table_name); return FALSE; }
+          g_free (table_name);
+          table_name = g_strdup (own->name);
+          qualified = g_strconcat (own->name, name, NULL);
+        }
       holder = o42_sheet_find_table (sheet, table_name) != NULL ? sheet
              : sheet->book != NULL ? o42_book_find_table (sheet->book, table_name) : NULL;
       g_free (table_name);
-      if (holder != NULL && o42_sheet_table_range (sheet, name, ctx->row, range))
+      if (holder != NULL && o42_sheet_table_range (sheet, qualified != NULL ? qualified : name, ctx->row, range))
         {
           *sheet_name = (holder == sheet) ? NULL : holder->name;
+          g_free (qualified);
           return TRUE;
         }
+      g_free (qualified);
       return FALSE;
     }
 
@@ -10148,6 +10163,7 @@ o42_sheet_table_range (O42Sheet *sheet, const char *text, int row, O42Range *out
           len = strlen (part);
           if (len > 0 && part[len - 1] == ']') part[len - 1] = '\0';
           if (*part == '@') { this_row = TRUE; part++; }
+          if (*part == '[') part++;   /* [@[Qty]]: the column in brackets of its own */
           if (*part == '\0') continue;
           if (g_ascii_strcasecmp (part, "#All") == 0) all = TRUE;
           else if (g_ascii_strcasecmp (part, "#Headers") == 0) headers = TRUE;
@@ -10165,11 +10181,24 @@ o42_sheet_table_range (O42Sheet *sheet, const char *text, int row, O42Range *out
 
       if (field != NULL)
         {
-          int col = table_field_col (holder, t, field);
-          if (col < 0)
+          /* One column, or [Qty]:[Price], the columns from one to
+           * another. */
+          const char *span = strstr (field, "]:[");
+          int col, col2;
+
+          if (span != NULL)
+            {
+              char *first = g_strndup (field, (gsize) (span - field));
+              col = table_field_col (holder, t, first);
+              col2 = table_field_col (holder, t, span + 3);
+              g_free (first);
+            }
+          else
+            col = col2 = table_field_col (holder, t, field);
+          if (col < 0 || col2 < 0)
             ok = FALSE;
           else
-            { out->col0 = out->col1 = col; }
+            { out->col0 = MIN (col, col2); out->col1 = MAX (col, col2); }
         }
       if (ok && this_row)
         {

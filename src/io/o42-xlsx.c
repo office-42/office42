@@ -269,11 +269,15 @@ append_cell (Writer *w, GString *out, O42Sheet *sheet, int row, int col, guint x
       char *escaped;
       O42Range block;
 
-      /* Excel wants _xlfn. on the functions it added after 2007. */
+      /* Excel wants _xlfn. on the functions it added after 2007, and
+       * the table's name on a structured reference that has none. */
       {
         O42Node *tree = o42_formula_parse (input + 1);
+        const O42Table *table = strchr (input, '[') != NULL ? o42_sheet_table_at (sheet, row, col) : NULL;
         char *spelled;
         o42_node_prefix_functions (tree, o42_function_is_future, "_xlfn.");
+        if (table != NULL)
+          o42_node_qualify_structured (tree, table->name);
         spelled = o42_node_to_string (tree);
         escaped = g_markup_escape_text (spelled, -1);
         g_free (spelled);
