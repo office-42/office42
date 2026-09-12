@@ -2511,6 +2511,69 @@ cell_take_format (O42Sheet *sheet, O42Cell *cell, O42NumberFormat which,
   cell->fmt = o42_fmt_table_intern (sheet->formats, &fmt);
 }
 
+/* Is a tree nothing but numbers, references on this sheet and the
+ * four arithmetic operators, with a sign or two? */
+static gboolean
+formula_is_arithmetic (const O42Node *ast)
+{
+  if (ast == NULL)
+    return FALSE;
+  switch (ast->type)
+    {
+    case O42_NODE_NUMBER: return TRUE;
+    case O42_NODE_REF:    return ast->sheet == NULL;
+    case O42_NODE_UNARY:
+      return (ast->as.op.op == O42_OP_NEG || ast->as.op.op == O42_OP_POS) &&
+             formula_is_arithmetic (ast->as.op.a);
+    case O42_NODE_BINARY:
+      return (ast->as.op.op == O42_OP_ADD || ast->as.op.op == O42_OP_SUB ||
+              ast->as.op.op == O42_OP_MUL || ast->as.op.op == O42_OP_DIV) &&
+             formula_is_arithmetic (ast->as.op.a) && formula_is_arithmetic (ast->as.op.b);
+    default: return FALSE;
+    }
+}
+
+/* The first cell a formula of references and arithmetic leans on --
+ * =B1, =B1+1, =B1*2, =-B1 -- whose format the formula takes on when it
+ * is a date, a time, a percentage or money, as Excel's does: the sum
+ * of two dates is a date until the cell is told otherwise.  A call,
+ * a comparison or text makes the formula its own thing, and NULL
+ * comes back. */
+static const O42Node *
+formula_leading_ref (const O42Node *ast)
+{
+  if (ast == NULL)
+    return NULL;
+  switch (ast->type)
+    {
+    case O42_NODE_REF:
+      return ast->sheet == NULL ? ast : NULL;
+    case O42_NODE_NUMBER:
+      return NULL;
+    case O42_NODE_UNARY:
+      if (ast->as.op.op == O42_OP_NEG || ast->as.op.op == O42_OP_POS)
+        return formula_leading_ref (ast->as.op.a);
+      return NULL;
+    case O42_NODE_BINARY:
+      if (ast->as.op.op == O42_OP_ADD || ast->as.op.op == O42_OP_SUB ||
+          ast->as.op.op == O42_OP_MUL || ast->as.op.op == O42_OP_DIV)
+        {
+          const O42Node *left = ast->as.op.a, *right = ast->as.op.b;
+          const O42Node *found;
+
+          /* Both sides must be of the same simple kind for the format
+           * to carry: =B1+"x" or =B1+SUM(...) does not take it. */
+          if (!formula_is_arithmetic (left) || !formula_is_arithmetic (right))
+            return NULL;
+          found = formula_leading_ref (left);
+          return found != NULL ? found : formula_leading_ref (right);
+        }
+      return NULL;
+    default:
+      return NULL;
+    }
+}
+
 /* The functions whose result is a date or a time, so that a formula that
  * is a call to one of them formats itself.  Excel's list is about this. */
 static O42NumberFormat
@@ -2859,6 +2922,22 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
           date_fmt = formula_date_format (cell->ast);
           if (date_fmt != O42_NUM_GENERAL)
             cell_take_format (sheet, cell, date_fmt, 0, NULL);
+          else
+            {
+              /* =B1 and =B1+1 show as B1 does when B1 is a date, a
+               * time, a percentage or money, as in Excel. */
+              const O42Node *lead = formula_leading_ref (cell->ast);
+
+              if (lead != NULL && !sheet->shifting)
+                {
+                  const O42Fmt *from = o42_sheet_get_fmt (sheet, lead->as.ref.row, lead->as.ref.col);
+
+                  if (from->number == O42_NUM_DATE || from->number == O42_NUM_DATETIME ||
+                      from->number == O42_NUM_TIME || from->number == O42_NUM_PERCENT ||
+                      from->number == O42_NUM_CURRENCY)
+                    cell_take_format (sheet, cell, from->number, from->decimals, from->custom);
+                }
+            }
 
           stored = g_new (guint64, 1);
           *stored = key;
@@ -3787,6 +3866,38 @@ o42_sheet_autofill (O42Sheet *sheet, const O42Range *source,
     g_free (carried[i].input);
   g_free (carried);
   record_op_end (sheet);
+}
+
+char *
+o42_sheet_typed_input (O42Sheet *sheet, int row, int col, const char *text)
+{
+  char *fixed;
+  const char *typed;
+  const O42Fmt *fmt;
+  O42Entry entry;
+
+  g_return_val_if_fail (sheet != NULL && text != NULL, NULL);
+
+  fixed = o42_entry_fixed_decimals_apply (text);
+  typed = fixed != NULL ? fixed : text;
+
+  /* Automatic percent entry: a number typed into a percentage cell is
+   * the percentage itself, so 5 is 5% and 0.5 is 0.5%; a number with
+   * its own % sign, a date or a formula is taken as typed. */
+  fmt = o42_sheet_get_fmt (sheet, row, col);
+  if (fmt->number == O42_NUM_PERCENT && fmt->custom == NULL &&
+      typed[0] != '=' && typed[0] != '\'' &&
+      o42_entry_parse (typed, &entry) && entry.format == O42_NUM_GENERAL)
+    {
+      char buffer[G_ASCII_DTOSTR_BUF_SIZE];
+      char *result;
+
+      g_ascii_formatd (buffer, sizeof buffer, "%.15g", entry.number / 100.0);
+      result = g_strdup (buffer);
+      g_free (fixed);
+      return result;
+    }
+  return fixed;
 }
 
 void

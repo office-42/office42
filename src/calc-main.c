@@ -3815,7 +3815,7 @@ main (int argc, char *argv[])
               }
           }
           {
-            char *fixed = o42_entry_fixed_decimals_apply (eq);
+            char *fixed = o42_sheet_typed_input (sheet, row, col, eq);
             o42_sheet_set_input (sheet, row, col, fixed != NULL ? fixed : eq);
             g_free (fixed);
           }

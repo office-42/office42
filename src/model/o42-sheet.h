@@ -1177,4 +1177,12 @@ gboolean o42_sheet_redo_full   (O42Sheet *sheet, O42Sheet **target, O42Range *to
 /* Forgets the whole history, the book's when the sheet is in one. */
 void     o42_sheet_clear_undo  (O42Sheet *sheet);
 
+/* What typing `text` into the cell means, with the conveniences Excel
+ * gives the person at the keyboard and not a file: the fixed-decimals
+ * habit, and a plain number typed into a cell formatted as a
+ * percentage taken as that many per cent -- 5 into a 0% cell is 5%.
+ * The text to set, newly allocated, or NULL when `text` is to be set
+ * as it is.  Only what is typed goes through it. */
+char *o42_sheet_typed_input (O42Sheet *sheet, int row, int col, const char *text);
+
 G_END_DECLS

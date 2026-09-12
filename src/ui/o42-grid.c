@@ -3080,7 +3080,7 @@ on_warning_answered (GObject *source, GAsyncResult *result, gpointer data)
   if (button == 0 && entry->grid->sheet != NULL)
     {
       /* Yes: the entry stands after all. */
-      char *fixed = o42_entry_fixed_decimals_apply (entry->text);
+      char *fixed = o42_sheet_typed_input (entry->grid->sheet, entry->row, entry->col, entry->text);
       o42_sheet_set_input (entry->grid->sheet, entry->row, entry->col, fixed != NULL ? fixed : entry->text);
       g_free (fixed);
       sheet_changed (entry->grid);
@@ -3166,7 +3166,7 @@ o42_grid_commit_edit (O42Grid *self)
       return;
     }
   {
-    char *fixed = o42_entry_fixed_decimals_apply (text);
+    char *fixed = o42_sheet_typed_input (self->sheet, self->active_row, self->active_col, text);
     o42_sheet_set_input (self->sheet, self->active_row, self->active_col, fixed != NULL ? fixed : text);
     cells_edited_cell (self, self->active_row, self->active_col);
     g_free (fixed);
@@ -3209,7 +3209,7 @@ o42_grid_set_active_input (O42Grid *self, const char *text)
   if (!entry_allowed (self, text))
     return;
   {
-    char *fixed = o42_entry_fixed_decimals_apply (text);
+    char *fixed = o42_sheet_typed_input (self->sheet, self->active_row, self->active_col, text);
     o42_sheet_set_input (self->sheet, self->active_row, self->active_col, fixed != NULL ? fixed : text);
     cells_edited_cell (self, self->active_row, self->active_col);
     g_free (fixed);
