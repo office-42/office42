@@ -824,8 +824,14 @@ rels_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       const char *id = attr (names, values, "Id");
       const char *target = attr (names, values, "Target");
+      const char *type = attr (names, values, "Type");
       if (id && target)
         g_hash_table_insert (user, g_strdup (id), g_strdup (target));
+      /* The kind of part as well, under "type:" and the id, for the
+       * callers that must tell a comments part from its name -- which
+       * Excel calls comments1.xml and openpyxl comment1.xml. */
+      if (id && type)
+        g_hash_table_insert (user, g_strconcat ("type:", id, NULL), g_strdup (type));
     }
 }
 

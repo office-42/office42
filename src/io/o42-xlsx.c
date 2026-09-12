@@ -3992,7 +3992,14 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                   {
                     const char *ctarget = v;
                     const char *base = strrchr (ctarget, '/');
-                    if (g_str_has_prefix (base ? base + 1 : ctarget, "comments"))
+                    char *type_key = g_strconcat ("type:", (const char *) k, NULL);
+                    const char *type = g_hash_table_lookup (rels, type_key);
+
+                    g_free (type_key);
+                    if (g_str_has_prefix (k, "type:"))
+                      continue;
+                    if ((type != NULL && g_str_has_suffix (type, "/comments")) ||
+                        (type == NULL && g_str_has_prefix (base ? base + 1 : ctarget, "comments")))
                       {
                         char *cpart = o42_xlsx_resolve (part, ctarget);
                         ok = parse_part (parts, cpart, &comments_parser, &r, error);
