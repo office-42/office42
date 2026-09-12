@@ -5660,8 +5660,45 @@ o42_sheet_condition_holds (O42Sheet *sheet, const O42Condition *c, int row, int 
       return holds;
     }
 
-  /* Only numbers are judged against the operands. */
   o42_sheet_get_value (sheet, row, col, &v);
+  if (v.type == O42_VALUE_TEXT || v.type == O42_VALUE_BOOL)
+    {
+      /* Text and logicals are judged against an operand of their own
+       * kind, as Excel judges "equal to Yes": by the comparison a
+       * formula would make, case ignored.  Against a number they are
+       * left alone. */
+      O42Value a = o42_value_empty (), b = o42_value_empty ();
+      int cmp, cmp2 = 0;
+
+      if (c->expr1 != NULL)
+        a = condition_expr_value (sheet, c, c->expr1, row, col);
+      if (c->expr2 != NULL)
+        b = condition_expr_value (sheet, c, c->expr2, row, col);
+      holds = FALSE;
+      if (a.type == v.type)
+        {
+          cmp = o42_value_compare (&v, &a);
+          if (b.type == v.type)
+            cmp2 = o42_value_compare (&v, &b);
+          switch (c->op)
+            {
+            case O42_COND_EQUAL:         holds = cmp == 0; break;
+            case O42_COND_NOT_EQUAL:     holds = cmp != 0; break;
+            case O42_COND_GREATER:       holds = cmp > 0; break;
+            case O42_COND_LESS:          holds = cmp < 0; break;
+            case O42_COND_GREATER_EQUAL: holds = cmp >= 0; break;
+            case O42_COND_LESS_EQUAL:    holds = cmp <= 0; break;
+            case O42_COND_BETWEEN:       holds = b.type == v.type && cmp >= 0 && cmp2 <= 0; break;
+            case O42_COND_NOT_BETWEEN:   holds = b.type == v.type && !(cmp >= 0 && cmp2 <= 0); break;
+            default: break;
+            }
+        }
+      o42_value_clear (&a);
+      o42_value_clear (&b);
+      o42_value_clear (&v);
+      return holds;
+    }
+  /* Otherwise only numbers are judged against the operands. */
   if (v.type != O42_VALUE_NUMBER)
     {
       o42_value_clear (&v);
