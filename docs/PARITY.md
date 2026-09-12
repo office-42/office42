@@ -119,6 +119,32 @@ dialog, Page Break Preview as Excel draws it; shrink to fit, which the
 model had no bit for.  Six streams again, each checked against
 LibreOffice or Excel's documented answers.
 
+**The third pass** went by the method again, with the batteries
+grown to some fifteen hundred formulas, and then outward from the
+engine to what a file and a keyboard put in.  In the engine: TRUNC
+threw its second argument away; (-8)^(1/3) gave -2 where Excel says
+#NUM!; COUNTIF and SUMIF had no tilde, did not count a '5 typed as
+text against a criterion of 5, and passed over an error in a cell
+they were adding; WORKDAY ignored a holiday given as one date;
+YEARFRAC took a year exactly for more than one; RATE lost its
+precision at zero.  In the format language, fractional seconds were
+never written and a time was never rounded to the unit shown, so
+23:59:59.7 under h:mm:ss was not the 0:00:00 it is in Excel.  In the
+model, a defined name stayed where it was when rows went in under it;
+"ss" equalled "ß"; AutoFill continued 1, 4, 9 with the mean step
+rather than the line, took 31 January and 28 February by the day
+rather than the month, copied a lone time and ran Q4 on to Q5; 5
+typed into a percentage cell was 500%; and =B1 showed a serial where
+Excel shows B1's date.  In the files, a custom number code went into
+.ods as General and came back as one, and now goes as the styles and
+maps LibreOffice writes; an .xlsx from Excel's built-in formats 37 to
+40 lost their pads; a comment from openpyxl and a sheet's own names
+were dropped on reading.  And on GTK before 4.16 the stylesheet's
+variables were refused, so the silver and the bevels were never
+drawn: it names its colours the old way now.  Each was checked
+through office42-calc, and the files through openpyxl and xlrd
+reading what office42 wrote and office42 reading what they wrote.
+
 ---
 
 ## 2. Parity with Excel, area by area
