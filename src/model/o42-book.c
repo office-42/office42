@@ -1066,6 +1066,83 @@ o42_book_cell_changed (O42Book *book, O42Sheet *sheet, int row, int col)
     }
 }
 
+/* Where one row or column index lands after `count` rows are put in
+ * (or, negative, taken out) at `at`; -1 when it was among the deleted. */
+static int
+shifted_index (int i, int at, int count)
+{
+  if (count > 0)
+    return (i >= at) ? i + count : i;
+  if (i >= at - count)
+    return i + count;
+  if (i >= at)
+    return -1;
+  return i;
+}
+
+/* A defined name follows the rows and columns it stands on, as a
+ * formula's reference does: a name for A1:A3 covers A1:A4 after a row
+ * goes in at 2, B1:B3 after a column goes in at A, and is #REF! when
+ * every row of it is deleted. */
+static void
+shift_names (O42Book *book, O42Sheet *sheet, gboolean rows, int at, int count)
+{
+  GHashTableIter iter;
+  gpointer key, value;
+  const char *sheet_name = o42_sheet_get_name (sheet);
+  int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
+
+  g_hash_table_iter_init (&iter, book->names);
+  while (g_hash_table_iter_next (&iter, &key, &value))
+    {
+      NamedRange *nr = value;
+
+      if (nr->sheet == sheet)
+        {
+          int *lo = rows ? &nr->range.row0 : &nr->range.col0;
+          int *hi = rows ? &nr->range.row1 : &nr->range.col1;
+          int new_lo = shifted_index (*lo, at, count);
+          int new_hi = shifted_index (*hi, at, count);
+
+          if (count < 0)
+            {
+              if (new_lo < 0) new_lo = at;
+              if (new_hi < 0) new_hi = at - 1;
+            }
+          if (new_lo == *lo && new_hi == *hi)
+            continue;
+          if (new_hi < new_lo || new_hi >= limit)
+            {
+              nr->sheet = NULL;
+              g_free (nr->formula);
+              nr->formula = g_strdup ("#REF!");
+            }
+          else
+            {
+              *lo = new_lo;
+              *hi = new_hi;
+            }
+          stale_users_of_name (book, g_intern_string (key));
+        }
+      else if (nr->sheet == NULL && nr->formula != NULL)
+        {
+          /* A formula name: only its references that name the sheet
+           * can be into it, since it lives on no sheet of its own. */
+          O42Node *tree = o42_formula_parse (nr->formula);
+
+          if (tree == NULL)
+            continue;
+          if (o42_node_shift (tree, rows, at, count, NULL, sheet_name))
+            {
+              g_free (nr->formula);
+              nr->formula = o42_node_to_string (tree);
+              stale_users_of_name (book, g_intern_string (key));
+            }
+          o42_node_free (tree);
+        }
+    }
+}
+
 void
 o42_book_sheet_shifted (O42Book *book, O42Sheet *sheet, gboolean rows,
                         int at, int count)
@@ -1082,6 +1159,7 @@ o42_book_sheet_shifted (O42Book *book, O42Sheet *sheet, gboolean rows,
       if (other != sheet)
         o42_sheet_shift_references (other, name, rows, at, count);
     }
+  shift_names (book, sheet, rows, at, count);
 }
 
 void

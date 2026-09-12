@@ -11706,6 +11706,10 @@ eval_unary (O42EvalContext *ctx, const O42Node *node)
   if (a.type == O42_VALUE_ERROR)
     return a;
 
+  /* A unary plus changes nothing: =+"a" is "a", as in Excel. */
+  if (node->as.op.op == O42_OP_POS)
+    return a;
+
   if (!o42_value_to_number (&a, &x, &err))
     {
       o42_value_clear (&a);

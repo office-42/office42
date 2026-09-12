@@ -244,6 +244,25 @@ type_rank (const O42Value *v)
     }
 }
 
+/* Two texts letter by letter with case ignored, each letter lowered
+ * on its own: 0 when they are the same word, else the order of the
+ * first letters that differ. */
+static int
+compare_letters (const char *a, const char *b)
+{
+  while (*a != '\0' && *b != '\0')
+    {
+      gunichar ca = g_unichar_tolower (g_utf8_get_char (a));
+      gunichar cb = g_unichar_tolower (g_utf8_get_char (b));
+
+      if (ca != cb)
+        return ca < cb ? -1 : 1;
+      a = g_utf8_next_char (a);
+      b = g_utf8_next_char (b);
+    }
+  return (*a == '\0' && *b == '\0') ? 0 : (*a == '\0' ? -1 : 1);
+}
+
 int
 o42_value_compare (const O42Value *a, const O42Value *b)
 {
@@ -292,10 +311,18 @@ o42_value_compare (const O42Value *a, const O42Value *b)
 
     case O42_VALUE_TEXT:
       {
-        /* Comparison in a spreadsheet ignores case. */
+        /* Comparison in a spreadsheet ignores case -- letter by letter,
+         * so that "ß" is not "ss" as case folding would have it: Excel
+         * says ="ss"="ß" is FALSE. */
         char *la = g_utf8_casefold (a->as.text, -1);
         char *lb = g_utf8_casefold (b->as.text, -1);
         int result = g_utf8_collate (la, lb);
+        int letters = compare_letters (a->as.text, b->as.text);
+
+        if (letters == 0)
+          result = 0;
+        else if (result == 0)
+          result = letters;
 
         g_free (la);
         g_free (lb);
