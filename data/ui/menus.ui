@@ -311,6 +311,7 @@
       <attribute name="label" translatable="yes">_Data</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_Sort...</attribute><attribute name="action">win.sort</attribute></item>
+        <item><attribute name="label" translatable="yes">F_orm...</attribute><attribute name="action">win.data-form</attribute></item>
         <submenu>
           <attribute name="label" translatable="yes">_Filter</attribute>
           <item><attribute name="label" translatable="yes">Auto_Filter</attribute><attribute name="action">win.filter</attribute></item>

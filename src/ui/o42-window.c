@@ -5970,6 +5970,7 @@ static const GActionEntry ACTIONS[] = {
   { "unhide-columns", action_unhide_columns, NULL, NULL, NULL, { 0 } },
   { "filter",         action_filter,         NULL, NULL, NULL, { 0 } },
   { "sort",           action_sort,           NULL, NULL, NULL, { 0 } },
+  { "data-form",      action_data_form,      NULL, NULL, NULL, { 0 } },
   { "subtotals",      action_subtotals,      NULL, NULL, NULL, { 0 } },
   { "table",          action_table,          NULL, NULL, NULL, { 0 } },
   { "scenarios",      action_scenarios,      NULL, NULL, NULL, { 0 } },

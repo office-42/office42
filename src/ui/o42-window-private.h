@@ -138,6 +138,7 @@ void action_consolidate (GSimpleAction *a, GVariant *p, gpointer data);
 void action_remove_duplicates (GSimpleAction *a, GVariant *p, gpointer data);
 void action_scenarios (GSimpleAction *a, GVariant *p, gpointer data);
 void action_sort (GSimpleAction *a, GVariant *p, gpointer data);
+void action_data_form (GSimpleAction *a, GVariant *p, gpointer data);
 void action_subtotals (GSimpleAction *a, GVariant *p, gpointer data);
 void action_table (GSimpleAction *a, GVariant *p, gpointer data);
 

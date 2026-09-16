@@ -1988,3 +1988,459 @@ action_text_to_columns (GSimpleAction *a, GVariant *p, gpointer data)
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_split_destroy), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
+
+/* ---- Data > Form -------------------------------------------------------- */
+
+/* Excel 97's data form: the list around the active cell, one record at
+ * a time, with New, Delete, Restore, Find Prev, Find Next and Criteria.
+ * The first row of the list is its headings, one field apiece. */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  O42Range   list;          /* headings on the first row */
+  int        record;        /* the row on show, or -1 for a new record */
+  gboolean   criteria;      /* the entries hold criteria rather than a record */
+  GPtrArray *entries;       /* GtkWidget *, one per column */
+  GtkWidget *counter;
+  GtkWidget *new_btn, *delete_btn, *criteria_btn;
+  char     **criteria_text; /* the criteria in force, one per column, or NULL */
+} FormPrompt;
+
+/* The block of filled cells around a cell, bounded by empty rows and
+ * columns: Excel's CurrentRegion. */
+static void
+current_region (O42Sheet *sheet, int row, int col, O42Range *out)
+{
+  O42Range r = { row, col, row, col };
+  gboolean grew = TRUE;
+
+  while (grew)
+    {
+      grew = FALSE;
+      /* A line just outside each edge, the corners included, with
+       * anything in it pulls the edge out. */
+      if (r.row0 > 0)
+        for (int c = MAX (r.col0 - 1, 0); c <= MIN (r.col1 + 1, O42_MAX_COLS - 1); c++)
+          if (!o42_sheet_is_empty (sheet, r.row0 - 1, c)) { r.row0--; grew = TRUE; break; }
+      if (r.row1 < O42_MAX_ROWS - 1)
+        for (int c = MAX (r.col0 - 1, 0); c <= MIN (r.col1 + 1, O42_MAX_COLS - 1); c++)
+          if (!o42_sheet_is_empty (sheet, r.row1 + 1, c)) { r.row1++; grew = TRUE; break; }
+      if (r.col0 > 0)
+        for (int rr = MAX (r.row0 - 1, 0); rr <= MIN (r.row1 + 1, O42_MAX_ROWS - 1); rr++)
+          if (!o42_sheet_is_empty (sheet, rr, r.col0 - 1)) { r.col0--; grew = TRUE; break; }
+      if (r.col1 < O42_MAX_COLS - 1)
+        for (int rr = MAX (r.row0 - 1, 0); rr <= MIN (r.row1 + 1, O42_MAX_ROWS - 1); rr++)
+          if (!o42_sheet_is_empty (sheet, rr, r.col1 + 1)) { r.col1++; grew = TRUE; break; }
+    }
+  *out = r;
+}
+
+static int
+form_n_records (FormPrompt *prompt)
+{
+  return prompt->list.row1 - prompt->list.row0;
+}
+
+static void
+form_set_counter (FormPrompt *prompt)
+{
+  char *text;
+
+  if (prompt->criteria)
+    text = g_strdup (_("Criteria"));
+  else if (prompt->record < 0)
+    text = g_strdup (_("New Record"));
+  else
+    text = g_strdup_printf (_("%d of %d"), prompt->record - prompt->list.row0, form_n_records (prompt));
+  gtk_label_set_text (GTK_LABEL (prompt->counter), text);
+  g_free (text);
+}
+
+/* The entries show a record: what was typed into each cell, and a
+ * formula's value, which is not for editing. */
+static void
+form_show_record (FormPrompt *prompt, int row)
+{
+  O42Sheet *sheet = prompt->window->sheet;
+
+  prompt->record = row;
+  prompt->criteria = FALSE;
+  for (guint i = 0; i < prompt->entries->len; i++)
+    {
+      GtkWidget *entry = g_ptr_array_index (prompt->entries, i);
+      int col = prompt->list.col0 + (int) i;
+
+      if (row < 0)
+        {
+          gtk_editable_set_text (GTK_EDITABLE (entry), "");
+          gtk_widget_set_sensitive (entry, TRUE);
+        }
+      else if (o42_sheet_has_formula (sheet, row, col))
+        {
+          char *shown = o42_sheet_get_display (sheet, row, col);
+          gtk_editable_set_text (GTK_EDITABLE (entry), shown != NULL ? shown : "");
+          gtk_widget_set_sensitive (entry, FALSE);
+          g_free (shown);
+        }
+      else
+        {
+          char *input = o42_sheet_get_input (sheet, row, col);
+          gtk_editable_set_text (GTK_EDITABLE (entry), input != NULL ? input : "");
+          gtk_widget_set_sensitive (entry, TRUE);
+          g_free (input);
+        }
+    }
+  gtk_button_set_label (GTK_BUTTON (prompt->new_btn), _("_New"));
+  gtk_button_set_label (GTK_BUTTON (prompt->criteria_btn), _("C_riteria"));
+  gtk_widget_set_sensitive (prompt->delete_btn, row >= 0);
+  form_set_counter (prompt);
+  if (prompt->entries->len > 0)
+    gtk_widget_grab_focus (g_ptr_array_index (prompt->entries, 0));
+}
+
+/* Writes the entries back: into the record's row, or a new row under
+ * the list.  FALSE when a new record has nowhere to go. */
+static gboolean
+form_commit (FormPrompt *prompt)
+{
+  O42Sheet *sheet = prompt->window->sheet;
+  int row = prompt->record;
+  gboolean any = FALSE, changed = FALSE;
+
+  if (prompt->criteria)
+    return TRUE;
+
+  for (guint i = 0; i < prompt->entries->len && !any; i++)
+    any = *gtk_editable_get_text (GTK_EDITABLE (g_ptr_array_index (prompt->entries, i))) != '\0';
+  if (row < 0)
+    {
+      if (!any)
+        return TRUE;
+      row = prompt->list.row1 + 1;
+      if (row >= O42_MAX_ROWS)
+        return FALSE;
+      for (int col = prompt->list.col0; col <= prompt->list.col1; col++)
+        if (!o42_sheet_is_empty (sheet, row, col))
+          {
+            o42_window_show_error (prompt->window, _("Cannot extend the list: the row below it is not empty."), NULL);
+            return FALSE;
+          }
+    }
+
+  o42_sheet_begin_group (sheet);
+  for (guint i = 0; i < prompt->entries->len; i++)
+    {
+      GtkWidget *entry = g_ptr_array_index (prompt->entries, i);
+      int col = prompt->list.col0 + (int) i;
+      const char *text = gtk_editable_get_text (GTK_EDITABLE (entry));
+      char *had;
+
+      if (!gtk_widget_get_sensitive (entry))
+        continue;   /* a formula's value, shown and not touched */
+      had = o42_sheet_get_input (sheet, row, col);
+      if (g_strcmp0 (had != NULL ? had : "", text) != 0)
+        {
+          char *typed = o42_sheet_typed_input (sheet, row, col, text);
+
+          o42_sheet_set_input (sheet, row, col, typed != NULL ? typed : text);
+          g_free (typed);
+          changed = TRUE;
+        }
+      g_free (had);
+    }
+  o42_sheet_end_group (sheet);
+
+  if (prompt->record < 0)
+    {
+      prompt->list.row1 = row;
+      prompt->record = row;
+    }
+  if (changed)
+    {
+      o42_grid_refresh (prompt->window->grid);
+      o42_window_sync (prompt->window);
+    }
+  return TRUE;
+}
+
+/* Whether the record on `row` meets the criteria: text that begins as
+ * the criterion does, or a comparison -- >100, <=5, <>x, =y. */
+static gboolean
+form_matches (FormPrompt *prompt, int row)
+{
+  O42Sheet *sheet = prompt->window->sheet;
+
+  if (prompt->criteria_text == NULL)
+    return TRUE;
+  for (guint i = 0; i < prompt->entries->len; i++)
+    {
+      const char *crit = prompt->criteria_text[i];
+      int col = prompt->list.col0 + (int) i;
+      char *shown;
+      gboolean ok;
+
+      if (crit == NULL || *crit == '\0')
+        continue;
+      shown = o42_sheet_get_display (sheet, row, col);
+      if (crit[0] == '<' || crit[0] == '>' || crit[0] == '=')
+        {
+          const char *op = crit;
+          const char *rhs = crit + ((crit[1] == '=' || crit[1] == '>') ? 2 : 1);
+          char *end = NULL;
+          double a = g_ascii_strtod (shown != NULL ? shown : "", &end);
+          gboolean a_num = end != NULL && end != shown && *end == '\0';
+          double b = g_ascii_strtod (rhs, &end);
+          gboolean b_num = end != NULL && end != rhs && *end == '\0';
+          int cmp = (a_num && b_num) ? (a < b ? -1 : a > b ? 1 : 0)
+                                     : g_utf8_collate (shown != NULL ? shown : "", rhs);
+
+          if (g_str_has_prefix (op, "<>"))      ok = cmp != 0;
+          else if (g_str_has_prefix (op, "<=")) ok = cmp <= 0;
+          else if (g_str_has_prefix (op, ">=")) ok = cmp >= 0;
+          else if (op[0] == '<')                ok = cmp < 0;
+          else if (op[0] == '>')                ok = cmp > 0;
+          else                                  ok = cmp == 0;
+        }
+      else
+        {
+          char *a = g_utf8_casefold (shown != NULL ? shown : "", -1);
+          char *b = g_utf8_casefold (crit, -1);
+          ok = g_str_has_prefix (a, b);
+          g_free (a);
+          g_free (b);
+        }
+      g_free (shown);
+      if (!ok)
+        return FALSE;
+    }
+  return TRUE;
+}
+
+/* Leaving the criteria: what was typed is kept in force. */
+static void
+form_take_criteria (FormPrompt *prompt)
+{
+  gboolean any = FALSE;
+
+  g_strfreev (prompt->criteria_text);
+  prompt->criteria_text = g_new0 (char *, prompt->entries->len + 1);
+  for (guint i = 0; i < prompt->entries->len; i++)
+    {
+      prompt->criteria_text[i] = g_strdup (gtk_editable_get_text (GTK_EDITABLE (g_ptr_array_index (prompt->entries, i))));
+      any = any || *prompt->criteria_text[i] != '\0';
+    }
+  if (!any)
+    g_clear_pointer (&prompt->criteria_text, g_strfreev);
+}
+
+static void
+form_step (FormPrompt *prompt, int direction)
+{
+  int from;
+
+  if (prompt->criteria)
+    {
+      form_take_criteria (prompt);
+      from = prompt->record < 0 ? prompt->list.row1 + 1 : prompt->record;
+    }
+  else
+    {
+      if (!form_commit (prompt))
+        return;
+      from = prompt->record < 0 ? prompt->list.row1 + 1 : prompt->record;
+    }
+  for (int row = from + direction; row > prompt->list.row0 && row <= prompt->list.row1; row += direction)
+    if (form_matches (prompt, row))
+      {
+        form_show_record (prompt, row);
+        return;
+      }
+  /* Nothing further that way: stay, but as a record. */
+  if (prompt->criteria)
+    form_show_record (prompt, prompt->record < 0 && form_n_records (prompt) > 0 ? prompt->list.row0 + 1 : prompt->record);
+}
+
+static void
+on_form_prev (GtkWidget *w, gpointer data) { (void) w; form_step (data, -1); }
+static void
+on_form_next (GtkWidget *w, gpointer data) { (void) w; form_step (data, 1); }
+static void
+on_form_activate (GtkEntry *entry, gpointer data) { (void) entry; form_step (data, 1); }
+
+static void
+on_form_new (GtkWidget *w, gpointer data)
+{
+  FormPrompt *prompt = data;
+
+  (void) w;
+  if (prompt->criteria)
+    {
+      /* Clear, in the criteria. */
+      for (guint i = 0; i < prompt->entries->len; i++)
+        gtk_editable_set_text (GTK_EDITABLE (g_ptr_array_index (prompt->entries, i)), "");
+      return;
+    }
+  if (!form_commit (prompt))
+    return;
+  form_show_record (prompt, -1);
+}
+
+static void
+on_form_delete (GtkWidget *w, gpointer data)
+{
+  FormPrompt *prompt = data;
+  O42Sheet *sheet = prompt->window->sheet;
+  int row = prompt->record;
+
+  (void) w;
+  if (prompt->criteria || row < 0)
+    return;
+  o42_sheet_delete_rows (sheet, row, 1);
+  prompt->list.row1--;
+  o42_grid_refresh (prompt->window->grid);
+  o42_window_sync (prompt->window);
+  if (form_n_records (prompt) <= 0)
+    form_show_record (prompt, -1);
+  else
+    form_show_record (prompt, MIN (row, prompt->list.row1));
+}
+
+static void
+on_form_restore (GtkWidget *w, gpointer data)
+{
+  FormPrompt *prompt = data;
+
+  (void) w;
+  if (!prompt->criteria)
+    form_show_record (prompt, prompt->record);
+}
+
+static void
+on_form_criteria (GtkWidget *w, gpointer data)
+{
+  FormPrompt *prompt = data;
+
+  (void) w;
+  if (prompt->criteria)
+    {
+      /* Back to the form, the criteria kept. */
+      form_take_criteria (prompt);
+      form_show_record (prompt, prompt->record < 0 && form_n_records (prompt) > 0
+                                ? prompt->list.row0 + 1 : prompt->record);
+      return;
+    }
+  if (!form_commit (prompt))
+    return;
+  prompt->criteria = TRUE;
+  for (guint i = 0; i < prompt->entries->len; i++)
+    {
+      GtkWidget *entry = g_ptr_array_index (prompt->entries, i);
+
+      gtk_widget_set_sensitive (entry, TRUE);
+      gtk_editable_set_text (GTK_EDITABLE (entry),
+                             prompt->criteria_text != NULL && prompt->criteria_text[i] != NULL
+                             ? prompt->criteria_text[i] : "");
+    }
+  gtk_button_set_label (GTK_BUTTON (prompt->new_btn), _("Cl_ear"));
+  gtk_button_set_label (GTK_BUTTON (prompt->criteria_btn), _("_Form"));
+  gtk_widget_set_sensitive (prompt->delete_btn, FALSE);
+  form_set_counter (prompt);
+  if (prompt->entries->len > 0)
+    gtk_widget_grab_focus (g_ptr_array_index (prompt->entries, 0));
+}
+
+static void
+on_form_close (GtkWidget *w, gpointer data)
+{
+  FormPrompt *prompt = data;
+
+  (void) w;
+  if (!prompt->criteria && !form_commit (prompt))
+    return;
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+form_prompt_free (gpointer data)
+{
+  FormPrompt *prompt = data;
+
+  g_ptr_array_unref (prompt->entries);
+  g_strfreev (prompt->criteria_text);
+  g_free (prompt);
+}
+
+void
+action_data_form (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  FormPrompt *prompt;
+  GtkWidget *content, *buttons, *columns, *grid, *side;
+  O42Range list;
+  int row, col;
+
+  (void) a; (void) p;
+
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  o42_grid_get_active (self->grid, &row, &col);
+  current_region (self->sheet, row, col, &list);
+  if (list.row1 == list.row0)
+    {
+      show_error (self, _("No list was found around the active cell. A list has a row of headings with its records below."), NULL);
+      return;
+    }
+
+  prompt = g_new0 (FormPrompt, 1);
+  prompt->window = self;
+  prompt->list = list;
+  prompt->entries = g_ptr_array_new ();
+  prompt->dialog = dialog_frame (self, o42_sheet_get_name (self->sheet), FALSE, &content, &buttons);
+
+  columns = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 4);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  for (int c = list.col0; c <= list.col1 && c - list.col0 < 32; c++)
+    {
+      char *heading = o42_sheet_get_display (self->sheet, list.row0, c);
+      GtkWidget *entry = gtk_entry_new ();
+      char letters[8], *label;
+
+      /* A column without a heading goes by its letter. */
+      o42_col_name (c, letters, sizeof letters);
+      label = g_strdup_printf ("%s:", heading != NULL && *heading != '\0' ? heading : letters);
+
+      gtk_editable_set_width_chars (GTK_EDITABLE (entry), 24);
+      labelled (grid, c - list.col0, label, entry);
+      g_signal_connect (entry, "activate", G_CALLBACK (on_form_activate), prompt);
+      g_ptr_array_add (prompt->entries, entry);
+      g_free (label);
+      g_free (heading);
+    }
+  gtk_box_append (GTK_BOX (columns), grid);
+
+  /* Excel's column of buttons down the right, the counter above them. */
+  side = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+  prompt->counter = gtk_label_new ("");
+  gtk_widget_set_halign (prompt->counter, GTK_ALIGN_END);
+  gtk_box_append (GTK_BOX (side), prompt->counter);
+  prompt->new_btn = dialog_button (side, _("_New"), G_CALLBACK (on_form_new), prompt);
+  prompt->delete_btn = dialog_button (side, _("_Delete"), G_CALLBACK (on_form_delete), prompt);
+  dialog_button (side, _("Res_tore"), G_CALLBACK (on_form_restore), prompt);
+  dialog_button (side, _("Find _Prev"), G_CALLBACK (on_form_prev), prompt);
+  dialog_button (side, _("Find Ne_xt"), G_CALLBACK (on_form_next), prompt);
+  prompt->criteria_btn = dialog_button (side, _("C_riteria"), G_CALLBACK (on_form_criteria), prompt);
+  dialog_button (side, _("Close"), G_CALLBACK (on_form_close), prompt);
+  gtk_box_append (GTK_BOX (columns), side);
+  gtk_box_append (GTK_BOX (content), columns);
+  gtk_widget_set_visible (buttons, FALSE);
+
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (form_prompt_free), prompt);
+
+  /* The record the active cell is on, or the first. */
+  form_show_record (prompt, row > list.row0 ? row : list.row0 + 1);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
