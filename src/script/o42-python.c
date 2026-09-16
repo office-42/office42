@@ -2017,6 +2017,8 @@ m_object_get (PyObject *self, PyObject *args)
       dict_set (d, "first_col_labels", PyBool_FromLong (c->first_col_labels));
       dict_set (d, "data_labels", PyBool_FromLong (c->data_labels));
       dict_set (d, "three_d", PyBool_FromLong (c->three_d));
+      dict_set (d, "of_pie", PyLong_FromLong (c->of_pie));
+      dict_set (d, "of_pie_count", PyLong_FromLong (c->of_pie_count));
       dict_set (d, "gridlines", PyBool_FromLong (c->gridlines));
       dict_set (d, "font_family", PyUnicode_FromString (c->font_family != NULL ? c->font_family : ""));
       dict_set (d, "font_size", PyFloat_FromDouble (c->font_size));
@@ -2159,7 +2161,7 @@ m_object_set (PyObject *self, PyObject *args)
           SET_BOOL (c->legend) SET_BOOL (c->series_in_rows) SET_BOOL (c->first_row_labels) SET_BOOL (c->first_col_labels)
           SET_BOOL (c->data_labels) SET_BOOL (c->three_d) SET_BOOL (c->gridlines)
           SET_NUM (c->font_size) SET_NUM (c->dx) SET_NUM (c->dy) SET_NUM (c->width) SET_NUM (c->height)
-          SET_INT (c->row) SET_INT (c->col)
+          SET_INT (c->row) SET_INT (c->col) SET_INT (c->of_pie) SET_INT (c->of_pie_count)
           else { PyErr_Format (PyExc_KeyError, "a chart has no property %s", k); ok = FALSE; }
         }
       else if (s != NULL)

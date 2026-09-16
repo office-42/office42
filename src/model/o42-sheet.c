@@ -8180,6 +8180,8 @@ chart_copy (const O42Chart *chart)
   copy->font_family = g_strdup (chart->font_family != NULL ? chart->font_family : "");
   copy->font_size = chart->font_size;
   copy->three_d = chart->three_d;
+  copy->of_pie = chart->of_pie;
+  copy->of_pie_count = chart->of_pie_count;
   copy->err_bars = chart->err_bars;
   copy->err_value = chart->err_value;
   g_free (copy->y_format);

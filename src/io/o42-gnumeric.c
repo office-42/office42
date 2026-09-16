@@ -535,7 +535,7 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     "o42-kind=\"%s\" o42-first-row-labels=\"%d\" o42-first-col-labels=\"%d\" "
     "o42-series-in-rows=\"%d\" o42-legend=\"%d\" o42-gridlines=\"%d\" o42-labels=\"%d\" "
     "o42-trend=\"%s\" o42-trend-order=\"%d\" o42-errbars=\"%s\" o42-errvalue=\"%g\" "
-    "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-group=\"%u\" o42-z=\"%u\" "
+    "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-of-pie=\"%d\" o42-of-pie-count=\"%d\" o42-group=\"%u\" o42-z=\"%u\" "
     "o42-yformat=\"%s\" o42-secondary=\"%d\" "
     "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\" o42-anchor=\"%s\"%s>\n"
     "        <gnm:GogObject type=\"GogGraph\">\n"
@@ -546,7 +546,8 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     chart->data_labels ? 1 : 0, o42_trend_kind_name (chart->trend), chart->trend_order,
     o42_errbar_kind_name (chart->err_bars), chart->err_value,
     chart->font_family != NULL ? chart->font_family : "", chart->font_size,
-    chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0, chart->group, chart->z,
+    chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0,
+    chart->of_pie, chart->of_pie_count, chart->group, chart->z,
     yfmt, chart->secondary_from,
     o42_marker_kind_name (chart->marker), chart->marker_size,
     chart->marker_picture, o42_anchor_mode_name (chart->anchor), bounds);
@@ -1773,6 +1774,7 @@ typedef struct {
   int         graph_legend, graph_gridlines;   /* -1 unknown */
   int         graph_labels, graph_trend, graph_trend_order, graph_secondary;
   gboolean    graph_3d;
+  int         graph_of_pie, graph_of_pie_count;
   guint       graph_group;
   guint       graph_z;
   guint       object_z;         /* an image's z and group, from its start tag */
@@ -2941,6 +2943,8 @@ start_element (GMarkupParseContext *context, const char *element,
           r->graph_trend_name = g_strdup (attr (names, values, "o42-trend"));
           r->graph_trend_order = attr_int (names, values, "o42-trend-order", 2);
           r->graph_3d = attr_int (names, values, "o42-3d", 0) != 0;
+          r->graph_of_pie = attr_int (names, values, "o42-of-pie", 0);
+          r->graph_of_pie_count = attr_int (names, values, "o42-of-pie-count", 2);
           g_free (r->graph_marker_name);
           r->graph_marker_name = g_strdup (attr (names, values, "o42-marker"));
           r->graph_marker_size = attr_double (names, values, "o42-marker-size", 0);
@@ -3810,6 +3814,8 @@ end_element (GMarkupParseContext *context, const char *element,
               chart->font_size = r->graph_font_size;
             }
           chart->three_d = r->graph_3d;
+          chart->of_pie = r->graph_of_pie;
+          chart->of_pie_count = r->graph_of_pie_count;
           chart->group = r->graph_group;
           if (r->graph_z > 0)
             chart->z = r->graph_z;

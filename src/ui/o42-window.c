@@ -5135,6 +5135,7 @@ typedef struct {
   guint      chart_id;
   GtkWidget *title, *x_title, *y_title, *legend, *gridlines, *labels, *min, *max;
   GtkWidget *trend, *trend_order, *err_bars, *err_value, *font, *font_size, *three_d;
+  GtkWidget *of_pie, *of_pie_count;
   GtkWidget *marker, *marker_size, *marker_picture;
   GtkWidget *y_format, *secondary;
 } ChartFormatPrompt;
@@ -5171,6 +5172,8 @@ on_chart_format_ok (GtkWidget *w, gpointer data)
       chart->marker_picture = (guint) gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->marker_picture));
       chart->trend_order = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->trend_order));
       chart->three_d = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->three_d));
+      chart->of_pie = (int) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->of_pie));
+      chart->of_pie_count = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->of_pie_count));
       chart->err_bars = (O42ErrBarKind) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->err_bars));
       chart->err_value = g_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->err_value)), NULL);
       g_free (chart->font_family);
@@ -5248,6 +5251,22 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->three_d = gtk_check_button_new_with_mnemonic ( _("Draw in three _dimensions"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->three_d), chart->three_d);
   gtk_box_append (GTK_BOX (content), prompt->three_d);
+  {
+    /* Excel 97's pie-of-pie and bar-of-pie: a pie's last slices shown
+     * again in a second plot. */
+    static const char *const plots[] = { N_("None"), N_("A second pie"), N_("A bar"), NULL };
+    GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+
+    gtk_box_append (GTK_BOX (row), gtk_label_new (_("Second plot for a pie's last slices:")));
+    prompt->of_pie = drop_down_of (plots);
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->of_pie), (guint) CLAMP (chart->of_pie, 0, 2));
+    gtk_box_append (GTK_BOX (row), prompt->of_pie);
+    prompt->of_pie_count = gtk_spin_button_new_with_range (1, 50, 1);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->of_pie_count), chart->of_pie_count > 0 ? chart->of_pie_count : 2);
+    gtk_box_append (GTK_BOX (row), prompt->of_pie_count);
+    gtk_box_append (GTK_BOX (row), gtk_label_new (_("slices")));
+    gtk_box_append (GTK_BOX (content), row);
+  }
   {
     /* In the order of O42TrendKind, so the row is the kind. */
     static const char *const trends[] = { N_("None"), N_("Linear"), N_("Polynomial"), N_("Exponential"),

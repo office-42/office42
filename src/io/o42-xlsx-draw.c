@@ -196,7 +196,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   switch (chart->kind)
     {
     case O42_CHART_LINE:    element = chart->three_d ? "line3DChart" : "lineChart"; break;
-    case O42_CHART_PIE:     element = chart->three_d ? "pie3DChart" : "pieChart"; break;
+    case O42_CHART_PIE:     element = chart->of_pie != 0 ? "ofPieChart" : chart->three_d ? "pie3DChart" : "pieChart"; break;
     case O42_CHART_DOUGHNUT: element = "doughnutChart"; break;
     case O42_CHART_RADAR:   element = "radarChart"; break;
     case O42_CHART_BUBBLE:  element = "bubbleChart"; break;
@@ -227,7 +227,11 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_PERCENT: g_string_append (out, "<c:barDir val=\"col\"/><c:grouping val=\"percentStacked\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_LINE:    g_string_append (out, "<c:grouping val=\"standard\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_AREA:    g_string_append (out, "<c:grouping val=\"standard\"/><c:varyColors val=\"0\"/>"); break;
-    case O42_CHART_PIE:     g_string_append (out, "<c:varyColors val=\"1\"/>"); break;
+    case O42_CHART_PIE:
+      if (chart->of_pie != 0)
+        g_string_append_printf (out, "<c:ofPieType val=\"%s\"/>", chart->of_pie == 2 ? "bar" : "pie");
+      g_string_append (out, "<c:varyColors val=\"1\"/>");
+      break;
     case O42_CHART_SCATTER: g_string_append (out, "<c:scatterStyle val=\"lineMarker\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_DOUGHNUT: g_string_append (out, "<c:varyColors val=\"1\"/>"); break;
     case O42_CHART_RADAR:   g_string_append (out, "<c:radarStyle val=\"marker\"/><c:varyColors val=\"0\"/>"); break;
@@ -360,6 +364,10 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     g_string_append (out, "<c:gapWidth val=\"150\"/>");
   else if (chart->kind == O42_CHART_LINE)
     g_string_append (out, "<c:marker val=\"1\"/>");
+  else if (chart->kind == O42_CHART_PIE && chart->of_pie != 0)
+    g_string_append_printf (out, "<c:gapWidth val=\"100\"/><c:splitType val=\"pos\"/><c:splitPos val=\"%d\"/>"
+                                 "<c:secondPieSize val=\"75\"/>",
+                            chart->of_pie_count > 0 ? chart->of_pie_count : 2);
   if (chart->kind == O42_CHART_SURFACE)
     /* A surface stands on three: the categories across, the values up,
      * and the series into the page. */
@@ -877,6 +885,7 @@ typedef struct
   int          in_axis;        /* 1 in catAx (or the first valAx of a scatter), 2 in valAx */
   gboolean     saw_valax, saw_grid, saw_legend, saw_labels, has_min, has_max, in_err;
   gboolean     three_d;
+  int          of_pie, of_pie_count;   /* ofPieChart: its type and split */
   char        *font_family;
   double       font_size;
   O42ErrBarKind err_bars;
@@ -917,6 +926,12 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
     { c->kind = O42_CHART_LINE; c->kind_known = TRUE; }
   else if (strcmp (n, "pieChart") == 0 || strcmp (n, "pie3DChart") == 0)
     { c->kind = O42_CHART_PIE; c->kind_known = TRUE; }
+  else if (strcmp (n, "ofPieChart") == 0)
+    { c->kind = O42_CHART_PIE; c->kind_known = TRUE; c->of_pie = 1; c->of_pie_count = 2; }
+  else if (strcmp (n, "ofPieType") == 0)
+    c->of_pie = g_strcmp0 (attr (names, values, "val"), "bar") == 0 ? 2 : 1;
+  else if (strcmp (n, "splitPos") == 0)
+    c->of_pie_count = (int) g_ascii_strtod (attr (names, values, "val") != NULL ? attr (names, values, "val") : "2", NULL);
   else if (strcmp (n, "doughnutChart") == 0)
     { c->kind = O42_CHART_DOUGHNUT; c->kind_known = TRUE; }
   else if (strcmp (n, "radarChart") == 0)
@@ -1140,6 +1155,8 @@ add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
           chart->trend = c.trend;
           chart->trend_order = c.trend_order > 0 ? c.trend_order : 2;
           chart->three_d = c.three_d;
+          chart->of_pie = c.of_pie;
+          chart->of_pie_count = c.of_pie_count;
           chart->err_bars = c.err_bars;
           chart->err_value = c.err_value;
           if (c.sheet != NULL && g_ascii_strcasecmp (c.sheet, o42_sheet_get_name (sheet)) != 0)

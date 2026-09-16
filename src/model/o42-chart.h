@@ -118,6 +118,10 @@ typedef struct {
   double        marker_size;   /* across, in pixels; 0 for the default */
   guint         marker_picture; /* the picture's id on the sheet, for O42_MARKER_PICTURE */
   gboolean      three_d;       /* drawn with depth, as Excel's 3-D types are */
+  int           of_pie;        /* a pie's last slices shown again in a second
+                                * plot: 0 for none, 1 for Excel 97's pie-of-pie,
+                                * 2 for its bar-of-pie */
+  int           of_pie_count;  /* how many of the last slices go there */
   gboolean      gridlines;     /* horizontal gridlines at the value axis' ticks */
   gboolean      has_min;       /* the value axis starts at `min` rather than a round number */
   gboolean      has_max;

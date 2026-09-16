@@ -1856,6 +1856,156 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
   #undef SY
 }
 
+/* Excel 97's pie-of-pie and bar-of-pie: the last `count` slices are
+ * gathered into one "Other" slice of the main pie and shown again, at
+ * their own scale, in a small pie or a stacked bar to its right, with
+ * two lines joining the slice to the plot. */
+static void
+draw_of_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartData *d,
+             double x0, double y0, double w, double h)
+{
+  int count = CLAMP (chart->of_pie_count > 0 ? chart->of_pie_count : 2, 1, d->n_points - 1);
+  int split = d->n_points - count;
+  double total = 0, other = 0;
+  double cx = x0 + w * 0.24, cy = y0 + h / 2;
+  double radius = MIN (w * 0.20, h / 2 - 12);
+  double sx = x0 + w * 0.60, sr = radius * 0.62;
+  double angle = -G_PI / 2, other_from = 0, other_to = 0;
+
+  for (int p = 0; p < d->n_points; p++)
+    if (!isnan (d->values[p]) && d->values[p] > 0)
+      {
+        total += d->values[p];
+        if (p >= split)
+          other += d->values[p];
+      }
+  if (total <= 0)
+    return;
+
+  /* The main pie: the first slices, then "Other". */
+  for (int p = 0; p <= split; p++)
+    {
+      double v = p < split ? d->values[p] : other;
+      double sweep;
+
+      if (isnan (v) || v <= 0)
+        continue;
+      sweep = 2 * G_PI * v / total;
+      if (p < split)
+        set_rgb (cr, SERIES_COLOURS[p % G_N_ELEMENTS (SERIES_COLOURS)]);
+      else
+        {
+          cairo_set_source_rgb (cr, 0.72, 0.72, 0.72);
+          other_from = angle;
+          other_to = angle + sweep;
+        }
+      cairo_new_path (cr);
+      cairo_move_to (cr, cx, cy);
+      cairo_arc (cr, cx, cy, radius, angle, angle + sweep);
+      cairo_close_path (cr);
+      cairo_fill_preserve (cr);
+      cairo_set_source_rgb (cr, 1, 1, 1);
+      cairo_set_line_width (cr, 1);
+      cairo_stroke (cr);
+      if (chart->data_labels)
+        {
+          char *text = g_strdup_printf ("%.0f%%", 100 * v / total);
+          double mid = angle + sweep / 2;
+          cairo_set_source_rgb (cr, 1, 1, 1);
+          show_text (chart, cr, layout, text, cx + cos (mid) * radius * 0.65,
+                     cy + sin (mid) * radius * 0.65 - 7, 0.5, FALSE);
+          g_free (text);
+        }
+      angle += sweep;
+    }
+
+  /* The second plot, the last slices at their own scale. */
+  if (other > 0)
+    {
+      double top, bottom;
+
+      if (chart->of_pie == 2)
+        {
+          /* A stacked bar as tall as the pie is wide. */
+          double bw = sr * 1.1, bh = radius * 1.6, y = cy + bh / 2;
+
+          for (int p = split; p < d->n_points; p++)
+            {
+              double v = d->values[p];
+              double part;
+
+              if (isnan (v) || v <= 0)
+                continue;
+              part = bh * v / other;
+              set_rgb (cr, SERIES_COLOURS[p % G_N_ELEMENTS (SERIES_COLOURS)]);
+              cairo_rectangle (cr, sx - bw / 2, y - part, bw, part);
+              cairo_fill_preserve (cr);
+              cairo_set_source_rgb (cr, 1, 1, 1);
+              cairo_stroke (cr);
+              y -= part;
+            }
+          top = cy - bh / 2;
+          bottom = cy + bh / 2;
+          sx -= bw / 2;
+        }
+      else
+        {
+          double a2 = -G_PI / 2;
+
+          for (int p = split; p < d->n_points; p++)
+            {
+              double v = d->values[p];
+              double sweep;
+
+              if (isnan (v) || v <= 0)
+                continue;
+              sweep = 2 * G_PI * v / other;
+              set_rgb (cr, SERIES_COLOURS[p % G_N_ELEMENTS (SERIES_COLOURS)]);
+              cairo_new_path (cr);
+              cairo_move_to (cr, sx, cy);
+              cairo_arc (cr, sx, cy, sr, a2, a2 + sweep);
+              cairo_close_path (cr);
+              cairo_fill_preserve (cr);
+              cairo_set_source_rgb (cr, 1, 1, 1);
+              cairo_stroke (cr);
+              a2 += sweep;
+            }
+          top = cy - sr;
+          bottom = cy + sr;
+        }
+
+      /* The two lines from the Other slice's edges to the plot. */
+      cairo_set_source_rgb (cr, 0.45, 0.45, 0.45);
+      cairo_set_line_width (cr, 1);
+      cairo_move_to (cr, cx + cos (other_from) * radius, cy + sin (other_from) * radius);
+      cairo_line_to (cr, sx, top);
+      cairo_move_to (cr, cx + cos (other_to) * radius, cy + sin (other_to) * radius);
+      cairo_line_to (cr, sx, bottom);
+      cairo_stroke (cr);
+    }
+
+  /* The legend, down the right: every category, and Other. */
+  for (int p = 0; p <= d->n_points && p < 12; p++)
+    {
+      double ly = y0 + 12 + p * 16;
+      double v = p < d->n_points ? d->values[p] : other;
+      char *label;
+
+      if (isnan (v) || v <= 0)
+        continue;
+      if (p < d->n_points)
+        set_rgb (cr, SERIES_COLOURS[p % G_N_ELEMENTS (SERIES_COLOURS)]);
+      else
+        cairo_set_source_rgb (cr, 0.72, 0.72, 0.72);
+      cairo_rectangle (cr, x0 + w * 0.80, ly + 2, 10, 10);
+      cairo_fill (cr);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      label = g_strdup_printf ("%s (%.0f%%)", p < d->n_points ? d->categories[p] : "Other", 100 * v / total);
+      show_text (chart, cr, layout, label, x0 + w * 0.80 + 14, ly, 0.0, FALSE);
+      g_free (label);
+    }
+}
+
 static void
 draw_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartData *d,
           double x0, double y0, double w, double h)
@@ -1867,6 +2017,11 @@ draw_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartDa
 
   if (d->n_points == 0 || d->n_series == 0)
     return;
+  if (chart->kind == O42_CHART_PIE && chart->of_pie != 0 && d->n_points >= 3)
+    {
+      draw_of_pie (chart, cr, layout, d, x0, y0, w, h);
+      return;
+    }
 
   /* A pie shows the first series; the categories are its slices. */
   for (int p = 0; p < d->n_points; p++)
