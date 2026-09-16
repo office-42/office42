@@ -24,7 +24,8 @@
  *
  * from standard input.  A line with "=" sets a cell, a bare reference shows
  * one, and "dump" prints the used range.  "copy A1:B2 C1", "filldown A1:A9",
- * "fillright A1:F1", "insertrows 3 2", "deleterows 3", "insertcols 2" and
+ * "fillright A1:F1" (and "fillup", "fillleft"), "series A1:A9 linear 2",
+ * "justify A1:C6", "insertrows 3 2", "deleterows 3", "insertcols 2" and
  * "deletecols 2" move cells about, with row and column numbers as the
  * headers show them.  "save FILE" and "load FILE" write and read a
  * .gnumeric file, or a .csv one if the name ends that way.  "sort A1:C9 B
@@ -590,6 +591,70 @@ main (int argc, char *argv[])
               g_clear_error (&error);
             }
           g_object_unref (file);
+          continue;
+        }
+
+      /* series A1:A10 linear|growth|date|autofill STEP [stop=N] [unit=day|
+       * weekday|month|year] [rows] [trend]: Edit > Fill > Series. */
+      if (g_str_has_prefix (text, "series "))
+        {
+          char **words = g_strsplit (text, " ", -1);
+          int n = (int) g_strv_length (words);
+          O42Range r;
+          O42Series series = { FALSE, O42_SERIES_LINEAR, O42_SERIES_DAY, 1, FALSE, FALSE, 0 };
+          gsize len = 0;
+          gboolean ok = n >= 3 && o42_ref_parse (words[1], &r.row0, &r.col0, &len);
+
+          if (ok && words[1][len] == ':')
+            ok = o42_ref_parse (words[1] + len + 1, &r.row1, &r.col1, NULL);
+          else if (ok)
+            { r.row1 = r.row0; r.col1 = r.col0; }
+          if (ok)
+            {
+              r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              if (strcmp (words[2], "linear") == 0) series.type = O42_SERIES_LINEAR;
+              else if (strcmp (words[2], "growth") == 0) series.type = O42_SERIES_GROWTH;
+              else if (strcmp (words[2], "date") == 0) series.type = O42_SERIES_DATE;
+              else if (strcmp (words[2], "autofill") == 0) series.type = O42_SERIES_AUTOFILL;
+              else ok = FALSE;
+            }
+          for (int i = 3; ok && i < n; i++)
+            {
+              if (g_str_has_prefix (words[i], "stop="))
+                { series.has_stop = TRUE; series.stop = g_ascii_strtod (words[i] + 5, NULL); }
+              else if (g_str_has_prefix (words[i], "unit="))
+                {
+                  const char *u = words[i] + 5;
+                  series.unit = strcmp (u, "weekday") == 0 ? O42_SERIES_WEEKDAY
+                              : strcmp (u, "month") == 0 ? O42_SERIES_MONTH
+                              : strcmp (u, "year") == 0 ? O42_SERIES_YEAR : O42_SERIES_DAY;
+                }
+              else if (strcmp (words[i], "rows") == 0) series.in_rows = TRUE;
+              else if (strcmp (words[i], "trend") == 0) series.trend = TRUE;
+              else series.step = g_ascii_strtod (words[i], NULL);
+            }
+          if (ok)
+            o42_sheet_fill_series (sheet, &r, &series);
+          else
+            fprintf (stderr, "usage: series A1:A10 linear|growth|date|autofill STEP [stop=N] [unit=day|weekday|month|year] [rows] [trend]\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* justify A1:C6: Edit > Fill > Justify. */
+      if (g_str_has_prefix (text, "justify "))
+        {
+          O42Range r;
+          gsize len = 0;
+
+          if (o42_ref_parse (text + 8, &r.row0, &r.col0, &len) && text[8 + len] == ':' &&
+              o42_ref_parse (text + 8 + len + 1, &r.row1, &r.col1, NULL))
+            {
+              r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              o42_sheet_fill_justify (sheet, &r);
+            }
+          else
+            fprintf (stderr, "usage: justify A1:C6\n");
           continue;
         }
 
@@ -3768,7 +3833,9 @@ main (int argc, char *argv[])
 
       if (g_str_has_prefix (text, "copy ") ||
           g_str_has_prefix (text, "filldown ") ||
-          g_str_has_prefix (text, "fillright "))
+          g_str_has_prefix (text, "fillright ") ||
+          g_str_has_prefix (text, "fillup ") ||
+          g_str_has_prefix (text, "fillleft "))
         {
           char **words = g_strsplit (text, " ", -1);
           int n = (int) g_strv_length (words);
@@ -3790,7 +3857,11 @@ main (int argc, char *argv[])
               r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
 
               if (words[0][0] == 'f')
-                o42_sheet_fill (sheet, &r, strcmp (words[0], "filldown") == 0);
+                o42_sheet_fill_direction (sheet, &r,
+                                          strcmp (words[0], "filldown") == 0 ? O42_FILL_DOWN
+                                          : strcmp (words[0], "fillright") == 0 ? O42_FILL_RIGHT
+                                          : strcmp (words[0], "fillup") == 0 ? O42_FILL_UP
+                                          : O42_FILL_LEFT);
               else if (n >= 3 && o42_ref_parse (words[2], &trow, &tcol, NULL))
                 o42_sheet_copy_range (sheet, &r, trow, tcol);
               else

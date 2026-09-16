@@ -65,8 +65,22 @@ void o42_grid_paste_special (O42Grid *self, O42PasteMode mode, gboolean transpos
 gboolean o42_grid_has_own_copy (O42Grid *self);
 
 /* Fill Down copies the selection's top row into the rows below it; Fill
- * Right its left column into the columns to the right. */
-void o42_grid_fill (O42Grid *self, gboolean down);
+ * Right its left column into the columns to the right; Up and Left the
+ * other way about.  Series and Justify are Edit > Fill's dialogs. */
+void o42_grid_fill           (O42Grid *self, gboolean down);
+void o42_grid_fill_direction (O42Grid *self, O42FillDirection direction);
+void o42_grid_fill_series    (O42Grid *self, const O42Series *series);
+void o42_grid_fill_justify   (O42Grid *self);
+
+/* Edit > Clear: the contents (what Delete does), the formats, the
+ * notes, or all three. */
+typedef enum {
+  O42_CLEAR_CONTENTS,
+  O42_CLEAR_FORMATS,
+  O42_CLEAR_NOTES,
+  O42_CLEAR_ALL
+} O42ClearWhat;
+void o42_grid_clear_selection (O42Grid *self, O42ClearWhat what);
 
 /* Inserts as many rows (columns) as the selection spans, above (left of)
  * it; deletes the rows (columns) it spans. */

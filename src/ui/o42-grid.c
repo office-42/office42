@@ -3470,6 +3470,12 @@ o42_grid_paste (O42Grid *self)
 void
 o42_grid_fill (O42Grid *self, gboolean down)
 {
+  o42_grid_fill_direction (self, down ? O42_FILL_DOWN : O42_FILL_RIGHT);
+}
+
+void
+o42_grid_fill_direction (O42Grid *self, O42FillDirection direction)
+{
   O42Range range;
 
   g_return_if_fail (O42_IS_GRID (self));
@@ -3481,7 +3487,102 @@ o42_grid_fill (O42Grid *self, gboolean down)
     o42_grid_commit_edit (self);
 
   selection_range (self, &range);
-  o42_sheet_fill (self->sheet, &range, down);
+  o42_sheet_fill_direction (self->sheet, &range, direction);
+  cells_edited (self, &range);
+  sheet_changed (self);
+}
+
+void
+o42_grid_fill_series (O42Grid *self, const O42Series *series)
+{
+  O42Range range;
+
+  g_return_if_fail (O42_IS_GRID (self));
+
+  if (self->sheet == NULL)
+    return;
+
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  selection_range (self, &range);
+  o42_sheet_fill_series (self->sheet, &range, series);
+  cells_edited (self, &range);
+  sheet_changed (self);
+}
+
+void
+o42_grid_fill_justify (O42Grid *self)
+{
+  O42Range range;
+
+  g_return_if_fail (O42_IS_GRID (self));
+
+  if (self->sheet == NULL)
+    return;
+
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  selection_range (self, &range);
+  o42_sheet_fill_justify (self->sheet, &range);
+  /* The text may have run on below the range. */
+  range.row1 = MIN (O42_MAX_ROWS - 1, range.row1 + 64);
+  cells_edited (self, &range);
+  sheet_changed (self);
+}
+
+void
+o42_grid_clear_selection (O42Grid *self, O42ClearWhat what)
+{
+  GArray *ranges;
+
+  g_return_if_fail (O42_IS_GRID (self));
+
+  if (self->sheet == NULL)
+    return;
+
+  if (self->editing)
+    o42_grid_cancel_edit (self);
+
+  ranges = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  selection_ranges (self, ranges);
+  o42_sheet_begin_group (self->sheet);
+  for (guint i = 0; i < ranges->len; i++)
+    {
+      const O42Range *r = &g_array_index (ranges, O42Range, i);
+
+      if (what == O42_CLEAR_CONTENTS || what == O42_CLEAR_ALL)
+        o42_sheet_clear_range (self->sheet, r);
+      if (what == O42_CLEAR_FORMATS || what == O42_CLEAR_ALL)
+        o42_sheet_clear_formats (self->sheet, r);
+      if (what == O42_CLEAR_NOTES || what == O42_CLEAR_ALL)
+        {
+          /* The notes are a table keyed by cell; walk the ones there
+           * rather than every cell of a range that may be a column. */
+          GHashTableIter iter;
+          gpointer key;
+          GArray *keys = g_array_new (FALSE, FALSE, sizeof (guint64));
+
+          g_hash_table_iter_init (&iter, o42_sheet_notes (self->sheet));
+          while (g_hash_table_iter_next (&iter, &key, NULL))
+            {
+              guint64 k = *(guint64 *) key;
+
+              if (o42_range_contains (r, o42_key_row (k), o42_key_col (k)))
+                g_array_append_val (keys, k);
+            }
+          for (guint j = 0; j < keys->len; j++)
+            {
+              guint64 k = g_array_index (keys, guint64, j);
+              o42_sheet_set_note (self->sheet, o42_key_row (k), o42_key_col (k), NULL);
+            }
+          g_array_unref (keys);
+        }
+      cells_edited (self, r);
+    }
+  o42_sheet_end_group (self->sheet);
+  g_array_unref (ranges);
   sheet_changed (self);
 }
 

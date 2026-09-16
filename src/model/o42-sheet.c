@@ -3469,47 +3469,442 @@ o42_sheet_copy_range_special (O42Sheet *sheet, const O42Range *source,
 void
 o42_sheet_fill (O42Sheet *sheet, const O42Range *range, gboolean down)
 {
+  o42_sheet_fill_direction (sheet, range, down ? O42_FILL_DOWN : O42_FILL_RIGHT);
+}
+
+void
+o42_sheet_fill_direction (O42Sheet *sheet, const O42Range *range,
+                          O42FillDirection direction)
+{
+  static const char *const NAMES[] = { "fill_down", "fill_right", "fill_up", "fill_left" };
+  gboolean vertical = (direction == O42_FILL_DOWN || direction == O42_FILL_UP);
+  /* The row (or column) the others are copied from: the edge the fill
+   * moves away from. */
+  int from = (direction == O42_FILL_DOWN)  ? range->row0
+           : (direction == O42_FILL_UP)    ? range->row1
+           : (direction == O42_FILL_RIGHT) ? range->col0
+           :                                 range->col1;
+
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (range != NULL);
 
   {
     char *text = record_range_text (sheet, range);
-    record_op_begin (sheet, "%s.%s()", text, down ? "fill_down" : "fill_right");
+    record_op_begin (sheet, "%s.%s()", text, NAMES[direction]);
     g_free (text);
   }
   op_begin (sheet);
 
-  if (down)
+  if (vertical)
     {
-      for (int row = range->row0 + 1; row <= range->row1; row++)
-        for (int col = range->col0; col <= range->col1; col++)
-          {
-            Carried k;
+      for (int row = range->row0; row <= range->row1; row++)
+        {
+          if (row == from)
+            continue;
+          for (int col = range->col0; col <= range->col1; col++)
+            {
+              Carried k;
 
-            k.input = o42_sheet_get_input_relocated (sheet, range->row0, col,
-                                                     row - range->row0, 0);
-            k.fmt = o42_sheet_get_fmt_idx (sheet, range->row0, col);
-            sheet_put_carried (sheet, row, col, &k);
-            g_free (k.input);
-          }
+              k.input = o42_sheet_get_input_relocated (sheet, from, col, row - from, 0);
+              k.fmt = o42_sheet_get_fmt_idx (sheet, from, col);
+              sheet_put_carried (sheet, row, col, &k);
+              g_free (k.input);
+            }
+        }
     }
   else
     {
-      for (int col = range->col0 + 1; col <= range->col1; col++)
-        for (int row = range->row0; row <= range->row1; row++)
-          {
-            Carried k;
+      for (int col = range->col0; col <= range->col1; col++)
+        {
+          if (col == from)
+            continue;
+          for (int row = range->row0; row <= range->row1; row++)
+            {
+              Carried k;
 
-            k.input = o42_sheet_get_input_relocated (sheet, row, range->col0,
-                                                     0, col - range->col0);
-            k.fmt = o42_sheet_get_fmt_idx (sheet, row, range->col0);
-            sheet_put_carried (sheet, row, col, &k);
-            g_free (k.input);
-          }
+              k.input = o42_sheet_get_input_relocated (sheet, row, from, 0, col - from);
+              k.fmt = o42_sheet_get_fmt_idx (sheet, row, from);
+              sheet_put_carried (sheet, row, col, &k);
+              g_free (k.input);
+            }
+        }
     }
 
   op_end (sheet);
   record_op_end (sheet);
+}
+
+/* ---- Fill Series ------------------------------------------------------- */
+
+/* `serial` moved by `months` months, the day held to the month's end
+ * when the month it lands in is shorter, as EDATE moves a date. */
+static double
+serial_add_months (double serial, int months)
+{
+  static const int DAYS[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+  int y, m, d, last;
+  double fraction = serial - floor (serial);
+
+  if (!o42_date_from_serial (serial, &y, &m, &d))
+    return serial;
+  m += months;
+  y += (int) floor ((m - 1) / 12.0);
+  m = ((m - 1) % 12 + 12) % 12 + 1;
+  last = DAYS[m - 1];
+  if (m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0))
+    last = 29;
+  return o42_date_serial (y, m, MIN (d, last)) + fraction;
+}
+
+/* The cell after `value` in a series, `i` steps from the `seed`.  A
+ * month or year series is counted from the seed rather than from the
+ * cell before, so that a series from 31 January goes 29 February, 31
+ * March: the day comes back once a month is long enough for it, as it
+ * does in Excel. */
+static double
+series_next (double seed, double value, int i, const O42Series *series)
+{
+  switch (series->type)
+    {
+    case O42_SERIES_LINEAR:
+      return value + series->step;
+    case O42_SERIES_GROWTH:
+      return value * series->step;
+    case O42_SERIES_DATE:
+      switch (series->unit)
+        {
+        case O42_SERIES_DAY:
+          return value + series->step;
+        case O42_SERIES_WEEKDAY:
+          {
+            /* One weekday at a time, stepping over Saturday and Sunday
+             * -- 6 and 7, as o42_date_weekday counts from Monday. */
+            int n = (int) fabs (series->step), sign = series->step < 0 ? -1 : 1;
+
+            for (int k = 0; k < n; k++)
+              {
+                int day;
+                do
+                  {
+                    value += sign;
+                    day = o42_date_weekday (value);
+                  }
+                while (day == 6 || day == 7);
+              }
+            return value;
+          }
+        case O42_SERIES_MONTH:
+          return serial_add_months (seed, i * (int) series->step);
+        case O42_SERIES_YEAR:
+          return serial_add_months (seed, 12 * i * (int) series->step);
+        }
+      return value;
+    case O42_SERIES_AUTOFILL:
+      break;
+    }
+  return value;
+}
+
+/* The line of cells a series runs along: cell `i` of line `line`. */
+static void
+series_cell (const O42Range *r, gboolean in_rows, int line, int i, int *row, int *col)
+{
+  *row = in_rows ? r->row0 + line : r->row0 + i;
+  *col = in_rows ? r->col0 + i : r->col0 + line;
+}
+
+void
+o42_sheet_fill_series (O42Sheet *sheet, const O42Range *range,
+                       const O42Series *series)
+{
+  static const char *const TYPES[] = { "linear", "growth", "date", "autofill" };
+  static const char *const UNITS[] = { "day", "weekday", "month", "year" };
+  O42Range r;
+  int lines, length;
+
+  g_return_if_fail (sheet != NULL);
+  g_return_if_fail (range != NULL && series != NULL);
+
+  r = *range;
+  /* One cell and a stop value: the series runs from the cell until it
+   * reaches the stop, which is how Excel fills a column of dates from
+   * one date. */
+  if (r.row0 == r.row1 && r.col0 == r.col1 && series->has_stop &&
+      series->type != O42_SERIES_AUTOFILL)
+    {
+      if (series->in_rows)
+        r.col1 = O42_MAX_COLS - 1;
+      else
+        r.row1 = O42_MAX_ROWS - 1;
+    }
+  lines = series->in_rows ? r.row1 - r.row0 + 1 : r.col1 - r.col0 + 1;
+  length = series->in_rows ? r.col1 - r.col0 + 1 : r.row1 - r.row0 + 1;
+
+  {
+    char *text = record_range_text (sheet, range);
+    char step[G_ASCII_DTOSTR_BUF_SIZE], stop[G_ASCII_DTOSTR_BUF_SIZE];
+    GString *extra = g_string_new (NULL);
+
+    if (series->type == O42_SERIES_DATE)
+      g_string_append_printf (extra, ", unit=\"%s\"", UNITS[series->unit]);
+    if (series->has_stop)
+      g_string_append_printf (extra, ", stop=%s", g_ascii_dtostr (stop, sizeof stop, series->stop));
+    if (series->in_rows)
+      g_string_append (extra, ", rows=True");
+    if (series->trend)
+      g_string_append (extra, ", trend=True");
+    record_op_begin (sheet, "%s.fill_series(\"%s\", step=%s%s)", text, TYPES[series->type],
+                     g_ascii_dtostr (step, sizeof step, series->step), extra->str);
+    g_string_free (extra, TRUE);
+    g_free (text);
+  }
+  op_begin (sheet);
+
+  for (int line = 0; line < lines; line++)
+    {
+      int row0, col0, seeds = 0;
+      O42Value v;
+      double value, previous;
+      O42FmtIdx fmt;
+      double a = 0, b = 0;         /* the trend: a + b*i, or exp(a + b*i) */
+      gboolean fitted = FALSE;
+
+      series_cell (&r, series->in_rows, line, 0, &row0, &col0);
+
+      /* The seeds: the run of filled cells the line begins with. */
+      while (seeds < length)
+        {
+          int row, col;
+
+          series_cell (&r, series->in_rows, line, seeds, &row, &col);
+          if (o42_sheet_is_empty (sheet, row, col))
+            break;
+          seeds++;
+        }
+      if (seeds == 0)
+        continue;
+
+      if (series->type == O42_SERIES_AUTOFILL)
+        {
+          O42Range source, target;
+
+          if (seeds >= length)
+            continue;
+          series_cell (&r, series->in_rows, line, 0, &source.row0, &source.col0);
+          series_cell (&r, series->in_rows, line, seeds - 1, &source.row1, &source.col1);
+          series_cell (&r, series->in_rows, line, 0, &target.row0, &target.col0);
+          series_cell (&r, series->in_rows, line, length - 1, &target.row1, &target.col1);
+          o42_sheet_autofill (sheet, &source, &target);
+          continue;
+        }
+
+      o42_sheet_get_value (sheet, row0, col0, &v);
+      if (v.type != O42_VALUE_NUMBER)
+        {
+          o42_value_clear (&v);
+          continue;
+        }
+      value = v.as.number;
+      fmt = o42_sheet_get_fmt_idx (sheet, row0, col0);
+
+      /* A trend is a least-squares fit through the seeds, x = 0, 1,
+       * 2...; the growth trend fits the logarithms.  One seed makes no
+       * line, and the step is used instead. */
+      if (series->trend && seeds >= 2 && series->type != O42_SERIES_DATE)
+        {
+          double sx = 0, sy = 0, sxx = 0, sxy = 0;
+          int n = 0;
+          gboolean ok = TRUE;
+
+          for (int i = 0; i < seeds && ok; i++)
+            {
+              int row, col;
+              O42Value w;
+              double y;
+
+              series_cell (&r, series->in_rows, line, i, &row, &col);
+              o42_sheet_get_value (sheet, row, col, &w);
+              ok = (w.type == O42_VALUE_NUMBER);
+              y = ok ? w.as.number : 0;
+              o42_value_clear (&w);
+              if (ok && series->type == O42_SERIES_GROWTH)
+                {
+                  ok = (y > 0);
+                  y = ok ? log (y) : 0;
+                }
+              if (ok)
+                {
+                  sx += i; sy += y; sxx += (double) i * i; sxy += i * y;
+                  n++;
+                }
+            }
+          if (ok && n >= 2 && n * sxx - sx * sx != 0)
+            {
+              b = (n * sxy - sx * sy) / (n * sxx - sx * sx);
+              a = (sy - b * sx) / n;
+              fitted = TRUE;
+            }
+        }
+
+      previous = value;
+      for (int i = fitted ? 0 : 1; i < length; i++)
+        {
+          int row, col;
+          Carried k;
+          char *text;
+
+          if (fitted)
+            value = series->type == O42_SERIES_GROWTH ? exp (a + b * i) : a + b * i;
+          else
+            value = series_next (v.as.number, value, i, series);
+
+          /* The stop is passed when the series has gone beyond it in
+           * the direction it is going. */
+          if (series->has_stop &&
+              ((value > series->stop && value > previous) ||
+               (value < series->stop && value < previous)))
+            break;
+          previous = value;
+
+          series_cell (&r, series->in_rows, line, i, &row, &col);
+          text = o42_number_to_text (value, TRUE);
+          k.input = text;
+          k.fmt = fmt;
+          sheet_put_carried (sheet, row, col, &k);
+          g_free (text);
+        }
+    }
+
+  op_end (sheet);
+  record_op_end (sheet);
+}
+
+/* ---- Fill Justify ------------------------------------------------------ */
+
+/* The lines the paragraphs come out as: as many words to a line as fit
+ * `chars`, a word too long for a line on a line of its own, and an
+ * empty line between paragraphs. */
+static GPtrArray *
+justify_lines (GPtrArray *paragraphs, int chars)
+{
+  GPtrArray *lines = g_ptr_array_new_with_free_func (g_free);
+
+  for (guint p = 0; p < paragraphs->len; p++)
+    {
+      char **words = g_strsplit_set (g_ptr_array_index (paragraphs, p), " \t\n", -1);
+      GString *line = g_string_new (NULL);
+
+      if (p > 0)
+        g_ptr_array_add (lines, g_strdup (""));
+      for (int i = 0; words[i] != NULL; i++)
+        {
+          glong wlen = g_utf8_strlen (words[i], -1);
+
+          if (words[i][0] == '\0')
+            continue;
+          if (line->len > 0 &&
+              g_utf8_strlen (line->str, -1) + 1 + wlen > chars)
+            {
+              g_ptr_array_add (lines, g_string_free (line, FALSE));
+              line = g_string_new (NULL);
+            }
+          if (line->len > 0)
+            g_string_append_c (line, ' ');
+          g_string_append (line, words[i]);
+        }
+      if (line->len > 0)
+        g_ptr_array_add (lines, g_string_free (line, FALSE));
+      else
+        g_string_free (line, TRUE);
+      g_strfreev (words);
+    }
+  return lines;
+}
+
+void
+o42_sheet_fill_justify (O42Sheet *sheet, const O42Range *range)
+{
+  GPtrArray *paragraphs, *lines;
+  GString *paragraph = NULL;
+  int width = 0, chars, last_text = -1, last_row;
+  O42FmtIdx fmt;
+
+  g_return_if_fail (sheet != NULL);
+  g_return_if_fail (range != NULL);
+
+  /* The width the text is fitted to, in the characters of the default
+   * font: the .xlsx convention of seven pixels a character. */
+  for (int col = range->col0; col <= range->col1; col++)
+    if (!o42_sheet_col_hidden (sheet, col))
+      width += o42_sheet_col_width (sheet, col);
+  chars = MAX (1, (int) ((width - 5) / 7.0));
+
+  /* The paragraphs: runs of text cells down the first column, and the
+   * format of the first, which the lines put back wear. */
+  paragraphs = g_ptr_array_new_with_free_func (g_free);
+  fmt = o42_sheet_get_fmt_idx (sheet, range->row0, range->col0);
+  for (int row = range->row0; row <= range->row1; row++)
+    {
+      O42Value v;
+
+      o42_sheet_get_value (sheet, row, range->col0, &v);
+      if (v.type == O42_VALUE_TEXT && !o42_sheet_has_formula (sheet, row, range->col0))
+        {
+          if (paragraph == NULL)
+            {
+              paragraph = g_string_new (NULL);
+              if (paragraphs->len == 0)
+                fmt = o42_sheet_get_fmt_idx (sheet, row, range->col0);
+            }
+          else
+            g_string_append_c (paragraph, ' ');
+          g_string_append (paragraph, v.as.text);
+          last_text = row;
+        }
+      else if (paragraph != NULL)
+        {
+          g_ptr_array_add (paragraphs, g_string_free (paragraph, FALSE));
+          paragraph = NULL;
+        }
+      o42_value_clear (&v);
+    }
+  if (paragraph != NULL)
+    g_ptr_array_add (paragraphs, g_string_free (paragraph, FALSE));
+  if (paragraphs->len == 0)
+    {
+      g_ptr_array_unref (paragraphs);
+      return;
+    }
+
+  lines = justify_lines (paragraphs, chars);
+
+  {
+    char *text = record_range_text (sheet, range);
+    record_op_begin (sheet, "%s.justify()", text);
+    g_free (text);
+  }
+  op_begin (sheet);
+
+  /* The lines go back from the top.  The rows the text no longer needs
+   * are emptied, and the rows below the range are used when it needs
+   * more than it had. */
+  last_row = MAX (last_text, range->row0 + (int) lines->len - 1);
+  for (int row = range->row0; row <= last_row && row < O42_MAX_ROWS; row++)
+    {
+      guint i = (guint) (row - range->row0);
+      const char *line = i < lines->len ? g_ptr_array_index (lines, i) : NULL;
+      Carried k;
+
+      k.input = (line != NULL && line[0] != '\0') ? g_strdup (line) : NULL;
+      k.fmt = fmt;
+      sheet_put_carried (sheet, row, range->col0, &k);
+      g_free (k.input);
+    }
+
+  op_end (sheet);
+  record_op_end (sheet);
+  g_ptr_array_unref (lines);
+  g_ptr_array_unref (paragraphs);
 }
 
 /* ---- Autofill --------------------------------------------------------- */

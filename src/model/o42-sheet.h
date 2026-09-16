@@ -117,9 +117,65 @@ void o42_sheet_copy_range_special (O42Sheet *sheet, const O42Range *source,
                                    int row, int col, O42PasteMode mode,
                                    gboolean transpose);
 
-/* Fill Down and Fill Right: the first row (or column) of the range is
- * copied into every other row (or column) of it. */
-void o42_sheet_fill (O42Sheet *sheet, const O42Range *range, gboolean down);
+/* Fill Down, Right, Up and Left: the edge row (or column) of the range
+ * is copied into every other row (or column) of it, formulas relocated
+ * as they go.  o42_sheet_fill is the older pair, down or right. */
+typedef enum {
+  O42_FILL_DOWN,
+  O42_FILL_RIGHT,
+  O42_FILL_UP,
+  O42_FILL_LEFT
+} O42FillDirection;
+
+void o42_sheet_fill           (O42Sheet *sheet, const O42Range *range, gboolean down);
+void o42_sheet_fill_direction (O42Sheet *sheet, const O42Range *range,
+                               O42FillDirection direction);
+
+/* Edit > Fill > Series, as Excel 97's dialog has it.  Each column of
+ * the range (each row, `in_rows`) is a series that starts from its
+ * first cell: a linear series adds the step to each cell to make the
+ * next, a growth series multiplies by it, a date series steps by days,
+ * weekdays, months or years, and AutoFill continues whatever the leading
+ * cells hold as dragging the fill handle would.  A trend fits a line
+ * (or, for growth, an exponential) to the numbers the line already
+ * holds and writes the fit over them, the step ignored.  A stop value
+ * ends a series where it would pass it, and with a single cell
+ * selected the series runs down (or across) from that cell until it
+ * does.  Lines whose first cell is not a number are left alone.  One
+ * undo step. */
+typedef enum {
+  O42_SERIES_LINEAR,
+  O42_SERIES_GROWTH,
+  O42_SERIES_DATE,
+  O42_SERIES_AUTOFILL
+} O42SeriesType;
+
+typedef enum {
+  O42_SERIES_DAY,
+  O42_SERIES_WEEKDAY,
+  O42_SERIES_MONTH,
+  O42_SERIES_YEAR
+} O42SeriesUnit;
+
+typedef struct {
+  gboolean      in_rows;   /* a series along each row; else down each column */
+  O42SeriesType type;
+  O42SeriesUnit unit;      /* for a date series */
+  double        step;
+  gboolean      trend;
+  gboolean      has_stop;
+  double        stop;
+} O42Series;
+
+void o42_sheet_fill_series (O42Sheet *sheet, const O42Range *range,
+                            const O42Series *series);
+
+/* Edit > Fill > Justify: the text in the first column of the range, row
+ * after row, is broken into words and laid out again so that each row
+ * holds as many as fit across the range's width; an empty row starts a
+ * new paragraph.  When the words need more rows than the range has, the
+ * rows below it are used, as Excel uses them.  One undo step. */
+void o42_sheet_fill_justify (O42Sheet *sheet, const O42Range *range);
 
 /* What dragging the fill handle does: extends `source` to cover `target`
  * (which contains it and reaches past it in one direction) by continuing

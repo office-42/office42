@@ -56,8 +56,18 @@
           <attribute name="label" translatable="yes">F_ill</attribute>
           <item><attribute name="label" translatable="yes">_Down</attribute><attribute name="action">win.fill-down</attribute></item>
           <item><attribute name="label" translatable="yes">_Right</attribute><attribute name="action">win.fill-right</attribute></item>
+          <item><attribute name="label" translatable="yes">_Up</attribute><attribute name="action">win.fill-up</attribute></item>
+          <item><attribute name="label" translatable="yes">_Left</attribute><attribute name="action">win.fill-left</attribute></item>
+          <item><attribute name="label" translatable="yes">_Series...</attribute><attribute name="action">win.fill-series</attribute></item>
+          <item><attribute name="label" translatable="yes">_Justify</attribute><attribute name="action">win.fill-justify</attribute></item>
         </submenu>
-        <item><attribute name="label" translatable="yes">Cle_ar</attribute><attribute name="action">win.clear</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">Cle_ar</attribute>
+          <item><attribute name="label" translatable="yes">_All</attribute><attribute name="action">win.clear-all</attribute></item>
+          <item><attribute name="label" translatable="yes">_Formats</attribute><attribute name="action">win.clear-formats</attribute></item>
+          <item><attribute name="label" translatable="yes">_Contents</attribute><attribute name="action">win.clear</attribute></item>
+          <item><attribute name="label" translatable="yes">_Notes</attribute><attribute name="action">win.clear-notes</attribute></item>
+        </submenu>
         <item><attribute name="label" translatable="yes">_Delete...</attribute><attribute name="action">win.delete-cells</attribute></item>
         <item><attribute name="label" translatable="yes">Delete Ro_ws</attribute><attribute name="action">win.delete-rows</attribute></item>
         <item><attribute name="label" translatable="yes">Delete Colu_mns</attribute><attribute name="action">win.delete-columns</attribute></item>

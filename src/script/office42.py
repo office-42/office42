@@ -259,10 +259,33 @@ class Range:
 
     def fill_down(self):
         """The first row copied into every other row of the range."""
-        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, True)
+        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, 0)
 
     def fill_right(self):
-        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, False)
+        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, 1)
+
+    def fill_up(self):
+        """The last row copied into every other row of the range."""
+        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, 2)
+
+    def fill_left(self):
+        _c.fill(self.sheet.index, self.row0, self.col0, self.row1, self.col1, 3)
+
+    def fill_series(self, type="linear", step=1, stop=None, unit="day",
+                    rows=False, trend=False):
+        """Edit > Fill > Series: each column (each row, rows=True) runs on
+        from its first cell.  `type` is "linear", "growth", "date" or
+        "autofill"; a date series steps by `unit`, "day", "weekday",
+        "month" or "year"; `stop` ends it; `trend` fits a line to the
+        numbers already there."""
+        _c.fill_series(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                       str(type), str(unit), float(step), bool(trend),
+                       stop is not None, 0.0 if stop is None else float(stop), bool(rows))
+
+    def justify(self):
+        """Edit > Fill > Justify: the text in the first column laid out
+        again in rows that fit the range's width."""
+        _c.fill_justify(self.sheet.index, self.row0, self.col0, self.row1, self.col1)
 
     def autofill(self, target):
         """Continues the range's series over `target`, which contains it."""

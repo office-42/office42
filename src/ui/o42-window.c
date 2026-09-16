@@ -245,8 +245,14 @@ window_undo_redo (O42Window *self, gboolean undo)
 static void action_undo (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; window_undo_redo (d, TRUE); }
 static void action_redo (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; window_undo_redo (d, FALSE); }
 
-static void action_fill_down  (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill (O42_WINDOW (d)->grid, TRUE);  }
-static void action_fill_right (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill (O42_WINDOW (d)->grid, FALSE); }
+static void action_fill_down  (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_direction (O42_WINDOW (d)->grid, O42_FILL_DOWN);  }
+static void action_fill_right (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_direction (O42_WINDOW (d)->grid, O42_FILL_RIGHT); }
+static void action_fill_up    (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_direction (O42_WINDOW (d)->grid, O42_FILL_UP);    }
+static void action_fill_left  (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_direction (O42_WINDOW (d)->grid, O42_FILL_LEFT);  }
+static void action_fill_justify (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_justify (O42_WINDOW (d)->grid); }
+static void action_clear_formats (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_clear_selection (O42_WINDOW (d)->grid, O42_CLEAR_FORMATS); }
+static void action_clear_notes   (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_clear_selection (O42_WINDOW (d)->grid, O42_CLEAR_NOTES); }
+static void action_clear_all     (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_clear_selection (O42_WINDOW (d)->grid, O42_CLEAR_ALL); }
 
 static void
 toggle_fmt (O42Window *self, O42FmtMask mask)
@@ -5925,6 +5931,13 @@ static const GActionEntry ACTIONS[] = {
   { "select-all", action_select_all, NULL, NULL, NULL, { 0 } },
   { "fill-down",  action_fill_down,  NULL, NULL, NULL, { 0 } },
   { "fill-right", action_fill_right, NULL, NULL, NULL, { 0 } },
+  { "fill-up",    action_fill_up,    NULL, NULL, NULL, { 0 } },
+  { "fill-left",  action_fill_left,  NULL, NULL, NULL, { 0 } },
+  { "fill-series", action_fill_series, NULL, NULL, NULL, { 0 } },
+  { "fill-justify", action_fill_justify, NULL, NULL, NULL, { 0 } },
+  { "clear-formats", action_clear_formats, NULL, NULL, NULL, { 0 } },
+  { "clear-notes",   action_clear_notes,   NULL, NULL, NULL, { 0 } },
+  { "clear-all",     action_clear_all,     NULL, NULL, NULL, { 0 } },
   { "insert-rows",    action_insert_rows,    NULL, NULL, NULL, { 0 } },
   { "insert-columns", action_insert_columns, NULL, NULL, NULL, { 0 } },
   { "delete-rows",    action_delete_rows,    NULL, NULL, NULL, { 0 } },
