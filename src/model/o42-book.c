@@ -1020,6 +1020,98 @@ o42_book_define_name (O42Book *book, const char *name, O42Sheet *sheet,
   return TRUE;
 }
 
+/* A label made into a name: spaces and anything else a name cannot
+ * hold become underscores, and a name that would begin with a digit or
+ * read as a cell gets one in front. */
+static char *
+name_from_label (const char *label)
+{
+  GString *out = g_string_new (NULL);
+  char *stripped = g_strstrip (g_strdup (label));
+  const char *p;
+
+  for (p = stripped; *p != '\0'; p = g_utf8_next_char (p))
+    {
+      gunichar c = g_utf8_get_char (p);
+
+      if (g_unichar_isalnum (c) || c == '_' || c == '.')
+        g_string_append_unichar (out, c);
+      else if (out->len > 0 && out->str[out->len - 1] != '_')
+        g_string_append_c (out, '_');
+    }
+  g_free (stripped);
+  if (out->len == 0)
+    return g_string_free (out, TRUE);
+  if (g_ascii_isdigit (out->str[0]) || !name_is_legal (out->str))
+    g_string_prepend_c (out, '_');
+  return g_string_free (out, FALSE);
+}
+
+int
+o42_book_create_names (O42Book *book, O42Sheet *sheet, const O42Range *range,
+                       gboolean top, gboolean left, gboolean bottom, gboolean right)
+{
+  int made = 0;
+  O42Range inner;
+
+  g_return_val_if_fail (book != NULL && sheet != NULL && range != NULL, 0);
+
+  /* The cells the names stand for: the range less its labelled edges. */
+  inner = *range;
+  if (top)    inner.row0++;
+  if (bottom) inner.row1--;
+  if (left)   inner.col0++;
+  if (right)  inner.col1--;
+  if (inner.row0 > inner.row1 || inner.col0 > inner.col1)
+    return 0;
+
+  for (int edge = 0; edge < 4; edge++)
+    {
+      gboolean rows = (edge == 0 || edge == 2);   /* a row of labels naming columns */
+      int label_line;
+
+      if (edge == 0 && !top)    continue;
+      if (edge == 1 && !left)   continue;
+      if (edge == 2 && !bottom) continue;
+      if (edge == 3 && !right)  continue;
+      label_line = edge == 0 ? range->row0 : edge == 2 ? range->row1
+                 : edge == 1 ? range->col0 : range->col1;
+
+      for (int i = rows ? inner.col0 : inner.row0; i <= (rows ? inner.col1 : inner.row1); i++)
+        {
+          char *label = rows ? o42_sheet_get_display (sheet, label_line, i)
+                             : o42_sheet_get_display (sheet, i, label_line);
+          char *name = label != NULL ? name_from_label (label) : NULL;
+          O42Range named = inner;
+
+          if (rows)
+            named.col0 = named.col1 = i;
+          else
+            named.row0 = named.row1 = i;
+          if (name != NULL && *name != '\0' && o42_book_define_name (book, name, sheet, &named))
+            made++;
+          g_free (name);
+          g_free (label);
+        }
+    }
+
+  if (made > 0 && o42_book_recording (book))
+    {
+      char *text = o42_book_record_range_text (book, range);
+      GString *flags = g_string_new (NULL);
+
+      if (top)    g_string_append (flags, ", top=True");
+      if (left)   g_string_append (flags, ", left=True");
+      if (bottom) g_string_append (flags, ", bottom=True");
+      if (right)  g_string_append (flags, ", right=True");
+      if (o42_book_record_sheet (book, o42_sheet_get_name (sheet)))
+        record_book_line (book, "%s.create_names(%s)", text, flags->len > 2 ? flags->str + 2 : "");
+      g_string_free (flags, TRUE);
+      g_free (text);
+    }
+  return made;
+}
+
 gboolean
 o42_book_define_name_formula (O42Book *book, const char *name, const char *formula)
 {

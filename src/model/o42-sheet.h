@@ -64,6 +64,14 @@ void o42_sheet_invalidate_from (O42Sheet *sheet, const char *sheet_name,
 void o42_sheet_shift_references (O42Sheet *sheet, const char *target,
                                  gboolean rows, int at, int count);
 
+/* Insert > Name > Apply: every reference in the formulas of `range`
+ * (NULL for the whole sheet) that is exactly the rectangle a name of
+ * the book's stands for, on this sheet, is written as the name.
+ * `names` limits it to those names (upper case, NULL for all).  How
+ * many formulas changed. */
+int  o42_sheet_apply_names (O42Sheet *sheet, const O42Range *range,
+                            const char *const *names);
+
 /* A sheet was renamed: rewrite every formula here that names it. */
 void o42_sheet_rename_references (O42Sheet *sheet, const char *old_name,
                                   const char *new_name);

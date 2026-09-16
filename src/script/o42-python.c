@@ -620,6 +620,59 @@ m_fill_series (PyObject *self, PyObject *args)
 }
 
 static PyObject *
+m_create_names (PyObject *self, PyObject *args)
+{
+  int index, top, left, bottom, right;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiipppp", &index, &r.row0, &r.col0, &r.row1, &r.col1,
+                         &top, &left, &bottom, &right) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  book_touched = TRUE;
+  return PyLong_FromLong (o42_book_create_names (current_book, sheet, &r, top, left, bottom, right));
+}
+
+static PyObject *
+m_apply_names (PyObject *self, PyObject *args)
+{
+  int index, n;
+  O42Range r;
+  O42Sheet *sheet;
+  PyObject *names;
+  char **list = NULL;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiiO", &index, &r.row0, &r.col0, &r.row1, &r.col1, &names) ||
+      (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (r.row0 >= 0 && !range_ok (&r))
+    return NULL;
+  if (names != Py_None)
+    {
+      if (!PyList_Check (names))
+        return PyErr_Format (PyExc_TypeError, "names is a list of names, or None");
+      n = (int) PyList_Size (names);
+      list = g_new0 (char *, (gsize) n + 1);
+      for (int i = 0; i < n; i++)
+        {
+          const char *text = PyUnicode_AsUTF8 (PyList_GetItem (names, i));
+
+          if (text == NULL)
+            {
+              g_strfreev (list);
+              return NULL;
+            }
+          list[i] = g_ascii_strup (text, -1);
+        }
+    }
+  n = o42_sheet_apply_names (sheet, r.row0 >= 0 ? &r : NULL, (const char *const *) list);
+  g_strfreev (list);
+  book_touched = TRUE;
+  return PyLong_FromLong (n);
+}
+
+static PyObject *
 m_fill_justify (PyObject *self, PyObject *args)
 {
   int index;
@@ -2503,6 +2556,8 @@ static PyMethodDef METHODS[] = {
   { "fill",           m_fill,           METH_VARARGS, "Fill Down, Right, Up or Left over a range." },
   { "fill_series",    m_fill_series,    METH_VARARGS, "Edit > Fill > Series over a range." },
   { "fill_justify",   m_fill_justify,   METH_VARARGS, "Edit > Fill > Justify over a range." },
+  { "create_names",   m_create_names,   METH_VARARGS, "Names from the labels along a range's edges; how many." },
+  { "apply_names",    m_apply_names,    METH_VARARGS, "Writes named rectangles in a range's formulas as their names; how many." },
   { "autofill",       m_autofill,       METH_VARARGS, "Continues a range's series over a target." },
   { "sort",           m_sort,           METH_VARARGS, "Sorts a range's rows by keys." },
   { "replace",        m_replace,        METH_VARARGS, "Replaces text in a range (or the sheet); how many cells." },

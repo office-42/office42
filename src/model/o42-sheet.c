@@ -2342,16 +2342,25 @@ o42_sheet_get_book (O42Sheet *sheet)
  * captured for undo, so the rewrite is one step. */
 typedef gboolean (*TreeRewrite) (O42Node *tree, gpointer user);
 
-static void
-sheet_rewrite_formulas (O42Sheet *sheet, TreeRewrite rewrite, gpointer user)
+/* Rewrites the formulas in `within` (NULL for all of them) through
+ * `rewrite`, which says whether it changed the tree; how many it did. */
+static int
+sheet_rewrite_formulas_in (O42Sheet *sheet, const O42Range *within,
+                           TreeRewrite rewrite, gpointer user)
 {
   GArray *keys = g_array_new (FALSE, FALSE, sizeof (guint64));
   GHashTableIter iter;
   gpointer key_ptr;
+  int changed = 0;
 
   g_hash_table_iter_init (&iter, sheet->formulas);
   while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
-    g_array_append_val (keys, *(guint64 *) key_ptr);
+    {
+      guint64 k = *(guint64 *) key_ptr;
+
+      if (within == NULL || o42_range_contains (within, o42_key_row (k), o42_key_col (k)))
+        g_array_append_val (keys, k);
+    }
 
   op_begin (sheet);
 
@@ -2367,6 +2376,7 @@ sheet_rewrite_formulas (O42Sheet *sheet, TreeRewrite rewrite, gpointer user)
       tree = o42_node_copy (cell->ast);
       if (rewrite (tree, user))
         {
+          changed++;
           char *text = o42_node_to_string (tree);
           char *input = g_strconcat ("=", text, NULL);
 
@@ -2380,6 +2390,13 @@ sheet_rewrite_formulas (O42Sheet *sheet, TreeRewrite rewrite, gpointer user)
 
   op_end (sheet);
   g_array_free (keys, TRUE);
+  return changed;
+}
+
+static void
+sheet_rewrite_formulas (O42Sheet *sheet, TreeRewrite rewrite, gpointer user)
+{
+  sheet_rewrite_formulas_in (sheet, NULL, rewrite, user);
 }
 
 typedef struct { const char *own, *target; gboolean rows; int at, count; } ShiftArgs;
@@ -13797,4 +13814,156 @@ o42_sheet_duplicate (O42Sheet *src, const char *name)
   o42_sheet_clear_undo (dst);
   dst->modified = TRUE;
   return dst;
+}
+
+/* Insert > Name > Apply. */
+typedef struct {
+  const char *name;
+  O42Range    range;
+} NamedRect;
+
+typedef struct {
+  O42Sheet  *sheet;
+  GPtrArray *found;    /* NamedRect: the book's names that stand for a
+                        * rectangle on this sheet */
+} ApplyArgs;
+
+static gboolean
+apply_names_tree (O42Node *node, const ApplyArgs *a)
+{
+  gboolean changed = FALSE;
+
+  if (node == NULL)
+    return FALSE;
+
+  switch (node->type)
+    {
+    case O42_NODE_REF:
+    case O42_NODE_RANGE:
+      {
+        O42Range r;
+
+        /* A reference into another sheet is not this sheet's to name. */
+        if (node->sheet != NULL && g_ascii_strcasecmp (node->sheet, a->sheet->name) != 0)
+          return FALSE;
+        if (node->sheet_last != NULL)
+          return FALSE;
+        if (node->type == O42_NODE_REF)
+          {
+            r.row0 = r.row1 = node->as.ref.row;
+            r.col0 = r.col1 = node->as.ref.col;
+          }
+        else
+          r = node->as.range;
+        for (guint i = 0; i < a->found->len; i++)
+          {
+            const NamedRect *nr = g_ptr_array_index (a->found, i);
+
+            if (nr->range.row0 == r.row0 && nr->range.row1 == r.row1 &&
+                nr->range.col0 == r.col0 && nr->range.col1 == r.col1)
+              {
+                /* The reference becomes the name; neither kind of node
+                 * owns anything that has to be let go. */
+                node->type = O42_NODE_NAME;
+                node->sheet = NULL;
+                node->abs = 0;
+                node->as.name = g_strdup (nr->name);
+                return TRUE;
+              }
+          }
+        return FALSE;
+      }
+    case O42_NODE_UNARY:
+    case O42_NODE_BINARY:
+      changed |= apply_names_tree (node->as.op.a, a);
+      changed |= apply_names_tree (node->as.op.b, a);
+      return changed;
+    case O42_NODE_CALL:
+      if (node->as.call.args != NULL)
+        for (guint i = 0; i < node->as.call.args->len; i++)
+          changed |= apply_names_tree (g_ptr_array_index (node->as.call.args, i), a);
+      return changed;
+    case O42_NODE_APPLY:
+      changed |= apply_names_tree (node->as.apply.callee, a);
+      if (node->as.apply.args != NULL)
+        for (guint i = 0; i < node->as.apply.args->len; i++)
+          changed |= apply_names_tree (g_ptr_array_index (node->as.apply.args, i), a);
+      return changed;
+    default:
+      return FALSE;
+    }
+}
+
+static gboolean
+apply_names_rewrite (O42Node *tree, gpointer user)
+{
+  return apply_names_tree (tree, user);
+}
+
+int
+o42_sheet_apply_names (O42Sheet *sheet, const O42Range *range,
+                       const char *const *names)
+{
+  ApplyArgs a;
+  GList *all;
+  int changed;
+
+  g_return_val_if_fail (sheet != NULL, 0);
+  if (sheet->book == NULL)
+    return 0;
+
+  a.sheet = sheet;
+  a.found = g_ptr_array_new_with_free_func (g_free);
+  all = o42_book_names (sheet->book);
+  for (GList *l = all; l != NULL; l = l->next)
+    {
+      O42Sheet *target;
+      O42Range r;
+      gboolean wanted = (names == NULL);
+
+      for (int i = 0; !wanted && names[i] != NULL; i++)
+        wanted = (g_ascii_strcasecmp (names[i], l->data) == 0);
+      if (wanted && o42_book_lookup_name (sheet->book, l->data, &target, &r) && target == sheet)
+        {
+          NamedRect *nr = g_new (NamedRect, 1);
+
+          nr->name = g_intern_string (l->data);
+          nr->range = r;
+          g_ptr_array_add (a.found, nr);
+        }
+    }
+  g_list_free (all);
+
+  {
+    GString *line = g_string_new (NULL);
+
+    if (range != NULL)
+      {
+        char *text = record_range_text (sheet, range);
+        g_string_append_printf (line, "%s.apply_names(", text);
+        g_free (text);
+      }
+    else
+      g_string_append (line, "sheet.apply_names(");
+    if (names != NULL)
+      {
+        g_string_append_c (line, '[');
+        for (int i = 0; names[i] != NULL; i++)
+          {
+            char *quoted = o42_python_quote (names[i]);
+            g_string_append_printf (line, "%s%s", i > 0 ? ", " : "", quoted);
+            g_free (quoted);
+          }
+        g_string_append_c (line, ']');
+      }
+    g_string_append_c (line, ')');
+    record_op_begin (sheet, "%s", line->str);
+    g_string_free (line, TRUE);
+  }
+  changed = sheet_rewrite_formulas_in (sheet, range, apply_names_rewrite, &a);
+  record_op_end (sheet);
+  if (changed > 0)
+    sheet->modified = TRUE;
+  g_ptr_array_unref (a.found);
+  return changed;
 }

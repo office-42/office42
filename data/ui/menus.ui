@@ -174,6 +174,9 @@
         <submenu>
           <attribute name="label" translatable="yes">_Name</attribute>
           <item><attribute name="label" translatable="yes">_Define...</attribute><attribute name="action">win.define-name</attribute></item>
+          <item><attribute name="label" translatable="yes">_Paste...</attribute><attribute name="action">win.paste-name</attribute></item>
+          <item><attribute name="label" translatable="yes">_Create...</attribute><attribute name="action">win.create-names</attribute></item>
+          <item><attribute name="label" translatable="yes">_Apply...</attribute><attribute name="action">win.apply-names</attribute></item>
         </submenu>
       </section>
       <section>

@@ -66,6 +66,15 @@ gboolean     o42_book_define_name   (O42Book *book, const char *name,
 gboolean     o42_book_define_name_formula (O42Book *book, const char *name, const char *formula);
 const char  *o42_book_lookup_name_formula (O42Book *book, const char *name);
 gboolean     o42_book_undefine_name (O42Book *book, const char *name);
+
+/* Insert > Name > Create: names made from the labels along the edges
+ * of a range -- its top row and (or) left column, its bottom row and
+ * (or) right column -- each naming the cells of its column (row) inside
+ * the range.  A label is made a legal name as Excel makes it, spaces
+ * to underscores and a leading digit given one; an empty label makes no
+ * name.  How many names were made. */
+int          o42_book_create_names  (O42Book *book, O42Sheet *sheet, const O42Range *range,
+                                     gboolean top, gboolean left, gboolean bottom, gboolean right);
 gboolean     o42_book_lookup_name   (O42Book *book, const char *name,
                                      O42Sheet **sheet, O42Range *range);
 GList       *o42_book_names         (O42Book *book);   /* sorted; free with g_list_free */

@@ -261,3 +261,279 @@ action_move_copy_sheet (GSimpleAction *a, GVariant *p, gpointer data)
 
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
+
+/* ---- Insert > Name ------------------------------------------------------ */
+
+/* A list of the book's names in a scrolled view, for Paste and Apply. */
+static GtkWidget *
+names_list (O42Window *self, GtkStringList **names, GtkSelectionModel **selection, gboolean multiple)
+{
+  GtkListItemFactory *factory = gtk_signal_list_item_factory_new ();
+  GtkWidget *scrolled, *list;
+  GList *all = o42_book_names (self->book);
+
+  *names = gtk_string_list_new (NULL);
+  for (GList *l = all; l != NULL; l = l->next)
+    gtk_string_list_append (*names, l->data);
+  g_list_free (all);
+
+  g_signal_connect (factory, "setup", G_CALLBACK (wizard_setup_item), NULL);
+  g_signal_connect (factory, "bind", G_CALLBACK (wizard_bind_item), NULL);
+  if (multiple)
+    *selection = GTK_SELECTION_MODEL (gtk_multi_selection_new (G_LIST_MODEL (*names)));
+  else
+    {
+      GtkSingleSelection *single = gtk_single_selection_new (G_LIST_MODEL (*names));
+      gtk_single_selection_set_autoselect (single, TRUE);
+      *selection = GTK_SELECTION_MODEL (single);
+    }
+  list = gtk_list_view_new (*selection, factory);
+  scrolled = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_widget_set_size_request (scrolled, 300, 160);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), list);
+  return scrolled;
+}
+
+/* The name a formula refers to, as the Define Name dialog writes it. */
+static char *
+name_refers_to (O42Window *self, const char *name)
+{
+  O42Sheet *target;
+  O42Range r;
+
+  if (o42_book_lookup_name (self->book, name, &target, &r))
+    {
+      char *sheet = o42_sheet_name_quote (o42_sheet_get_name (target));
+      char *a = o42_ref_name_full (r.row0, r.col0, TRUE, TRUE);
+      char *b = o42_ref_name_full (r.row1, r.col1, TRUE, TRUE);
+      char *text = (r.row0 == r.row1 && r.col0 == r.col1)
+                 ? g_strdup_printf ("=%s!%s", sheet, a)
+                 : g_strdup_printf ("=%s!%s:%s", sheet, a, b);
+
+      g_free (sheet); g_free (a); g_free (b);
+      return text;
+    }
+  if (o42_book_lookup_name_formula (self->book, name) != NULL)
+    return g_strconcat ("=", o42_book_lookup_name_formula (self->book, name), NULL);
+  return g_strdup ("");
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkStringList *names;
+  GtkSelectionModel *selection;
+} PasteNamePrompt;
+
+static void
+on_paste_name_ok (GtkWidget *w, gpointer data)
+{
+  PasteNamePrompt *prompt = data;
+  O42Window *self = prompt->window;
+  guint pos = gtk_single_selection_get_selected (GTK_SINGLE_SELECTION (prompt->selection));
+  const char *name;
+
+  (void) w;
+  if (pos == GTK_INVALID_LIST_POSITION)
+    return;
+  name = gtk_string_list_get_string (prompt->names, pos);
+
+  if (o42_grid_is_editing (self->grid))
+    {
+      /* Into the formula being typed, where the caret is: the formula
+       * bar is the same edit as the cell. */
+      GtkEditable *entry = GTK_EDITABLE (self->formula_entry);
+      int at = gtk_editable_get_position (entry);
+
+      gtk_editable_insert_text (entry, name, -1, &at);
+      gtk_editable_set_position (entry, at);
+    }
+  else
+    {
+      char *text = g_strconcat ("=", name, NULL);
+      o42_grid_begin_edit (self->grid, text);
+      g_free (text);
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+/* Excel's Paste List: every name and what it refers to, in two columns
+ * from the active cell. */
+static void
+on_paste_name_list (GtkWidget *w, gpointer data)
+{
+  PasteNamePrompt *prompt = data;
+  O42Window *self = prompt->window;
+  guint n = g_list_model_get_n_items (G_LIST_MODEL (prompt->names));
+  int row, col;
+
+  (void) w;
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  o42_grid_get_active (self->grid, &row, &col);
+  o42_sheet_begin_group (self->sheet);
+  for (guint i = 0; i < n && row + (int) i < O42_MAX_ROWS; i++)
+    {
+      const char *name = gtk_string_list_get_string (prompt->names, i);
+      char *refers = name_refers_to (self, name);
+
+      o42_sheet_set_input (self->sheet, row + (int) i, col, name);
+      /* As text: the list is for reading, not for working out. */
+      if (col + 1 < O42_MAX_COLS)
+        {
+          char *quoted = g_strconcat ("'", refers, NULL);
+          o42_sheet_set_input (self->sheet, row + (int) i, col + 1, quoted);
+          g_free (quoted);
+        }
+      g_free (refers);
+    }
+  o42_sheet_end_group (self->sheet);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_paste_name (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  PasteNamePrompt *prompt = g_new0 (PasteNamePrompt, 1);
+  GtkWidget *content, *buttons, *ok;
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Paste Name"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Paste name:")));
+  gtk_box_append (GTK_BOX (content), names_list (self, &prompt->names, &prompt->selection, FALSE));
+
+  dialog_button (buttons, _("Paste _List"), G_CALLBACK (on_paste_name_list), prompt);
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_paste_name_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *edge[4];      /* top row, left column, bottom row, right column */
+  O42Range   range;
+} CreateNamesPrompt;
+
+static void
+on_create_names_ok (GtkWidget *w, gpointer data)
+{
+  CreateNamesPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  gboolean on[4];
+
+  (void) w;
+  for (int i = 0; i < 4; i++)
+    on[i] = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->edge[i]));
+  o42_book_create_names (self->book, self->sheet, &prompt->range, on[0], on[1], on[2], on[3]);
+  window_sync (self);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_create_names (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  static const char *const EDGES[] = { N_("_Top row"), N_("_Left column"), N_("_Bottom row"), N_("_Right column") };
+  O42Window *self = data;
+  CreateNamesPrompt *prompt = g_new0 (CreateNamesPrompt, 1);
+  GtkWidget *content, *buttons, *ok;
+  O42Value v;
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  o42_grid_get_selection (self->grid, &prompt->range);
+  prompt->dialog = dialog_frame (self, _("Create Names"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Create names in")));
+  for (int i = 0; i < 4; i++)
+    {
+      prompt->edge[i] = gtk_check_button_new_with_mnemonic (_(EDGES[i]));
+      gtk_box_append (GTK_BOX (content), prompt->edge[i]);
+    }
+
+  /* Excel's guess: the top row when its first cell is text, the left
+   * column when the cell under it is. */
+  o42_sheet_get_value (self->sheet, prompt->range.row0, prompt->range.col0, &v);
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->edge[0]), v.type == O42_VALUE_TEXT);
+  o42_value_clear (&v);
+  if (prompt->range.row1 > prompt->range.row0)
+    {
+      o42_sheet_get_value (self->sheet, prompt->range.row0 + 1, prompt->range.col0, &v);
+      gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->edge[1]), v.type == O42_VALUE_TEXT);
+      o42_value_clear (&v);
+    }
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_create_names_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkStringList *names;
+  GtkSelectionModel *selection;
+} ApplyNamesPrompt;
+
+static void
+on_apply_names_ok (GtkWidget *w, gpointer data)
+{
+  ApplyNamesPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  guint n = g_list_model_get_n_items (G_LIST_MODEL (prompt->names));
+  GPtrArray *chosen = g_ptr_array_new_with_free_func (g_free);
+  O42Range sel;
+
+  (void) w;
+  for (guint i = 0; i < n; i++)
+    if (gtk_selection_model_is_selected (prompt->selection, i))
+      g_ptr_array_add (chosen, g_strdup (gtk_string_list_get_string (prompt->names, i)));
+  g_ptr_array_add (chosen, NULL);
+
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  /* One cell selected means the whole sheet, as Excel takes it. */
+  o42_grid_get_selection (self->grid, &sel);
+  o42_sheet_apply_names (self->sheet,
+                         (sel.row0 == sel.row1 && sel.col0 == sel.col1) ? NULL : &sel,
+                         (const char *const *) chosen->pdata);
+  g_ptr_array_unref (chosen);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_apply_names (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  ApplyNamesPrompt *prompt = g_new0 (ApplyNamesPrompt, 1);
+  GtkWidget *content, *buttons, *ok;
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Apply Names"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Apply names:")));
+  gtk_box_append (GTK_BOX (content), names_list (self, &prompt->names, &prompt->selection, TRUE));
+  gtk_selection_model_select_all (prompt->selection);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_apply_names_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}

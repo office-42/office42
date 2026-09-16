@@ -2697,6 +2697,46 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* createnames A1:D5 top,left,bottom,right and applynames [A1:B9]:
+       * Insert > Name > Create and Apply. */
+      if (g_str_has_prefix (text, "createnames "))
+        {
+          char **words = g_strsplit (text + 12, " ", -1);
+          O42Range r;
+          gsize len = 0;
+
+          if (g_strv_length (words) >= 2 &&
+              o42_ref_parse (words[0], &r.row0, &r.col0, &len) && words[0][len] == ':' &&
+              o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))
+            {
+              r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              printf ("%d names\n",
+                      o42_book_create_names (book, sheet, &r,
+                                             strstr (words[1], "top") != NULL,
+                                             strstr (words[1], "left") != NULL,
+                                             strstr (words[1], "bottom") != NULL,
+                                             strstr (words[1], "right") != NULL));
+            }
+          else
+            fprintf (stderr, "usage: createnames A1:D5 top,left\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      if (strcmp (text, "applynames") == 0 || g_str_has_prefix (text, "applynames "))
+        {
+          O42Range r;
+          gsize len = 0;
+          gboolean ranged = text[10] == ' ' &&
+                            o42_ref_parse (text + 11, &r.row0, &r.col0, &len) && text[11 + len] == ':' &&
+                            o42_ref_parse (text + 11 + len + 1, &r.row1, &r.col1, NULL);
+
+          if (ranged)
+            r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+          printf ("%d formulas\n", o42_sheet_apply_names (sheet, ranged ? &r : NULL, NULL));
+          continue;
+        }
+
       if (g_str_has_prefix (text, "unname "))
         {
           if (!o42_book_undefine_name (book, text + 7))

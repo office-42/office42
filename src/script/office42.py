@@ -282,6 +282,20 @@ class Range:
                        str(type), str(unit), float(step), bool(trend),
                        stop is not None, 0.0 if stop is None else float(stop), bool(rows))
 
+    def create_names(self, top=True, left=False, bottom=False, right=False):
+        """Insert > Name > Create: names from the labels along the range's
+        edges, each naming the cells of its column or row inside; how
+        many were made."""
+        return _c.create_names(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                               bool(top), bool(left), bool(bottom), bool(right))
+
+    def apply_names(self, names=None):
+        """Insert > Name > Apply: references in the range's formulas that
+        are exactly a named rectangle are written as the name; how many
+        formulas changed.  `names` limits it to those."""
+        return _c.apply_names(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                              None if names is None else [str(n) for n in names])
+
     def justify(self):
         """Edit > Fill > Justify: the text in the first column laid out
         again in rows that fit the range's width."""
@@ -904,6 +918,11 @@ class Sheet:
 
     def clear_autofilter(self):
         _c.set_autofilter(self.index, -1, -1, -1, -1)
+
+    def apply_names(self, names=None):
+        """Insert > Name > Apply over every formula on the sheet."""
+        return _c.apply_names(self.index, -1, -1, -1, -1,
+                              None if names is None else [str(n) for n in names])
 
     def autofilter_choose(self, col, value):
         """Shows only the rows whose cell in column `col` (an absolute
