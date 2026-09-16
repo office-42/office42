@@ -2889,6 +2889,155 @@ on_protect_ok (GtkWidget *w, gpointer data)
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
 }
 
+/* ---- Tools > AutoCorrect ----------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *option[O42_N_AUTOCORRECT_OPTIONS];
+  GtkStringList *entries;
+  GtkWidget *list;
+  GtkWidget *replace_entry, *with_entry;
+} AutoCorrectPrompt;
+
+static void
+autocorrect_fill (AutoCorrectPrompt *prompt)
+{
+  O42Book *book = prompt->window->book;
+
+  gtk_string_list_splice (prompt->entries, 0,
+                          g_list_model_get_n_items (G_LIST_MODEL (prompt->entries)), NULL);
+  for (int i = 0; i < o42_book_n_autocorrections (book); i++)
+    {
+      const char *to = NULL;
+      const char *from = o42_book_autocorrection (book, i, &to);
+      char *line = g_strdup_printf ("%s \342\206\222 %s", from, to);
+
+      gtk_string_list_append (prompt->entries, line);
+      g_free (line);
+    }
+}
+
+static void
+on_autocorrect_option (GtkCheckButton *button, gpointer data)
+{
+  AutoCorrectPrompt *prompt = data;
+
+  for (int i = 0; i < O42_N_AUTOCORRECT_OPTIONS; i++)
+    if (GTK_WIDGET (button) == prompt->option[i])
+      o42_book_set_autocorrect_option (prompt->window->book, (O42AutocorrectOption) i,
+                                       gtk_check_button_get_active (button));
+}
+
+static void
+on_autocorrect_add (GtkWidget *w, gpointer data)
+{
+  AutoCorrectPrompt *prompt = data;
+  const char *from = gtk_editable_get_text (GTK_EDITABLE (prompt->replace_entry));
+  const char *to = gtk_editable_get_text (GTK_EDITABLE (prompt->with_entry));
+
+  (void) w;
+  if (*from == '\0')
+    return;
+  o42_book_add_autocorrection (prompt->window->book, from, to);
+  autocorrect_fill (prompt);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->replace_entry), "");
+  gtk_editable_set_text (GTK_EDITABLE (prompt->with_entry), "");
+  gtk_widget_grab_focus (prompt->replace_entry);
+}
+
+static void
+on_autocorrect_delete (GtkWidget *w, gpointer data)
+{
+  AutoCorrectPrompt *prompt = data;
+  GtkSelectionModel *model = gtk_list_view_get_model (GTK_LIST_VIEW (prompt->list));
+  guint pos = gtk_single_selection_get_selected (GTK_SINGLE_SELECTION (model));
+  const char *from;
+
+  (void) w;
+  if (pos == GTK_INVALID_LIST_POSITION)
+    return;
+  from = o42_book_autocorrection (prompt->window->book, (int) pos, NULL);
+  if (from != NULL)
+    o42_book_remove_autocorrection (prompt->window->book, from);
+  autocorrect_fill (prompt);
+}
+
+static void
+on_autocorrect_selected (GObject *model, GParamSpec *pspec, gpointer data)
+{
+  AutoCorrectPrompt *prompt = data;
+  guint pos = gtk_single_selection_get_selected (GTK_SINGLE_SELECTION (model));
+  const char *to = NULL, *from;
+
+  (void) pspec;
+  if (pos == GTK_INVALID_LIST_POSITION)
+    return;
+  from = o42_book_autocorrection (prompt->window->book, (int) pos, &to);
+  if (from != NULL)
+    {
+      gtk_editable_set_text (GTK_EDITABLE (prompt->replace_entry), from);
+      gtk_editable_set_text (GTK_EDITABLE (prompt->with_entry), to != NULL ? to : "");
+    }
+}
+
+void
+action_autocorrect (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  static const char *const OPTIONS[O42_N_AUTOCORRECT_OPTIONS] = {
+    N_("Correct _TWo INitial CApitals"), N_("Capitalize first letter of _sentences"),
+    N_("Capitalize names of _days"), N_("_Replace text as you type")
+  };
+  O42Window *self = data;
+  AutoCorrectPrompt *prompt = g_new0 (AutoCorrectPrompt, 1);
+  GtkWidget *content, *buttons, *scrolled, *grid;
+  GtkListItemFactory *factory;
+  GtkSingleSelection *selection;
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("AutoCorrect"), TRUE, &content, &buttons);
+
+  for (int i = 0; i < O42_N_AUTOCORRECT_OPTIONS; i++)
+    {
+      prompt->option[i] = gtk_check_button_new_with_mnemonic (_(OPTIONS[i]));
+      gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->option[i]),
+                                   o42_book_autocorrect_option (self->book, (O42AutocorrectOption) i));
+      g_signal_connect (prompt->option[i], "toggled", G_CALLBACK (on_autocorrect_option), prompt);
+      gtk_box_append (GTK_BOX (content), prompt->option[i]);
+    }
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->replace_entry = labelled (grid, 0, _("Replace:"), gtk_entry_new ());
+  prompt->with_entry = labelled (grid, 1, _("With:"), gtk_entry_new ());
+  gtk_box_append (GTK_BOX (content), grid);
+
+  prompt->entries = gtk_string_list_new (NULL);
+  autocorrect_fill (prompt);
+  factory = gtk_signal_list_item_factory_new ();
+  g_signal_connect (factory, "setup", G_CALLBACK (wizard_setup_item), prompt);
+  g_signal_connect (factory, "bind", G_CALLBACK (wizard_bind_item), prompt);
+  selection = gtk_single_selection_new (G_LIST_MODEL (prompt->entries));
+  gtk_single_selection_set_autoselect (selection, FALSE);
+  g_signal_connect (selection, "notify::selected", G_CALLBACK (on_autocorrect_selected), prompt);
+  prompt->list = gtk_list_view_new (GTK_SELECTION_MODEL (selection), factory);
+  scrolled = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), prompt->list);
+  gtk_widget_set_size_request (scrolled, 360, 160);
+  gtk_box_append (GTK_BOX (content), scrolled);
+
+  dialog_button (buttons, _("_Add"), G_CALLBACK (on_autocorrect_add), prompt);
+  dialog_button (buttons, _("_Delete"), G_CALLBACK (on_autocorrect_delete), prompt);
+  dialog_button (buttons, _("_Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
 /* ---- Tools > Protection > Protect Workbook ----------------------------- */
 
 typedef struct {

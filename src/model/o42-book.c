@@ -68,6 +68,8 @@ struct _O42Book {
   GHashTable   *kept_parts;   /* name -> GBytes: an .xlsm's VBA, for Excel */
   char         *props[O42_N_PROPS];   /* File > Properties; NULL for none */
   gboolean      protected;    /* Tools > Protection > Protect Workbook */
+  gboolean      autocorrect[O42_N_AUTOCORRECT_OPTIONS];
+  GPtrArray    *corrections;  /* Correction *, in the order added */
   guint16       password;     /* its hash, 0 for none */
 };
 
@@ -77,6 +79,47 @@ typedef struct {
   char  shortcut;      /* Ctrl+Shift and this letter runs it; 0 for none */
   char *description;   /* or NULL */
 } Script;
+
+typedef struct {
+  char *from;
+  char *to;
+} Correction;
+
+static void
+correction_free (gpointer data)
+{
+  Correction *c = data;
+  g_free (c->from);
+  g_free (c->to);
+  g_free (c);
+}
+
+/* What a new book starts with: the signs people type in brackets and
+ * the slips Excel 97 came with. */
+static const char *const DEFAULT_CORRECTIONS[][2] = {
+  { "(c)", "\302\251" }, { "(r)", "\302\256" }, { "(tm)", "\342\204\242" },
+  { "...", "\342\200\246" }, { "-->", "\342\206\222" }, { "<--", "\342\206\220" },
+  { "teh", "the" }, { "adn", "and" }, { "taht", "that" }, { "recieve", "receive" },
+  { "seperate", "separate" }, { "occured", "occurred" }, { "dont", "don't" },
+  { "i", "I" }, { "acheive", "achieve" }, { "definately", "definitely" },
+};
+
+static void
+book_autocorrect_defaults (O42Book *book)
+{
+  for (int i = 0; i < O42_N_AUTOCORRECT_OPTIONS; i++)
+    book->autocorrect[i] = TRUE;
+  if (book->corrections == NULL)
+    book->corrections = g_ptr_array_new_with_free_func (correction_free);
+  g_ptr_array_set_size (book->corrections, 0);
+  for (guint i = 0; i < G_N_ELEMENTS (DEFAULT_CORRECTIONS); i++)
+    {
+      Correction *c = g_new0 (Correction, 1);
+      c->from = g_strdup (DEFAULT_CORRECTIONS[i][0]);
+      c->to = g_strdup (DEFAULT_CORRECTIONS[i][1]);
+      g_ptr_array_add (book->corrections, c);
+    }
+}
 
 typedef struct {
   char      *name;    /* owned */
@@ -284,6 +327,7 @@ o42_book_new (void)
 
   book->sheets = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_sheet_free);
   book->stack = o42_undo_stack_new ();
+  book_autocorrect_defaults (book);
   book->names = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, named_range_free);
   book->refs = 1;
   book->scripts_trusted = TRUE;
@@ -331,7 +375,282 @@ o42_book_free (O42Book *book)
   g_array_free (book->styles, TRUE);
   for (int i = 0; i < O42_N_PROPS; i++)
     g_free (book->props[i]);
+  g_ptr_array_unref (book->corrections);
   g_free (book);
+}
+
+/* ---- AutoCorrect ------------------------------------------------------- */
+
+static const char *const AUTOCORRECT_NAMES[O42_N_AUTOCORRECT_OPTIONS] = {
+  "initials", "sentences", "days", "replace"
+};
+
+const char *
+o42_autocorrect_option_name (O42AutocorrectOption which)
+{
+  return (which >= 0 && which < O42_N_AUTOCORRECT_OPTIONS) ? AUTOCORRECT_NAMES[which] : "";
+}
+
+gboolean
+o42_autocorrect_option_parse (const char *name, O42AutocorrectOption *which)
+{
+  for (int i = 0; name != NULL && i < O42_N_AUTOCORRECT_OPTIONS; i++)
+    if (g_ascii_strcasecmp (name, AUTOCORRECT_NAMES[i]) == 0)
+      {
+        *which = (O42AutocorrectOption) i;
+        return TRUE;
+      }
+  return FALSE;
+}
+
+gboolean
+o42_book_autocorrect_option (O42Book *book, O42AutocorrectOption which)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return which >= 0 && which < O42_N_AUTOCORRECT_OPTIONS && book->autocorrect[which];
+}
+
+void
+o42_book_set_autocorrect_option (O42Book *book, O42AutocorrectOption which, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (which < 0 || which >= O42_N_AUTOCORRECT_OPTIONS || book->autocorrect[which] == on)
+    return;
+  book->autocorrect[which] = on;
+  if (o42_book_recording (book))
+    record_book_line (book, "book.autocorrect_option(\"%s\", %s)", AUTOCORRECT_NAMES[which], on ? "True" : "False");
+  o42_book_set_modified (book, TRUE);
+}
+
+int
+o42_book_n_autocorrections (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, 0);
+  return (int) book->corrections->len;
+}
+
+const char *
+o42_book_autocorrection (O42Book *book, int index, const char **to)
+{
+  const Correction *c;
+
+  g_return_val_if_fail (book != NULL, NULL);
+  if (index < 0 || index >= (int) book->corrections->len)
+    return NULL;
+  c = g_ptr_array_index (book->corrections, index);
+  if (to != NULL)
+    *to = c->to;
+  return c->from;
+}
+
+void
+o42_book_add_autocorrection (O42Book *book, const char *from, const char *to)
+{
+  Correction *c = NULL;
+
+  g_return_if_fail (book != NULL && from != NULL && to != NULL);
+  if (*from == '\0')
+    return;
+  for (guint i = 0; i < book->corrections->len && c == NULL; i++)
+    if (strcmp (((Correction *) g_ptr_array_index (book->corrections, i))->from, from) == 0)
+      c = g_ptr_array_index (book->corrections, i);
+  if (c == NULL)
+    {
+      c = g_new0 (Correction, 1);
+      c->from = g_strdup (from);
+      g_ptr_array_add (book->corrections, c);
+    }
+  g_free (c->to);
+  c->to = g_strdup (to);
+  if (o42_book_recording (book))
+    {
+      char *qf = o42_python_quote (from), *qt = o42_python_quote (to);
+      record_book_line (book, "book.add_autocorrection(%s, %s)", qf, qt);
+      g_free (qf); g_free (qt);
+    }
+  o42_book_set_modified (book, TRUE);
+}
+
+gboolean
+o42_book_remove_autocorrection (O42Book *book, const char *from)
+{
+  g_return_val_if_fail (book != NULL && from != NULL, FALSE);
+  for (guint i = 0; i < book->corrections->len; i++)
+    if (strcmp (((Correction *) g_ptr_array_index (book->corrections, i))->from, from) == 0)
+      {
+        g_ptr_array_remove_index (book->corrections, i);
+        if (o42_book_recording (book))
+          {
+            char *qf = o42_python_quote (from);
+            record_book_line (book, "book.remove_autocorrection(%s)", qf);
+            g_free (qf);
+          }
+        o42_book_set_modified (book, TRUE);
+        return TRUE;
+      }
+  return FALSE;
+}
+
+void
+o42_book_clear_autocorrections (O42Book *book)
+{
+  g_return_if_fail (book != NULL);
+  g_ptr_array_set_size (book->corrections, 0);
+}
+
+/* Is the character at `p` (or the one before it, `before`) part of a
+ * word, so that a replacement bounded by it is not a whole word? */
+static gboolean
+is_word_char (gunichar c)
+{
+  return g_unichar_isalnum (c) || c == '_';
+}
+
+static const char *const DAY_NAMES[] = {
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+};
+
+char *
+o42_book_autocorrect (O42Book *book, const char *text)
+{
+  GString *out;
+  gboolean changed = FALSE;
+
+  g_return_val_if_fail (book != NULL && text != NULL, NULL);
+  if (text[0] == '=' || text[0] == '\'' || !g_utf8_validate (text, -1, NULL))
+    return NULL;
+
+  /* The replacement list first, each entry wherever it stands as a
+   * whole word -- bounded by something that is not a letter where its
+   * own ends are letters. */
+  out = g_string_new (text);
+  if (book->autocorrect[O42_AUTOCORRECT_REPLACE])
+    for (guint i = 0; i < book->corrections->len; i++)
+      {
+        const Correction *c = g_ptr_array_index (book->corrections, i);
+        gsize flen = strlen (c->from);
+        gsize at = 0;
+        gboolean from_letters = is_word_char (g_utf8_get_char (c->from)) &&
+                                is_word_char (g_utf8_get_char (g_utf8_prev_char (c->from + flen)));
+
+        while (at + flen <= out->len)
+          {
+            const char *hit = strstr (out->str + at, c->from);
+            gsize pos;
+
+            if (hit == NULL)
+              break;
+            pos = (gsize) (hit - out->str);
+            if (!from_letters ||
+                ((pos == 0 || !is_word_char (g_utf8_get_char (g_utf8_prev_char (out->str + pos)))) &&
+                 (pos + flen >= out->len || !is_word_char (g_utf8_get_char (out->str + pos + flen)))))
+              {
+                g_string_erase (out, (gssize) pos, (gssize) flen);
+                g_string_insert (out, (gssize) pos, c->to);
+                at = pos + strlen (c->to);
+                changed = TRUE;
+              }
+            else
+              at = pos + flen;
+          }
+      }
+
+  /* Then the words: two initial capitals, and the days. */
+  if (book->autocorrect[O42_AUTOCORRECT_INITIALS] || book->autocorrect[O42_AUTOCORRECT_DAYS])
+    {
+      GString *rebuilt = g_string_new (NULL);
+      const char *p = out->str;
+
+      while (*p != '\0')
+        {
+          const char *start = p;
+          gunichar c = g_utf8_get_char (p);
+
+          if (!g_unichar_isalpha (c))
+            {
+              g_string_append_unichar (rebuilt, c);
+              p = g_utf8_next_char (p);
+              continue;
+            }
+          while (*p != '\0' && g_unichar_isalpha (g_utf8_get_char (p)))
+            p = g_utf8_next_char (p);
+          {
+            char *word = g_strndup (start, (gsize) (p - start));
+            glong n = g_utf8_strlen (word, -1);
+            gboolean done = FALSE;
+
+            if (book->autocorrect[O42_AUTOCORRECT_DAYS])
+              for (guint d = 0; d < G_N_ELEMENTS (DAY_NAMES) && !done; d++)
+                if (strcmp (word, DAY_NAMES[d]) == 0)
+                  {
+                    word[0] = (char) g_ascii_toupper (word[0]);
+                    changed = done = TRUE;
+                  }
+            if (!done && book->autocorrect[O42_AUTOCORRECT_INITIALS] && n >= 3)
+              {
+                const char *second = g_utf8_next_char (word);
+                const char *third = g_utf8_next_char (second);
+                gboolean rest_lower = TRUE;
+
+                for (const char *q = third; *q != '\0'; q = g_utf8_next_char (q))
+                  rest_lower = rest_lower && g_unichar_islower (g_utf8_get_char (q));
+                if (g_unichar_isupper (g_utf8_get_char (word)) && g_unichar_isupper (g_utf8_get_char (second)) &&
+                    rest_lower)
+                  {
+                    gunichar lower = g_unichar_tolower (g_utf8_get_char (second));
+                    GString *w = g_string_new (NULL);
+
+                    g_string_append_len (w, word, second - word);
+                    g_string_append_unichar (w, lower);
+                    g_string_append (w, third);
+                    g_free (word);
+                    word = g_string_free (w, FALSE);
+                    changed = TRUE;
+                  }
+              }
+            g_string_append (rebuilt, word);
+            g_free (word);
+          }
+        }
+      g_string_free (out, TRUE);
+      out = rebuilt;
+    }
+
+  /* And the letter after a sentence's end. */
+  if (book->autocorrect[O42_AUTOCORRECT_SENTENCES])
+    {
+      const char *p = out->str;
+
+      while ((p = strpbrk (p, ".!?")) != NULL)
+        {
+          const char *q = p + 1;
+
+          while (*q == ' ')
+            q++;
+          if (q > p + 1 && *q != '\0' && g_unichar_islower (g_utf8_get_char (q)))
+            {
+              gunichar upper = g_unichar_toupper (g_utf8_get_char (q));
+              gsize pos = (gsize) (q - out->str);
+              gsize len = (gsize) (g_utf8_next_char (q) - q);
+              char buf[8];
+              int n = g_unichar_to_utf8 (upper, buf);
+
+              g_string_erase (out, (gssize) pos, (gssize) len);
+              g_string_insert_len (out, (gssize) pos, buf, n);
+              changed = TRUE;
+              p = out->str + pos;
+            }
+          else
+            p = q > p + 1 ? q : p + 1;
+        }
+    }
+
+  if (!changed)
+    {
+      g_string_free (out, TRUE);
+      return NULL;
+    }
+  return g_string_free (out, FALSE);
 }
 
 /* ---- Protecting the structure ---------------------------------------- */
@@ -1524,6 +1843,7 @@ o42_book_clear (O42Book *book)
     g_clear_pointer (&book->props[i], g_free);
   book->protected = FALSE;
   book->password = 0;
+  book_autocorrect_defaults (book);
 
   first = o42_book_sheet (book, 0);
   pictures = o42_sheet_pictures (first);

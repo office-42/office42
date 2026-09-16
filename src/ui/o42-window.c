@@ -6078,6 +6078,7 @@ static const GActionEntry ACTIONS[] = {
   { "solver",         action_solver,         NULL, NULL, NULL, { 0 } },
   { "protect",        action_protect,        NULL, NULL, NULL, { 0 } },
   { "protect-book",   action_protect_book,   NULL, NULL, NULL, { 0 } },
+  { "autocorrect",    action_autocorrect,    NULL, NULL, NULL, { 0 } },
   { "spelling",       action_spelling,       NULL, NULL, NULL, { 0 } },
   { "record-macro",   action_record_macro,   NULL, NULL, NULL, { 0 } },
   { "stop-recording", action_stop_recording, NULL, NULL, NULL, { 0 } },

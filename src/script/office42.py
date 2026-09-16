@@ -1009,6 +1009,27 @@ class Book:
     def names(self):
         return [s.name for s in self.sheets]
 
+    # -- Tools > AutoCorrect ---------------------------------------------
+    def autocorrect(self, text):
+        """`text` as AutoCorrect would leave it when typed."""
+        return _c.autocorrect(str(text))
+
+    @property
+    def autocorrections(self):
+        """The replacement list, as (from, to) pairs."""
+        return _c.autocorrections()
+
+    def add_autocorrection(self, replace, with_):
+        _c.add_autocorrection(str(replace), str(with_))
+
+    def remove_autocorrection(self, replace):
+        return _c.remove_autocorrection(str(replace))
+
+    def autocorrect_option(self, name, on=None):
+        """One of "initials", "sentences", "days", "replace": whether it
+        is on; with `on`, sets it."""
+        return _c.autocorrect_option(str(name)) if on is None else _c.autocorrect_option(str(name), bool(on))
+
     # -- Tools > Protection > Protect Workbook ---------------------------
     @property
     def protected(self):

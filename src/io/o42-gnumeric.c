@@ -1403,6 +1403,23 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
     if (o42_book_protected (book))
       g_string_append_printf (out, "  <gnm:o42-Protection Structure=\"1\" Hash=\"%u\"/>\n",
                               (unsigned) o42_book_password_hash (book));
+    /* AutoCorrect, options and list, which Gnumeric passes over. */
+    g_string_append_printf (out, "  <gnm:o42-AutoCorrect Initials=\"%d\" Sentences=\"%d\" Days=\"%d\" Replace=\"%d\">\n",
+                            o42_book_autocorrect_option (book, O42_AUTOCORRECT_INITIALS) ? 1 : 0,
+                            o42_book_autocorrect_option (book, O42_AUTOCORRECT_SENTENCES) ? 1 : 0,
+                            o42_book_autocorrect_option (book, O42_AUTOCORRECT_DAYS) ? 1 : 0,
+                            o42_book_autocorrect_option (book, O42_AUTOCORRECT_REPLACE) ? 1 : 0);
+    for (int i = 0; i < o42_book_n_autocorrections (book); i++)
+      {
+        const char *to = NULL;
+        const char *from = o42_book_autocorrection (book, i, &to);
+        char *efrom = g_markup_escape_text (from, -1), *eto = g_markup_escape_text (to, -1);
+
+        g_string_append_printf (out, "    <gnm:o42-Correction From=\"%s\" To=\"%s\"/>\n", efrom, eto);
+        g_free (efrom);
+        g_free (eto);
+      }
+    g_string_append (out, "  </gnm:o42-AutoCorrect>\n");
   }
   for (int i = 0; i < n; i++)
     {
@@ -2112,6 +2129,23 @@ start_element (GMarkupParseContext *context, const char *element,
   if (strcmp (name, "o42-Options") == 0)
     {
       o42_book_set_precision_as_displayed (r->book, attr_int (names, values, "PrecisionAsDisplayed", 0) != 0);
+      return;
+    }
+
+  if (strcmp (name, "o42-AutoCorrect") == 0)
+    {
+      o42_book_clear_autocorrections (r->book);
+      o42_book_set_autocorrect_option (r->book, O42_AUTOCORRECT_INITIALS, attr_int (names, values, "Initials", 1) != 0);
+      o42_book_set_autocorrect_option (r->book, O42_AUTOCORRECT_SENTENCES, attr_int (names, values, "Sentences", 1) != 0);
+      o42_book_set_autocorrect_option (r->book, O42_AUTOCORRECT_DAYS, attr_int (names, values, "Days", 1) != 0);
+      o42_book_set_autocorrect_option (r->book, O42_AUTOCORRECT_REPLACE, attr_int (names, values, "Replace", 1) != 0);
+      return;
+    }
+  if (strcmp (name, "o42-Correction") == 0)
+    {
+      const char *from = attr (names, values, "From"), *to = attr (names, values, "To");
+      if (from != NULL && to != NULL)
+        o42_book_add_autocorrection (r->book, from, to);
       return;
     }
 

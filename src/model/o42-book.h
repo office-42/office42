@@ -98,6 +98,40 @@ void         o42_book_set_style    (O42Book *book, const char *name,
                                     const O42Fmt *fmt, O42FmtMask mask);
 gboolean     o42_book_remove_style (O42Book *book, const char *name);
 
+/* ---- AutoCorrect ------------------------------------------------------- */
+
+/* Tools > AutoCorrect: what Excel 97 does to text as it is typed.
+ * Two initial capitals are made one, the letter after a full stop is
+ * made a capital, a day's name typed in lower case is given its
+ * capital, and words in the replacement list are replaced -- (c) by
+ * the copyright sign, teh by the.  Excel keeps the list in its
+ * options; office42 keeps it with the book, so a book that needs it
+ * carries it.  A new book starts with a short list. */
+typedef enum {
+  O42_AUTOCORRECT_INITIALS,
+  O42_AUTOCORRECT_SENTENCES,
+  O42_AUTOCORRECT_DAYS,
+  O42_AUTOCORRECT_REPLACE,
+  O42_N_AUTOCORRECT_OPTIONS
+} O42AutocorrectOption;
+
+gboolean    o42_book_autocorrect_option     (O42Book *book, O42AutocorrectOption which);
+void        o42_book_set_autocorrect_option (O42Book *book, O42AutocorrectOption which, gboolean on);
+const char *o42_autocorrect_option_name     (O42AutocorrectOption which);   /* "initials", "sentences", "days", "replace" */
+gboolean    o42_autocorrect_option_parse    (const char *name, O42AutocorrectOption *which);
+
+int         o42_book_n_autocorrections   (O42Book *book);
+const char *o42_book_autocorrection      (O42Book *book, int index, const char **to);
+/* Adds one, or changes what `from` is replaced with. */
+void        o42_book_add_autocorrection  (O42Book *book, const char *from, const char *to);
+gboolean    o42_book_remove_autocorrection (O42Book *book, const char *from);
+/* Forgets the list, for a file that carries its own. */
+void        o42_book_clear_autocorrections (O42Book *book);
+
+/* `text` as typed, corrected, or NULL when nothing in it changes.  A
+ * formula or a quoted text is never touched.  Caller frees. */
+char       *o42_book_autocorrect (O42Book *book, const char *text);
+
 /* ---- Protecting the structure ---------------------------------------- */
 
 /* Tools > Protection > Protect Workbook: no sheet may be added,

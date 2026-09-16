@@ -3519,10 +3519,180 @@ read_workbook (Reader *r, GError **error)
   return TRUE;
 }
 
+
+/* ---- The properties: OLE property sets ---------------------------------- */
+
+/* File > Properties in an .xls live in two streams of their own,
+ * outside the BIFF: SummaryInformation for the title, subject, author,
+ * keywords and comments, DocumentSummaryInformation for the category,
+ * manager and company.  Each is a property set: a header, one section
+ * named by a format id, and in it a table of property ids and offsets
+ * followed by the values, a code page first and the strings as
+ * VT_LPSTR in that code page -- UTF-8 here, 65001, which every Excel
+ * since 2000 and LibreOffice read. */
+
+static const guint8 FMTID_SUMMARY[16] = {
+  0xE0, 0x85, 0x9F, 0xF2, 0xF9, 0x4F, 0x68, 0x10, 0xAB, 0x91, 0x08, 0x00, 0x2B, 0x27, 0xB3, 0xD9
+};
+static const guint8 FMTID_DOC_SUMMARY[16] = {
+  0x02, 0xD5, 0xCD, 0xD5, 0x9C, 0x2E, 0x1B, 0x10, 0x93, 0x97, 0x08, 0x00, 0x2B, 0x2C, 0xF9, 0xAE
+};
+
+/* Property ids in each set, by O42Property; 0 for not in this set. */
+static const guint32 SUMMARY_PIDS[O42_N_PROPS]     = { 2, 3, 4, 0, 0, 0, 5, 6 };
+static const guint32 DOC_SUMMARY_PIDS[O42_N_PROPS] = { 0, 0, 0, 14, 15, 2, 0, 0 };
+
+static void
+put32_at (GByteArray *out, gsize at, guint32 v)
+{
+  out->data[at] = v & 0xff;
+  out->data[at + 1] = (v >> 8) & 0xff;
+  out->data[at + 2] = (v >> 16) & 0xff;
+  out->data[at + 3] = (v >> 24) & 0xff;
+}
+
+static void
+append32 (GByteArray *out, guint32 v)
+{
+  guint8 b[4] = { v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff };
+  g_byte_array_append (out, b, 4);
+}
+
+static GBytes *
+write_summary_information (O42Book *book, gboolean document)
+{
+  const guint32 *pids = document ? DOC_SUMMARY_PIDS : SUMMARY_PIDS;
+  GByteArray *out = g_byte_array_new ();
+  GArray *have = g_array_new (FALSE, FALSE, sizeof (int));
+  gsize section, table;
+  guint32 count;
+
+  for (int i = 0; i < O42_N_PROPS; i++)
+    if (pids[i] != 0 && *o42_book_property (book, (O42Property) i) != '\0')
+      g_array_append_val (have, i);
+  count = 1 + have->len;   /* the code page and the strings */
+
+  /* The header: byte order, version, the system it came from, no
+   * class id, one section. */
+  {
+    static const guint8 head[] = { 0xFE, 0xFF, 0x00, 0x00, 0x06, 0x00, 0x02, 0x00 };
+    guint8 zero[16] = { 0 };
+    g_byte_array_append (out, head, sizeof head);
+    g_byte_array_append (out, zero, 16);
+    append32 (out, 1);
+    g_byte_array_append (out, document ? FMTID_DOC_SUMMARY : FMTID_SUMMARY, 16);
+    append32 (out, 48);   /* the section starts right after this */
+  }
+
+  section = out->len;
+  append32 (out, 0);       /* size, filled in below */
+  append32 (out, count);
+  table = out->len;
+  for (guint32 i = 0; i < count; i++)
+    {
+      append32 (out, 0);   /* pid */
+      append32 (out, 0);   /* offset */
+    }
+
+  /* The code page, VT_I2. */
+  put32_at (out, table, 1);
+  put32_at (out, table + 4, (guint32) (out->len - section));
+  append32 (out, 2);
+  append32 (out, 65001);
+
+  for (guint k = 0; k < have->len; k++)
+    {
+      int i = g_array_index (have, int, k);
+      const char *value = o42_book_property (book, (O42Property) i);
+      gsize len = strlen (value) + 1;
+
+      put32_at (out, table + 8 * (k + 1), pids[i]);
+      put32_at (out, table + 8 * (k + 1) + 4, (guint32) (out->len - section));
+      append32 (out, 30);   /* VT_LPSTR */
+      append32 (out, (guint32) len);
+      g_byte_array_append (out, (const guint8 *) value, (guint) len);
+      while ((out->len - section) % 4 != 0)
+        g_byte_array_append (out, (const guint8 *) "", 1);
+    }
+  put32_at (out, section, (guint32) (out->len - section));
+  g_array_unref (have);
+  return g_byte_array_free_to_bytes (out);
+}
+
+static void
+read_summary_information (O42Book *book, GBytes *stream, gboolean document)
+{
+  const guint32 *pids = document ? DOC_SUMMARY_PIDS : SUMMARY_PIDS;
+  const guint8 *p;
+  gsize len, section;
+  guint32 count, codepage = 1252;
+
+  if (stream == NULL)
+    return;
+  p = g_bytes_get_data (stream, &len);
+  if (len < 48 + 8 || rd16 (p) != 0xFFFE || rd32 (p + 24) < 1)
+    return;
+  section = rd32 (p + 44);
+  if (section + 8 > len)
+    return;
+  count = rd32 (p + section + 4);
+  if (section + 8 + (gsize) count * 8 > len)
+    return;
+
+  /* The code page first, since the strings are in it. */
+  for (guint32 i = 0; i < count; i++)
+    {
+      guint32 pid = rd32 (p + section + 8 + i * 8), off = rd32 (p + section + 12 + i * 8);
+
+      if (pid == 1 && section + off + 8 <= len && rd32 (p + section + off) == 2)
+        codepage = rd16 (p + section + off + 4);
+    }
+
+  for (guint32 i = 0; i < count; i++)
+    {
+      guint32 pid = rd32 (p + section + 8 + i * 8), off = rd32 (p + section + 12 + i * 8);
+      guint32 type, n;
+      const guint8 *v;
+      char *text = NULL;
+      int which = -1;
+
+      for (int k = 0; k < O42_N_PROPS; k++)
+        if (pids[k] == pid)
+          which = k;
+      if (which < 0 || section + off + 8 > len)
+        continue;
+      type = rd32 (p + section + off);
+      n = rd32 (p + section + off + 4);
+      v = p + section + off + 8;
+      if (type == 30 && section + off + 8 + n <= len)          /* VT_LPSTR, in the code page */
+        {
+          gsize used = strnlen ((const char *) v, n);
+
+          if (codepage == 65001 || codepage == 1200)
+            text = g_strndup ((const char *) v, used);
+          else
+            {
+              char *charset = g_strdup_printf ("CP%u", codepage);
+              text = g_convert ((const char *) v, (gssize) used, "UTF-8", charset, NULL, NULL, NULL);
+              g_free (charset);
+              if (text == NULL)
+                text = g_convert ((const char *) v, (gssize) used, "UTF-8", "ISO-8859-1", NULL, NULL, NULL);
+            }
+        }
+      else if (type == 31 && section + off + 8 + (gsize) n * 2 <= len)   /* VT_LPWSTR, UTF-16 */
+        text = g_utf16_to_utf8 ((const gunichar2 *) v, n, NULL, NULL, NULL);
+      if (text != NULL)
+        {
+          o42_book_set_property (book, (O42Property) which, g_strstrip (text));
+          g_free (text);
+        }
+    }
+}
+
 gboolean
 o42_xls_load (O42Book *book, GFile *file, GError **error)
 {
-  GBytes *whole, *stream;
+  GBytes *whole, *stream, *summary = NULL, *doc_summary = NULL;
   Reader r;
   gboolean ok;
 
@@ -3538,9 +3708,16 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   stream = o42_ole2_read_stream (whole, "Workbook", NULL);
   if (stream == NULL)
     stream = o42_ole2_read_stream (whole, "Book", error);
-  g_bytes_unref (whole);
   if (stream == NULL)
-    return FALSE;
+    {
+      g_bytes_unref (whole);
+      return FALSE;
+    }
+  /* The properties live in streams of their own; they are read once
+   * the book is cleared for loading, below. */
+  summary = o42_ole2_read_stream (whole, "\005SummaryInformation", NULL);
+  doc_summary = o42_ole2_read_stream (whole, "\005DocumentSummaryInformation", NULL);
+  g_bytes_unref (whole);
 
   memset (&r, 0, sizeof r);
   r.book = book;
@@ -3577,6 +3754,10 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.objs = g_array_new (FALSE, FALSE, sizeof (ObjInfo));
 
   o42_book_clear (book);
+  read_summary_information (book, summary, FALSE);
+  read_summary_information (book, doc_summary, TRUE);
+  g_clear_pointer (&summary, g_bytes_unref);
+  g_clear_pointer (&doc_summary, g_bytes_unref);
   ok = read_workbook (&r, error);
 
   if (ok)
@@ -6342,9 +6523,12 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
 
   stream = g_byte_array_free_to_bytes (w.out);
   {
-    const char *names[1] = { "Workbook" };
-    GBytes *contents[1] = { stream };
-    whole = o42_ole2_build (names, contents, 1);
+    const char *names[3] = { "Workbook", "\005SummaryInformation", "\005DocumentSummaryInformation" };
+    GBytes *contents[3] = { stream, write_summary_information (book, FALSE),
+                            write_summary_information (book, TRUE) };
+    whole = o42_ole2_build (names, contents, 3);
+    g_bytes_unref (contents[1]);
+    g_bytes_unref (contents[2]);
   }
   ok = g_file_replace_contents (file, g_bytes_get_data (whole, NULL), g_bytes_get_size (whole),
                                 NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);

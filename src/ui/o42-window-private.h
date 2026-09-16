@@ -182,6 +182,7 @@ void action_group_objects (GSimpleAction *a, GVariant *p, gpointer data);
 void action_page_breaks (GSimpleAction *a, GVariant *p, gpointer data);
 void action_protect (GSimpleAction *a, GVariant *p, gpointer data);
 void action_protect_book (GSimpleAction *a, GVariant *p, gpointer data);
+void action_autocorrect (GSimpleAction *a, GVariant *p, gpointer data);
 
 /* TRUE, with a word in the status bar, when Protect Workbook forbids
  * changing the sheets. */

@@ -4338,6 +4338,20 @@ o42_sheet_typed_input (O42Sheet *sheet, int row, int col, const char *text)
       g_free (fixed);
       return result;
     }
+
+  /* Tools > AutoCorrect, on text that is not a number, a date or a
+   * formula. */
+  if (sheet->book != NULL && typed[0] != '=' && typed[0] != '\'' &&
+      !o42_entry_parse (typed, &entry))
+    {
+      char *corrected = o42_book_autocorrect (sheet->book, typed);
+
+      if (corrected != NULL)
+        {
+          g_free (fixed);
+          return corrected;
+        }
+    }
   return fixed;
 }
 

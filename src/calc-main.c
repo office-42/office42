@@ -2778,6 +2778,54 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* autocorrect TEXT prints TEXT as typed; correction FROM TO adds to
+       * the list, uncorrect FROM takes one off, corrections lists it, and
+       * autocorrectopt NAME on|off sets an option. */
+      if (g_str_has_prefix (text, "autocorrect "))
+        {
+          char *fixed = o42_book_autocorrect (book, text + 12);
+          printf ("%s\n", fixed != NULL ? fixed : text + 12);
+          g_free (fixed);
+          continue;
+        }
+      if (g_str_has_prefix (text, "correction "))
+        {
+          char **words = g_strsplit (text + 11, " ", 2);
+          if (g_strv_length (words) == 2)
+            o42_book_add_autocorrection (book, words[0], words[1]);
+          else
+            fprintf (stderr, "usage: correction FROM TO\n");
+          g_strfreev (words);
+          continue;
+        }
+      if (g_str_has_prefix (text, "uncorrect "))
+        {
+          if (!o42_book_remove_autocorrection (book, text + 10))
+            fprintf (stderr, "not in the list: %s\n", text + 10);
+          continue;
+        }
+      if (strcmp (text, "corrections") == 0)
+        {
+          for (int i = 0; i < o42_book_n_autocorrections (book); i++)
+            {
+              const char *to = NULL;
+              const char *from = o42_book_autocorrection (book, i, &to);
+              printf ("%s -> %s\n", from, to);
+            }
+          continue;
+        }
+      if (g_str_has_prefix (text, "autocorrectopt "))
+        {
+          char **words = g_strsplit (text + 15, " ", -1);
+          O42AutocorrectOption which;
+          if (g_strv_length (words) == 2 && o42_autocorrect_option_parse (words[0], &which))
+            o42_book_set_autocorrect_option (book, which, strcmp (words[1], "on") == 0);
+          else
+            fprintf (stderr, "usage: autocorrectopt initials|sentences|days|replace on|off\n");
+          g_strfreev (words);
+          continue;
+        }
+
       /* prop NAME VALUE sets one of File > Properties; props lists them. */
       if (g_str_has_prefix (text, "prop "))
         {

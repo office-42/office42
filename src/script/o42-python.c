@@ -249,6 +249,77 @@ m_current (PyObject *self, PyObject *args)
 }
 
 static PyObject *
+m_autocorrect (PyObject *self, PyObject *args)
+{
+  const char *text;
+  char *fixed;
+  PyObject *r;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &text))
+    return NULL;
+  fixed = current_book != NULL ? o42_book_autocorrect (current_book, text) : NULL;
+  r = PyUnicode_FromString (fixed != NULL ? fixed : text);
+  g_free (fixed);
+  return r;
+}
+
+static PyObject *
+m_autocorrections (PyObject *self, PyObject *args)
+{
+  PyObject *list = PyList_New (0);
+  (void) self; (void) args;
+  for (int i = 0; current_book != NULL && i < o42_book_n_autocorrections (current_book); i++)
+    {
+      const char *to = NULL;
+      const char *from = o42_book_autocorrection (current_book, i, &to);
+      PyObject *pair = Py_BuildValue ("(ss)", from, to);
+      PyList_Append (list, pair);
+      Py_DECREF (pair);
+    }
+  return list;
+}
+
+static PyObject *
+m_add_autocorrection (PyObject *self, PyObject *args)
+{
+  const char *from, *to;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "ss", &from, &to))
+    return NULL;
+  if (current_book != NULL)
+    o42_book_add_autocorrection (current_book, from, to);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_remove_autocorrection (PyObject *self, PyObject *args)
+{
+  const char *from;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &from))
+    return NULL;
+  return PyBool_FromLong (current_book != NULL && o42_book_remove_autocorrection (current_book, from));
+}
+
+static PyObject *
+m_autocorrect_option (PyObject *self, PyObject *args)
+{
+  const char *name;
+  int on = -1;
+  O42AutocorrectOption which;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s|p", &name, &on))
+    return NULL;
+  if (!o42_autocorrect_option_parse (name, &which))
+    return PyErr_Format (PyExc_ValueError, "no AutoCorrect option named %s", name);
+  if (current_book == NULL)
+    Py_RETURN_FALSE;
+  if (on >= 0)
+    o42_book_set_autocorrect_option (current_book, which, on);
+  return PyBool_FromLong (o42_book_autocorrect_option (current_book, which));
+}
+
+static PyObject *
 m_book_protected (PyObject *self, PyObject *args)
 {
   int on = -1;
@@ -2628,6 +2699,11 @@ static PyMethodDef METHODS[] = {
   { "copy_sheet",     m_copy_sheet,     METH_VARARGS, "Copies sheet i to place j under a name; the copy's index." },
   { "properties",     m_properties,     METH_NOARGS,  "File > Properties, as a dict." },
   { "book_protected", m_book_protected, METH_VARARGS, "Whether the book's structure is locked; sets it with an argument." },
+  { "autocorrect",    m_autocorrect,    METH_VARARGS, "Text as AutoCorrect leaves it." },
+  { "autocorrections", m_autocorrections, METH_NOARGS, "The replacement list as (from, to) pairs." },
+  { "add_autocorrection", m_add_autocorrection, METH_VARARGS, "Adds to the replacement list." },
+  { "remove_autocorrection", m_remove_autocorrection, METH_VARARGS, "Takes an entry off the replacement list." },
+  { "autocorrect_option", m_autocorrect_option, METH_VARARGS, "An AutoCorrect option; sets it with a second argument." },
   { "set_property",   m_set_property,   METH_VARARGS, "Sets one of File > Properties." },
   { "remove_sheet",   m_remove_sheet,   METH_VARARGS, "Removes sheet i." },
   { "rename_sheet",   m_rename_sheet,   METH_VARARGS, "Renames sheet i." },
