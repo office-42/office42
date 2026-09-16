@@ -119,6 +119,8 @@ struct _O42Sheet {
                             * precedents touch that band of 64 rows on
                             * that sheet ("" for this one) */
   guint32      tab_colour;    /* O42_TAB_NO_COLOUR for a plain tab */
+  GBytes      *background;    /* Format > Sheet > Background, or NULL */
+  char        *background_format;
   gboolean     hidden;        /* Format > Sheet > Hide */
   O42SheetView view;
   guint16      password;      /* the protection hash, 0 for none */
@@ -2279,8 +2281,30 @@ o42_sheet_free (O42Sheet *sheet)
 
   g_ptr_array_free (sheet->pictures, TRUE);
   g_ptr_array_free (sheet->charts, TRUE);
+  g_clear_pointer (&sheet->background, g_bytes_unref);
+  g_free (sheet->background_format);
   g_free (sheet->name);
   g_free (sheet);
+}
+
+void
+o42_sheet_set_background (O42Sheet *sheet, GBytes *data, const char *format)
+{
+  g_return_if_fail (sheet != NULL);
+  g_clear_pointer (&sheet->background, g_bytes_unref);
+  g_free (sheet->background_format);
+  sheet->background = data != NULL ? g_bytes_ref (data) : NULL;
+  sheet->background_format = data != NULL ? g_strdup (format != NULL ? format : "png") : NULL;
+  sheet->modified = TRUE;
+}
+
+GBytes *
+o42_sheet_background (O42Sheet *sheet, const char **format)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  if (format != NULL)
+    *format = sheet->background_format;
+  return sheet->background;
 }
 
 const char *
@@ -13850,6 +13874,8 @@ o42_sheet_duplicate (O42Sheet *src, const char *name)
   g_array_append_vals (dst->row_breaks, src->row_breaks->data, src->row_breaks->len);
   g_array_append_vals (dst->col_breaks, src->col_breaks->data, src->col_breaks->len);
   dst->tab_colour = src->tab_colour;
+  if (src->background != NULL)
+    o42_sheet_set_background (dst, src->background, src->background_format);
   dst->hidden = src->hidden;
   dst->view = src->view;
   dst->view.selected = FALSE;

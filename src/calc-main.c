@@ -2778,6 +2778,40 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* background FILE|none: Format > Sheet > Background. */
+      if (g_str_has_prefix (text, "background "))
+        {
+          if (strcmp (text + 11, "none") == 0)
+            o42_sheet_set_background (sheet, NULL, NULL);
+          else
+            {
+              GFile *f = g_file_new_for_path (text + 11);
+              const char *format = NULL;
+              int w = 0, h = 0;
+              GError *err = NULL;
+              GBytes *bytes = o42_image_load_file (f, &w, &h, &format, &err);
+
+              if (bytes != NULL)
+                {
+                  o42_sheet_set_background (sheet, bytes, format);
+                  printf ("background %dx%d %s\n", w, h, format);
+                  g_bytes_unref (bytes);
+                }
+              else
+                fprintf (stderr, "cannot read %s: %s\n", text + 11, err != NULL ? err->message : "?");
+              g_clear_error (&err);
+              g_object_unref (f);
+            }
+          continue;
+        }
+      if (strcmp (text, "background") == 0)
+        {
+          const char *format = NULL;
+          GBytes *bg = o42_sheet_background (sheet, &format);
+          printf ("%s\n", bg != NULL ? format : "none");
+          continue;
+        }
+
       /* autocorrect TEXT prints TEXT as typed; correction FROM TO adds to
        * the list, uncorrect FROM takes one off, corrections lists it, and
        * autocorrectopt NAME on|off sets an option. */

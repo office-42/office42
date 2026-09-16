@@ -16,6 +16,7 @@
  */
 
 #include "o42-grid.h"
+#include "o42-image.h"
 #include "o42-pyquote.h"
 #include "o42-entry.h"
 #include "o42-shape.h"
@@ -106,6 +107,8 @@ struct _O42Grid {
   gboolean       blink_on;
 
   PangoLayout   *layout;                   /* reused across every cell */
+  cairo_surface_t *background;             /* the sheet's background, decoded once */
+  GBytes        *background_source;        /* ...from these bytes */
 
   /* The fill handle being dragged: the source is the selection at the
    * grab, and the target grows from it in one direction. */
@@ -7196,6 +7199,39 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   cairo_rectangle (cr, scroll_x, scroll_y, view_w, view_h);
   cairo_fill (cr);
 
+  /* Format > Sheet > Background: the picture tiled from the sheet's
+   * corner, under the cells and never printed. */
+  {
+    GBytes *source = o42_sheet_background (self->sheet, NULL);
+
+    if (source != self->background_source)
+      {
+        g_clear_pointer (&self->background, cairo_surface_destroy);
+        g_clear_pointer (&self->background_source, g_bytes_unref);
+        if (source != NULL)
+          {
+            self->background = o42_image_surface (source);
+            self->background_source = g_bytes_ref (source);
+          }
+      }
+    if (self->background != NULL && !o42_sheet_is_chart_sheet (self->sheet))
+      {
+        cairo_pattern_t *tile = cairo_pattern_create_for_surface (self->background);
+        cairo_matrix_t m;
+
+        cairo_pattern_set_extend (tile, CAIRO_EXTEND_REPEAT);
+        cairo_matrix_init_translate (&m, -HEADER_W, -HEADER_H);
+        cairo_pattern_set_matrix (tile, &m);
+        cairo_save (cr);
+        cairo_rectangle (cr, MAX (scroll_x, HEADER_W), MAX (scroll_y, HEADER_H), view_w, view_h);
+        cairo_clip (cr);
+        cairo_set_source (cr, tile);
+        cairo_paint (cr);
+        cairo_restore (cr);
+        cairo_pattern_destroy (tile);
+      }
+  }
+
   if (o42_sheet_is_chart_sheet (self->sheet))
     {
       /* One chart, filling the window with a margin around it. */
@@ -8098,6 +8134,9 @@ static void
 o42_grid_dispose (GObject *object)
 {
   O42Grid *self = O42_GRID (object);
+
+  g_clear_pointer (&self->background, cairo_surface_destroy);
+  g_clear_pointer (&self->background_source, g_bytes_unref);
 
   if (self->blink_id != 0)
     {

@@ -821,6 +821,14 @@ GArray    *o42_sheet_tables       (O42Sheet *sheet);   /* O42Table, owned */
  * column. */
 gboolean   o42_sheet_table_range  (O42Sheet *sheet, const char *text, int row, O42Range *out);
 
+/* ---- The sheet's background ---------------------------------------------- */
+
+/* Format > Sheet > Background: a picture tiled behind the cells on the
+ * screen, and not printed, as Excel 97 has it.  `data` NULL takes it
+ * away.  Not undone, which is how Excel has it too. */
+void    o42_sheet_set_background (O42Sheet *sheet, GBytes *data, const char *format);
+GBytes *o42_sheet_background     (O42Sheet *sheet, const char **format);   /* NULL for none */
+
 /* ---- The tab's colour --------------------------------------------------- */
 
 /* Excel colours a sheet tab; so does Gnumeric.  O42_TAB_NO_COLOUR is

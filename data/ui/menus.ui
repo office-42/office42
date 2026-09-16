@@ -228,11 +228,16 @@
         </submenu>
         <item><attribute name="label" translatable="yes">_Merge Cells</attribute><attribute name="action">win.merge-cells</attribute></item>
         <item><attribute name="label" translatable="yes">Unmer_ge Cells</attribute><attribute name="action">win.unmerge-cells</attribute></item>
-        <item><attribute name="label" translatable="yes">Rename _Sheet...</attribute><attribute name="action">win.rename-sheet</attribute></item>
-        <item><attribute name="label" translatable="yes">Move Sheet _Left</attribute><attribute name="action">win.move-sheet-left</attribute></item>
-        <item><attribute name="label" translatable="yes">Move Sheet _Right</attribute><attribute name="action">win.move-sheet-right</attribute></item>
-        <item><attribute name="label" translatable="yes">_Hide Sheet</attribute><attribute name="action">win.hide-sheet</attribute></item>
-        <item><attribute name="label" translatable="yes">_Unhide Sheet...</attribute><attribute name="action">win.unhide-sheet</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">S_heet</attribute>
+          <item><attribute name="label" translatable="yes">_Rename...</attribute><attribute name="action">win.rename-sheet</attribute></item>
+          <item><attribute name="label" translatable="yes">Move _Left</attribute><attribute name="action">win.move-sheet-left</attribute></item>
+          <item><attribute name="label" translatable="yes">Move R_ight</attribute><attribute name="action">win.move-sheet-right</attribute></item>
+          <item><attribute name="label" translatable="yes">_Hide</attribute><attribute name="action">win.hide-sheet</attribute></item>
+          <item><attribute name="label" translatable="yes">_Unhide...</attribute><attribute name="action">win.unhide-sheet</attribute></item>
+          <item><attribute name="label" translatable="yes">_Background...</attribute><attribute name="action">win.sheet-background</attribute></item>
+          <item><attribute name="label" translatable="yes">_Delete Background</attribute><attribute name="action">win.delete-background</attribute></item>
+        </submenu>
       </section>
       <section>
         <submenu>

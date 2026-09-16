@@ -78,6 +78,7 @@ typedef struct
   GHashTable *string_idx;
   GArray     *dxfs;      /* O42Condition: the differential formats, by index */
   GHashTable *link_rids;   /* guint64 key -> rId of an external hyperlink, per sheet */
+  int         background_rid;  /* the sheet's background picture, or 0 */
 } Writer;
 
 /* An xf for this look worn under this style: two cells that look alike
@@ -928,6 +929,8 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     g_string_append_printf (out, "<drawing r:id=\"rId%d\"/>", drawing_rid);
   if (legacy_rid > 0)
     g_string_append_printf (out, "<legacyDrawing r:id=\"rId%d\"/>", legacy_rid);
+  if (w->background_rid > 0)
+    g_string_append_printf (out, "<picture r:id=\"rId%d\"/>", w->background_rid);
   if (n_tables > 0)
     {
       g_string_append_printf (out, "<tableParts count=\"%d\">", n_tables);
@@ -1828,6 +1831,34 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
               }
         }
 
+        /* Format > Sheet > Background: a media part and the sheet's
+         * <picture> relationship to it. */
+        w.background_rid = 0;
+        {
+          const char *format = NULL;
+          GBytes *background = o42_sheet_background (sheet, &format);
+
+          if (background != NULL && !o42_sheet_is_chart_sheet (sheet))
+            {
+              const char *ext = format != NULL ? format : "png";
+              const char *mime = strcmp (ext, "jpeg") == 0 || strcmp (ext, "jpg") == 0 ? "image/jpeg"
+                               : strcmp (ext, "gif") == 0 ? "image/gif"
+                               : strcmp (ext, "bmp") == 0 ? "image/bmp" : "image/png";
+              char *part = g_strdup_printf ("xl/media/background%d.%s", i + 1, ext);
+
+              o42_zip_writer_add (zip, part, g_bytes_get_data (background, NULL), g_bytes_get_size (background));
+              if (!g_hash_table_contains (exts, ext))
+                {
+                  g_hash_table_add (exts, g_strdup (ext));
+                  g_string_append_printf (extra_types, "<Default Extension=\"%s\" ContentType=\"%s\"/>", ext, mime);
+                }
+              g_string_append_printf (rels,
+                "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/background%d.%s\"/>",
+                next_rid, i + 1, ext);
+              w.background_rid = next_rid++;
+              g_free (part);
+            }
+        }
         {
           int table_rid = 0;
           int n_tables = write_tables (zip, sheet, i + 1, extra_types, rels, &next_rid, &table_rid);
@@ -2415,6 +2446,7 @@ typedef struct
   guint16     book_password;
   GString    *prop_text;
   char       *drawing_rid;  /* the sheet's <drawing r:id>, if any */
+  char       *picture_rid;  /* the sheet's <picture r:id>: its background */
   int         filter_col;   /* the filterColumn being read, or -1 */
 
   /* Conditional formatting being read */
@@ -3605,6 +3637,12 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
           o42_sheet_merge (r->sheet, &m);
         }
     }
+  else if (strcmp (n, "picture") == 0)
+    {
+      const char *id = attr (names, values, "id");
+      g_free (r->picture_rid);
+      r->picture_rid = g_strdup (id);
+    }
   else if (strcmp (n, "drawing") == 0)
     {
       const char *id = attr (names, values, "id");
@@ -4331,6 +4369,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           r.default_height = o42_sheet_row_height (r.sheet, O42_MAX_ROWS - 1);
           g_hash_table_remove_all (r.shared);
           g_clear_pointer (&r.drawing_rid, g_free);
+          g_clear_pointer (&r.picture_rid, g_free);
           r.filter_col = -1;
           r.fit_to_page = FALSE;
           r.sheet_rels = o42_xlsx_read_rels (parts, part);
@@ -4352,6 +4391,22 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
               o42_sheet_autofilter_refresh (r.sheet);
               if (r.drawing_rid != NULL)
                 o42_xlsx_draw_read (parts, part, r.drawing_rid, r.sheet);
+              /* The background picture, by its relationship. */
+              if (r.picture_rid != NULL)
+                {
+                  GHashTable *rels = o42_xlsx_read_rels (parts, part);
+                  const char *ptarget = g_hash_table_lookup (rels, r.picture_rid);
+                  char *path = ptarget != NULL ? o42_xlsx_resolve (part, ptarget) : NULL;
+                  GBytes *bytes = path != NULL ? g_hash_table_lookup (parts, path) : NULL;
+
+                  if (bytes != NULL)
+                    {
+                      const char *dot = strrchr (path, '.');
+                      o42_sheet_set_background (r.sheet, bytes, dot != NULL ? dot + 1 : "png");
+                    }
+                  g_free (path);
+                  g_hash_table_unref (rels);
+                }
               /* Comments hang off the sheet's relationships by type. */
               {
                 GHashTable *rels = o42_xlsx_read_rels (parts, part);
@@ -4621,6 +4676,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_free (r.shared_si);
   g_free (r.array_ref);
   g_free (r.drawing_rid);
+  g_free (r.picture_rid);
   g_hash_table_unref (r.shared);
   if (ok)
     {

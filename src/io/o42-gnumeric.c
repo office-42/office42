@@ -1356,9 +1356,20 @@ write_sheet (GString *out, O42Sheet *sheet)
       guint64 key = g_array_index (w.keys, guint64, i);
       write_cell (&w, sheet, o42_key_row (key), o42_key_col (key));
     }
-  g_string_append (w.out,
-    "      </gnm:Cells>\n"
-    "    </gnm:Sheet>\n");
+  g_string_append (w.out, "      </gnm:Cells>\n");
+  {
+    const char *format = NULL;
+    GBytes *background = o42_sheet_background (sheet, &format);
+
+    if (background != NULL)
+      {
+        char *encoded = g_base64_encode (g_bytes_get_data (background, NULL), g_bytes_get_size (background));
+        g_string_append_printf (w.out, "      <gnm:o42-Background image-type=\"%s\">%s</gnm:o42-Background>\n",
+                                format != NULL ? format : "png", encoded);
+        g_free (encoded);
+      }
+  }
+  g_string_append (w.out, "    </gnm:Sheet>\n");
 
   g_array_free (w.keys, TRUE);
   g_free (name);
@@ -1785,6 +1796,7 @@ typedef struct {
   /* The picture being read. */
   gboolean    in_object;
   gboolean    in_content;
+  gboolean    in_background;    /* gnm:o42-Background, base64 in r->content */
   O42Range    object_bound;
   double      object_offset[4];
   GString    *content;
@@ -2123,6 +2135,19 @@ start_element (GMarkupParseContext *context, const char *element,
                               attr_double (names, values, "IterationTolerance", 0.001));
       /* Gnumeric's name for the Macintosh epoch. */
       o42_book_set_date_1904 (r->book, g_strcmp0 (attr (names, values, "DateConvention"), "Apple:1904") == 0);
+      return;
+    }
+
+  if (strcmp (name, "o42-Background") == 0 && r->sheet != NULL)
+    {
+      const char *type = attr (names, values, "image-type");
+
+      r->in_background = TRUE;
+      if (r->content == NULL)
+        r->content = g_string_new (NULL);
+      g_string_truncate (r->content, 0);
+      g_free (r->content_type);
+      r->content_type = g_strdup (type != NULL ? type : "png");
       return;
     }
 
@@ -3657,6 +3682,23 @@ end_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (strcmp (name, "o42-Background") == 0 && r->in_background)
+    {
+      gsize length = 0;
+      guchar *raw = r->content->len > 0 ? g_base64_decode (r->content->str, &length) : NULL;
+
+      r->in_background = FALSE;
+      if (raw != NULL && length > 0 && r->sheet != NULL)
+        {
+          GBytes *bytes = g_bytes_new_take (raw, length);
+          o42_sheet_set_background (r->sheet, bytes, r->content_type);
+          g_bytes_unref (bytes);
+        }
+      else
+        g_free (raw);
+      return;
+    }
+
   if (strcmp (name, "SheetObjectImage") == 0)
     {
       r->in_object = FALSE;
@@ -3848,7 +3890,7 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     g_string_append_len (r->name, text, (gssize) length);
   else if (r->in_font)
     g_string_append_len (r->font_name, text, (gssize) length);
-  else if (r->in_content)
+  else if (r->in_content || r->in_background)
     g_string_append_len (r->content, text, (gssize) length);
 }
 

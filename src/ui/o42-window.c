@@ -531,6 +531,64 @@ action_insert_picture (GSimpleAction *a, GVariant *p, gpointer data)
   g_object_unref (dialog);
 }
 
+/* Format > Sheet > Background: a picture file, tiled behind the cells. */
+static void
+on_background_response (GObject *source, GAsyncResult *result, gpointer data)
+{
+  O42Window *self = data;
+  GError *error = NULL;
+  GFile *file = gtk_file_dialog_open_finish (GTK_FILE_DIALOG (source), result, &error);
+
+  if (file != NULL)
+    {
+      int width = 0, height = 0;
+      const char *format = NULL;
+      GBytes *bytes = o42_image_load_file (file, &width, &height, &format, &error);
+
+      if (bytes != NULL)
+        {
+          o42_sheet_set_background (self->sheet, bytes, format);
+          g_bytes_unref (bytes);
+          o42_grid_refresh (self->grid);
+          window_sync (self);
+        }
+      else
+        show_error (self, "office42 could not read that picture.", error);
+      g_object_unref (file);
+    }
+  g_clear_error (&error);
+}
+
+static void
+action_sheet_background (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GtkFileDialog *dialog = gtk_file_dialog_new ();
+  GListStore *filters = g_list_store_new (GTK_TYPE_FILE_FILTER);
+  GtkFileFilter *pictures = gtk_file_filter_new ();
+
+  (void) a; (void) p;
+  gtk_file_filter_set_name (pictures, _("Pictures"));
+  add_picture_patterns (pictures);
+  g_list_store_append (filters, pictures);
+  gtk_file_dialog_set_title (dialog, _("Sheet Background"));
+  gtk_file_dialog_set_filters (dialog, G_LIST_MODEL (filters));
+  gtk_file_dialog_open (dialog, GTK_WINDOW (self), NULL, on_background_response, self);
+  g_object_unref (filters);
+  g_object_unref (dialog);
+}
+
+static void
+action_delete_background (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  o42_sheet_set_background (self->sheet, NULL, NULL);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+}
+
 /* Insert > Picture > From Scanner or Camera: the system's acquire
  * dialog, and the picture it gives lands like any other. */
 static void
@@ -6079,6 +6137,8 @@ static const GActionEntry ACTIONS[] = {
   { "protect",        action_protect,        NULL, NULL, NULL, { 0 } },
   { "protect-book",   action_protect_book,   NULL, NULL, NULL, { 0 } },
   { "autocorrect",    action_autocorrect,    NULL, NULL, NULL, { 0 } },
+  { "sheet-background", action_sheet_background, NULL, NULL, NULL, { 0 } },
+  { "delete-background", action_delete_background, NULL, NULL, NULL, { 0 } },
   { "spelling",       action_spelling,       NULL, NULL, NULL, { 0 } },
   { "record-macro",   action_record_macro,   NULL, NULL, NULL, { 0 } },
   { "stop-recording", action_stop_recording, NULL, NULL, NULL, { 0 } },
