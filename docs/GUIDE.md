@@ -76,7 +76,9 @@ From the top down:
   copy, paste, undo, redo, AutoSum, the Function Wizard, sort and the
   ChartWizard) and the formatting one (font name and size, bold, italic,
   underline, the three alignments, currency, percent, comma, and more or
-  fewer decimals).
+  fewer decimals). View ▸ Toolbars turns either off, and View ▸ Formula
+  Bar and View ▸ Status Bar do the same for those; the grid takes the
+  room.
 - **The Name Box** on the left of the formula bar. It shows where the
   cursor is; type a reference or a defined name into it and press Enter
   to go there.
@@ -144,7 +146,10 @@ on typing replaces the suggestion and pressing Enter accepts it.
 
 **Filling.** Ctrl+D fills down from the top row of the selection and
 Ctrl+R fills right, and Edit ▸ Fill ▸ Up and Left go the other way,
-copying the bottom row or the right column over the rest. Dragging the
+copying the bottom row or the right column over the rest. Edit ▸ Fill ▸
+Across Worksheets copies the selection to the same cells on the other
+sheets -- each offered and ticked, since office42 has no grouped sheets
+-- as all of it, its contents or its formats. Dragging the
 small square at the bottom-right corner of the selection continues a
 series: numbers step by the difference between the first two, dates by
 day, and names of days and months by name.
@@ -165,6 +170,17 @@ below the selection when the words need more rows.
 
 **Clear.** Edit ▸ Clear takes away All, only the Formats, only the
 Contents (which is what Delete does) or only the Notes.
+
+**AutoCorrect.** Tools ▸ AutoCorrect does to typed text what Excel 97
+does: TWo INitial CApitals become one, the letter after a full stop
+becomes a capital, a day's name typed in lower case gets its capital,
+and the words in the replacement list are replaced as whole words --
+`(c)` by ©, `...` by …, `teh` by `the`, `i` by `I`. A formula, a
+quoted text, a number, a date or a word in capitals is never touched.
+Each of the four can be turned off in the dialog, which also edits the
+list; Excel keeps the list in its options, office42 keeps it with the
+book, so a new book starts with a short list and `.gnumeric` carries
+yours.
 
 **Moving and copying.** Ctrl+X, Ctrl+C and Ctrl+V cut, copy and paste,
 with references relocated the way Excel relocates them. Edit ▸ Paste
@@ -421,8 +437,8 @@ right or left.
 Format ▸ Merge Cells joins the selection into one; the top-left cell's
 content is what shows.
 
-Insert ▸ Worksheet adds a sheet before the current one, Format ▸ Rename
-Sheet names it, Edit ▸ Delete Sheet removes it -- and Ctrl+Z brings it
+Insert ▸ Worksheet adds a sheet before the current one, Format ▸ Sheet
+▸ Rename names it, Edit ▸ Delete Sheet removes it -- and Ctrl+Z brings it
 back with everything on it. Edit ▸ Move or Copy Sheet puts the sheet
 before another one or at the end, or, with Create a copy, makes a copy
 there named "Sheet1 (2)" as Excel names it: every cell, format, note,
@@ -431,8 +447,11 @@ named the original by name now name the copy. Click a tab to go to that
 sheet. Format ▸
 Sheet ▸ Hide takes a sheet out of the tab strip, Unhide lists the hidden
 ones and brings one back; a hidden sheet's cells are still there for
-formulas. Each sheet keeps its own zoom, gridlines, zeros, selection and
-active cell, and the file keeps them.
+formulas. Format ▸ Sheet ▸ Background puts a picture behind the cells,
+tiled from the sheet's corner and never printed, and Delete Background
+takes it away; `.gnumeric` and `.xlsx` carry it. Each sheet keeps its
+own zoom, gridlines, zeros, selection and active cell, and the file
+keeps them.
 
 Drag a tab sideways to move the sheet where you let it go. The tab's
 right-click menu has **Tab Colour...** and **No Tab Colour**; the colour
@@ -573,9 +592,13 @@ values or as EUROCONVERT formulas, with the rounding Excel's tool used.
 same cells and puts any of them back; Summary writes a report sheet
 with the changing cells and the result cells under each scenario.
 
-**Protection.** Format ▸ Protect Sheet locks the sheet and asks for a
-password, which may be left empty; taking the protection off asks for
-the same one back. The password is kept as the sixteen-bit hash Excel
+**Protection.** Tools ▸ Protection ▸ Protect Sheet locks the sheet and
+asks for a password, which may be left empty; taking the protection off
+asks for the same one back. Tools ▸ Protection ▸ Protect Workbook locks
+the sheets as they are instead: none can be added, deleted, renamed,
+moved, copied, hidden or unhidden until it is taken off, and the cells
+stay as editable as their sheets allow; `.gnumeric`, `.xlsx` and `.ods`
+carry it. The password is kept as the sixteen-bit hash Excel
 invented for this and every spreadsheet since has had to keep -- it
 cannot be turned back into the password, and it cannot be relied on
 either: a hash that short collides, and anything reading the file can
@@ -826,8 +849,8 @@ File ▸ Open and Save As choose the format by the name you give:
 | Extension | What it is | What travels |
 |---|---|---|
 | `.gnumeric` | Gnumeric's own, gzipped XML | everything office42 has, the properties included, and the things no other format holds |
-| `.xlsx`, `.xlsm` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, validations, conditional formats, charts, shapes, pictures, print setup, protection, chart sheets, hidden sheets, custom views, scripts, the standard column width, the properties; an `.xlsm`'s Visual Basic is kept for Excel, not run |
-| `.xls` | Excel 97 to 2003, BIFF8 (and the older BIFF5 read) | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view |
+| `.xlsx`, `.xlsm` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, validations, conditional formats, charts, shapes, pictures, print setup, protection, chart sheets, hidden sheets, custom views, scripts, the standard column width, the properties, the workbook protection, sheet backgrounds; an `.xlsm`'s Visual Basic is kept for Excel, not run |
+| `.xls` | Excel 97 to 2003, BIFF8 (and the older BIFF5 read) | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view, the properties |
 | `.ods`, `.fods` | OpenDocument, LibreOffice Calc's own, zipped or flat | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, validations, frozen panes, print setup, pictures, shapes, charts, form controls, the properties |
 | `.html` | a table per sheet | values, fonts, fills, borders, alignments, merges, links |
 | `.csv` | comma separated | the values as shown, quoted where they need it |
@@ -839,10 +862,11 @@ File ▸ Open and Save As choose the format by the name you give:
 
 File ▸ Properties holds what Excel's Summary tab holds -- title,
 subject, author, manager, company, category, keywords and comments --
-and `.gnumeric`, `.xlsx` and `.ods` carry them (an `.xls` does not
-yet). A `.gnumeric` keeps them as Gnumeric does, in
-`office:document-meta`; an `.xlsx` in `docProps/core.xml` and
-`app.xml`; an `.ods` in `meta.xml`.
+and every format that can carries them. A `.gnumeric` keeps them as
+Gnumeric does, in `office:document-meta`; an `.xlsx` in
+`docProps/core.xml` and `app.xml`; an `.ods` in `meta.xml`; an `.xls`
+in the SummaryInformation and DocumentSummaryInformation streams Excel
+keeps them in.
 
 Every one of them but LaTeX and PDF is read as well as written, and
 each has been checked both ways against the program it belongs to --
@@ -941,7 +965,7 @@ and `SQLVALUE` is not there.
 
 Format ▸ Cells ▸ Protection marks cells locked (which they all are to
 begin with, as in Excel) or hidden. Neither does anything until Tools ▸
-Protect Sheet is on; then a locked cell refuses to be typed into and a
+Protection ▸ Protect Sheet is on; then a locked cell refuses to be typed into and a
 hidden cell's formula does not show in the formula bar.
 
 This guards the window, not the file: a script or the terminal
@@ -965,15 +989,15 @@ prints the used range. The commands, by family:
 
 | Family | Commands |
 |---|---|
-| Cells | `dump`, `copy`, `paste`, `filldown`, `fillright`, `fillup`, `fillleft`, `series`, `justify`, `autofill`, `moverange`, `merge`, `unmerge`, `merges`, `insertrows`, `deleterows`, `insertcols`, `deletecols`, `insertcells`, `deletecells`, `array` |
+| Cells | `dump`, `copy`, `paste`, `filldown`, `fillright`, `fillup`, `fillleft`, `fillacross`, `series`, `justify`, `autofill`, `moverange`, `merge`, `unmerge`, `merges`, `insertrows`, `deleterows`, `insertcols`, `deletecols`, `insertcells`, `deletecells`, `array` |
 | Formats | `format`, `font`, `fontinfo`, `border`, `pattern`, `rich`, `runs`, `indent`, `rotate`, `fmtinfo`, `style`, `styles`, `defstyle`, `styleat`, `autoformat`, `cond`, `conds`, `uncond`, `customlist`, `customlists` |
-| Sheets | `sheet`, `rename`, `delsheet`, `copysheet`, `tabcolour`, `freeze`, `split`, `hiderows`, `unhiderows`, `hidecols`, `unhidecols`, `levels`, `group`, `ungroup`, `autooutline`, `clearoutline`, `detail`, `outlinelevel`, `protect`, `lock`, `hide`, `editable`, `chartsheet` |
+| Sheets | `sheet`, `rename`, `delsheet`, `copysheet`, `background`, `tabcolour`, `freeze`, `split`, `hiderows`, `unhiderows`, `hidecols`, `unhidecols`, `levels`, `group`, `ungroup`, `autooutline`, `clearoutline`, `detail`, `outlinelevel`, `protect`, `lock`, `hide`, `editable`, `chartsheet` |
 | Data | `sort`, `find`, `replace`, `filter`, `advfilter`, `subtotal`, `unsubtotal`, `dedupe`, `consolidate`, `table`, `tables`, `untable`, `pivot`, `refresh`, `validate`, `validations`, `unvalidate`, `goalseek`, `solve`, `scenario`, `scenarios`, `showscenario`, `delscenario`, `summary`, `analyse`, `whatif`, `split`, `splitfixed`, `autofilter` |
 | Objects | `chart`, `charts`, `chartset`, `chartinfo`, `shape`, `shapes`, `controlset`, `click`, `picture`, `pictures`, `objgroup`, `objungroup`, `note`, `link`, `links`, `pictureset`, `objects`, `order` |
 | Files | `load`, `save`, `pdf`, `pdfbook`, `printarea`, `printscale`, `printsetup`, `printopt`, `pagebreak`, `margin`, `header`, `footer`, `titlerows`, `pageopt`, `titlecols` |
 | Python | `py`, `pyfile`, `script`, `scripts`, `runscript`, `delscript`, `record`, `select` |
 | Database | `db`, `dbembed`, `dbtables`, `dbcols`, `dbexec`, `sql`, `sqlprint`, `dbput`, `dbrefresh`, `queries` |
-| Other | `undo`, `redo`, `name`, `names`, `unname`, `createnames`, `applynames`, `prop`, `props`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc`, `evaluate`, `watch`, `watches`, `unwatch`, `check`, `date1904`, `precision`, `fixeddecimals` |
+| Other | `undo`, `redo`, `name`, `names`, `unname`, `createnames`, `applynames`, `prop`, `props`, `autocorrect`, `correction`, `uncorrect`, `corrections`, `autocorrectopt`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc`, `evaluate`, `watch`, `watches`, `unwatch`, `check`, `date1904`, `precision`, `fixeddecimals` |
 
 `office42-calc --functions` prints every function with its signature
 and a line about what it does; `--help` prints the commands by family

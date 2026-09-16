@@ -28,8 +28,9 @@ office42 aims at two programs:
 - **Microsoft Excel 97**, for what it should do and how it should look.
   Excel 97 is the target for feature parity: every menu, every dialog and
   every command it had is meant to be here and to behave as it did there
-  -- Fill Series and Justify, the data form, Move or Copy Sheet, the four
-  Name commands, Standard Width, the document's Properties, and the rest
+  -- Fill Series, Justify and Across Worksheets, the data form, Move or
+  Copy Sheet, the four Name commands, AutoCorrect, Protect Workbook, the
+  sheet background, the document's Properties, and the rest
   -- and its shape is this program's shape: a grid, a formula bar, a name
   box, two toolbars and sheet tabs along the bottom. No ribbon.
   [docs/PARITY.md](docs/PARITY.md) keeps the score menu by menu, and

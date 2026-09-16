@@ -9,14 +9,11 @@ section spelled out.
 ## Next
 
 **The last of Excel 97's menus.** Excel 97 is the target for feature
-parity, and after the fifth pass what its menu bar has that this one
-has not is short: Edit ▸ Fill ▸ Across Worksheets and Paste as
-Hyperlink; View ▸ Toolbars, Formula Bar and Status Bar as things to
-turn off; Format ▸ Sheet ▸ Background; Tools ▸ AutoCorrect and
-Protection ▸ Protect Workbook; Insert ▸ Object and WordArt; the
-pie-of-pie chart; the document properties in an `.xls`, whose
-SummaryInformation stream is a property set of its own.  Each is a
-day or less, and they are being done in that order.
+parity, and after the sixth pass what its menu bar has that this one
+has not is: Edit ▸ Paste as Hyperlink and Edit ▸ Links; Insert ▸
+Object and WordArt; the pie-of-pie and bar-of-pie charts; File ▸ Save
+Workspace; and Window ▸ Arrange, Hide and Unhide, which GTK 4 gives a
+program no way to do.  The charts are next.
 
 **Splitting `o42-sheet.c`.** It is 14,013 lines, the biggest file of
 all: cells and their formats, recalculation and the dependency graph,

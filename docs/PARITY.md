@@ -203,6 +203,20 @@ fixed.  Each change was checked through office42-calc and the
 running program, and the files through openpyxl and office42 reading
 what it wrote.
 
+**The sixth pass** finished the menus the fifth had listed as left,
+and made Excel 97 the program's whole account of itself, its shape as
+well as its target, in the goals, the guide and the comments alike.
+Edit ▸ Fill ▸ Across Worksheets; View ▸ Toolbars, Formula Bar and
+Status Bar as things to turn off; Tools ▸ Protection ▸ Protect
+Workbook, kept in three formats; Tools ▸ AutoCorrect, with Excel's
+four rules and a replacement list the book carries; Format ▸ Sheet ▸
+Background, tiled behind the cells and kept in .gnumeric and .xlsx;
+and the properties in an .xls, written into the two OLE property-set
+streams Excel keeps them in and read back from any code page.  The
+.xlsx writer had put workbookPr after definedNames, which the schema
+forbids; it and the new workbookProtection sit where Excel expects
+them.  Checked as before, olefile reading the .xls streams.
+
 ---
 
 ## 2. Parity with Excel 97, area by area
@@ -213,7 +227,7 @@ is there.
 
 | Area | Weight | Here | Score | What is missing |
 |---|---:|---:|---:|---|
-| Entering and editing | 8 | 99% | 7.9 | Fill ▸ Across Worksheets; Paste as Hyperlink; AutoCorrect |
+| Entering and editing | 8 | 100% | 8.0 | Paste as Hyperlink and Edit ▸ Links, which want an OLE that is not there |
 | Selecting and navigating | 5 | 100% | 5.0 | |
 | Formulas and functions | 15 | 100% | 15.0 | every function Excel 97 has (and Excel 2003's) -- the natural-language labels Excel 97 let a formula use, and Excel 2007 took away, are not planned |
 | Number formats | 6 | 100% | 6.0 | |
@@ -223,14 +237,14 @@ is there.
 | Data tools | 10 | 99% | 9.9 | the Template Wizard, Web Query and Data Map, which Excel itself dropped |
 | Charts | 8 | 98% | 7.8 | pie-of-pie and bar-of-pie; the chart wizard's fourth step is a dialog here |
 | Objects | 5 | 96% | 4.8 | WordArt, the Clip Gallery, OLE objects |
-| File formats | 12 | 99% | 11.9 | the properties in an `.xls`; Save Workspace; charts in a BIFF5 `.xls` come back as pictures of themselves |
+| File formats | 12 | 99% | 11.9 | Save Workspace; charts in a BIFF5 `.xls` come back as pictures of themselves |
 | Printing | 6 | 100% | 6.0 | the Report Manager, which was an add-in |
 | Undo | 5 | 100% | 5.0 | |
-| Window and dialogs | 6 | 93% | 5.6 | arranging, hiding and unhiding windows, which GTK 4 gives a program no way to do; View ▸ Toolbars, Formula Bar and Status Bar as things to turn off; Format ▸ Sheet ▸ Background; Protect Workbook |
+| Window and dialogs | 6 | 97% | 5.8 | arranging, hiding and unhiding windows, which GTK 4 gives a program no way to do |
 | Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice; the recorder writes one line per operation, Alt+F8 and Ctrl+Shift+letter run them |
-| **Total** | 110 | | **108.9** | |
+| **Total** | 110 | | **109.2** | |
 
-**About 99% of Excel 97** (108.9 of a weight of 110), and the same
+**About 99% of Excel 97** (109.2 of a weight of 110), and the same
 picture against Excel 2003, whose additions -- list ranges, XML maps,
 the research pane -- are either here as tables or not wanted.
 Against **Excel 365** the number is nearer 45%: dynamic arrays and
@@ -260,14 +274,11 @@ thing is worth knowing:
 
 | | |
 |---|---|
-| **Passwords** | the sheet takes one, kept as the short hash Excel invented; it guards against a slip of the hand and nothing else; Protect Workbook, which locks the sheets' order, is not there |
+| **Passwords** | the sheet and the workbook each take one, kept as the short hash Excel invented; they guard against a slip of the hand and nothing else |
 | **Window ▸ Arrange, Hide, Unhide** | GTK 4 took away the calls that move a window, so a program cannot tile or cascade its own |
-| **View ▸ Toolbars, Formula Bar, Status Bar** | always on; the menu does not offer to hide them |
-| **Edit ▸ Fill ▸ Across Worksheets, Paste as Hyperlink, Links** | not yet |
-| **Tools ▸ AutoCorrect** | not yet |
-| **Format ▸ Sheet ▸ Background** | a picture behind the cells; not yet |
+| **Edit ▸ Paste as Hyperlink, Links** | they link to OLE objects, which have no home on this desktop |
 | **Insert ▸ Object, WordArt, Clip Gallery, Map** | OLE has no home on this desktop; WordArt is a text box with a font; the map was licensed data Excel dropped |
-| **Properties in an `.xls`** | the SummaryInformation stream is a property set of its own; `.gnumeric`, `.xlsx` and `.ods` carry them |
+| **Pie-of-pie and bar-of-pie charts** | next |
 | **Track changes, sharing** | not there, and not planned |
 | **The Office Assistant** | no |
 
@@ -351,11 +362,10 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **The last of Excel 97's menus**, listed in the table above: Fill
-   Across Worksheets, the toolbar and bar toggles, Sheet Background,
-   AutoCorrect, Protect Workbook, the properties in an `.xls`, the
-   pie-of-pie chart.  None is more than a day, and together they are
-   the distance between "aims at Excel 97" and "is".
+1. **The pie-of-pie and bar-of-pie charts**, the one thing left of
+   Excel 97's that a day's work would close; the rest of the table
+   above is OLE, which this desktop has not, and window arranging,
+   which GTK 4 has not.
 2. **Splitting `o42-sheet.c`** (14,013 lines), the biggest file of all:
    cells and their formats, recalculation and the dependency graph,
    and the objects that float over the grid are three subjects in one

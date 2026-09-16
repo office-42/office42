@@ -55,6 +55,9 @@ book.remove_sheet("Data")
 book.move_sheet("Data", 0)     # to the first tab
 book.copy_sheet("Data", name="Data (2)")   # Edit > Move or Copy Sheet, with a copy
 book.properties["title"]; book.set_property("author", "Ann")   # File > Properties
+book.protected = True          # Tools > Protection > Protect Workbook
+book.autocorrect("teh cat")    # 'the cat'; add_autocorrection, remove_autocorrection,
+                               # autocorrections and autocorrect_option edit the rules
 book.path                      # the file, or None
 book.save(); book.save_as("q3.xlsx"); book.close()
 
@@ -74,6 +77,7 @@ r.copy("E1")                         # everything; or .copy("E1", "values"),
                                      # "formats", "formulas", transpose=True
 r.cut("E1")                          # formulas elsewhere follow it
 r.fill_down(); r.fill_right(); r.fill_up(); r.fill_left()
+r.fill_across(["Sheet2"], "formats")  # Edit > Fill > Across Worksheets; all sheets by default
 r.fill_series("linear", step=2, stop=20)   # or "growth", "date" (unit="month"), "autofill"
 r.justify()                          # the text in the first column, laid out again
 sheet["A1:A2"].autofill("A1:A20")    # continues the series
