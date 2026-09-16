@@ -551,14 +551,67 @@ m_move_range (PyObject *self, PyObject *args)
 static PyObject *
 m_fill (PyObject *self, PyObject *args)
 {
-  int index, down;
+  int index, direction;
   O42Range r;
   O42Sheet *sheet;
   (void) self;
-  if (!PyArg_ParseTuple (args, "iiiiip", &index, &r.row0, &r.col0, &r.row1, &r.col1, &down) ||
+  if (!PyArg_ParseTuple (args, "iiiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1, &direction) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
-  o42_sheet_fill (sheet, &r, down);
+  if (direction < 0 || direction > 3)
+    return PyErr_Format (PyExc_ValueError, "direction is 0 (down), 1 (right), 2 (up) or 3 (left)");
+  o42_sheet_fill_direction (sheet, &r, (O42FillDirection) direction);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_fill_series (PyObject *self, PyObject *args)
+{
+  static const char *const TYPES[] = { "linear", "growth", "date", "autofill" };
+  static const char *const UNITS[] = { "day", "weekday", "month", "year" };
+  int index, trend, has_stop, rows, found = -1;
+  const char *type, *unit;
+  O42Range r;
+  O42Series series;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiissdppdp", &index, &r.row0, &r.col0, &r.row1, &r.col1,
+                         &type, &unit, &series.step, &trend, &has_stop, &series.stop, &rows) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  for (int i = 0; i < 4; i++)
+    if (strcmp (type, TYPES[i]) == 0)
+      found = i;
+  if (found < 0)
+    return PyErr_Format (PyExc_ValueError, "type is linear, growth, date or autofill");
+  series.type = (O42SeriesType) found;
+  found = -1;
+  for (int i = 0; i < 4; i++)
+    if (strcmp (unit, UNITS[i]) == 0)
+      found = i;
+  if (found < 0)
+    return PyErr_Format (PyExc_ValueError, "unit is day, weekday, month or year");
+  series.unit = (O42SeriesUnit) found;
+  series.trend = trend;
+  series.has_stop = has_stop;
+  series.in_rows = rows;
+  o42_sheet_fill_series (sheet, &r, &series);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_fill_justify (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_fill_justify (sheet, &r);
   book_touched = TRUE;
   Py_RETURN_NONE;
 }
@@ -2428,7 +2481,9 @@ static PyMethodDef METHODS[] = {
   { "clear_range",    m_clear_range,    METH_VARARGS, "Empties a range's cells, or their formats." },
   { "copy_range",     m_copy_range,     METH_VARARGS, "Copies a range to a cell: all, values, formats or formulas." },
   { "move_range",     m_move_range,     METH_VARARGS, "Moves a range to a cell, formulas following." },
-  { "fill",           m_fill,           METH_VARARGS, "Fill Down (or Right) over a range." },
+  { "fill",           m_fill,           METH_VARARGS, "Fill Down, Right, Up or Left over a range." },
+  { "fill_series",    m_fill_series,    METH_VARARGS, "Edit > Fill > Series over a range." },
+  { "fill_justify",   m_fill_justify,   METH_VARARGS, "Edit > Fill > Justify over a range." },
   { "autofill",       m_autofill,       METH_VARARGS, "Continues a range's series over a target." },
   { "sort",           m_sort,           METH_VARARGS, "Sorts a range's rows by keys." },
   { "replace",        m_replace,        METH_VARARGS, "Replaces text in a range (or the sheet); how many cells." },
@@ -2562,7 +2617,22 @@ ensure_interpreter (void)
 #ifdef G_OS_WIN32
   set_home_from_dll (&config);
 #endif
-  status = Py_InitializeFromConfig (&config);
+  /* A PYTHONUNBUFFERED in the environment has the interpreter turn
+   * off the buffering of this process's own stdin as it starts, which
+   * discards what office42-calc had already read from its pipe; the
+   * variable is hidden while Python starts.  It is read again by the
+   * interpreter's own reading of the environment, so setting
+   * buffered_stdio is not enough.  Python is a guest here and keeps
+   * its hands off the host's stdio. */
+  {
+    char *unbuffered = g_strdup (g_getenv ("PYTHONUNBUFFERED"));
+
+    g_unsetenv ("PYTHONUNBUFFERED");
+    status = Py_InitializeFromConfig (&config);
+    if (unbuffered != NULL)
+      g_setenv ("PYTHONUNBUFFERED", unbuffered, TRUE);
+    g_free (unbuffered);
+  }
   PyConfig_Clear (&config);
   if (PyStatus_Exception (status))
     {
