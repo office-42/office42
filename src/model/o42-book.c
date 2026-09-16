@@ -490,6 +490,77 @@ o42_book_add_sheet (O42Book *book, const char *name, int index)
   return sheet;
 }
 
+O42Sheet *
+o42_book_copy_sheet (O42Book *book, int from, int to, const char *name)
+{
+  O42Sheet *src, *copy;
+  char *fresh = NULL;
+
+  g_return_val_if_fail (book != NULL, NULL);
+  if (from < 0 || from >= (int) book->sheets->len)
+    return NULL;
+  src = g_ptr_array_index (book->sheets, from);
+
+  if (name == NULL || *name == '\0' || o42_book_find_sheet (book, name) != NULL)
+    {
+      for (int n = 2; ; n++)
+        {
+          g_free (fresh);
+          fresh = g_strdup_printf ("%s (%d)", o42_sheet_get_name (src), n);
+          if (o42_book_find_sheet (book, fresh) == NULL)
+            break;
+        }
+      name = fresh;
+    }
+
+  copy = o42_sheet_duplicate (src, name);
+  o42_sheet_rename_references (copy, o42_sheet_get_name (src), name);
+
+  /* A table's name is the book's: the copy's tables get names of their
+   * own, Table1 becoming Table2 or the next free number. */
+  {
+    GArray *tables = o42_sheet_tables (copy);
+
+    for (guint i = 0; i < tables->len; i++)
+      {
+        O42Table *t = &g_array_index (tables, O42Table, i);
+        const char *base = t->name;
+        gsize len = strlen (base);
+
+        while (len > 0 && g_ascii_isdigit (base[len - 1]))
+          len--;
+        for (int n = 2; o42_book_find_table (book, t->name) != NULL; n++)
+          {
+            g_free (t->name);
+            t->name = g_strdup_printf ("%.*s%d", (int) len, base, n);
+          }
+      }
+  }
+
+  o42_sheet_set_book (copy, book);
+  o42_sheet_begin_group (copy);
+  o42_sheet_undo_capture_sheet (copy, FALSE);
+  if (to < 0 || to >= (int) book->sheets->len)
+    g_ptr_array_add (book->sheets, copy);
+  else
+    g_ptr_array_insert (book->sheets, to, copy);
+  o42_sheet_end_group (copy);
+
+  if (o42_book_recording (book))
+    {
+      char *qsrc = o42_python_quote (o42_sheet_get_name (src));
+      char *qname = o42_python_quote (name);
+      record_book_line (book, "book.copy_sheet(%s, %d, %s)", qsrc,
+                        o42_book_sheet_index (book, copy), qname);
+      g_free (qsrc);
+      g_free (qname);
+    }
+  g_free (fresh);
+  o42_book_set_modified (book, TRUE);
+  o42_book_changed (book, "sheets");
+  return copy;
+}
+
 gboolean
 o42_book_move_sheet (O42Book *book, int from, int to)
 {

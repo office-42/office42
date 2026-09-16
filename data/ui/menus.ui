@@ -72,6 +72,7 @@
         <item><attribute name="label" translatable="yes">Delete Ro_ws</attribute><attribute name="action">win.delete-rows</attribute></item>
         <item><attribute name="label" translatable="yes">Delete Colu_mns</attribute><attribute name="action">win.delete-columns</attribute></item>
         <item><attribute name="label" translatable="yes">Delete _Sheet</attribute><attribute name="action">win.delete-sheet</attribute></item>
+        <item><attribute name="label" translatable="yes">Mo_ve or Copy Sheet...</attribute><attribute name="action">win.move-copy-sheet</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">Select A_ll</attribute><attribute name="action">win.select-all</attribute></item>

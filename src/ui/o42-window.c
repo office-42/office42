@@ -5934,6 +5934,7 @@ static const GActionEntry ACTIONS[] = {
   { "fill-up",    action_fill_up,    NULL, NULL, NULL, { 0 } },
   { "fill-left",  action_fill_left,  NULL, NULL, NULL, { 0 } },
   { "fill-series", action_fill_series, NULL, NULL, NULL, { 0 } },
+  { "move-copy-sheet", action_move_copy_sheet, NULL, NULL, NULL, { 0 } },
   { "fill-justify", action_fill_justify, NULL, NULL, NULL, { 0 } },
   { "clear-formats", action_clear_formats, NULL, NULL, NULL, { 0 } },
   { "clear-notes",   action_clear_notes,   NULL, NULL, NULL, { 0 } },

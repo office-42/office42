@@ -249,6 +249,24 @@ m_current (PyObject *self, PyObject *args)
 }
 
 static PyObject *
+m_copy_sheet (PyObject *self, PyObject *args)
+{
+  int index, to = -1;
+  const char *name = "";
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i|is", &index, &to, &name))
+    return NULL;
+  if (current_book == NULL || sheet_arg (index) == NULL)
+    return NULL;
+  sheet = o42_book_copy_sheet (current_book, index, to, *name != '\0' ? name : NULL);
+  if (sheet == NULL)
+    return PyErr_Format (PyExc_ValueError, "cannot copy sheet %d", index);
+  sheets_touched = TRUE;
+  return PyLong_FromLong (o42_book_sheet_index (current_book, sheet));
+}
+
+static PyObject *
 m_add_sheet (PyObject *self, PyObject *args)
 {
   const char *name;
@@ -2462,6 +2480,7 @@ static PyMethodDef METHODS[] = {
   { "sheet_index",    m_sheet_index,    METH_VARARGS, "The index of the sheet named so, or -1." },
   { "current",        m_current,        METH_NOARGS,  "The index of the sheet on show." },
   { "add_sheet",      m_add_sheet,      METH_VARARGS, "Adds a sheet; its index." },
+  { "copy_sheet",     m_copy_sheet,     METH_VARARGS, "Copies sheet i to place j under a name; the copy's index." },
   { "remove_sheet",   m_remove_sheet,   METH_VARARGS, "Removes sheet i." },
   { "rename_sheet",   m_rename_sheet,   METH_VARARGS, "Renames sheet i." },
   { "move_sheet",     m_move_sheet,     METH_VARARGS, "Moves sheet i to place j." },

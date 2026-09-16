@@ -41,6 +41,17 @@ void        o42_sheet_set_name (O42Sheet *sheet, const char *name);
 void        o42_sheet_set_book (O42Sheet *sheet, O42Book *book);
 O42Book    *o42_sheet_get_book (O42Sheet *sheet);
 
+/* A copy of the sheet under another name, on its own and in no book:
+ * every cell with its format, rich text and style, the widths, heights,
+ * hidden rows and outline levels, merges, notes, links, conditions,
+ * validations, tables, queries, pivots, scenarios, the print setup, the
+ * view, the AutoFilter, and the charts, pictures and shapes.  Array
+ * formulas are set again over their blocks and spills spill again when
+ * they are next worked out.  Formulas are copied as they read, so one
+ * naming the original sheet still names it; the book's copy renames
+ * those.  The caller owns the copy until a book takes it. */
+O42Sheet   *o42_sheet_duplicate (O42Sheet *sheet, const char *name);
+
 /* ---- Between sheets: called by the book ------------------------------ */
 
 /* A cell on the sheet named `sheet_name` changed: stale every formula here

@@ -460,6 +460,22 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* copysheet [NAME]: a copy of the current sheet after it, which
+       * becomes the current sheet. */
+      if (strcmp (text, "copysheet") == 0 || g_str_has_prefix (text, "copysheet "))
+        {
+          const char *name = text[9] == ' ' ? g_strstrip (text + 10) : NULL;
+          int at = o42_book_sheet_index (book, sheet);
+          O42Sheet *copy = o42_book_copy_sheet (book, at, at + 1, name);
+
+          if (copy != NULL)
+            {
+              sheet = copy;
+              printf ("copied to %s\n", o42_sheet_get_name (copy));
+            }
+          continue;
+        }
+
       if (g_str_has_prefix (text, "rename "))
         {
           if (!o42_book_rename_sheet (book, o42_book_sheet_index (book, sheet), text + 7))

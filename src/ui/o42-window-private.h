@@ -127,6 +127,7 @@ void o42_window_show_error (O42Window *self, const char *heading, GError *error)
 
 /* The actions dialogs-edit.c answers: the Edit and Insert menus' dialogs. */
 void action_fill_series (GSimpleAction *a, GVariant *p, gpointer data);
+void action_move_copy_sheet (GSimpleAction *a, GVariant *p, gpointer data);
 
 /* The actions dialogs-data.c answers. */
 void action_advanced_filter (GSimpleAction *a, GVariant *p, gpointer data);

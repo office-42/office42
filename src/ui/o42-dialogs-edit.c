@@ -179,3 +179,85 @@ action_fill_series (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_grab_focus (prompt->step_entry);
   gtk_editable_select_region (GTK_EDITABLE (prompt->step_entry), 0, -1);
 }
+
+/* ---- Move or Copy Sheet ------------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *before;       /* a drop-down: each sheet, then "(move to end)" */
+  GtkWidget *make_copy;
+} MoveCopyPrompt;
+
+static void
+on_move_copy_ok (GtkWidget *w, gpointer data)
+{
+  MoveCopyPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  int from = o42_book_sheet_index (self->book, self->sheet);
+  int n = o42_book_n_sheets (self->book);
+  int before = (int) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->before));
+  gboolean copy = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->make_copy));
+
+  (void) w;
+  if (from < 0 || before < 0)
+    return;
+
+  if (copy)
+    {
+      O42Sheet *made = o42_book_copy_sheet (self->book, from, before >= n ? -1 : before, NULL);
+
+      if (made != NULL)
+        window_show_sheet (self, o42_book_sheet_index (self->book, made));
+    }
+  else
+    {
+      /* Before the sheet chosen -- which, once this one is taken out
+       * from in front of it, is one place nearer the front. */
+      int to = before > from ? before - 1 : before;
+
+      if (to != from)
+        {
+          o42_book_move_sheet (self->book, from, to);
+          window_show_sheet (self, to);
+        }
+    }
+  window_sync (self);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_move_copy_sheet (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  MoveCopyPrompt *prompt = g_new0 (MoveCopyPrompt, 1);
+  GtkWidget *content, *buttons, *ok;
+  GtkStringList *names = gtk_string_list_new (NULL);
+  int n = o42_book_n_sheets (self->book);
+  int index = o42_book_sheet_index (self->book, self->sheet);
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Move or Copy"), TRUE, &content, &buttons);
+
+  for (int i = 0; i < n; i++)
+    gtk_string_list_append (names, o42_sheet_get_name (o42_book_sheet (self->book, i)));
+  gtk_string_list_append (names, _("(move to end)"));
+
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Before sheet:")));
+  prompt->before = gtk_drop_down_new (G_LIST_MODEL (names), NULL);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->before), (guint) MIN (index + 1, n));
+  gtk_box_append (GTK_BOX (content), prompt->before);
+
+  prompt->make_copy = gtk_check_button_new_with_mnemonic (_("Create a _copy"));
+  gtk_box_append (GTK_BOX (content), prompt->make_copy);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_move_copy_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}

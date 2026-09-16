@@ -176,6 +176,13 @@ char     *o42_book_record_range_text   (O42Book *book, const O42Range *range);
 /* Moves the sheet at `from` so that it sits at `to`; one undo step. */
 gboolean  o42_book_move_sheet (O42Book *book, int from, int to);
 
+/* Edit > Move or Copy Sheet with "Create a copy": a copy of the sheet
+ * at `from`, put at `to` (or at the end when `to` is -1), named `name`
+ * or, as Excel names it, "Sheet1 (2)".  Formulas on the copy that named
+ * the original by name now name the copy, and a table on it is renamed
+ * so that the book still has one of each name.  One undo step. */
+O42Sheet *o42_book_copy_sheet (O42Book *book, int from, int to, const char *name);
+
 /* Scripts kept in the book, and so in its file: Python source under a
  * name, as Excel keeps macros.  The book only stores them; running is
  * the script layer's business, and never happens on opening. */

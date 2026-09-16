@@ -960,6 +960,13 @@ class Book:
         """Moves a sheet so that it is the `to`th tab (0-based)."""
         _c.move_sheet(self._sheet(which).index, to)
 
+    def copy_sheet(self, which, to=-1, name=None):
+        """Edit > Move or Copy Sheet with a copy: a copy of the sheet as
+        the `to`th tab (the last, by default), named `name` or, as Excel
+        names it, "Sheet1 (2)"."""
+        return Sheet(_c.copy_sheet(self._sheet(which).index, to,
+                                   "" if name is None else str(name)))
+
     @property
     def names(self):
         return [s.name for s in self.sheets]

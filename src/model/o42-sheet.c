@@ -13629,3 +13629,172 @@ o42_sheet_object_group (O42Sheet *sheet, guint id)
     return chart->group;
   return 0;
 }
+
+O42Sheet *
+o42_sheet_duplicate (O42Sheet *src, const char *name)
+{
+  O42Sheet *dst;
+  GHashTableIter iter;
+  gpointer key_ptr, value_ptr;
+
+  g_return_val_if_fail (src != NULL, NULL);
+
+  dst = o42_sheet_new (name != NULL ? name : src->name);
+
+  /* The cells.  A spilled cell is its head's to make again, and the
+   * cells of an array block are set with the block below; the formats
+   * are interned afresh in the copy's own table. */
+  g_hash_table_iter_init (&iter, src->cells);
+  while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+    {
+      guint64 key = *(guint64 *) key_ptr;
+      const O42Cell *cell = value_ptr;
+      int row = o42_key_row (key), col = o42_key_col (key);
+      const O42Range *block = array_at (src, row, col);
+      Carried k;
+      O42Cell *made;
+
+      if (cell->spilled)
+        continue;
+      if (block != NULL && !g_hash_table_contains (src->dynamic, &key))
+        continue;
+      k.input = o42_sheet_get_input (src, row, col);
+      k.fmt = o42_fmt_table_intern (dst->formats, o42_fmt_table_get (src->formats, cell->fmt));
+      sheet_put_carried (dst, row, col, &k);
+      g_free (k.input);
+      made = sheet_find (dst, row, col);
+      if (made != NULL)
+        {
+          made->style = cell->style;
+          if (cell->runs != NULL)
+            o42_sheet_set_runs (dst, row, col, (const O42TextRun *) cell->runs->data,
+                                (int) cell->runs->len);
+        }
+    }
+  for (guint i = 0; i < src->arrays->len; i++)
+    {
+      const O42Range *a = &g_array_index (src->arrays, O42Range, i);
+      guint64 head = o42_key (a->row0, a->col0);
+      char *text;
+
+      if (g_hash_table_contains (src->dynamic, &head))
+        continue;
+      text = o42_sheet_get_input (src, a->row0, a->col0);
+      if (text != NULL && text[0] == '=')
+        o42_sheet_set_array_formula (dst, a, text);
+      g_free (text);
+    }
+
+  /* The geometry, and the formats whole rows and columns wear. */
+  g_hash_table_iter_init (&iter, src->col_widths);
+  while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+    o42_sheet_set_col_width (dst, GPOINTER_TO_INT (key_ptr), GPOINTER_TO_INT (value_ptr));
+  g_hash_table_iter_init (&iter, src->row_heights);
+  while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+    o42_sheet_set_row_height (dst, GPOINTER_TO_INT (key_ptr), GPOINTER_TO_INT (value_ptr));
+  g_hash_table_iter_init (&iter, src->hidden_cols);
+  while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
+    o42_sheet_set_col_hidden (dst, GPOINTER_TO_INT (key_ptr), TRUE);
+  g_hash_table_iter_init (&iter, src->hidden_rows);
+  while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
+    o42_sheet_set_row_hidden (dst, GPOINTER_TO_INT (key_ptr), TRUE);
+  g_hash_table_iter_init (&iter, src->row_levels);
+  while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+    o42_sheet_set_row_level (dst, GPOINTER_TO_INT (key_ptr), GPOINTER_TO_INT (value_ptr));
+  g_hash_table_iter_init (&iter, src->col_levels);
+  while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+    o42_sheet_set_col_level (dst, GPOINTER_TO_INT (key_ptr), GPOINTER_TO_INT (value_ptr));
+  for (int rows = 0; rows < 2; rows++)
+    {
+      g_hash_table_iter_init (&iter, rows ? src->row_fmts : src->col_fmts);
+      while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+        {
+          O42FmtIdx idx = (O42FmtIdx) (GPOINTER_TO_INT (value_ptr) - 1);
+          o42_sheet_set_line_fmt_idx (dst, rows, GPOINTER_TO_INT (key_ptr),
+                                      (int) o42_fmt_table_intern (dst->formats,
+                                                                  o42_fmt_table_get (src->formats, idx)));
+        }
+    }
+  dst->summary_above = src->summary_above;
+  dst->summary_left = src->summary_left;
+  dst->max_row_level = src->max_row_level;
+  dst->max_col_level = src->max_col_level;
+
+  /* What sits on the cells. */
+  for (guint i = 0; i < src->merges->len; i++)
+    o42_sheet_merge (dst, &g_array_index (src->merges, O42Range, i));
+  g_hash_table_iter_init (&iter, src->notes);
+  while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+    o42_sheet_set_note (dst, o42_key_row (*(guint64 *) key_ptr), o42_key_col (*(guint64 *) key_ptr), value_ptr);
+  g_hash_table_iter_init (&iter, src->links);
+  while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+    o42_sheet_set_link (dst, o42_key_row (*(guint64 *) key_ptr), o42_key_col (*(guint64 *) key_ptr), value_ptr);
+  for (guint i = 0; i < src->conditions->len; i++)
+    o42_sheet_add_condition (dst, &g_array_index (src->conditions, O42Condition, i));
+  for (guint i = 0; i < src->validations->len; i++)
+    o42_sheet_add_validation (dst, &g_array_index (src->validations, O42Validation, i));
+  for (guint i = 0; i < src->tables->len; i++)
+    {
+      const O42Table *t = &g_array_index (src->tables, O42Table, i);
+      o42_sheet_add_table (dst, t->name, &t->range, t->has_headers);
+    }
+  for (guint i = 0; i < src->queries->len; i++)
+    {
+      const O42Query *q = &g_array_index (src->queries, O42Query, i);
+      o42_sheet_add_query (dst, q->sql, &q->at, q->headings);
+    }
+  for (guint i = 0; i < src->data_tables->len; i++)
+    o42_sheet_define_data_table (dst, &g_array_index (src->data_tables, O42DataTable, i));
+  for (guint i = 0; i < src->pivots->len; i++)
+    o42_sheet_define_pivot (dst, &g_array_index (src->pivots, O42Pivot, i));
+  for (guint i = 0; i < src->scenarios->len; i++)
+    {
+      const Scenario *sc = g_ptr_array_index (src->scenarios, i);
+
+      o42_sheet_define_scenario (dst, sc->name, sc->comment, -1, -1, NULL);
+      for (guint j = 0; j < sc->keys->len; j++)
+        {
+          guint64 key = g_array_index (sc->keys, guint64, j);
+          o42_sheet_define_scenario (dst, sc->name, sc->comment, o42_key_row (key), o42_key_col (key),
+                                     g_ptr_array_index (sc->values, j));
+        }
+    }
+
+  /* The objects over the grid, ids and all, so that a group stays one. */
+  for (guint i = 0; i < src->pictures->len; i++)
+    g_ptr_array_add (dst->pictures, picture_copy (g_ptr_array_index (src->pictures, i)));
+  for (guint i = 0; i < src->charts->len; i++)
+    g_ptr_array_add (dst->charts, chart_copy (g_ptr_array_index (src->charts, i)));
+  for (guint i = 0; i < src->shapes->len; i++)
+    g_ptr_array_add (dst->shapes, shape_copy (g_ptr_array_index (src->shapes, i)));
+  dst->next_picture_id = src->next_picture_id;
+  dst->next_shape_id = src->next_shape_id;
+
+  /* The sheet's own settings. */
+  o42_sheet_set_print_setup (dst, &src->print);
+  g_array_append_vals (dst->row_breaks, src->row_breaks->data, src->row_breaks->len);
+  g_array_append_vals (dst->col_breaks, src->col_breaks->data, src->col_breaks->len);
+  dst->tab_colour = src->tab_colour;
+  dst->hidden = src->hidden;
+  dst->view = src->view;
+  dst->view.selected = FALSE;
+  dst->frozen_rows = src->frozen_rows;
+  dst->frozen_cols = src->frozen_cols;
+  dst->protect = src->protect;
+  dst->password = src->password;
+  dst->chart_sheet = src->chart_sheet;
+  if (src->has_filter)
+    {
+      dst->has_filter = TRUE;
+      dst->filter = src->filter;
+      g_hash_table_iter_init (&iter, src->filter_choice);
+      while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
+        g_hash_table_insert (dst->filter_choice, key_ptr, g_strdup (value_ptr));
+      autofilter_apply (dst);
+    }
+
+  /* None of that is anything to undo. */
+  o42_sheet_clear_undo (dst);
+  dst->modified = TRUE;
+  return dst;
+}
