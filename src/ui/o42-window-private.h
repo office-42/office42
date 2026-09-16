@@ -63,7 +63,7 @@ struct _O42Window {
 /* ---- The frame a dialog is built in ------------------------------------ */
 
 /* A transient window with a content box and a row for its buttons: the
- * shape every Excel 5 dialog had. */
+ * shape every Excel 97 dialog had. */
 GtkWidget *o42_dialog_frame (O42Window *self, const char *title, gboolean modal,
                              GtkWidget **content, GtkWidget **buttons);
 GtkWidget *o42_dialog_button (GtkWidget *buttons, const char *label,

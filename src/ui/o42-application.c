@@ -31,7 +31,7 @@ struct _O42Application {
 
 G_DEFINE_FINAL_TYPE (O42Application, o42_application, GTK_TYPE_APPLICATION)
 
-/* Excel 5's shortcuts, as far as they still make sense. */
+/* Excel 97's shortcuts, as far as they still make sense. */
 static const struct {
   const char *action;
   const char *accels[3];
@@ -558,7 +558,7 @@ arm_screenshot (O42Application *self)
 }
 
 /* The splash: the logo in a small undecorated window over the first
- * window, gone after six tenths of a second, as Excel 5 did it.  Not
+ * window, gone after six tenths of a second, as Excel 97 did it.  Not
  * in screenshot mode, whose picture would be of the splash. */
 static gboolean
 splash_done (gpointer data)

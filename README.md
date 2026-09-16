@@ -3,8 +3,8 @@
 # Office42 Spreadsheet
 
 **Office42 Spreadsheet** (the binary is `office42`, and that is one word:
-Office42) is a spreadsheet in the shape of Excel 5, at feature parity with
-Excel 97 and with Gnumeric, written from scratch in C on GTK 4, Pango and
+Office42) is a spreadsheet in the shape of Excel 97, at feature parity with
+it and with Gnumeric, written from scratch in C on GTK 4, Pango and
 Cairo. It is the sister project of
 [word42](https://github.com/office-42/word42), built on the same
 principles: a small, honest codebase that does one thing well.
@@ -23,13 +23,15 @@ honest estimate of how far it is from Excel and from Gnumeric.
 
 ## Goals
 
-office42 aims at three programs, each for one thing:
+office42 aims at two programs:
 
-- **Microsoft Excel 97**, for what it should do. Excel 97 is the target for
-  feature parity: every menu, every dialog and every command it had is
-  meant to be here and to behave as it did there -- Fill Series and
-  Justify, the data form, Move or Copy Sheet, the four Name commands,
-  Standard Width, the document's Properties, and the rest.
+- **Microsoft Excel 97**, for what it should do and how it should look.
+  Excel 97 is the target for feature parity: every menu, every dialog and
+  every command it had is meant to be here and to behave as it did there
+  -- Fill Series and Justify, the data form, Move or Copy Sheet, the four
+  Name commands, Standard Width, the document's Properties, and the rest
+  -- and its shape is this program's shape: a grid, a formula bar, a name
+  box, two toolbars and sheet tabs along the bottom. No ribbon.
   [docs/PARITY.md](docs/PARITY.md) keeps the score menu by menu, and
   [docs/ROADMAP.md](docs/ROADMAP.md) lists what is left. Later Excels are
   drawn on where they got something right -- the 1,048,576-row grid,
@@ -39,9 +41,6 @@ office42 aims at three programs, each for one thing:
   right. Gnumeric was built by people who cared about numerical
   correctness more than about features, and that is the standard the
   arithmetic is held to.
-- **Microsoft Excel 5** (1993), for what it should look like: a grid, a
-  formula bar, a name box, two toolbars and sheet tabs along the bottom.
-  Excel 97 kept that shape, and so does this. No ribbon.
 
 ## What it does
 
@@ -60,7 +59,7 @@ split panes, custom views, outline groups, a second window on the same
 book, Move or Copy Sheet, and undo of everything, deleting a sheet
 included.
 
-**Formatting.** Excel 5's tabbed Format Cells dialog: number formats in
+**Formatting.** Excel 97's tabbed Format Cells dialog: number formats in
 Excel's own code language (`#,##0.00;[Red](#,##0.00)`, `dddd d mmmm yyyy`,
 `[h]:mm`), fonts, rich text with several fonts in one cell, borders of
 every style and colour, pattern fills, indent, rotation, merged cells,

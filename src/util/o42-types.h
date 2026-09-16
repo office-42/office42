@@ -15,9 +15,10 @@
 
 G_BEGIN_DECLS
 
-/* Excel 5 offered 16384 rows and 256 columns, and so does office42.  The
- * limits are not a storage decision -- the sheet is sparse and an empty cell
- * costs nothing -- they are what a reference like IV16384 can name. */
+/* Excel 97 offered 65,536 rows and 256 columns; office42's grid is the
+ * one Excel 2007 grew to, so an .xlsx comes in whole.  The limits are not
+ * a storage decision -- the sheet is sparse and an empty cell costs
+ * nothing -- they are what a reference like XFD1048576 can name. */
 #define O42_MAX_ROWS 1048576
 #define O42_MAX_COLS 16384
 

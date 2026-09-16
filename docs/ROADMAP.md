@@ -36,11 +36,10 @@ unverified; Lotus 1-2-3 could be done because LibreOffice reads it.
 **Miltersen and Schwartz on commodity options.** It prices against a
 three-factor model, and there is nothing here to check it against.
 
-**Macros in Visual Basic.** Excel 5 had Excel 4 macros and the first
-Visual Basic. office42 runs Python instead, records it, and keeps it in
+**Macros in Visual Basic.** Excel 97 had Visual Basic and its editor. office42 runs Python instead, records it, and keeps it in
 the file; see [PYTHON.md](PYTHON.md).
 
-**The ribbon.** The shape of this program is Excel 5's: a menu bar and
+**The ribbon.** The shape of this program is Excel 97's: a menu bar and
 two toolbars.
 
 **Co-authoring, track changes, sharing.** A spreadsheet on one machine

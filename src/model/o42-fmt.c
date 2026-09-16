@@ -21,7 +21,7 @@ o42_fmt_init_default (O42Fmt *fmt)
 
   memset (fmt, 0, sizeof *fmt);
 
-  /* Excel 5 opened in 10pt Arial. */
+  /* Excel 97 opened in 10pt Arial. */
   fmt->family   = g_intern_static_string ("Arial");
   fmt->locked   = 1;   /* Excel locks every cell until the sheet is protected */
   fmt->size     = 20;

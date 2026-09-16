@@ -6,7 +6,7 @@
  * A chart is a picture of some cells: it names a range and is redrawn
  * from the cells' current values every time it is painted, so it is never
  * out of date.  It floats over the grid anchored to a cell, as a picture
- * does.  Three kinds, the ones Excel 5's ChartWizard offered first:
+ * does.  Three kinds, the ones Excel 97's ChartWizard offered first:
  * column, line and pie.  Cairo draws them, so the same code paints the
  * grid, the PDF and the printed page.
  */

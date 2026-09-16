@@ -33,7 +33,7 @@
 
 /* ---- Format Cells ----------------------------------------------------- */
 
-/* Excel 5's Format Cells: one dialog, tabbed, holding everything a cell's
+/* Excel 97's Format Cells: one dialog, tabbed, holding everything a cell's
  * format can be.  Every control starts from the active cell and the whole
  * format is applied to the selection on OK. */
 typedef struct {
@@ -578,7 +578,7 @@ action_conditional (GSimpleAction *a, GVariant *p, gpointer data)
 /* ---- Column Width and Row Height ------------------------------------- */
 
 /* One small dialog serves both: a label, an entry, OK and Cancel, in the
- * shape Excel 5's had.  The value is in pixels at the grid's 96 dpi. */
+ * shape Excel 97's had.  The value is in pixels at the grid's 96 dpi. */
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;

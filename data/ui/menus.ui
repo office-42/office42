@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Excel 5's menu bar.  Items whose actions are disabled are features
+<!-- Excel 97's menu bar.  Items whose actions are disabled are features
      office42 intends to have and does not have yet; they show greyed out
      rather than hidden, so the menus say what the program is aiming at. -->
 <interface>

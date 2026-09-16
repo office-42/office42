@@ -172,8 +172,8 @@ and xlrd reading what office42 wrote and office42 reading what they
 and xlwt wrote.
 
 **The fifth pass** changed what the program is measured against.
-Excel 5 gave it its shape and Excel 2003 had been the yardstick for
-its features; Excel 97 is the target now -- the version that fixed
+Excel 2003 had been the yardstick for its features; Excel 97 is the
+target now, for its shape and its features both -- the version that fixed
 the Excel that people know, with its data form, its Series dialog,
 its four Name commands and its Properties -- and the pass went down
 its menu bar, entry by entry, against ours.  What was missing was
@@ -223,7 +223,7 @@ is there.
 | Data tools | 10 | 99% | 9.9 | the Template Wizard, Web Query and Data Map, which Excel itself dropped |
 | Charts | 8 | 98% | 7.8 | pie-of-pie and bar-of-pie; the chart wizard's fourth step is a dialog here |
 | Objects | 5 | 96% | 4.8 | WordArt, the Clip Gallery, OLE objects |
-| File formats | 12 | 99% | 11.9 | the properties in an `.xls`; Save Workspace; Excel 5 charts in `.xls` come back as pictures of themselves |
+| File formats | 12 | 99% | 11.9 | the properties in an `.xls`; Save Workspace; charts in a BIFF5 `.xls` come back as pictures of themselves |
 | Printing | 6 | 100% | 6.0 | the Report Manager, which was an add-in |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 6 | 93% | 5.6 | arranging, hiding and unhiding windows, which GTK 4 gives a program no way to do; View ▸ Toolbars, Formula Bar and Status Bar as things to turn off; Format ▸ Sheet ▸ Background; Protect Workbook |
@@ -243,7 +243,6 @@ sparklines, slicers and the ribbon are not.
 | | Rows | Columns |
 |---|---:|---:|
 | office42 | 1,048,576 | 16,384 |
-| Excel 5 and 95 | 16,384 | 256 |
 | Excel 97 to 2003 | 65,536 | 256 |
 | Excel 2007 and later | 1,048,576 | 16,384 |
 
@@ -276,7 +275,7 @@ thing is worth knowing:
 
 ## 3. The window
 
-Excel 5's shape, and close to it: a menu bar, two toolbars, a formula
+Excel 97's shape, and close to it: a menu bar, two toolbars, a formula
 bar with a name box, the grid, sheet tabs and a status bar that shows
 the sum, the average and the count of what is selected. 106 actions in
 all. Judged as an interface rather than as a feature list:
@@ -303,7 +302,7 @@ shapes and controls are selected, dragged and resized with handles.
    fix.
 2. **The longer dialogs would be better as tabs.** Format Chart has
    fifteen rows in one column now; they can at least be pulled bigger.
-3. **The toolbars are fixed.** Excel 5 let them be torn off and
+3. **The toolbars are fixed.** Excel 97 let them be torn off and
    rearranged; ours are two rows of buttons.
 
 None of these is deep. The first two are a day's work each and would

@@ -1,4 +1,4 @@
-# office42 - a spreadsheet in the shape of Excel 5
+# office42 - a spreadsheet in the shape of Excel 97
 # Copyright (C) 2026 The office42 authors
 # SPDX-License-Identifier: GPL-3.0-or-later
 

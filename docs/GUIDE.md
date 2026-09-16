@@ -71,7 +71,7 @@ is how a scrolled view gets pictured.
 From the top down:
 
 - **The menu bar** — File, Edit, View, Insert, Format, Tools, Data,
-  Window, Help, in the order Excel 5 had them.
+  Window, Help, in the order Excel 97 had them.
 - **Two toolbars** — the standard one (new, open, save, print, cut,
   copy, paste, undo, redo, AutoSum, the Function Wizard, sort and the
   ChartWizard) and the formatting one (font name and size, bold, italic,
@@ -326,7 +326,7 @@ a range is skipped by `SUM` and counted by `SUMA`, as in Gnumeric.
 
 ## 7. Formatting
 
-Format ▸ Cells (Ctrl+1) has the tabs Excel 5 had: **Number**,
+Format ▸ Cells (Ctrl+1) has the tabs Excel 97 had: **Number**,
 **Alignment**, **Font**, **Border**, **Patterns** and **Protection**.
 Everything applies to the whole selection and is one undo step.
 
@@ -827,7 +827,7 @@ File ▸ Open and Save As choose the format by the name you give:
 |---|---|---|
 | `.gnumeric` | Gnumeric's own, gzipped XML | everything office42 has, the properties included, and the things no other format holds |
 | `.xlsx`, `.xlsm` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, validations, conditional formats, charts, shapes, pictures, print setup, protection, chart sheets, hidden sheets, custom views, scripts, the standard column width, the properties; an `.xlsm`'s Visual Basic is kept for Excel, not run |
-| `.xls` | Excel 5 to 2003, BIFF8 | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view |
+| `.xls` | Excel 97 to 2003, BIFF8 (and the older BIFF5 read) | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view |
 | `.ods`, `.fods` | OpenDocument, LibreOffice Calc's own, zipped or flat | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, validations, frozen panes, print setup, pictures, shapes, charts, form controls, the properties |
 | `.html` | a table per sheet | values, fonts, fills, borders, alignments, merges, links |
 | `.csv` | comma separated | the values as shown, quoted where they need it |

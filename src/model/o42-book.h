@@ -3,7 +3,7 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Excel 5 was the version that put several sheets in one file, with tabs
+ * Excel 97's book is several sheets in one file, with tabs
  * along the bottom, and =Sheet2!A1 to reach across.  A book owns its sheets
  * and is the go-between when one sheet's formula reads another's cell,
  * when a change on one sheet has to stale formulas on another, and when

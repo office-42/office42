@@ -3,10 +3,10 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Excel 5 through 2003 wrote a "compound file": a little file system
+ * Excel 97 through 2003 wrote a "compound file": a little file system
  * of 512-byte sectors with a FAT, a directory and a mini-FAT for the
  * small streams, holding the workbook as one stream called "Workbook"
- * (or "Book" in Excel 5's day).  word42's .doc lives in the same
+ * (or "Book" in older files).  word42's .doc lives in the same
  * container.  Reading walks the FAT chains; writing lays out one or
  * more streams with nothing fancy: version 3, 512-byte sectors, the
  * FAT listed in the header.

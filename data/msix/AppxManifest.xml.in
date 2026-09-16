@@ -53,7 +53,7 @@
                  EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
           DisplayName="@DISPLAY_NAME@"
-          Description="Office42 Spreadsheet is a spreadsheet in the shape of Excel 5: a grid, a formula bar, two toolbars and sheet tabs, with 610 functions, charts, pivot tables and Python, reading and writing .xlsx, .xls, .ods, .gnumeric and CSV."
+          Description="Office42 Spreadsheet is a spreadsheet in the shape of Excel 97: a grid, a formula bar, two toolbars and sheet tabs, with 610 functions, charts, pivot tables and Python, reading and writing .xlsx, .xls, .ods, .gnumeric and CSV."
           BackgroundColor="transparent"
           Square150x150Logo="Assets\Square150x150Logo.png"
           Square44x44Logo="Assets\Square44x44Logo.png">

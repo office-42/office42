@@ -3,7 +3,7 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Excel 5's window, top to bottom: a navy title bar, the menu bar, the
+ * Excel 97's window, top to bottom: a navy title bar, the menu bar, the
  * Standard and Formatting toolbars, the name box beside the formula bar,
  * the grid, the sheet tabs, and a status bar.  The chrome is the same
  * Windows 3.1 silver word42 wears, because the two programs shipped side by
@@ -77,7 +77,7 @@ o42_window_set_dialogs_modal (gboolean modal)
   dialogs_modal = modal;
 }
 
-/* The sizes Excel 5's Formatting toolbar offered. */
+/* The sizes Excel 97's Formatting toolbar offered. */
 static const int FONT_SIZES[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 22,
                                   24, 26, 28, 36, 48, 72 };
 
@@ -667,7 +667,7 @@ action_import_pdf (GSimpleAction *a, GVariant *p, gpointer data)
 /* ---- Small dialogs: the frame they share ------------------------------ */
 
 /* A transient window with a content box and an OK/Cancel row (or whatever
- * buttons the caller adds): the shape every Excel 5 dialog had. */
+ * buttons the caller adds): the shape every Excel 97 dialog had. */
 GtkWidget *
 o42_dialog_frame (O42Window *self, const char *title, gboolean modal,
               GtkWidget **content, GtkWidget **buttons)
@@ -2741,7 +2741,7 @@ action_clear_print_area (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* ---- Function Wizard -------------------------------------------------- */
 
-/* Excel 5's Function Wizard, step one of two: a list of every function
+/* Excel 97's Function Wizard, step one of two: a list of every function
  * with a search box, the signature and a line about the chosen one, and
  * OK putting "=NAME(" into the cell to be finished by hand.  Step two,
  * prompting for each argument, is a refinement for later. */
@@ -2964,7 +2964,7 @@ on_tab_clicked (GtkWidget *button, gpointer data)
   gtk_widget_grab_focus (GTK_WIDGET (self->grid));
 }
 
-/* One tab per sheet, the current one lit, as along the bottom of Excel 5. */
+/* One tab per sheet, the current one lit, as along the bottom of Excel 97. */
 /* ---- Data > What-If Table ---------------------------------------------- */
 
 /* Excel's Data > Table: the selection's edges hold what an input may
@@ -3624,7 +3624,7 @@ action_rename_sheet (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* ---- Insert Cells and Delete ------------------------------------------- */
 
-/* Excel 5's two small dialogs, one shape: shift the cells one way or the
+/* Excel 97's two small dialogs, one shape: shift the cells one way or the
  * other, or take the whole rows or columns. */
 typedef struct {
   O42Window *window;
@@ -3818,7 +3818,7 @@ action_insert_chart (GSimpleAction *a, GVariant *p, gpointer data)
   }
 
   /* Which way the series lie.  The same cells make a different chart
-   * either way, so the wizard asks, as Excel 5's second step did. */
+   * either way, so the wizard asks, as Excel 97's second step did. */
   {
     GtkWidget *in_cols = gtk_check_button_new_with_mnemonic ( _("Series in _columns"));
 
@@ -5902,7 +5902,7 @@ action_about (GSimpleAction *a, GVariant *p, gpointer data)
                          "program-name", "Office42 Spreadsheet",
                          "version", O42_VERSION,
                          "logo", logo,
-                         "comments", "A spreadsheet in the shape of Excel 5, at parity with Excel 97 and Gnumeric, "
+                         "comments", "A spreadsheet in the shape of Excel 97, at parity with its features and Gnumeric's arithmetic, "
                                      "written in C on GTK 4, Pango and Cairo.\n"
                                      "Source: github.com/office-42/office42",
                          "website", "https://office42.net",
@@ -6209,7 +6209,7 @@ build_standard_bar (void)
   gtk_box_append (GTK_BOX (bar), icon_button ("o42-undo",  "Undo",  "win.undo"));
   gtk_box_append (GTK_BOX (bar), icon_button ("o42-redo",  "Redo",  "win.redo"));
   gtk_box_append (GTK_BOX (bar), tool_separator ());
-  /* The sigma and the fx are letters, not pictures; Excel 5 drew them as
+  /* The sigma and the fx are letters, not pictures; Excel 97 drew them as
    * letters too.  They stay set in type. */
   gtk_box_append (GTK_BOX (bar), text_button ("\316\243", _("AutoSum"), "win.autosum", "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), text_button ("fx", _("Function Wizard"), "win.insert-function", "o42-glyph-italic"));

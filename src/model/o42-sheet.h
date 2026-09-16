@@ -262,7 +262,7 @@ void o42_sheet_sort_keys (O42Sheet *sheet, const O42Range *range,
  * print area -- the used range when there is none -- the rows and
  * columns repeated on every page, gridlines, headings, black and
  * white, draft, how notes and errors print, and the page order).
- * New sheets have Excel 5's "&A" and "Page &P". */
+ * New sheets have Excel 97's "&A" and "Page &P". */
 
 typedef enum {
   O42_PRINT_NOTES_NONE,         /* Excel's "(None)" */
@@ -1069,7 +1069,7 @@ gboolean o42_sheet_goal_seek (O42Sheet *sheet, int target_row, int target_col,
 
 /* ---- Notes ------------------------------------------------------------- */
 
-/* A note on a cell: Excel 5's cell note, shown as a small mark in the
+/* A note on a cell: Excel 97's cell comment, shown as a small mark in the
  * corner and read on hover.  NULL or "" removes it. */
 void        o42_sheet_set_note (O42Sheet *sheet, int row, int col, const char *text);
 const char *o42_sheet_get_note (O42Sheet *sheet, int row, int col);   /* NULL if none */
@@ -1096,7 +1096,7 @@ GArray     *o42_sheet_merges    (O42Sheet *sheet);   /* O42Range, owned by the s
 
 /* ---- AutoFilter ------------------------------------------------------- */
 
-/* Excel 5's AutoFilter: a range whose first row is headings, each with a
+/* Excel 97's AutoFilter: a range whose first row is headings, each with a
  * dropdown of the values below it; choosing one hides every row whose
  * cell is different.  One choice per column; NULL means "(All)". */
 void        o42_sheet_set_autofilter   (O42Sheet *sheet, const O42Range *range);

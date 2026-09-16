@@ -12,7 +12,7 @@
 #include <pango/pangocairo.h>
 #include <string.h>
 
-/* Excel 5's default series colours, near enough: navy, maroon, green,
+/* Excel 97's default series colours, near enough: navy, maroon, green,
  * teal, purple, olive, grey, blue. */
 static const guint32 SERIES_COLOURS[] = {
   0x000080, 0x800000, 0x008000, 0x008080, 0x800080, 0x808000, 0x808080, 0x0000FF

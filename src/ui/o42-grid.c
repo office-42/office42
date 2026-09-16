@@ -4978,7 +4978,7 @@ on_key_pressed (GtkEventControllerKey *controller,
 
     case GDK_KEY_BackSpace:
       /* Backspace on a cell empties it and opens it for typing, which is
-       * how Excel 5 behaved and is still the fastest way to retype one. */
+       * how Excel 97 behaved and is still the fastest way to retype one. */
       o42_grid_begin_edit (self, "");
       return GDK_EVENT_STOP;
 
@@ -7217,7 +7217,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   paint_cells (self, cr, &sel, first_row, last_row, first_col, last_col);
 
   /* Notes: a small red triangle in the top-right corner of the cell, as
-   * Excel 5 marked them. */
+   * Excel 97 marked them. */
   {
     GHashTable *notes = o42_sheet_notes (self->sheet);
     GHashTableIter iter;
@@ -7244,7 +7244,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   }
 
   /* AutoFilter buttons: a small square with a triangle at the right of
-   * each heading, as Excel 5 drew them. */
+   * each heading, as Excel 97 drew them. */
   {
     O42Range filter;
 
