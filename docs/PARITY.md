@@ -1,12 +1,12 @@
-# A review of the code, and how far it is from Excel
+# A review of the code, and how far it is from Excel 97
 
 Written from the source as it stands, module by module, and then feature
-by feature against the spreadsheet everybody has. Nothing here is taken
-on trust: every "yes" below was found in the code or tried in the
-running program.
+by feature against Excel 97, the version office42 aims to match feature
+for feature. Nothing here is taken on trust: every "yes" below was
+found in the code or tried in the running program.
 
 - [1. The code](#1-the-code)
-- [2. Parity with Excel, area by area](#2-parity-with-excel-area-by-area)
+- [2. Parity with Excel 97, area by area](#2-parity-with-excel-97-area-by-area)
 - [3. The window](#3-the-window)
 - [4. Parity with Gnumeric](#4-parity-with-gnumeric)
 - [5. Where office42 goes further](#5-where-office42-goes-further)
@@ -16,7 +16,7 @@ running program.
 
 ## 1. The code
 
-78,000 lines of C11 in six layers, each of which may only see the ones
+114,223 lines of C11 in six layers, each of which may only see the ones
 below it. `util` and `model` and `formula` and `io` never include GTK,
 so the engine builds as a library of its own and the window is the only
 thing that knows what a mouse is.
@@ -28,28 +28,28 @@ thing that knows what a mouse is.
 | | `o42-date.c` | 241 | Serial dates, the 1900 leap-year bug included | Deliberately bug-compatible, and says so |
 | | `o42-image.c` | 156 | Decoding a picture's bytes | A thin cover over gdk-pixbuf |
 | | `o42-spell.c` | 348 | Hunspell, when it is there | Optional; without it every word passes |
-| model | `o42-sheet.c` | 9,197 | Cells, formats, recalculation, undo, objects, filters, tables, queries | The largest file after the evaluator, and the one that would gain most from being split: cells, recalculation and objects are three subjects in one file |
-| | `o42-book.c` | 1,101 | Sheets, names, styles, scripts, the database, the undo stack they share | Clean |
+| model | `o42-sheet.c` | 14,013 | Cells, formats, recalculation, undo, objects, filters, tables, queries, a whole copy of itself | The largest file of all, and the one that would gain most from being split: cells, recalculation and objects are three subjects in one file |
+| | `o42-book.c` | 1,884 | Sheets, names, styles, scripts, the properties, the database, the undo stack they share | Clean |
 | | `o42-chart.c` | 2,521 | Seventeen kinds of chart, drawn in cairo | One long draw per family; the axis arithmetic is repeated in four of them |
 | | `o42-shape.c` | 551 | Shapes and the nine form controls | Fine |
 | | `o42-analysis.c` | 928 | The statistical analysis tools | Each writes a labelled table; no drawing |
-| formula | `o42-formula.c` | 1,662 | Lexer and parser | Handles array constants, empty arguments, 3-D and structured references |
-| | `o42-eval.c` | 10,059 | The machine: operands, array constants, the tree walk, the tables | Was 16,073 and one file; the families live beside it now |
+| formula | `o42-formula.c` | 2,114 | Lexer and parser | Handles array constants, empty arguments, 3-D and structured references |
+| | `o42-eval.c` | 12,490 | The machine: operands, array constants, the tree walk, the tables | Was 16,073 and one file; the families live beside it now |
 | | `o42-eval-private.h` | 180 | The seam between the machine and the families | What a family may lean on, and nothing else |
-| | `o42-fn-*.c` | 6,400 | Eleven families: text, dates, statistics, distributions, finance, options, engineering, random, Hebrew dates, Bessel, info | Each keeps its own function table and its own help |
-| io | `o42-xls.c` | 3,943 | BIFF8 both ways, BIFF5 in | Dense but commented; the record numbers are named |
-| | `o42-xlsx.c` + `-draw.c` | 4,478 | Office Open XML, on a zip of our own | The drawing half is separate, which keeps both readable |
-| | `o42-ods.c` | 3,165 | OpenDocument | Cells, styles, charts, controls, both ways |
-| | `o42-gnumeric.c` | 3,022 | The native format | Carries everything the model holds, and office42's own additions in `o42-` attributes Gnumeric passes over |
+| | `o42-fn-*.c` | 7,008 | Twelve families: text, dates, statistics, distributions, finance, options, engineering, random, Hebrew dates, Bessel, info, the data table | Each keeps its own function table and its own help |
+| io | `o42-xls.c` | 6,385 | BIFF8 both ways, BIFF5 in | Dense but commented; the record numbers are named |
+| | `o42-xlsx.c` + `-draw.c` | 6,472 | Office Open XML, on a zip of our own | The drawing half is separate, which keeps both readable |
+| | `o42-ods.c` | 5,951 | OpenDocument | Cells, styles, charts, controls, the metadata, both ways |
+| | `o42-gnumeric.c` | 3,990 | The native format | Carries everything the model holds, and office42's own additions in `o42-` attributes Gnumeric passes over |
 | | `o42-pdf.c` | 1,412 | Pages out, and pages in through poppler | Shares its layout with the printer |
 | | `o42-sql.c` | 619 | The SQLite database | The smallest of the io files that does something whole |
 | | `o42-text-formats.c` | 687 | DIF, SYLK and LaTeX | Three formats older than the programs that read them, and the one a paper is set in |
 | | `o42-lotus.c` | 247 | Lotus 1-2-3, both ways | The oldest format here, and the smallest reader |
-| script | `o42-python.c` | 962 | CPython embedded | Optional; the API is `book` and `sheet` objects |
-| ui | `o42-window.c` | 5,479 | The window itself: title bar, toolbars, actions, files, printing, tabs | Was 8,825 and held every dialog too |
+| script | `o42-python.c` | 3,027 | CPython embedded | Optional; the API is `book` and `sheet` objects |
+| ui | `o42-window.c` | 7,284 | The window itself: title bar, toolbars, actions, files, printing, tabs | Was 8,825 and held every dialog too |
 | | `o42-window-private.h` | 130 | The seam between the window and its dialogs | The frame a dialog is built in, and what a dialog may ask of the window |
-| | `o42-dialogs-*.c` | 3,526 | The Data, Tools and Format menus' dialogs, a file apiece | Each is the dialogs of one menu and nothing else |
-| | `o42-grid.c` | 6,948 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
+| | `o42-dialogs-*.c` | 7,187 | The File and Edit, Data, Tools and Format menus' dialogs, a file apiece | Each is the dialogs of one menu or two and nothing else |
+| | `o42-grid.c` | 8,448 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
 
 **A note on this table.** The row for entering and editing read 100%
 while point mode -- building a reference by clicking cells as a formula
@@ -171,36 +171,72 @@ was checked through office42-calc, and the files through openpyxl
 and xlrd reading what office42 wrote and office42 reading what they
 and xlwt wrote.
 
+**The fifth pass** changed what the program is measured against.
+Excel 5 gave it its shape and Excel 2003 had been the yardstick for
+its features; Excel 97 is the target now -- the version that fixed
+the Excel that people know, with its data form, its Series dialog,
+its four Name commands and its Properties -- and the pass went down
+its menu bar, entry by entry, against ours.  What was missing was
+whole commands rather than corners: Edit ▸ Fill had Down and Right
+and not Up, Left, Series or Justify; Edit ▸ Clear cleared and could
+not clear only the formats or only the notes; a sheet could be moved
+one tab at a time and not copied at all; Insert ▸ Name could Define
+and not Paste, Create or Apply; there was no Data ▸ Form, no Row ▸
+AutoFit, no Standard Width, no Filter ▸ Show All, no Zoom dialog and
+no File ▸ Properties.  All of them are in, each one Excel's in its
+particulars: a month series from 31 January goes 29 February, 31
+March, 30 April; a copied sheet is "Sheet1 (2)" and its formulas that
+named the original name the copy; "Unit Cost" makes the name
+UNIT_COST; the data form refuses to extend a list into a row that is
+not empty; the properties go into an .xlsx's docProps, an .ods's
+meta.xml and a .gnumeric's document-meta, where each program keeps
+its own.  Two things turned up on the way.  The model had no standard
+column width -- the last column's width stood in for it -- so the
+.xlsx and .xls readers gave every one of the 16,384 columns a width
+of its own, as did o42_book_clear on the way to loading any file, and
+a file's own default never showed; a .gnumeric's DefaultSizePts was
+passed over.  And with PYTHONUNBUFFERED in the environment, the
+embedded interpreter turned off the buffering of the process's own
+stdin as it started, and glibc discarded what office42-calc had read
+from its pipe: every line after the first "py" was lost.  Both are
+fixed.  Each change was checked through office42-calc and the
+running program, and the files through openpyxl and office42 reading
+what it wrote.
+
 ---
 
-## 2. Parity with Excel, area by area
+## 2. Parity with Excel 97, area by area
 
-Weighted against **Excel 2003**, the version whose shape this program
-has. The last column says what is missing, not what is there.
+Weighted against **Excel 97**, the version this program aims to match
+feature for feature. The last column says what is missing, not what
+is there.
 
 | Area | Weight | Here | Score | What is missing |
 |---|---:|---:|---:|---|
-| Entering and editing | 8 | 100% | 8.0 | |
+| Entering and editing | 8 | 99% | 7.9 | Fill ▸ Across Worksheets; Paste as Hyperlink; AutoCorrect |
 | Selecting and navigating | 5 | 100% | 5.0 | |
-| Formulas and functions | 15 | 100% | 15.0 | every Excel 2003 function is here (637 in all), lifted over arrays as Excel lifts them |
+| Formulas and functions | 15 | 100% | 15.0 | every function Excel 97 has (and Excel 2003's) -- the natural-language labels Excel 97 let a formula use, and Excel 2007 took away, are not planned |
 | Number formats | 6 | 100% | 6.0 | |
 | Fonts, borders, colours | 8 | 100% | 8.0 | |
-| Styles and conditional formats | 6 | 98% | 5.9 | data bars and icon sets, which an .xlsx carries and this does not yet |
+| Styles and conditional formats | 6 | 100% | 6.0 | Excel 97's three conditions per cell and its Style dialog are here; data bars and icon sets, which came later, are not |
 | Rows, columns, sheets | 7 | 100% | 7.0 | |
-| Data tools | 10 | 99% | 9.9 | Excel's own pivot parts, and its live TABLE() -- ours writes the numbers |
-| Charts | 8 | 100% | 8.0 | |
-| Objects | 5 | 100% | 5.0 | the AutoShapes, turned and flipped, in one painting order; a picture cropped |
-| File formats | 12 | 99% | 11.9 | Excel 5 charts in `.xls` come back as pictures of themselves; LibreOffice's freeform AutoShapes in `.xls` come in as rectangles |
-| Printing | 6 | 100% | 6.0 | the four tabs of Page Setup, kept in every format |
+| Data tools | 10 | 99% | 9.9 | the Template Wizard, Web Query and Data Map, which Excel itself dropped |
+| Charts | 8 | 98% | 7.8 | pie-of-pie and bar-of-pie; the chart wizard's fourth step is a dialog here |
+| Objects | 5 | 96% | 4.8 | WordArt, the Clip Gallery, OLE objects |
+| File formats | 12 | 99% | 11.9 | the properties in an `.xls`; Save Workspace; Excel 5 charts in `.xls` come back as pictures of themselves |
+| Printing | 6 | 100% | 6.0 | the Report Manager, which was an add-in |
 | Undo | 5 | 100% | 5.0 | |
-| Window and dialogs | 6 | 97% | 5.8 | arranging windows, which GTK 4 gives a program no way to do |
+| Window and dialogs | 6 | 93% | 5.6 | arranging, hiding and unhiding windows, which GTK 4 gives a program no way to do; View ▸ Toolbars, Formula Bar and Status Bar as things to turn off; Format ▸ Sheet ▸ Background; Protect Workbook |
 | Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice; the recorder writes one line per operation, Alt+F8 and Ctrl+Shift+letter run them |
-| **Total** | 110 | | **109.5** | |
+| **Total** | 110 | | **108.9** | |
 
-**About 99.5% of Excel 2003** (109.5 of a weight of 110). Against **Excel 365** the number is nearer
-45%: dynamic arrays and tables are here, but Power Query, the modern
-pivot engine, co-authoring, LAMBDA's whole environment, threaded
-comments, sparklines, slicers and the ribbon are not.
+**About 99% of Excel 97** (108.9 of a weight of 110), and the same
+picture against Excel 2003, whose additions -- list ranges, XML maps,
+the research pane -- are either here as tables or not wanted.
+Against **Excel 365** the number is nearer 45%: dynamic arrays and
+tables are here, but Power Query, the modern pivot engine,
+co-authoring, LAMBDA's whole environment, threaded comments,
+sparklines, slicers and the ribbon are not.
 
 ### The grid's size
 
@@ -221,12 +257,20 @@ thing is worth knowing:
   65,536 by 256; office42 writes what fits, leaves out what does not,
   and says how many cells that was rather than losing them quietly.
 
-### What Excel has and office42 has not
+### What Excel 97 has and office42 has not
 
 | | |
 |---|---|
-| **Passwords** | the sheet takes one, kept as the short hash Excel invented; it guards against a slip of the hand and nothing else |
+| **Passwords** | the sheet takes one, kept as the short hash Excel invented; it guards against a slip of the hand and nothing else; Protect Workbook, which locks the sheets' order, is not there |
+| **Window ▸ Arrange, Hide, Unhide** | GTK 4 took away the calls that move a window, so a program cannot tile or cascade its own |
+| **View ▸ Toolbars, Formula Bar, Status Bar** | always on; the menu does not offer to hide them |
+| **Edit ▸ Fill ▸ Across Worksheets, Paste as Hyperlink, Links** | not yet |
+| **Tools ▸ AutoCorrect** | not yet |
+| **Format ▸ Sheet ▸ Background** | a picture behind the cells; not yet |
+| **Insert ▸ Object, WordArt, Clip Gallery, Map** | OLE has no home on this desktop; WordArt is a text box with a font; the map was licensed data Excel dropped |
+| **Properties in an `.xls`** | the SummaryInformation stream is a property set of its own; `.gnumeric`, `.xlsx` and `.ods` carry them |
 | **Track changes, sharing** | not there, and not planned |
+| **The Office Assistant** | no |
 
 ---
 
@@ -308,18 +352,23 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **Splitting `o42-sheet.c`** (9,197 lines), the biggest file but the
-   evaluator now that the window has come apart: cells and
-   their formats, recalculation and the dependency graph, and the
-   objects that float over the grid are three subjects in one file.
-2. **The last two file formats Gnumeric reads**: Quattro Pro and
+1. **The last of Excel 97's menus**, listed in the table above: Fill
+   Across Worksheets, the toolbar and bar toggles, Sheet Background,
+   AutoCorrect, Protect Workbook, the properties in an `.xls`, the
+   pie-of-pie chart.  None is more than a day, and together they are
+   the distance between "aims at Excel 97" and "is".
+2. **Splitting `o42-sheet.c`** (14,013 lines), the biggest file of all:
+   cells and their formats, recalculation and the dependency graph,
+   and the objects that float over the grid are three subjects in one
+   file.
+3. **The last two file formats Gnumeric reads**: Quattro Pro and
    Applix. Both are long dead, and neither can be written here with a
    straight face: there is no file of either to read, and no program on
    this machine that writes one, so anything built from the format's
    description alone would go out unverified. Lotus 1-2-3 could be
    done because LibreOffice reads it, which gave the other half of the
    check.
-3. **Miltersen and Schwartz on commodity options**, the one formula of
+4. **Miltersen and Schwartz on commodity options**, the one formula of
    Gnumeric's derivatives plugin that is not here. It prices against a
    three-factor model -- the spot, the convenience yield and the
    forward rate, each mean-reverting -- and checking it would mean

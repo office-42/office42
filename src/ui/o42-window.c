@@ -5902,7 +5902,7 @@ action_about (GSimpleAction *a, GVariant *p, gpointer data)
                          "program-name", "Office42 Spreadsheet",
                          "version", O42_VERSION,
                          "logo", logo,
-                         "comments", "A spreadsheet in the shape of Excel 5 and Gnumeric, "
+                         "comments", "A spreadsheet in the shape of Excel 5, at parity with Excel 97 and Gnumeric, "
                                      "written in C on GTK 4, Pango and Cairo.\n"
                                      "Source: github.com/office-42/office42",
                          "website", "https://office42.net",

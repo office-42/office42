@@ -3,10 +3,11 @@
 # Office42 Spreadsheet
 
 **Office42 Spreadsheet** (the binary is `office42`, and that is one word:
-Office42) is a spreadsheet in the shape of Excel 5 and at parity with
-Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. It is the
-sister project of [word42](https://github.com/office-42/word42), built on
-the same principles: a small, honest codebase that does one thing well.
+Office42) is a spreadsheet in the shape of Excel 5, at feature parity with
+Excel 97 and with Gnumeric, written from scratch in C on GTK 4, Pango and
+Cairo. It is the sister project of
+[word42](https://github.com/office-42/word42), built on the same
+principles: a small, honest codebase that does one thing well.
 The site is [office42.net](https://office42.net/).
 
 [![Linux](https://github.com/office-42/office42/actions/workflows/linux.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/linux.yml)
@@ -22,15 +23,25 @@ honest estimate of how far it is from Excel and from Gnumeric.
 
 ## Goals
 
-office42 aims at two programs:
+office42 aims at three programs, each for one thing:
 
-- **[Gnumeric](https://en.wikipedia.org/wiki/Gnumeric)**, for what a free
-  spreadsheet should be able to do and for how to do it right. Gnumeric was
-  built by people who cared about numerical correctness more than about
-  features, and that is the standard to hold to.
-- **Microsoft Excel 5** (1993), for what it should look like and how it
-  should behave: a grid, a formula bar, a name box, two toolbars and sheet
-  tabs along the bottom. No ribbon.
+- **Microsoft Excel 97**, for what it should do. Excel 97 is the target for
+  feature parity: every menu, every dialog and every command it had is
+  meant to be here and to behave as it did there -- Fill Series and
+  Justify, the data form, Move or Copy Sheet, the four Name commands,
+  Standard Width, the document's Properties, and the rest.
+  [docs/PARITY.md](docs/PARITY.md) keeps the score menu by menu, and
+  [docs/ROADMAP.md](docs/ROADMAP.md) lists what is left. Later Excels are
+  drawn on where they got something right -- the 1,048,576-row grid,
+  dynamic arrays, `LET` and `LAMBDA`, the `.xlsx` file -- but the ribbon,
+  co-authoring and Power Query are not what this is.
+- **[Gnumeric](https://en.wikipedia.org/wiki/Gnumeric)**, for how to do it
+  right. Gnumeric was built by people who cared about numerical
+  correctness more than about features, and that is the standard the
+  arithmetic is held to.
+- **Microsoft Excel 5** (1993), for what it should look like: a grid, a
+  formula bar, a name box, two toolbars and sheet tabs along the bottom.
+  Excel 97 kept that shape, and so does this. No ribbon.
 
 ## What it does
 
@@ -42,9 +53,12 @@ matching functions are listed, and inside a call the signature is shown
 with the argument you are on in bold. Point mode writes a reference by
 clicking a cell, and F4 cycles its dollars. The fill handle continues a
 series, dragging a selection moves it and every formula that pointed at it,
-and AutoComplete offers the text already in the column. Zoom, freeze panes,
+and AutoComplete offers the text already in the column. Edit ▸ Fill fills
+down, right, up and left, a Series -- linear, growth, date or AutoFill,
+with a step, a stop and a trend -- and Justify. Zoom, freeze panes,
 split panes, custom views, outline groups, a second window on the same
-book, and undo of everything, deleting a sheet included.
+book, Move or Copy Sheet, and undo of everything, deleting a sheet
+included.
 
 **Formatting.** Excel 5's tabbed Format Cells dialog: number formats in
 Excel's own code language (`#,##0.00;[Red](#,##0.00)`, `dddd d mmmm yyyy`,
@@ -55,8 +69,9 @@ formats. Formats are interned, so a thousand bold cells share one record.
 
 **Formulas.** A parser with Excel's precedence, `A1` and `$A$1`
 references, ranges, whole rows and columns, array constants, 3-D references
-across sheets, structured references into tables, names, `LET` and
-`LAMBDA`. Array formulas with Ctrl+Shift+Enter and dynamic arrays that
+across sheets, structured references into tables, names -- defined,
+pasted, created from a table's labels and applied to the formulas that
+spell them out -- `LET` and `LAMBDA`. Array formulas with Ctrl+Shift+Enter and dynamic arrays that
 spill. Recalculation is demand-driven with dirty flags, and circular
 references are reported rather than followed. **637 functions**: every one
 Excel 2003 has, the statistics computed in two passes so they are accurate,
@@ -75,9 +90,10 @@ are painted. Pictures, shapes, text boxes, grouped objects, notes,
 hyperlinks and the nine form controls of Excel's Forms toolbar, each bound
 to a cell.
 
-**Data.** Sort, Find and Replace, AutoFilter and Advanced Filter, Text to
-Columns, Remove Duplicates, Subtotals, Consolidate, Scenarios, Data
-Validation, Tables, Pivot Tables with calculated fields and page filters,
+**Data.** Sort, the data form, Find and Replace, AutoFilter and Advanced
+Filter, Text to Columns, Remove Duplicates, Subtotals, Consolidate,
+Scenarios, Data Validation, Tables, Pivot Tables with calculated fields
+and page filters,
 Goal Seek, a Solver and the statistical analysis tools: descriptive
 statistics, correlation, covariance, regression, histogram, ANOVA, rank
 and percentile, moving average. Each is one undo step.
@@ -87,8 +103,10 @@ and percentile, moving average. Each is one undo step.
 charts, shapes, tables, names and notes, opening in Excel, LibreOffice and
 Gnumeric; OpenDocument `.ods`, checked against LibreOffice both ways; and
 HTML, CSV, DIF, SYLK, LaTeX and Lotus 1-2-3. The zip and OLE2 containers
-are a few hundred lines each, so no library was added. Printing, print
-preview, page setup with headers and footers, and export and import of PDF.
+are a few hundred lines each, so no library was added. The document's
+properties -- title, author, keywords and the rest -- travel in the
+three formats that hold them. Printing, print preview, page setup with
+headers and footers, and export and import of PDF.
 
 **Automation.** Python instead of Visual Basic: a console with `book` and
 `sheet` bound, scripts kept in the file, a macro recorder that writes

@@ -1,6 +1,8 @@
 Office42 Spreadsheet ("office42", one word, is the project and binary name) is a spreadsheet with GPL license, built on the same principles as
 word42: a small, honest C codebase on GTK 4, Pango and Cairo, in the shape of
-Excel 5 and aiming at parity with Gnumeric.
+Excel 5, aiming at feature parity with Excel 97 and at Gnumeric's
+correctness.  docs/PARITY.md keeps the score, menu by menu, and
+docs/ROADMAP.md lists what is left.
 
 Instructions for AI agents:
 - Do not add any unit tests.

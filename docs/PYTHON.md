@@ -53,6 +53,8 @@ book["Sales"], book[0]         # sheets by name or index
 book.add_sheet("Data")
 book.remove_sheet("Data")
 book.move_sheet("Data", 0)     # to the first tab
+book.copy_sheet("Data", name="Data (2)")   # Edit > Move or Copy Sheet, with a copy
+book.properties["title"]; book.set_property("author", "Ann")   # File > Properties
 book.path                      # the file, or None
 book.save(); book.save_as("q3.xlsx"); book.close()
 
@@ -71,8 +73,12 @@ r = sheet["A1:C9"]
 r.copy("E1")                         # everything; or .copy("E1", "values"),
                                      # "formats", "formulas", transpose=True
 r.cut("E1")                          # formulas elsewhere follow it
-r.fill_down(); r.fill_right()
+r.fill_down(); r.fill_right(); r.fill_up(); r.fill_left()
+r.fill_series("linear", step=2, stop=20)   # or "growth", "date" (unit="month"), "autofill"
+r.justify()                          # the text in the first column, laid out again
 sheet["A1:A2"].autofill("A1:A20")    # continues the series
+r.create_names(top=True)             # names from the labels along the edges
+r.apply_names(); sheet.apply_names() # named rectangles written as their names
 r.sort(keys=[1], ascending=False, header=True)   # keys from the range's left
 r.replace("old", "new")              # how many cells changed
 r.find("total")                      # the first cell holding it, or None
@@ -82,6 +88,7 @@ r.merge(); r.unmerge(); r.merged
 r.insert_cells("down"); r.delete_cells("left")
 sheet.insert_rows(2, 3); sheet.delete_cols(0)  # 0-based, then a count
 sheet.row_height(0, 40); sheet.col_width(0)    # pixels; get or set
+sheet.standard_width = 96                      # Format > Column > Standard Width
 sheet.hide_rows(4, 6); sheet.unhide_cols(2)
 sheet.freeze(1, 0); sheet.frozen
 ```
