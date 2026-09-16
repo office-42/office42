@@ -80,6 +80,8 @@ struct _O42Grid {
    * puts on the clipboard and so what they read from ours. */
   char          *clip_text;
   O42Range       clip_range;
+  char          *clip_sheet;     /* the sheet the copy came from */
+  gboolean       show_notes;     /* View > Comments */
 
   gboolean       hide_gridlines;
   gboolean       hide_checks;     /* no green corners on doubtful cells */
@@ -3331,6 +3333,82 @@ o42_grid_copy (O42Grid *self)
   g_free (self->clip_text);
   self->clip_text = g_string_free (out, FALSE);
   self->clip_range = range;
+  g_free (self->clip_sheet);
+  self->clip_sheet = g_strdup (o42_sheet_get_name (self->sheet));
+}
+
+void
+o42_grid_paste_as_link (O42Grid *self)
+{
+  O42Sheet *source;
+  O42Book *book;
+  char *quoted;
+
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->sheet == NULL || self->clip_text == NULL || self->clip_sheet == NULL)
+    return;
+  book = o42_sheet_get_book (self->sheet);
+  source = book != NULL ? o42_book_find_sheet (book, self->clip_sheet) : NULL;
+  if (source == NULL && strcmp (self->clip_sheet, o42_sheet_get_name (self->sheet)) == 0)
+    source = self->sheet;
+  if (source == NULL)
+    return;
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  quoted = o42_sheet_name_quote (o42_sheet_get_name (source));
+  o42_sheet_begin_group (self->sheet);
+  for (int r = self->clip_range.row0; r <= self->clip_range.row1; r++)
+    for (int c = self->clip_range.col0; c <= self->clip_range.col1; c++)
+      {
+        int row = self->active_row + r - self->clip_range.row0;
+        int col = self->active_col + c - self->clip_range.col0;
+        char *shown, *ref, *target;
+        O42Entry entry;
+
+        if (row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+          continue;
+        shown = o42_sheet_get_display (source, r, c);
+        /* The text as text, so that a number stays the words it showed. */
+        if (shown != NULL && *shown != '\0' && (shown[0] == '=' || o42_entry_parse (shown, &entry)))
+          {
+            char *plain = g_strconcat ("'", shown, NULL);
+            o42_sheet_set_input (self->sheet, row, col, plain);
+            g_free (plain);
+          }
+        else
+          o42_sheet_set_input (self->sheet, row, col, shown != NULL ? shown : "");
+        ref = o42_ref_name (r, c);
+        target = g_strdup_printf ("#%s!%s", quoted, ref);
+        o42_sheet_set_link (self->sheet, row, col, target);
+        g_free (target);
+        g_free (ref);
+        g_free (shown);
+      }
+  o42_sheet_end_group (self->sheet);
+  g_free (quoted);
+  {
+    O42Range pasted = { self->active_row, self->active_col,
+                        MIN (O42_MAX_ROWS - 1, self->active_row + self->clip_range.row1 - self->clip_range.row0),
+                        MIN (O42_MAX_COLS - 1, self->active_col + self->clip_range.col1 - self->clip_range.col0) };
+    cells_edited (self, &pasted);
+  }
+  sheet_changed (self);
+}
+
+void
+o42_grid_set_show_notes (O42Grid *self, gboolean show)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  self->show_notes = show;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_get_show_notes (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->show_notes;
 }
 
 gboolean
@@ -6931,10 +7009,60 @@ paint_handles (cairo_t *cr, double x, double y, double w, double h)
  * whatever was brought to the front is in front.  Only those that
  * touch the rectangle (vx, vy, vw, vh) of sheet pixels are painted: the
  * scrolled view, or a frozen band's share of it. */
+/* View > Comments: each note in a pale box to the right of its cell,
+ * a line from the cell's corner, as Excel shows them all at once. */
+static void
+paint_notes (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, double vh)
+{
+  GHashTableIter iter;
+  gpointer key, value;
+
+  g_hash_table_iter_init (&iter, o42_sheet_notes (self->sheet));
+  while (g_hash_table_iter_next (&iter, &key, &value))
+    {
+      guint64 k = *(guint64 *) key;
+      int row = o42_key_row (k), col = o42_key_col (k);
+      double x = col_x (self, col + 1), y = row_y (self, row);
+      double bx = x + 12, by = MAX (y - 10, HEADER_H), bw = 160, bh;
+      int tw, th;
+
+      if (o42_sheet_row_hidden (self->sheet, row) || o42_sheet_col_hidden (self->sheet, col))
+        continue;
+      if (bx > vx + vw || by > vy + vh || x < vx - 200 || y < vy - 200)
+        continue;
+
+      pango_layout_set_attributes (self->layout, NULL);
+      pango_layout_set_font_description (self->layout, NULL);
+      pango_layout_set_text (self->layout, value, -1);
+      pango_layout_set_width (self->layout, (int) (bw - 8) * PANGO_SCALE);
+      pango_layout_set_wrap (self->layout, PANGO_WRAP_WORD_CHAR);
+      pango_layout_get_pixel_size (self->layout, &tw, &th);
+      bh = th + 8;
+
+      cairo_set_source_rgb (cr, 0.4, 0.4, 0.4);
+      cairo_set_line_width (cr, 1);
+      cairo_move_to (cr, x - 1, y + 1);
+      cairo_line_to (cr, bx, by + 6);
+      cairo_stroke (cr);
+      cairo_set_source_rgb (cr, 1.0, 1.0, 0.88);
+      cairo_rectangle (cr, bx, by, bw, bh);
+      cairo_fill_preserve (cr);
+      cairo_set_source_rgb (cr, 0.4, 0.4, 0.4);
+      cairo_stroke (cr);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      cairo_move_to (cr, bx + 4, by + 4);
+      pango_cairo_show_layout (cr, self->layout);
+      pango_layout_set_width (self->layout, -1);
+    }
+}
+
 static void
 paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, double vh)
 {
   GArray *objects = o42_sheet_objects (self->sheet);
+
+  if (self->show_notes)
+    paint_notes (self, cr, vx, vy, vw, vh);
 
   for (guint i = 0; i < objects->len; i++)
     {
@@ -8137,6 +8265,7 @@ o42_grid_dispose (GObject *object)
 
   g_clear_pointer (&self->background, cairo_surface_destroy);
   g_clear_pointer (&self->background_source, g_bytes_unref);
+  g_clear_pointer (&self->clip_sheet, g_free);
 
   if (self->blink_id != 0)
     {

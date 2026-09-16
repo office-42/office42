@@ -37,6 +37,8 @@
       <section>
         <item><attribute name="label" translatable="yes">Propert_ies...</attribute><attribute name="action">win.properties</attribute></item>
       </section>
+      <section id="recent-files">
+      </section>
       <section>
         <item><attribute name="label" translatable="yes">E_xit</attribute><attribute name="action">app.quit</attribute></item>
       </section>
@@ -53,6 +55,7 @@
         <item><attribute name="label" translatable="yes">_Copy</attribute><attribute name="action">win.copy</attribute></item>
         <item><attribute name="label" translatable="yes">_Paste</attribute><attribute name="action">win.paste</attribute></item>
         <item><attribute name="label" translatable="yes">Paste _Special...</attribute><attribute name="action">win.paste-special</attribute></item>
+        <item><attribute name="label" translatable="yes">Paste as _Hyperlink</attribute><attribute name="action">win.paste-link</attribute></item>
       </section>
       <section>
         <submenu>
@@ -109,6 +112,7 @@
         </submenu>
         <item><attribute name="label" translatable="yes">Formula _Bar</attribute><attribute name="action">win.show-formula-bar</attribute></item>
         <item><attribute name="label" translatable="yes">_Status Bar</attribute><attribute name="action">win.show-status-bar</attribute></item>
+        <item><attribute name="label" translatable="yes">_Comments</attribute><attribute name="action">win.show-notes</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">_Freeze Panes</attribute><attribute name="action">win.freeze-panes</attribute></item>
@@ -325,6 +329,11 @@
         <item><attribute name="label" translatable="yes">Statistical _Analysis...</attribute><attribute name="action">win.analysis</attribute></item>
         <item><attribute name="label" translatable="yes">_Spelling...</attribute><attribute name="action">win.spelling</attribute></item>
         <item><attribute name="label" translatable="yes">_AutoCorrect...</attribute><attribute name="action">win.autocorrect</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Wizards</attribute>
+          <item><attribute name="label" translatable="yes">_Conditional Sum...</attribute><attribute name="action">win.conditional-sum</attribute></item>
+          <item><attribute name="label" translatable="yes">_Lookup...</attribute><attribute name="action">win.lookup-wizard</attribute></item>
+        </submenu>
         <item><attribute name="label" translatable="yes">Custom _Lists...</attribute><attribute name="action">win.custom-lists</attribute></item>
         <item><attribute name="label" translatable="yes">_Options...</attribute><attribute name="action">win.options</attribute></item>
       </section>
@@ -388,6 +397,10 @@
       <attribute name="label" translatable="yes">_Window</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_New Window</attribute><attribute name="action">win.new-window</attribute></item>
+        <item><attribute name="label" translatable="yes">_Hide</attribute><attribute name="action">win.hide-window</attribute></item>
+        <item><attribute name="label" translatable="yes">_Unhide...</attribute><attribute name="action">win.unhide-window</attribute></item>
+      </section>
+      <section id="window-list">
       </section>
     </submenu>
 

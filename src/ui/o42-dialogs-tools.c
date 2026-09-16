@@ -18,6 +18,7 @@
 #include "o42-python.h"
 #include "o42-spell.h"
 #include "o42-types.h"
+#include "o42-entry.h"
 
 #include <glib/gi18n.h>
 #include <math.h>
@@ -2887,6 +2888,285 @@ on_protect_ok (GtkWidget *w, gpointer data)
     }
   window_sync (self);
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Tools > Wizards ---------------------------------------------------- */
+
+/* Excel 97's two formula wizards, which were add-ins: Conditional Sum
+ * writes a SUMIF over a list, Lookup an INDEX/MATCH into a table.  Each
+ * asks for the ranges as text, offers what the selection holds, and
+ * puts one formula in a cell. */
+
+static gboolean
+parse_range_text (const char *text, O42Range *out)
+{
+  gsize len = 0;
+
+  while (*text == '=' || *text == ' ')
+    text++;
+  if (!o42_ref_parse (text, &out->row0, &out->col0, &len))
+    return FALSE;
+  if (text[len] == ':')
+    {
+      if (!o42_ref_parse (text + len + 1, &out->row1, &out->col1, NULL))
+        return FALSE;
+    }
+  else if (text[len] == '\0')
+    {
+      out->row1 = out->row0;
+      out->col1 = out->col0;
+    }
+  else
+    return FALSE;
+  *out = o42_range_normalise (out->row0, out->col0, out->row1, out->col1);
+  return TRUE;
+}
+
+static char *
+range_text (const O42Range *r)
+{
+  char *a = o42_ref_name (r->row0, r->col0), *b = o42_ref_name (r->row1, r->col1);
+  char *text = g_strdup_printf ("%s:%s", a, b);
+  g_free (a); g_free (b);
+  return text;
+}
+
+/* The selection, or the used range when only one cell is selected. */
+static void
+wizard_list_range (O42Window *self, O42Range *out)
+{
+  o42_grid_get_selection (self->grid, out);
+  if (out->row0 == out->row1 && out->col0 == out->col1)
+    o42_sheet_used_range (self->sheet, out);
+}
+
+/* A value typed into a wizard as it goes into a formula: a reference
+ * or a number as it is, anything else in quotes. */
+static char *
+wizard_operand (const char *text)
+{
+  O42Entry entry;
+  int row, col;
+  gsize len = 0;
+
+  if (o42_ref_parse (text, &row, &col, &len) && text[len] == '\0')
+    return g_strdup (text);
+  if (o42_entry_parse (text, &entry) && entry.format == O42_NUM_GENERAL)
+    return g_strdup (text);
+  return g_strdup_printf ("\"%s\"", text);
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *range, *sum_col, *cond_col, *op, *value, *result;
+  GtkStringList *headings;
+} CondSumPrompt;
+
+static const char *const COND_SUM_OPS[] = { "=", "<>", ">", "<", ">=", "<=", NULL };
+
+/* The headings of the list's first row, which the two drop-downs offer. */
+static void
+cond_sum_fill_headings (CondSumPrompt *prompt)
+{
+  O42Range r;
+
+  gtk_string_list_splice (prompt->headings, 0, g_list_model_get_n_items (G_LIST_MODEL (prompt->headings)), NULL);
+  if (!parse_range_text (gtk_editable_get_text (GTK_EDITABLE (prompt->range)), &r))
+    return;
+  for (int col = r.col0; col <= r.col1 && col - r.col0 < 64; col++)
+    {
+      char *heading = o42_sheet_get_display (prompt->window->sheet, r.row0, col);
+      char letters[8];
+
+      o42_col_name (col, letters, sizeof letters);
+      gtk_string_list_append (prompt->headings, heading != NULL && *heading != '\0' ? heading : letters);
+      g_free (heading);
+    }
+}
+
+static void
+on_cond_sum_range_changed (GtkEditable *editable, gpointer data)
+{
+  (void) editable;
+  cond_sum_fill_headings (data);
+}
+
+static void
+on_cond_sum_ok (GtkWidget *w, gpointer data)
+{
+  CondSumPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  O42Range list, sum, cond;
+  guint sum_i = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->sum_col));
+  guint cond_i = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->cond_col));
+  const char *op = COND_SUM_OPS[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->op))];
+  const char *value = gtk_editable_get_text (GTK_EDITABLE (prompt->value));
+  int row, col;
+  char *sum_text, *cond_text, *operand, *criterion, *formula;
+
+  (void) w;
+  if (!parse_range_text (gtk_editable_get_text (GTK_EDITABLE (prompt->range)), &list) || list.row1 <= list.row0 ||
+      sum_i == GTK_INVALID_LIST_POSITION || cond_i == GTK_INVALID_LIST_POSITION)
+    {
+      show_error (self, _("The list needs a row of headings with its rows below, as A1:D9."), NULL);
+      return;
+    }
+  if (!o42_ref_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->result)), &row, &col, NULL))
+    {
+      show_error (self, _("Say which cell the formula goes in, as F1."), NULL);
+      return;
+    }
+  sum = cond = list;
+  sum.row0++; cond.row0++;
+  sum.col0 = sum.col1 = list.col0 + (int) sum_i;
+  cond.col0 = cond.col1 = list.col0 + (int) cond_i;
+  sum_text = range_text (&sum);
+  cond_text = range_text (&cond);
+  operand = wizard_operand (value);
+  /* SUMIF's criterion: a bare value for equality, else the operator
+   * and the value joined -- ">"&F1 for a reference, ">100" for a number. */
+  if (strcmp (op, "=") == 0)
+    criterion = g_strdup (operand);
+  else if (operand[0] == '"')
+    criterion = g_strdup_printf ("\"%s%s", op, operand + 1);
+  else if (g_ascii_isalpha (operand[0]) || operand[0] == '$')
+    criterion = g_strdup_printf ("\"%s\"&%s", op, operand);
+  else
+    criterion = g_strdup_printf ("\"%s%s\"", op, operand);
+  formula = g_strdup_printf ("=SUMIF(%s,%s,%s)", cond_text, criterion, sum_text);
+  o42_sheet_set_input (self->sheet, row, col, formula);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  g_free (formula); g_free (criterion); g_free (operand); g_free (sum_text); g_free (cond_text);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_conditional_sum (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  CondSumPrompt *prompt = g_new0 (CondSumPrompt, 1);
+  GtkWidget *content, *buttons, *grid, *ok;
+  O42Range list;
+  char *text;
+  int row, col;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Conditional Sum Wizard"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Adds the values in one column of a list for the rows that meet a condition.")));
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->range = labelled (grid, 0, _("List, headings first:"), gtk_entry_new ());
+  wizard_list_range (self, &list);
+  text = range_text (&list);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->range), text);
+  g_free (text);
+  prompt->headings = gtk_string_list_new (NULL);
+  prompt->sum_col = labelled (grid, 1, _("Column to sum:"), gtk_drop_down_new (G_LIST_MODEL (prompt->headings), NULL));
+  prompt->cond_col = labelled (grid, 2, _("Column to test:"), gtk_drop_down_new (G_LIST_MODEL (g_object_ref (prompt->headings)), NULL));
+  prompt->op = labelled (grid, 3, _("Is:"), drop_down_of (COND_SUM_OPS));
+  prompt->value = labelled (grid, 4, _("This value:"), gtk_entry_new ());
+  prompt->result = labelled (grid, 5, _("Put the formula in:"), gtk_entry_new ());
+  o42_grid_get_active (self->grid, &row, &col);
+  text = o42_ref_name (row, col);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->result), text);
+  g_free (text);
+  gtk_box_append (GTK_BOX (content), grid);
+  cond_sum_fill_headings (prompt);
+  g_signal_connect (prompt->range, "changed", G_CALLBACK (on_cond_sum_range_changed), prompt);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_cond_sum_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *range, *row_label, *col_label, *result;
+} LookupPrompt;
+
+static void
+on_lookup_ok (GtkWidget *w, gpointer data)
+{
+  LookupPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  O42Range table, first_col, first_row;
+  int row, col;
+  char *table_text, *col_text, *row_text, *rl, *cl, *formula;
+
+  (void) w;
+  if (!parse_range_text (gtk_editable_get_text (GTK_EDITABLE (prompt->range)), &table) ||
+      table.row1 <= table.row0 || table.col1 <= table.col0)
+    {
+      show_error (self, _("The table needs a row of labels across the top and a column of them down the left, as A1:E9."), NULL);
+      return;
+    }
+  if (!o42_ref_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->result)), &row, &col, NULL))
+    {
+      show_error (self, _("Say which cell the formula goes in, as G1."), NULL);
+      return;
+    }
+  first_col = table; first_col.col1 = first_col.col0;
+  first_row = table; first_row.row1 = first_row.row0;
+  table_text = range_text (&table);
+  col_text = range_text (&first_col);
+  row_text = range_text (&first_row);
+  rl = wizard_operand (gtk_editable_get_text (GTK_EDITABLE (prompt->row_label)));
+  cl = wizard_operand (gtk_editable_get_text (GTK_EDITABLE (prompt->col_label)));
+  formula = g_strdup_printf ("=INDEX(%s,MATCH(%s,%s,0),MATCH(%s,%s,0))", table_text, rl, col_text, cl, row_text);
+  o42_sheet_set_input (self->sheet, row, col, formula);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  g_free (formula); g_free (rl); g_free (cl); g_free (table_text); g_free (col_text); g_free (row_text);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_lookup_wizard (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  LookupPrompt *prompt = g_new0 (LookupPrompt, 1);
+  GtkWidget *content, *buttons, *grid, *ok;
+  O42Range table;
+  char *text;
+  int row, col;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Lookup Wizard"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Finds the value where a row and a column of a table meet.")));
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->range = labelled (grid, 0, _("Table, labels on top and left:"), gtk_entry_new ());
+  wizard_list_range (self, &table);
+  text = range_text (&table);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->range), text);
+  g_free (text);
+  prompt->row_label = labelled (grid, 1, _("Row label, or a cell holding it:"), gtk_entry_new ());
+  prompt->col_label = labelled (grid, 2, _("Column label, or a cell holding it:"), gtk_entry_new ());
+  prompt->result = labelled (grid, 3, _("Put the formula in:"), gtk_entry_new ());
+  o42_grid_get_active (self->grid, &row, &col);
+  text = o42_ref_name (row, col);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->result), text);
+  g_free (text);
+  gtk_box_append (GTK_BOX (content), grid);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_lookup_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
 /* ---- Tools > AutoCorrect ----------------------------------------------- */

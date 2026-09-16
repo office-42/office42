@@ -230,6 +230,15 @@ gboolean o42_grid_get_show_checks    (O42Grid *self);
 /* Data > Validation > Circle Invalid Data: red rings around the cells
  * whose value breaks their rule, until cleared. */
 void     o42_grid_set_circle_invalid (O42Grid *self, gboolean on);
+
+/* View > Comments: every note on the sheet shown beside its cell, not
+ * only the one under the pointer. */
+void     o42_grid_set_show_notes (O42Grid *self, gboolean show);
+gboolean o42_grid_get_show_notes (O42Grid *self);
+
+/* Edit > Paste as Hyperlink: the copied cells' text, each a link back
+ * to the cell it came from. */
+void     o42_grid_paste_as_link (O42Grid *self);
 gboolean o42_grid_get_circle_invalid (O42Grid *self);
 
 G_END_DECLS

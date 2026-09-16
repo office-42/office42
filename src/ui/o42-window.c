@@ -87,6 +87,10 @@ G_DEFINE_FINAL_TYPE (O42Window, o42_window, GTK_TYPE_APPLICATION_WINDOW)
 static void window_rebuild_tabs (O42Window *self);
 static void window_apply_view (O42Window *self);
 static void window_keep_view (O42Window *self);
+static void window_fill_recent (O42Window *self);
+static void on_recent_changed (GtkRecentManager *manager, gpointer data);
+static void on_application_set (GObject *object, GParamSpec *pspec, gpointer data);
+static int recent_newer_first (gconstpointer a, gconstpointer b, gpointer data);
 static void window_install_python_host (O42Window *self);
 static void action_new_window (GSimpleAction *a, GVariant *p, gpointer data);
 
@@ -5361,7 +5365,261 @@ window_set_file (O42Window *self, GFile *file)
   self->file = file;
   window_update_title (self);
   o42_book_changed (self->book, "file");
+  /* The recent files, and the window list's titles. */
+  if (file != NULL)
+    {
+      char *uri = g_file_get_uri (file);
+      GtkRecentData data = { NULL, NULL, (char *) "application/octet-stream", (char *) "office42",
+                             (char *) "office42 %u", NULL, FALSE };
+
+      gtk_recent_manager_add_full (gtk_recent_manager_get_default (), uri, &data);
+      g_free (uri);
+    }
+  if (gtk_window_get_application (GTK_WINDOW (self)) != NULL)
+    o42_window_refresh_window_lists (gtk_window_get_application (GTK_WINDOW (self)));
 }
+
+/* ---- File's recent files and Window's list ----------------------------- */
+
+static int
+recent_newer_first (gconstpointer a, gconstpointer b, gpointer data)
+{
+  GtkRecentInfo *ia = *(GtkRecentInfo *const *) a, *ib = *(GtkRecentInfo *const *) b;
+  GDateTime *ta = gtk_recent_info_get_modified (ia), *tb = gtk_recent_info_get_modified (ib);
+  (void) data;
+  return g_date_time_compare (tb, ta);
+}
+
+/* Excel 97 listed the last four files above Exit. */
+static void
+window_fill_recent (O42Window *self)
+{
+  GList *items = gtk_recent_manager_get_items (gtk_recent_manager_get_default ());
+  GPtrArray *ours = g_ptr_array_new ();
+  int n = 0;
+
+  g_menu_remove_all (self->recent_menu);
+  /* The ones office42 opened that are still there, newest first, and
+   * four of them, as Excel 97 listed them above Exit. */
+  for (GList *l = items; l != NULL; l = l->next)
+    if (gtk_recent_info_has_application (l->data, "office42") && gtk_recent_info_exists (l->data))
+      g_ptr_array_add (ours, l->data);
+  g_ptr_array_sort_with_data (ours, recent_newer_first, NULL);
+  for (guint i = 0; i < ours->len && n < 4; i++, n++)
+    {
+      GtkRecentInfo *info = g_ptr_array_index (ours, i);
+      char *label = g_strdup_printf ("_%d %s", n + 1, gtk_recent_info_get_display_name (info));
+      GMenuItem *item = g_menu_item_new (label, NULL);
+
+      g_menu_item_set_action_and_target (item, "win.open-recent", "s", gtk_recent_info_get_uri (info));
+      g_menu_append_item (self->recent_menu, item);
+      g_object_unref (item);
+      g_free (label);
+    }
+  g_ptr_array_unref (ours);
+  g_list_free_full (items, (GDestroyNotify) gtk_recent_info_unref);
+}
+
+static void
+on_recent_changed (GtkRecentManager *manager, gpointer data)
+{
+  (void) manager;
+  window_fill_recent (data);
+}
+
+static void
+action_open_recent (GSimpleAction *a, GVariant *param, gpointer data)
+{
+  O42Window *self = data;
+  GFile *file = g_file_new_for_uri (g_variant_get_string (param, NULL));
+
+  (void) a;
+  o42_window_open_file (self, file);
+  g_object_unref (file);
+}
+
+void
+o42_window_refresh_window_lists (GtkApplication *app)
+{
+  GList *windows = gtk_application_get_windows (app);
+  int index = 0;
+
+  for (GList *l = windows; l != NULL; l = l->next)
+    {
+      O42Window *self = O42_IS_WINDOW (l->data) ? O42_WINDOW (l->data) : NULL;
+
+      if (self == NULL || self->window_menu == NULL)
+        continue;
+      g_menu_remove_all (self->window_menu);
+      index = 0;
+      for (GList *m = windows; m != NULL; m = m->next)
+        {
+          GtkWindow *other = m->data;
+          const char *title;
+          char *label;
+          GMenuItem *item;
+
+          if (!O42_IS_WINDOW (other) || !gtk_widget_get_visible (GTK_WIDGET (other)))
+            continue;
+          title = gtk_window_get_title (other);
+          label = g_strdup_printf ("_%d %s", index + 1, title != NULL ? title : "");
+          item = g_menu_item_new (label, NULL);
+          g_menu_item_set_action_and_target (item, "win.raise-window", "s",
+                                             gtk_window_get_title (other) != NULL ? gtk_window_get_title (other) : "");
+          g_menu_append_item (self->window_menu, item);
+          g_object_unref (item);
+          g_free (label);
+          index++;
+        }
+    }
+}
+
+static void
+on_windows_changed (GtkApplication *app, GtkWindow *window, gpointer data)
+{
+  (void) window; (void) data;
+  o42_window_refresh_window_lists (app);
+}
+
+static void
+on_application_set (GObject *object, GParamSpec *pspec, gpointer data)
+{
+  GtkApplication *app = gtk_window_get_application (GTK_WINDOW (object));
+  static GHashTable *hooked = NULL;
+
+  (void) pspec; (void) data;
+  if (app == NULL)
+    return;
+  if (hooked == NULL)
+    hooked = g_hash_table_new (g_direct_hash, g_direct_equal);
+  if (!g_hash_table_contains (hooked, app))
+    {
+      g_hash_table_add (hooked, app);
+      g_signal_connect (app, "window-added", G_CALLBACK (on_windows_changed), NULL);
+      g_signal_connect (app, "window-removed", G_CALLBACK (on_windows_changed), NULL);
+    }
+  o42_window_refresh_window_lists (app);
+}
+
+static void
+action_raise_window (GSimpleAction *a, GVariant *param, gpointer data)
+{
+  O42Window *self = data;
+  GtkApplication *app = gtk_window_get_application (GTK_WINDOW (self));
+  const char *title = g_variant_get_string (param, NULL);
+
+  (void) a;
+  for (GList *l = app != NULL ? gtk_application_get_windows (app) : NULL; l != NULL; l = l->next)
+    if (g_strcmp0 (gtk_window_get_title (l->data), title) == 0)
+      {
+        gtk_window_present (l->data);
+        return;
+      }
+}
+
+/* Window > Hide: the window goes out of sight and off the list, and
+ * Unhide brings it back.  The last window on show stays, since there
+ * would be no menu to bring it back from. */
+static void
+action_hide_window (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GtkApplication *app = gtk_window_get_application (GTK_WINDOW (self));
+  int visible = 0;
+
+  (void) a; (void) p;
+  for (GList *l = app != NULL ? gtk_application_get_windows (app) : NULL; l != NULL; l = l->next)
+    if (O42_IS_WINDOW (l->data) && gtk_widget_get_visible (l->data))
+      visible++;
+  if (visible < 2)
+    {
+      gtk_label_set_text (GTK_LABEL (self->status_label), _("This is the only window on show; open another before hiding it."));
+      return;
+    }
+  gtk_widget_set_visible (GTK_WIDGET (self), FALSE);
+  o42_window_refresh_window_lists (app);
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkDropDown *drop;
+  GPtrArray *hidden;
+} UnhideWindowPrompt;
+
+static void
+on_unhide_window_ok (GtkWidget *w, gpointer data)
+{
+  UnhideWindowPrompt *prompt = data;
+  guint pos = gtk_drop_down_get_selected (prompt->drop);
+
+  (void) w;
+  if (pos != GTK_INVALID_LIST_POSITION && pos < prompt->hidden->len)
+    {
+      GtkWindow *win = g_ptr_array_index (prompt->hidden, pos);
+      gtk_widget_set_visible (GTK_WIDGET (win), TRUE);
+      gtk_window_present (win);
+      o42_window_refresh_window_lists (gtk_window_get_application (GTK_WINDOW (prompt->window)));
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+unhide_window_prompt_free (gpointer data)
+{
+  UnhideWindowPrompt *prompt = data;
+  g_ptr_array_unref (prompt->hidden);
+  g_free (prompt);
+}
+
+static void
+action_unhide_window (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GtkApplication *app = gtk_window_get_application (GTK_WINDOW (self));
+  UnhideWindowPrompt *prompt;
+  GtkStringList *names = gtk_string_list_new (NULL);
+  GtkWidget *content, *buttons, *ok;
+
+  (void) a; (void) p;
+  prompt = g_new0 (UnhideWindowPrompt, 1);
+  prompt->window = self;
+  prompt->hidden = g_ptr_array_new ();
+  for (GList *l = app != NULL ? gtk_application_get_windows (app) : NULL; l != NULL; l = l->next)
+    if (O42_IS_WINDOW (l->data) && !gtk_widget_get_visible (l->data))
+      {
+        g_ptr_array_add (prompt->hidden, l->data);
+        gtk_string_list_append (names, gtk_window_get_title (l->data));
+      }
+  if (prompt->hidden->len == 0)
+    {
+      gtk_label_set_text (GTK_LABEL (self->status_label), _("No window is hidden."));
+      unhide_window_prompt_free (prompt);
+      g_object_unref (names);
+      return;
+    }
+  prompt->dialog = dialog_frame (self, _("Unhide"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Unhide window:")));
+  prompt->drop = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (names), NULL));
+  gtk_box_append (GTK_BOX (content), GTK_WIDGET (prompt->drop));
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_unhide_window_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (unhide_window_prompt_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+change_show_notes (GSimpleAction *action, GVariant *state, gpointer data)
+{
+  O42Window *self = data;
+
+  o42_grid_set_show_notes (self->grid, g_variant_get_boolean (state));
+  g_simple_action_set_state (action, state);
+}
+
+static void action_paste_link (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_paste_as_link (O42_WINDOW (d)->grid); }
 
 /* Another window on our book changed it. */
 static void
@@ -6157,6 +6415,14 @@ static const GActionEntry ACTIONS[] = {
   { "protect-book",   action_protect_book,   NULL, NULL, NULL, { 0 } },
   { "autocorrect",    action_autocorrect,    NULL, NULL, NULL, { 0 } },
   { "sheet-background", action_sheet_background, NULL, NULL, NULL, { 0 } },
+  { "open-recent",    action_open_recent,    "s",  NULL, NULL, { 0 } },
+  { "raise-window",   action_raise_window,   "s",  NULL, NULL, { 0 } },
+  { "hide-window",    action_hide_window,    NULL, NULL, NULL, { 0 } },
+  { "unhide-window",  action_unhide_window,  NULL, NULL, NULL, { 0 } },
+  { "show-notes",     NULL, NULL, "false", change_show_notes, { 0 } },
+  { "paste-link",     action_paste_link,     NULL, NULL, NULL, { 0 } },
+  { "conditional-sum", action_conditional_sum, NULL, NULL, NULL, { 0 } },
+  { "lookup-wizard",  action_lookup_wizard,  NULL, NULL, NULL, { 0 } },
   { "delete-background", action_delete_background, NULL, NULL, NULL, { 0 } },
   { "spelling",       action_spelling,       NULL, NULL, NULL, { 0 } },
   { "record-macro",   action_record_macro,   NULL, NULL, NULL, { 0 } },
@@ -7288,6 +7554,14 @@ o42_window_init (O42Window *self)
   menubar = gtk_popover_menu_bar_new_from_model (model);
   gtk_widget_add_css_class (menubar, "o42-menubar");
   gtk_box_append (GTK_BOX (box), menubar);
+  /* The two sections filled at run time: the recent files and the
+   * open windows. */
+  self->recent_menu = g_object_ref (G_MENU (gtk_builder_get_object (builder, "recent-files")));
+  self->window_menu = g_object_ref (G_MENU (gtk_builder_get_object (builder, "window-list")));
+  g_signal_connect_object (gtk_recent_manager_get_default (), "changed",
+                           G_CALLBACK (on_recent_changed), self, 0);
+  g_signal_connect (self, "notify::application", G_CALLBACK (on_application_set), NULL);
+  window_fill_recent (self);
   g_object_unref (builder);
 
   self->grid = O42_GRID (o42_grid_new ());

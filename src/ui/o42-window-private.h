@@ -43,6 +43,8 @@ struct _O42Window {
 
   GtkWidget  *title_label;
   GtkWidget  *standard_bar, *format_bar, *formula_bar, *status_bar;  /* View turns them off */
+  GMenu      *recent_menu;     /* File's recent files, filled at run time */
+  GMenu      *window_menu;     /* Window's list of open windows */
   GtkWidget  *name_box;
   GtkWidget  *formula_entry;
   O42Db      *db;              /* the book's database, opened when first wanted */
@@ -183,6 +185,12 @@ void action_page_breaks (GSimpleAction *a, GVariant *p, gpointer data);
 void action_protect (GSimpleAction *a, GVariant *p, gpointer data);
 void action_protect_book (GSimpleAction *a, GVariant *p, gpointer data);
 void action_autocorrect (GSimpleAction *a, GVariant *p, gpointer data);
+void action_conditional_sum (GSimpleAction *a, GVariant *p, gpointer data);
+void action_lookup_wizard (GSimpleAction *a, GVariant *p, gpointer data);
+
+/* Every window's Window menu lists every window; called when one comes,
+ * goes, hides or is renamed. */
+void o42_window_refresh_window_lists (GtkApplication *app);
 
 /* TRUE, with a word in the status bar, when Protect Workbook forbids
  * changing the sheets. */
