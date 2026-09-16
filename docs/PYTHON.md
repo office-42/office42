@@ -138,6 +138,7 @@ writing the sheet as they go:
 ```python
 c = sheet.add_chart("pie", "A1:B5", "D2", width=320, height=220, title="Share")
 c.kind = "column"; c.legend = False; c.data = sheet["A1:C5"]
+c.of_pie = 1; c.of_pie_count = 3   # a pie of pie of the last 3 slices; 2 is bar of pie
 s = sheet.add_shape("star5", "F2", 120, 90, text="New!", fill="#FFCC00",
                     line="#000000", line_width=2, rotation=15)
 s.dash = "dash"; s.flip_h = True; s.send_to_back()

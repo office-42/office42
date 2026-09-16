@@ -217,6 +217,22 @@ streams Excel keeps them in and read back from any code page.  The
 forbids; it and the new workbookProtection sit where Excel expects
 them.  Checked as before, olefile reading the .xls streams.
 
+**The seventh pass** took the last items a program can take.  The
+pie-of-pie and bar-of-pie charts, drawn as Excel draws them -- the
+last slices gathered into Other and shown again beside the pie, at
+their own scale, with lines joining the two -- and kept in .gnumeric
+and .xlsx as ofPieChart.  Window ▸ Hide and Unhide and the list of
+open windows at the bottom of the menu, which GTK 4 does allow, where
+Arrange it does not.  The four most recent files in the File menu.
+View ▸ Comments, which shows every note at once.  Edit ▸ Paste as
+Hyperlink, which needs no OLE after all: it pastes text with a link
+back to the source cell, which is what Excel's does within a book.
+And Tools ▸ Wizards, Conditional Sum and Lookup, the two add-ins Excel
+97 shipped, writing SUMIF and INDEX/MATCH.  Checked through the
+running program under xvfb, one --activate at a time, and the charts
+through office42-calc, out to .gnumeric and .xlsx and back.  Version
+1.0.1.
+
 ---
 
 ## 2. Parity with Excel 97, area by area
@@ -227,7 +243,7 @@ is there.
 
 | Area | Weight | Here | Score | What is missing |
 |---|---:|---:|---:|---|
-| Entering and editing | 8 | 100% | 8.0 | Paste as Hyperlink and Edit ▸ Links, which want an OLE that is not there |
+| Entering and editing | 8 | 100% | 8.0 | Edit ▸ Links, which wants an OLE that is not there |
 | Selecting and navigating | 5 | 100% | 5.0 | |
 | Formulas and functions | 15 | 100% | 15.0 | every function Excel 97 has (and Excel 2003's) -- the natural-language labels Excel 97 let a formula use, and Excel 2007 took away, are not planned |
 | Number formats | 6 | 100% | 6.0 | |
@@ -235,16 +251,16 @@ is there.
 | Styles and conditional formats | 6 | 100% | 6.0 | Excel 97's three conditions per cell and its Style dialog are here; data bars and icon sets, which came later, are not |
 | Rows, columns, sheets | 7 | 100% | 7.0 | |
 | Data tools | 10 | 99% | 9.9 | the Template Wizard, Web Query and Data Map, which Excel itself dropped |
-| Charts | 8 | 98% | 7.8 | pie-of-pie and bar-of-pie; the chart wizard's fourth step is a dialog here |
+| Charts | 8 | 100% | 8.0 | the chart wizard's fourth step is a dialog here |
 | Objects | 5 | 96% | 4.8 | WordArt, the Clip Gallery, OLE objects |
 | File formats | 12 | 99% | 11.9 | Save Workspace; charts in a BIFF5 `.xls` come back as pictures of themselves |
 | Printing | 6 | 100% | 6.0 | the Report Manager, which was an add-in |
 | Undo | 5 | 100% | 5.0 | |
-| Window and dialogs | 6 | 97% | 5.8 | arranging, hiding and unhiding windows, which GTK 4 gives a program no way to do |
+| Window and dialogs | 6 | 99% | 5.9 | Window ▸ Arrange, which GTK 4 gives a program no way to do |
 | Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice; the recorder writes one line per operation, Alt+F8 and Ctrl+Shift+letter run them |
-| **Total** | 110 | | **109.2** | |
+| **Total** | 110 | | **109.5** | |
 
-**About 99% of Excel 97** (109.2 of a weight of 110), and the same
+**Over 99% of Excel 97** (109.5 of a weight of 110), and the same
 picture against Excel 2003, whose additions -- list ranges, XML maps,
 the research pane -- are either here as tables or not wanted.
 Against **Excel 365** the number is nearer 45%: dynamic arrays and
@@ -275,10 +291,10 @@ thing is worth knowing:
 | | |
 |---|---|
 | **Passwords** | the sheet and the workbook each take one, kept as the short hash Excel invented; they guard against a slip of the hand and nothing else |
-| **Window ▸ Arrange, Hide, Unhide** | GTK 4 took away the calls that move a window, so a program cannot tile or cascade its own |
-| **Edit ▸ Paste as Hyperlink, Links** | they link to OLE objects, which have no home on this desktop |
+| **Window ▸ Arrange** | GTK 4 took away the calls that move a window, so a program cannot tile or cascade its own; Hide, Unhide and the window list are there |
+| **Edit ▸ Links** | it links to OLE objects, which have no home on this desktop |
 | **Insert ▸ Object, WordArt, Clip Gallery, Map** | OLE has no home on this desktop; WordArt is a text box with a font; the map was licensed data Excel dropped |
-| **Pie-of-pie and bar-of-pie charts** | next |
+| **File ▸ Save Workspace** | a list of open files and their windows; open them again |
 | **Track changes, sharing** | not there, and not planned |
 | **The Office Assistant** | no |
 
@@ -288,7 +304,7 @@ thing is worth knowing:
 
 Excel 97's shape, and close to it: a menu bar, two toolbars, a formula
 bar with a name box, the grid, sheet tabs and a status bar that shows
-the sum, the average and the count of what is selected. 106 actions in
+the sum, the average and the count of what is selected. 172 actions in
 all. Judged as an interface rather than as a feature list:
 
 **What is right.** The chrome is the right chrome, and it is drawn
@@ -308,9 +324,9 @@ shapes and controls are selected, dragged and resized with handles.
 **What is thin.**
 
 1. **No window arranging.** Window ▸ New Window opens a second view of
-   the same book, and nothing tiles or cascades them -- GTK 4 took away
-   the calls that would move a window, so this one is not ours to
-   fix.
+   the same book, the Window menu lists, hides and unhides them, and
+   nothing tiles or cascades them -- GTK 4 took away the calls that
+   would move a window, so this one is not ours to fix.
 2. **The longer dialogs would be better as tabs.** Format Chart has
    fifteen rows in one column now; they can at least be pulled bigger.
 3. **The toolbars are fixed.** Excel 97 let them be torn off and
@@ -362,22 +378,20 @@ A few things are here that neither has in this shape:
 
 In the order the work is being done, largest gap first.
 
-1. **The pie-of-pie and bar-of-pie charts**, the one thing left of
-   Excel 97's that a day's work would close; the rest of the table
-   above is OLE, which this desktop has not, and window arranging,
-   which GTK 4 has not.
-2. **Splitting `o42-sheet.c`** (14,013 lines), the biggest file of all:
+1. **Splitting `o42-sheet.c`** (14,013 lines), the biggest file of all:
    cells and their formats, recalculation and the dependency graph,
    and the objects that float over the grid are three subjects in one
-   file.
-3. **The last two file formats Gnumeric reads**: Quattro Pro and
+   file.  Of Excel 97's menus nothing is left that a program can take:
+   the table above is OLE, which this desktop has not, and window
+   arranging, which GTK 4 has not.
+2. **The last two file formats Gnumeric reads**: Quattro Pro and
    Applix. Both are long dead, and neither can be written here with a
    straight face: there is no file of either to read, and no program on
    this machine that writes one, so anything built from the format's
    description alone would go out unverified. Lotus 1-2-3 could be
    done because LibreOffice reads it, which gave the other half of the
    check.
-4. **Miltersen and Schwartz on commodity options**, the one formula of
+3. **Miltersen and Schwartz on commodity options**, the one formula of
    Gnumeric's derivatives plugin that is not here. It prices against a
    three-factor model -- the spot, the convenience yield and the
    forward rate, each mean-reverting -- and checking it would mean

@@ -185,7 +185,9 @@ yours.
 **Moving and copying.** Ctrl+X, Ctrl+C and Ctrl+V cut, copy and paste,
 with references relocated the way Excel relocates them. Edit ▸ Paste
 Special pastes only the values, only the formats or only the formulas,
-and can turn the block on its side. Dragging the outline of a selection
+and can turn the block on its side. Edit ▸ Paste as Hyperlink pastes
+the copied cells as text, each a link back to the cell it came from,
+so Ctrl+click on the copy goes to the original. Dragging the outline of a selection
 moves those cells -- formulas inside travel unchanged, and formulas
 elsewhere that pointed into the block follow it -- and holding Ctrl
 while dragging copies them instead; the pointer says which it will be.
@@ -476,6 +478,13 @@ and `.ods`.
   mouse wheel moves whichever pane the pointer is over, the scrollbars
   move the main one. Split again to put it back. The split is a view,
   not part of the file.
+- **Windows.** Window ▸ New Window opens a second window on the same
+  book, and the bottom of the Window menu lists every open window by
+  its title; pick one to bring it to the front. Window ▸ Hide takes
+  the current window off the screen without closing its book, as long
+  as another window stays, and Window ▸ Unhide brings a hidden one
+  back. Arranging windows is the one thing this menu does not do: GTK
+  4 gives a program no way to move its own windows.
 - **Custom Views.** View ▸ Custom Views keeps a named window state --
   the sheet, the selection, the zoom, and whether the panes were frozen
   or split -- to come back to. They belong to the book and travel in
@@ -572,6 +581,14 @@ rate down column B.
 **Goal Seek.** Tools ▸ Goal Seek changes one cell until another reaches
 a value.
 
+**Wizards.** Tools ▸ Wizards ▸ Conditional Sum writes a SUMIF for
+you: give it a list with its headings, the column to add up, the
+column to test and the condition, and it puts the formula where you
+say. Tools ▸ Wizards ▸ Lookup writes INDEX and MATCH over a table with
+labels along the top and down the left, for the value where a row and
+a column meet; the row and column labels can be typed or taken from
+cells. Both were add-ins in Excel 97 and are built in here.
+
 **Solver.** Tools ▸ Solver maximises, minimises or hits a target by
 changing any number of cells, subject to constraints that may hold a
 cell to a whole number or to 0 and 1, by a Nelder-Mead search with
@@ -663,6 +680,10 @@ Click a chart and Format ▸ Chart sets:
 - whether the legend, the gridlines and the data labels show;
 - three dimensions, which draws each bar as a solid and a pie as an
   ellipse on a wall;
+- for a pie, a **pie of pie** or **bar of pie**: the last few slices
+  are gathered into one slice called Other and shown again, at their
+  own scale, in a second pie or a stacked bar beside the first, with
+  lines joining the two. The number of slices to move is yours to set;
 - a **trendline** through every series: linear, polynomial of order two
   to six, exponential, logarithmic, power, or a moving average over a
   period;
@@ -729,7 +750,9 @@ of its own.
   into a group: dragging one then moves them all. Ungroup takes them
   apart.
 - **Insert ▸ Note** (Shift+F2) attaches a note to a cell, marked with a
-  small red triangle and shown as a tooltip.
+  small red triangle and shown as a tooltip. View ▸ Comments shows
+  every note on the sheet at once, each in its box beside its cell, and
+  again to put them away.
 - **Insert ▸ Hyperlink** makes a cell a link, to a place in the book
   (`#Sheet2!A1`) or to the world outside. Ctrl+click follows it.
 
@@ -844,7 +867,9 @@ templates that came with the program -- a loan amortization schedule,
 an invoice, an expense report, a balance sheet -- or from a `.gnumeric`
 of your own in the templates folder.
 
-File ▸ Open and Save As choose the format by the name you give:
+File ▸ Open and Save As choose the format by the name you give, and
+the four files most recently opened or saved wait at the bottom of the
+File menu, newest first, to be opened with a click:
 
 | Extension | What it is | What travels |
 |---|---|---|
