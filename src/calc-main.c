@@ -2737,6 +2737,29 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* prop NAME VALUE sets one of File > Properties; props lists them. */
+      if (g_str_has_prefix (text, "prop "))
+        {
+          char *rest = text + 5;
+          char *space = strchr (rest, ' ');
+          O42Property which;
+
+          if (space != NULL)
+            *space = '\0';
+          if (o42_property_parse (rest, &which))
+            o42_book_set_property (book, which, space != NULL ? g_strstrip (space + 1) : "");
+          else
+            fprintf (stderr, "usage: prop title|subject|author|manager|company|category|keywords|comments VALUE\n");
+          continue;
+        }
+      if (strcmp (text, "props") == 0)
+        {
+          for (int i = 0; i < O42_N_PROPS; i++)
+            if (*o42_book_property (book, (O42Property) i) != '\0')
+              printf ("%s = %s\n", o42_property_name ((O42Property) i), o42_book_property (book, (O42Property) i));
+          continue;
+        }
+
       if (g_str_has_prefix (text, "unname "))
         {
           if (!o42_book_undefine_name (book, text + 7))

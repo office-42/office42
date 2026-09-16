@@ -1387,6 +1387,9 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<gnm:Workbook xmlns:gnm=\"http://www.gnumeric.org/v10.dtd\" "
     "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" "
+    "xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "
+    "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+    "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" "
     "xsi:schemaLocation=\"http://www.gnumeric.org/v9.xsd\">\n"
     "  <gnm:Version Epoch=\"1\" Major=\"12\" Minor=\"50\" Full=\"1.12.50\"/>\n"
     "  <gnm:Calculation ManualRecalc=\"%d\" EnableIteration=\"%d\" "
@@ -1409,6 +1412,42 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
   g_string_append (out,
     "  </gnm:SheetNameIndex>\n"
     "  <gnm:Geometry Width=\"960\" Height=\"700\"/>\n");
+
+  /* File > Properties, in the OpenDocument metadata Gnumeric itself
+   * keeps them in: the Dublin Core ones by name, the rest as user
+   * fields. */
+  {
+    static const char *const ELEMENTS[O42_N_PROPS] = {
+      "dc:title", "dc:subject", "dc:creator", NULL, NULL, NULL, "meta:keyword", "dc:description"
+    };
+    static const char *const USER[O42_N_PROPS] = {
+      NULL, NULL, NULL, "Manager", "Company", "Category", NULL, NULL
+    };
+    gboolean any = FALSE;
+
+    for (int i = 0; i < O42_N_PROPS; i++)
+      any = any || *o42_book_property (book, (O42Property) i) != '\0';
+    if (any)
+      {
+        g_string_append (out, "  <office:document-meta office:version=\"1.2\">\n    <office:meta>\n");
+        for (int i = 0; i < O42_N_PROPS; i++)
+          {
+            const char *value = o42_book_property (book, (O42Property) i);
+            char *escaped;
+
+            if (*value == '\0')
+              continue;
+            escaped = g_markup_escape_text (value, -1);
+            if (ELEMENTS[i] != NULL)
+              g_string_append_printf (out, "      <%s>%s</%s>\n", ELEMENTS[i], escaped, ELEMENTS[i]);
+            else
+              g_string_append_printf (out, "      <meta:user-defined meta:name=\"%s\">%s</meta:user-defined>\n",
+                                      USER[i], escaped);
+            g_free (escaped);
+          }
+        g_string_append (out, "    </office:meta>\n  </office:document-meta>\n");
+      }
+  }
 
   {
     GList *names = o42_book_names (book);
@@ -1643,6 +1682,9 @@ typedef struct {
   char       *script_description;
   gboolean    in_database;      /* gnm:o42-Database with the file inside it */
   gboolean    in_custom_list;   /* gnm:o42-CustomList, whose text is the list */
+  gboolean    in_meta;          /* office:document-meta */
+  int         meta_prop;        /* the O42Property being read, or -1 */
+  GString    *meta_text;
   GString    *custom_list;
   GString    *database;         /* its base64 */
   gboolean    in_query;         /* gnm:o42-Query, sheet level */
@@ -1788,6 +1830,36 @@ start_element (GMarkupParseContext *context, const char *element,
   const char *name = local_name (element);
 
   (void) context; (void) error;
+
+  if (strcmp (name, "document-meta") == 0)
+    {
+      r->in_meta = TRUE;
+      r->meta_prop = -1;
+      return;
+    }
+  if (r->in_meta)
+    {
+      /* The Dublin Core elements by name, and the rest by the name of
+       * the user field. */
+      const char *field = attr (names, values, "meta:name");
+      O42Property which;
+
+      r->meta_prop = -1;
+      if (strcmp (name, "title") == 0)            r->meta_prop = O42_PROP_TITLE;
+      else if (strcmp (name, "subject") == 0)     r->meta_prop = O42_PROP_SUBJECT;
+      else if (strcmp (name, "creator") == 0)     r->meta_prop = O42_PROP_AUTHOR;
+      else if (strcmp (name, "keyword") == 0)     r->meta_prop = O42_PROP_KEYWORDS;
+      else if (strcmp (name, "description") == 0) r->meta_prop = O42_PROP_COMMENTS;
+      else if (strcmp (name, "user-defined") == 0 && field != NULL && o42_property_parse (field, &which))
+        r->meta_prop = which;
+      if (r->meta_prop >= 0)
+        {
+          if (r->meta_text == NULL)
+            r->meta_text = g_string_new (NULL);
+          g_string_truncate (r->meta_text, 0);
+        }
+      return;
+    }
 
   if (r->sheet != NULL && strcmp (name, "o42-Print") == 0)
     {
@@ -3157,6 +3229,18 @@ end_element (GMarkupParseContext *context, const char *element,
 
   (void) context; (void) error;
 
+  if (r->in_meta)
+    {
+      if (strcmp (name, "document-meta") == 0)
+        r->in_meta = FALSE;
+      else if (r->meta_prop >= 0)
+        {
+          o42_book_set_property (r->book, (O42Property) r->meta_prop, r->meta_text->str);
+          r->meta_prop = -1;
+        }
+      return;
+    }
+
   if (r->print_text != 0 && r->sheet != NULL)
     {
       O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
@@ -3680,6 +3764,13 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
   Reader *r = user;
 
   (void) context; (void) error;
+
+  if (r->in_meta)
+    {
+      if (r->meta_prop >= 0)
+        g_string_append_len (r->meta_text, text, (gssize) length);
+      return;
+    }
 
   if (r->in_shape)
     { g_string_append_len (r->shape_text, text, (gssize) length); return; }

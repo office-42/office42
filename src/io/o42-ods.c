@@ -2702,7 +2702,8 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
       "<manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.2\" manifest:media-type=\"" MIME "\"/>"
       "<manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/>"
       "<manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>"
-      "<manifest:file-entry manifest:full-path=\"settings.xml\" manifest:media-type=\"text/xml\"/>");
+      "<manifest:file-entry manifest:full-path=\"settings.xml\" manifest:media-type=\"text/xml\"/>"
+      "<manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>");
 
     GString *styles = g_string_new (
       "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles " NS_HEAD ">"
@@ -2741,6 +2742,40 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   }
   o42_zip_writer_add (zip, "content.xml", content->str, content->len);
   o42_zip_writer_add (zip, "settings.xml", settings->str, settings->len);
+
+  /* File > Properties, in meta.xml as LibreOffice keeps them. */
+  {
+    static const char *const ELEMENTS[O42_N_PROPS] = {
+      "dc:title", "dc:subject", "meta:initial-creator", NULL, NULL, NULL, "meta:keyword", "dc:description"
+    };
+    static const char *const USER[O42_N_PROPS] = {
+      NULL, NULL, NULL, "Manager", "Company", "Category", NULL, NULL
+    };
+    GString *meta = g_string_new (
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+      "<office:document-meta xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "
+      "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" "
+      "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" office:version=\"1.2\"><office:meta>"
+      "<meta:generator>Office42 Spreadsheet</meta:generator>");
+
+    for (int i = 0; i < O42_N_PROPS; i++)
+      {
+        const char *value = o42_book_property (book, (O42Property) i);
+        char *escaped;
+
+        if (*value == '\0')
+          continue;
+        escaped = g_markup_escape_text (value, -1);
+        if (ELEMENTS[i] != NULL)
+          g_string_append_printf (meta, "<%s>%s</%s>", ELEMENTS[i], escaped, ELEMENTS[i]);
+        else
+          g_string_append_printf (meta, "<meta:user-defined meta:name=\"%s\">%s</meta:user-defined>", USER[i], escaped);
+        g_free (escaped);
+      }
+    g_string_append (meta, "</office:meta></office:document-meta>");
+    o42_zip_writer_add (zip, "meta.xml", meta->str, meta->len);
+    g_string_free (meta, TRUE);
+  }
   bytes = o42_zip_writer_finish (zip);
   ok = g_file_replace_contents (file, g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes),
                                 NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);
@@ -2884,6 +2919,8 @@ typedef struct {
   int         note_paragraphs;
   int         depth_in_cell;
   GHashTable *parts;         /* the zip, for the pictures a frame names */
+  int         meta_prop;     /* the property a meta.xml element is, or -1 */
+  GString    *meta_text;
   GArray     *cell_runs;     /* O42TextRun for the cell being read */
   O42Shape   *shape;         /* the shape being read, for its text */
   double      frame_x, frame_y, frame_w, frame_h;   /* the frame being read */
@@ -5476,6 +5513,64 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
     r->in_p = FALSE;
 }
 
+/* ---- meta.xml: File > Properties ---- */
+
+static void
+meta_start (GMarkupParseContext *ctx, const char *element, const char **names,
+            const char **values, gpointer user, GError **error)
+{
+  Reader *r = user;
+  const char *name = local (element);
+  const char *user_name = attr (names, values, "name");
+  O42Property which;
+  (void) ctx; (void) error;
+  r->meta_prop = -1;
+  if (strcmp (name, "title") == 0)                r->meta_prop = O42_PROP_TITLE;
+  else if (strcmp (name, "subject") == 0)         r->meta_prop = O42_PROP_SUBJECT;
+  else if (strcmp (name, "initial-creator") == 0) r->meta_prop = O42_PROP_AUTHOR;
+  else if (strcmp (name, "creator") == 0 && *o42_book_property (r->book, O42_PROP_AUTHOR) == '\0')
+    r->meta_prop = O42_PROP_AUTHOR;
+  else if (strcmp (name, "keyword") == 0)         r->meta_prop = O42_PROP_KEYWORDS;
+  else if (strcmp (name, "description") == 0)     r->meta_prop = O42_PROP_COMMENTS;
+  else if (strcmp (name, "user-defined") == 0 && user_name != NULL && o42_property_parse (user_name, &which))
+    r->meta_prop = which;
+  if (r->meta_prop >= 0)
+    {
+      if (r->meta_text == NULL)
+        r->meta_text = g_string_new (NULL);
+      g_string_truncate (r->meta_text, 0);
+    }
+}
+
+static void
+meta_end (GMarkupParseContext *ctx, const char *element, gpointer user, GError **error)
+{
+  Reader *r = user;
+  (void) ctx; (void) element; (void) error;
+  if (r->meta_prop >= 0)
+    {
+      /* Several keywords are one list, as Excel keeps them. */
+      if (r->meta_prop == O42_PROP_KEYWORDS && *o42_book_property (r->book, O42_PROP_KEYWORDS) != '\0')
+        {
+          char *joined = g_strconcat (o42_book_property (r->book, O42_PROP_KEYWORDS), ", ", r->meta_text->str, NULL);
+          o42_book_set_property (r->book, O42_PROP_KEYWORDS, joined);
+          g_free (joined);
+        }
+      else
+        o42_book_set_property (r->book, (O42Property) r->meta_prop, r->meta_text->str);
+      r->meta_prop = -1;
+    }
+}
+
+static void
+meta_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user, GError **error)
+{
+  Reader *r = user;
+  (void) ctx; (void) error;
+  if (r->meta_prop >= 0)
+    g_string_append_len (r->meta_text, text, (gssize) len);
+}
+
 static void
 content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user, GError **error)
 {
@@ -5757,6 +5852,7 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
 {
   static const GMarkupParser content_parser = { content_start, content_end, content_text, NULL, NULL };
   static const GMarkupParser settings_parser = { settings_start, settings_end, settings_text, NULL, NULL };
+  static const GMarkupParser meta_parser = { meta_start, meta_end, meta_text, NULL, NULL };
   GBytes *archive;
   GHashTable *parts;
   Reader r;
@@ -5817,6 +5913,11 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
         parse_part (parts, "styles.xml", &content_parser, &r, error)) &&
        parse_part (parts, "content.xml", &content_parser, &r, error) &&
        parse_part (parts, "settings.xml", &settings_parser, &r, error);
+  r.meta_prop = -1;
+  if (ok && g_hash_table_lookup (parts, "meta.xml") != NULL)
+    parse_part (parts, "meta.xml", &meta_parser, &r, NULL);
+  if (r.meta_text != NULL)
+    g_string_free (r.meta_text, TRUE);
 
   g_hash_table_unref (r.styles);
   g_hash_table_unref (r.master_pages);

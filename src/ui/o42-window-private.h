@@ -125,7 +125,8 @@ void o42_window_tell_book (O42Window *self, const char *what);
 /* A message in a dialog of its own, for what has gone wrong. */
 void o42_window_show_error (O42Window *self, const char *heading, GError *error);
 
-/* The actions dialogs-edit.c answers: the Edit and Insert menus' dialogs. */
+/* The actions dialogs-edit.c answers: the File, Edit and Insert menus' dialogs. */
+void action_properties (GSimpleAction *a, GVariant *p, gpointer data);
 void action_fill_series (GSimpleAction *a, GVariant *p, gpointer data);
 void action_move_copy_sheet (GSimpleAction *a, GVariant *p, gpointer data);
 void action_paste_name (GSimpleAction *a, GVariant *p, gpointer data);

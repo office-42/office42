@@ -98,6 +98,31 @@ void         o42_book_set_style    (O42Book *book, const char *name,
                                     const O42Fmt *fmt, O42FmtMask mask);
 gboolean     o42_book_remove_style (O42Book *book, const char *name);
 
+/* ---- Document properties --------------------------------------------- */
+
+/* File > Properties: what the Summary tab of Excel's holds.  They go
+ * into the file -- an .xlsx's docProps, an .ods's meta.xml and a
+ * .gnumeric's office:document-meta -- and come back from it. */
+typedef enum {
+  O42_PROP_TITLE,
+  O42_PROP_SUBJECT,
+  O42_PROP_AUTHOR,
+  O42_PROP_MANAGER,
+  O42_PROP_COMPANY,
+  O42_PROP_CATEGORY,
+  O42_PROP_KEYWORDS,
+  O42_PROP_COMMENTS,
+  O42_N_PROPS
+} O42Property;
+
+const char *o42_book_property     (O42Book *book, O42Property which);   /* "" for none */
+void        o42_book_set_property (O42Book *book, O42Property which, const char *value);
+
+/* The names the Python API and office42-calc use: "title", "subject",
+ * "author", "manager", "company", "category", "keywords", "comments". */
+const char *o42_property_name  (O42Property which);
+gboolean    o42_property_parse (const char *name, O42Property *which);
+
 /* ---- Custom views ---------------------------------------------------- */
 
 /* A named window state to come back to, as Excel's custom views are:

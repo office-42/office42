@@ -3,8 +3,8 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * The Edit and Insert menus' dialogs: Fill > Series, Move or Copy Sheet,
- * and Name > Paste, Create and Apply.
+ * The File, Edit and Insert menus' dialogs: Properties, Fill > Series,
+ * Move or Copy Sheet, and Name > Paste, Create and Apply.
  */
 
 #include "o42-window-private.h"
@@ -536,4 +536,82 @@ action_apply_names (GSimpleAction *a, GVariant *p, gpointer data)
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
   g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- File > Properties -------------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *entry[O42_N_PROPS];
+  GtkTextBuffer *comments;
+} PropertiesPrompt;
+
+static void
+on_properties_ok (GtkWidget *w, gpointer data)
+{
+  PropertiesPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  GtkTextIter a, b;
+  char *comments;
+
+  (void) w;
+  for (int i = 0; i < O42_N_PROPS; i++)
+    if (prompt->entry[i] != NULL)
+      o42_book_set_property (self->book, (O42Property) i,
+                             gtk_editable_get_text (GTK_EDITABLE (prompt->entry[i])));
+  gtk_text_buffer_get_bounds (prompt->comments, &a, &b);
+  comments = gtk_text_buffer_get_text (prompt->comments, &a, &b, FALSE);
+  o42_book_set_property (self->book, O42_PROP_COMMENTS, comments);
+  g_free (comments);
+  window_sync (self);
+  window_tell_book (self, "properties");
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_properties (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  static const char *const LABELS[O42_N_PROPS] = {
+    N_("Title:"), N_("Subject:"), N_("Author:"), N_("Manager:"),
+    N_("Company:"), N_("Category:"), N_("Keywords:"), N_("Comments:")
+  };
+  O42Window *self = data;
+  PropertiesPrompt *prompt = g_new0 (PropertiesPrompt, 1);
+  GtkWidget *content, *buttons, *grid, *view, *scrolled, *ok;
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Properties"), TRUE, &content, &buttons);
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  for (int i = 0; i < O42_PROP_COMMENTS; i++)
+    {
+      prompt->entry[i] = labelled (grid, i, _(LABELS[i]), gtk_entry_new ());
+      gtk_editable_set_text (GTK_EDITABLE (prompt->entry[i]), o42_book_property (self->book, (O42Property) i));
+      gtk_editable_set_width_chars (GTK_EDITABLE (prompt->entry[i]), 36);
+      gtk_entry_set_activates_default (GTK_ENTRY (prompt->entry[i]), TRUE);
+    }
+  view = gtk_text_view_new ();
+  prompt->comments = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
+  gtk_text_buffer_set_text (prompt->comments, o42_book_property (self->book, O42_PROP_COMMENTS), -1);
+  gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (view), GTK_WRAP_WORD_CHAR);
+  scrolled = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_widget_set_size_request (scrolled, -1, 80);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), view);
+  labelled (grid, O42_PROP_COMMENTS, _(LABELS[O42_PROP_COMMENTS]), scrolled);
+  gtk_box_append (GTK_BOX (content), grid);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_properties_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+  gtk_widget_grab_focus (prompt->entry[0]);
 }

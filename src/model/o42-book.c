@@ -66,6 +66,7 @@ struct _O42Book {
                                   * run: a new book's may, a file's may not
                                   * until they run its scripts */
   GHashTable   *kept_parts;   /* name -> GBytes: an .xlsm's VBA, for Excel */
+  char         *props[O42_N_PROPS];   /* File > Properties; NULL for none */
 };
 
 typedef struct {
@@ -326,7 +327,63 @@ o42_book_free (O42Book *book)
   for (guint i = 0; i < book->styles->len; i++)
     g_free (g_array_index (book->styles, Style, i).name);
   g_array_free (book->styles, TRUE);
+  for (int i = 0; i < O42_N_PROPS; i++)
+    g_free (book->props[i]);
   g_free (book);
+}
+
+/* ---- Document properties --------------------------------------------- */
+
+static const char *const PROPERTY_NAMES[O42_N_PROPS] = {
+  "title", "subject", "author", "manager", "company", "category", "keywords", "comments"
+};
+
+const char *
+o42_property_name (O42Property which)
+{
+  return (which >= 0 && which < O42_N_PROPS) ? PROPERTY_NAMES[which] : "";
+}
+
+gboolean
+o42_property_parse (const char *name, O42Property *which)
+{
+  for (int i = 0; name != NULL && i < O42_N_PROPS; i++)
+    if (g_ascii_strcasecmp (name, PROPERTY_NAMES[i]) == 0)
+      {
+        *which = (O42Property) i;
+        return TRUE;
+      }
+  return FALSE;
+}
+
+const char *
+o42_book_property (O42Book *book, O42Property which)
+{
+  g_return_val_if_fail (book != NULL, "");
+  if (which < 0 || which >= O42_N_PROPS || book->props[which] == NULL)
+    return "";
+  return book->props[which];
+}
+
+void
+o42_book_set_property (O42Book *book, O42Property which, const char *value)
+{
+  g_return_if_fail (book != NULL);
+  if (which < 0 || which >= O42_N_PROPS)
+    return;
+  if (value != NULL && *value == '\0')
+    value = NULL;
+  if (g_strcmp0 (book->props[which], value) == 0)
+    return;
+  g_free (book->props[which]);
+  book->props[which] = g_strdup (value);
+  if (o42_book_recording (book))
+    {
+      char *quoted = o42_python_quote (value != NULL ? value : "");
+      record_book_line (book, "book.set_property(\"%s\", %s)", PROPERTY_NAMES[which], quoted);
+      g_free (quoted);
+    }
+  o42_book_set_modified (book, TRUE);
 }
 
 O42Book *
@@ -1341,6 +1398,8 @@ o42_book_clear (O42Book *book)
   g_array_set_size (book->styles, 0);
   add_builtin_styles (book);
   book->scripts_modified = FALSE;
+  for (int i = 0; i < O42_N_PROPS; i++)
+    g_clear_pointer (&book->props[i], g_free);
 
   first = o42_book_sheet (book, 0);
   pictures = o42_sheet_pictures (first);

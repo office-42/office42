@@ -249,6 +249,35 @@ m_current (PyObject *self, PyObject *args)
 }
 
 static PyObject *
+m_properties (PyObject *self, PyObject *args)
+{
+  PyObject *d = PyDict_New ();
+  (void) self; (void) args;
+  for (int i = 0; current_book != NULL && i < O42_N_PROPS; i++)
+    {
+      PyObject *v = PyUnicode_FromString (o42_book_property (current_book, (O42Property) i));
+      PyDict_SetItemString (d, o42_property_name ((O42Property) i), v);
+      Py_DECREF (v);
+    }
+  return d;
+}
+
+static PyObject *
+m_set_property (PyObject *self, PyObject *args)
+{
+  const char *name, *value;
+  O42Property which;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "ss", &name, &value))
+    return NULL;
+  if (!o42_property_parse (name, &which))
+    return PyErr_Format (PyExc_ValueError, "no property named %s", name);
+  if (current_book != NULL)
+    o42_book_set_property (current_book, which, value);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
 m_copy_sheet (PyObject *self, PyObject *args)
 {
   int index, to = -1;
@@ -2545,6 +2574,8 @@ static PyMethodDef METHODS[] = {
   { "current",        m_current,        METH_NOARGS,  "The index of the sheet on show." },
   { "add_sheet",      m_add_sheet,      METH_VARARGS, "Adds a sheet; its index." },
   { "copy_sheet",     m_copy_sheet,     METH_VARARGS, "Copies sheet i to place j under a name; the copy's index." },
+  { "properties",     m_properties,     METH_NOARGS,  "File > Properties, as a dict." },
+  { "set_property",   m_set_property,   METH_VARARGS, "Sets one of File > Properties." },
   { "remove_sheet",   m_remove_sheet,   METH_VARARGS, "Removes sheet i." },
   { "rename_sheet",   m_rename_sheet,   METH_VARARGS, "Renames sheet i." },
   { "move_sheet",     m_move_sheet,     METH_VARARGS, "Moves sheet i to place j." },

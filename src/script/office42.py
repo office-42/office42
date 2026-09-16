@@ -1000,6 +1000,17 @@ class Book:
     def names(self):
         return [s.name for s in self.sheets]
 
+    # -- File > Properties ----------------------------------------------
+    @property
+    def properties(self):
+        """The document's properties as a dict: title, subject, author,
+        manager, company, category, keywords and comments."""
+        return _c.properties()
+
+    def set_property(self, name, value):
+        """Sets one of them; "" takes it away."""
+        _c.set_property(str(name), "" if value is None else str(value))
+
     # -- scripts kept in the book, and so in its file -----------------
     @property
     def scripts(self):

@@ -1956,6 +1956,50 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
         }
       g_list_free (names);
     }
+  /* File > Properties: the core properties part Excel reads its
+   * Summary tab from, and the extended one for Manager and Company. */
+  {
+    GString *core = g_string_new (
+      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+      "<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" "
+      "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\" "
+      "xmlns:dcmitype=\"http://purl.org/dc/dcmitype/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">");
+    GString *app = g_string_new (
+      "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+      "<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\" "
+      "xmlns:vt=\"http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes\">"
+      "<Application>Office42 Spreadsheet</Application>");
+    static const char *const CORE[O42_N_PROPS] = {
+      "dc:title", "dc:subject", "dc:creator", NULL, NULL, "cp:category", "cp:keywords", "dc:description"
+    };
+    static const char *const APP[O42_N_PROPS] = {
+      NULL, NULL, NULL, "Manager", "Company", NULL, NULL, NULL
+    };
+
+    for (int i = 0; i < O42_N_PROPS; i++)
+      {
+        const char *value = o42_book_property (book, (O42Property) i);
+        char *escaped;
+
+        if (*value == '\0')
+          continue;
+        escaped = g_markup_escape_text (value, -1);
+        if (CORE[i] != NULL)
+          g_string_append_printf (core, "<%s>%s</%s>", CORE[i], escaped, CORE[i]);
+        else
+          g_string_append_printf (app, "<%s>%s</%s>", APP[i], escaped, APP[i]);
+        g_free (escaped);
+      }
+    g_string_append (core, "</cp:coreProperties>");
+    g_string_append (app, "</Properties>");
+    o42_zip_writer_add (zip, "docProps/core.xml", core->str, core->len);
+    o42_zip_writer_add (zip, "docProps/app.xml", app->str, app->len);
+    g_string_free (core, TRUE);
+    g_string_free (app, TRUE);
+    g_string_append (extra_types,
+      "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>"
+      "<Override PartName=\"/docProps/app.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>");
+  }
   g_string_append (s, extra_types->str);
   g_string_append (s, "</Types>");
   o42_zip_writer_add (zip, "[Content_Types].xml", s->str, s->len);
@@ -1965,6 +2009,8 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
     "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"
+    "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>"
+    "<Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties\" Target=\"docProps/app.xml\"/>"
     "</Relationships>");
   o42_zip_writer_add (zip, "_rels/.rels", s->str, s->len);
 
@@ -2354,6 +2400,8 @@ typedef struct
   GArray     *data_tables;  /* O42DataTable from <f t="dataTable">, made when the sheet is read */
   GHashTable *shared;       /* si -> master formula "row,col,text" */
   int         default_width, default_height;
+  int         prop_which;   /* the property a docProps element is, or -1 */
+  GString    *prop_text;
   char       *drawing_rid;  /* the sheet's <drawing r:id>, if any */
   int         filter_col;   /* the filterColumn being read, or -1 */
 
@@ -2491,6 +2539,53 @@ workbook_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError 
       r->name_name = NULL;
       r->in_defined_name = FALSE;
     }
+}
+
+/* ---- docProps/core.xml and app.xml: File > Properties ---- */
+
+static void
+props_start (GMarkupParseContext *ctx, const char *name, const char **names,
+             const char **values, gpointer user, GError **error)
+{
+  Reader *r = user;
+  const char *n = local (name);
+  (void) ctx; (void) names; (void) values; (void) error;
+  r->prop_which = -1;
+  if (strcmp (n, "title") == 0)            r->prop_which = O42_PROP_TITLE;
+  else if (strcmp (n, "subject") == 0)     r->prop_which = O42_PROP_SUBJECT;
+  else if (strcmp (n, "creator") == 0)     r->prop_which = O42_PROP_AUTHOR;
+  else if (strcmp (n, "Manager") == 0)     r->prop_which = O42_PROP_MANAGER;
+  else if (strcmp (n, "Company") == 0)     r->prop_which = O42_PROP_COMPANY;
+  else if (strcmp (n, "category") == 0)    r->prop_which = O42_PROP_CATEGORY;
+  else if (strcmp (n, "keywords") == 0)    r->prop_which = O42_PROP_KEYWORDS;
+  else if (strcmp (n, "description") == 0) r->prop_which = O42_PROP_COMMENTS;
+  if (r->prop_which >= 0)
+    {
+      if (r->prop_text == NULL)
+        r->prop_text = g_string_new (NULL);
+      g_string_truncate (r->prop_text, 0);
+    }
+}
+
+static void
+props_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **error)
+{
+  Reader *r = user;
+  (void) ctx; (void) name; (void) error;
+  if (r->prop_which >= 0)
+    {
+      o42_book_set_property (r->book, (O42Property) r->prop_which, r->prop_text->str);
+      r->prop_which = -1;
+    }
+}
+
+static void
+props_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user, GError **error)
+{
+  Reader *r = user;
+  (void) ctx; (void) error;
+  if (r->prop_which >= 0)
+    g_string_append_len (r->prop_text, text, (gssize) len);
 }
 
 static void
@@ -4082,6 +4177,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   static const GMarkupParser workbook_parser = { workbook_start, workbook_end, workbook_text, NULL, NULL };
   static const GMarkupParser sst_parser = { sst_start, sst_end, sst_text, NULL, NULL };
   static const GMarkupParser styles_parser = { styles_start, styles_end, NULL, NULL, NULL };
+  static const GMarkupParser props_parser = { props_start, props_end, props_text, NULL, NULL };
   static const GMarkupParser theme_parser = { theme_start, theme_end, NULL, NULL, NULL };
   static const GMarkupParser sheet_parser = { sheet_start, sheet_end, sheet_text, NULL, NULL };
   static const GMarkupParser comments_parser = { comments_start, comments_end, comments_text, NULL, NULL };
@@ -4168,6 +4264,9 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   if (ok)
     {
       o42_book_clear (book);
+      r.prop_which = -1;
+      parse_part (parts, "docProps/core.xml", &props_parser, &r, NULL);
+      parse_part (parts, "docProps/app.xml", &props_parser, &r, NULL);
 
       /* Every named style becomes one of the book's own, with the look
        * its cellStyleXf carries. */
