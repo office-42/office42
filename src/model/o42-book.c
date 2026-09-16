@@ -67,6 +67,8 @@ struct _O42Book {
                                   * until they run its scripts */
   GHashTable   *kept_parts;   /* name -> GBytes: an .xlsm's VBA, for Excel */
   char         *props[O42_N_PROPS];   /* File > Properties; NULL for none */
+  gboolean      protected;    /* Tools > Protection > Protect Workbook */
+  guint16       password;     /* its hash, 0 for none */
 };
 
 typedef struct {
@@ -332,6 +334,41 @@ o42_book_free (O42Book *book)
   g_free (book);
 }
 
+/* ---- Protecting the structure ---------------------------------------- */
+
+void
+o42_book_set_protected (O42Book *book, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (book->protected == on)
+    return;
+  book->protected = on;
+  if (o42_book_recording (book))
+    record_book_line (book, "book.protected = %s", on ? "True" : "False");
+  o42_book_set_modified (book, TRUE);
+}
+
+gboolean
+o42_book_protected (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->protected;
+}
+
+void
+o42_book_set_password_hash (O42Book *book, guint16 hash)
+{
+  g_return_if_fail (book != NULL);
+  book->password = hash;
+}
+
+guint16
+o42_book_password_hash (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, 0);
+  return book->password;
+}
+
 /* ---- Document properties --------------------------------------------- */
 
 static const char *const PROPERTY_NAMES[O42_N_PROPS] = {
@@ -545,6 +582,91 @@ o42_book_add_sheet (O42Book *book, const char *name, int index)
 
   g_free (fresh);
   return sheet;
+}
+
+void
+o42_book_fill_across (O42Book *book, O42Sheet *source, const O42Range *range,
+                      O42Sheet **targets, int n, O42PasteMode mode)
+{
+  static const char *const MODES[] = { "all", "values", "formats", "formulas" };
+  O42Range used, r;
+
+  g_return_if_fail (book != NULL && source != NULL && range != NULL);
+  if (n <= 0)
+    return;
+
+  /* A selection that is a whole column reaches a million rows; only the
+   * part of it the source has anything in is worth visiting -- and the
+   * same part of each target, which is emptied where the source is. */
+  o42_sheet_used_range (source, &used);
+  r = *range;
+  for (int i = 0; i < n; i++)
+    {
+      O42Range tused;
+      o42_sheet_used_range (targets[i], &tused);
+      used.row1 = MAX (used.row1, tused.row1);
+      used.col1 = MAX (used.col1, tused.col1);
+    }
+  r.row1 = MIN (r.row1, used.row1);
+  r.col1 = MIN (r.col1, used.col1);
+  if (r.row1 < r.row0 || r.col1 < r.col0)
+    return;
+
+  {
+    char *text = o42_book_record_range_text (book, range);
+    GString *line = g_string_new (NULL);
+
+    g_string_append_printf (line, "%s.fill_across([", text);
+    for (int i = 0; i < n; i++)
+      {
+        char *quoted = o42_python_quote (o42_sheet_get_name (targets[i]));
+        g_string_append_printf (line, "%s%s", i > 0 ? ", " : "", quoted);
+        g_free (quoted);
+      }
+    g_string_append_printf (line, "], \"%s\")", MODES[mode]);
+    o42_book_record_op_begin (book, o42_sheet_get_name (source), line->str);
+    g_string_free (line, TRUE);
+    g_free (text);
+  }
+  o42_sheet_begin_group (source);
+  for (int i = 0; i < n; i++)
+    {
+      O42Sheet *target = targets[i];
+
+      if (target == source)
+        continue;
+      for (int row = r.row0; row <= r.row1; row++)
+        for (int col = r.col0; col <= r.col1; col++)
+          {
+            if (mode != O42_PASTE_FORMATS)
+              {
+                char *input = o42_sheet_get_input (source, row, col);
+
+                if (mode == O42_PASTE_VALUES && input != NULL && input[0] == '=')
+                  {
+                    /* The value, not the formula. */
+                    O42Value v;
+                    o42_sheet_get_value (source, row, col, &v);
+                    g_free (input);
+                    input = o42_value_to_text (&v);
+                    o42_value_clear (&v);
+                  }
+                if ((input != NULL && *input != '\0') || !o42_sheet_is_empty (target, row, col))
+                  o42_sheet_set_input (target, row, col, input);
+                g_free (input);
+              }
+            if (mode == O42_PASTE_ALL || mode == O42_PASTE_FORMATS)
+              {
+                const O42Fmt *fmt = o42_sheet_get_fmt (source, row, col);
+                O42Range one = { row, col, row, col };
+
+                o42_sheet_apply_fmt (target, &one, O42_FMT_ALL, fmt);
+              }
+          }
+    }
+  o42_sheet_end_group (source);
+  o42_book_record_op_end (book);
+  o42_book_set_modified (book, TRUE);
 }
 
 O42Sheet *
@@ -1400,6 +1522,8 @@ o42_book_clear (O42Book *book)
   book->scripts_modified = FALSE;
   for (int i = 0; i < O42_N_PROPS; i++)
     g_clear_pointer (&book->props[i], g_free);
+  book->protected = FALSE;
+  book->password = 0;
 
   first = o42_book_sheet (book, 0);
   pictures = o42_sheet_pictures (first);

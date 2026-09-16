@@ -180,6 +180,120 @@ action_fill_series (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_editable_select_region (GTK_EDITABLE (prompt->step_entry), 0, -1);
 }
 
+/* ---- Fill > Across Worksheets ------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GPtrArray *checks;       /* GtkWidget *, one per other sheet, in book order */
+  GPtrArray *sheets;       /* O42Sheet *, the same order */
+  GtkWidget *mode[3];      /* all, contents, formats */
+} AcrossPrompt;
+
+static void
+on_across_ok (GtkWidget *w, gpointer data)
+{
+  AcrossPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  GPtrArray *targets = g_ptr_array_new ();
+  O42PasteMode mode = O42_PASTE_ALL;
+  O42Range sel;
+
+  (void) w;
+  for (guint i = 0; i < prompt->checks->len; i++)
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (g_ptr_array_index (prompt->checks, i))))
+      g_ptr_array_add (targets, g_ptr_array_index (prompt->sheets, i));
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->mode[1])))
+    mode = O42_PASTE_FORMULAS;   /* the contents as typed, formulas included */
+  else if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->mode[2])))
+    mode = O42_PASTE_FORMATS;
+
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  o42_grid_get_selection (self->grid, &sel);
+  if (targets->len > 0)
+    o42_book_fill_across (self->book, self->sheet, &sel,
+                          (O42Sheet **) targets->pdata, (int) targets->len, mode);
+  g_ptr_array_unref (targets);
+  window_tell_book (self, "cells");
+  window_sync (self);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+across_prompt_free (gpointer data)
+{
+  AcrossPrompt *prompt = data;
+  g_ptr_array_unref (prompt->checks);
+  g_ptr_array_unref (prompt->sheets);
+  g_free (prompt);
+}
+
+void
+action_fill_across (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  static const char *const MODES[] = { N_("_All"), N_("_Contents"), N_("_Formats") };
+  O42Window *self = data;
+  AcrossPrompt *prompt;
+  GtkWidget *content, *buttons, *frame, *box, *ok;
+  int n = o42_book_n_sheets (self->book);
+
+  (void) a; (void) p;
+
+  if (n < 2)
+    {
+      show_error (self, _("The book has only this sheet; add another to fill across."), NULL);
+      return;
+    }
+
+  prompt = g_new0 (AcrossPrompt, 1);
+  prompt->window = self;
+  prompt->checks = g_ptr_array_new ();
+  prompt->sheets = g_ptr_array_new ();
+  prompt->dialog = dialog_frame (self, _("Fill Across Worksheets"), TRUE, &content, &buttons);
+
+  /* Excel fills the grouped sheets; here every other sheet is offered,
+   * ticked, and the ones not wanted are unticked. */
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Fill the selection into:")));
+  for (int i = 0; i < n; i++)
+    {
+      O42Sheet *sheet = o42_book_sheet (self->book, i);
+      GtkWidget *check;
+
+      if (sheet == self->sheet)
+        continue;
+      check = gtk_check_button_new_with_label (o42_sheet_get_name (sheet));
+      gtk_check_button_set_active (GTK_CHECK_BUTTON (check), !o42_sheet_hidden (sheet));
+      gtk_box_append (GTK_BOX (content), check);
+      g_ptr_array_add (prompt->checks, check);
+      g_ptr_array_add (prompt->sheets, sheet);
+    }
+
+  frame = gtk_frame_new (_("Fill"));
+  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  gtk_widget_set_margin_top (box, 4);
+  gtk_widget_set_margin_bottom (box, 4);
+  gtk_widget_set_margin_start (box, 8);
+  gtk_widget_set_margin_end (box, 8);
+  for (int i = 0; i < 3; i++)
+    {
+      prompt->mode[i] = gtk_check_button_new_with_mnemonic (_(MODES[i]));
+      if (i > 0)
+        gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->mode[i]), GTK_CHECK_BUTTON (prompt->mode[0]));
+      gtk_box_append (GTK_BOX (box), prompt->mode[i]);
+    }
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->mode[0]), TRUE);
+  gtk_frame_set_child (GTK_FRAME (frame), box);
+  gtk_box_append (GTK_BOX (content), frame);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_across_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (across_prompt_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
 /* ---- Move or Copy Sheet ------------------------------------------------- */
 
 typedef struct {
@@ -238,6 +352,11 @@ action_move_copy_sheet (GSimpleAction *a, GVariant *p, gpointer data)
 
   (void) a; (void) p;
 
+  if (o42_window_structure_locked (self))
+    {
+      g_free (prompt);
+      return;
+    }
   prompt->window = self;
   prompt->dialog = dialog_frame (self, _("Move or Copy"), TRUE, &content, &buttons);
 

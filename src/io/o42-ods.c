@@ -2681,7 +2681,10 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   g_string_append (content, "<office:font-face-decls><style:font-face style:name=\"Arial\" svg:font-family=\"Arial\" xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\"/></office:font-face-decls>");
   g_string_append (content, "<office:automatic-styles>");
   g_string_append (content, s.styles->str);
-  g_string_append (content, "</office:automatic-styles><office:body><office:spreadsheet>");
+  g_string_append (content, "</office:automatic-styles><office:body><office:spreadsheet");
+  if (o42_book_protected (book))
+    g_string_append (content, " table:structure-protected=\"true\"");
+  g_string_append (content, ">");
   if (o42_book_date_1904 (book) || o42_book_precision_as_displayed (book))
     g_string_append_printf (content, "<table:calculation-settings%s>%s</table:calculation-settings>",
                             o42_book_precision_as_displayed (book) ? " table:precision-as-shown=\"true\"" : "",
@@ -4145,6 +4148,14 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
   Reader *r = user;
   const char *name = local (element);
   (void) ctx; (void) error;
+
+  if (strcmp (name, "spreadsheet") == 0)
+    {
+      const char *locked = attr (names, values, "structure-protected");
+      if (locked != NULL && strcmp (locked, "true") == 0)
+        o42_book_set_protected (r->book, TRUE);
+      return;
+    }
 
   if (r->in_cell && r->shape != NULL && (strcmp (name, "p") == 0 || strcmp (name, "span") == 0))
     {

@@ -242,6 +242,25 @@ window_undo_redo (O42Window *self, gboolean undo)
   window_sync (self);
 }
 
+/* View > Toolbars, Formula Bar and Status Bar: each a check item that
+ * hides or shows its bar; the grid takes the room. */
+static void
+change_show_bar (GSimpleAction *action, GVariant *state, gpointer data)
+{
+  O42Window *self = data;
+  const char *name = g_action_get_name (G_ACTION (action));
+  gboolean show = g_variant_get_boolean (state);
+  GtkWidget *bar = strcmp (name, "show-standard-bar") == 0 ? self->standard_bar
+                 : strcmp (name, "show-format-bar") == 0 ? self->format_bar
+                 : strcmp (name, "show-formula-bar") == 0 ? self->formula_bar
+                 : self->status_bar;
+
+  if (bar != NULL)
+    gtk_widget_set_visible (bar, show);
+  g_simple_action_set_state (action, state);
+  gtk_widget_grab_focus (GTK_WIDGET (self->grid));
+}
+
 static void action_undo (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; window_undo_redo (d, TRUE); }
 static void action_redo (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; window_undo_redo (d, FALSE); }
 
@@ -3077,6 +3096,16 @@ action_calculate (GSimpleAction *a, GVariant *p, gpointer data)
 /* A sheet is moved by taking it out of the book and putting it back
  * somewhere else -- which is what undo already does with a deleted
  * sheet, so the book can do it and the history follows. */
+gboolean
+o42_window_structure_locked (O42Window *self)
+{
+  if (!o42_book_protected (self->book))
+    return FALSE;
+  gtk_label_set_text (GTK_LABEL (self->status_label),
+                      _("The workbook is protected: Tools > Protection > Unprotect Workbook first."));
+  return TRUE;
+}
+
 static void
 window_move_sheet (O42Window *self, int by)
 {
@@ -3084,6 +3113,8 @@ window_move_sheet (O42Window *self, int by)
   int to = at + by;
 
   if (at < 0 || to < 0 || to >= o42_book_n_sheets (self->book))
+    return;
+  if (o42_window_structure_locked (self))
     return;
 
   /* The book tells the other windows; this one rebuilds its tabs itself. */
@@ -3420,6 +3451,8 @@ action_hide_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   int other = -1;
 
   (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    return;
   for (int i = index + 1; i < o42_book_n_sheets (self->book) && other < 0; i++)
     if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
       other = i;
@@ -3479,6 +3512,11 @@ action_unhide_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   GtkWidget *content, *buttons, *ok, *scroller;
 
   (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    {
+      g_free (prompt);
+      return;
+    }
   prompt->window = self;
   prompt->indices = g_array_new (FALSE, FALSE, sizeof (int));
   prompt->dialog = dialog_frame (self, _("Unhide"), TRUE, &content, &buttons);
@@ -3517,6 +3555,8 @@ action_insert_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   int index = o42_book_sheet_index (self->book, self->sheet);
   (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    return;
   o42_book_add_sheet (self->book, NULL, index);
   o42_sheet_set_modified (self->sheet, TRUE);
   window_show_sheet (self, index);
@@ -3548,6 +3588,8 @@ action_delete_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   char *message;
 
   (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    return;
 
   if (o42_book_n_sheets (self->book) < 2)
     return;
@@ -3598,6 +3640,11 @@ action_rename_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   GtkWidget *content, *buttons, *row, *ok;
 
   (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    {
+      g_free (prompt);
+      return;
+    }
 
   prompt->window = self;
   prompt->dialog = dialog_frame (self, _("Rename Sheet"), TRUE, &content, &buttons);
@@ -5934,6 +5981,7 @@ static const GActionEntry ACTIONS[] = {
   { "fill-up",    action_fill_up,    NULL, NULL, NULL, { 0 } },
   { "fill-left",  action_fill_left,  NULL, NULL, NULL, { 0 } },
   { "fill-series", action_fill_series, NULL, NULL, NULL, { 0 } },
+  { "fill-across", action_fill_across, NULL, NULL, NULL, { 0 } },
   { "move-copy-sheet", action_move_copy_sheet, NULL, NULL, NULL, { 0 } },
   { "paste-name",   action_paste_name,   NULL, NULL, NULL, { 0 } },
   { "properties",   action_properties,   NULL, NULL, NULL, { 0 } },
@@ -5963,6 +6011,10 @@ static const GActionEntry ACTIONS[] = {
   { "standard-width", action_standard_width, NULL, NULL, NULL, { 0 } },
   { "filter-show-all", action_filter_show_all, NULL, NULL, NULL, { 0 } },
   { "zoom-dialog",    action_zoom_dialog,    NULL, NULL, NULL, { 0 } },
+  { "show-standard-bar", NULL, NULL, "true", change_show_bar, { 0 } },
+  { "show-format-bar",   NULL, NULL, "true", change_show_bar, { 0 } },
+  { "show-formula-bar",  NULL, NULL, "true", change_show_bar, { 0 } },
+  { "show-status-bar",   NULL, NULL, "true", change_show_bar, { 0 } },
   { "hide-rows",      action_hide_rows,      NULL, NULL, NULL, { 0 } },
   { "merge-cells",    action_merge_cells,    NULL, NULL, NULL, { 0 } },
   { "unmerge-cells",  action_unmerge_cells,  NULL, NULL, NULL, { 0 } },
@@ -6025,6 +6077,7 @@ static const GActionEntry ACTIONS[] = {
   { "goal-seek",      action_goal_seek,      NULL, NULL, NULL, { 0 } },
   { "solver",         action_solver,         NULL, NULL, NULL, { 0 } },
   { "protect",        action_protect,        NULL, NULL, NULL, { 0 } },
+  { "protect-book",   action_protect_book,   NULL, NULL, NULL, { 0 } },
   { "spelling",       action_spelling,       NULL, NULL, NULL, { 0 } },
   { "record-macro",   action_record_macro,   NULL, NULL, NULL, { 0 } },
   { "stop-recording", action_stop_recording, NULL, NULL, NULL, { 0 } },
@@ -7159,9 +7212,12 @@ o42_window_init (O42Window *self)
 
   self->grid = O42_GRID (o42_grid_new ());
 
-  gtk_box_append (GTK_BOX (box), build_standard_bar ());
-  gtk_box_append (GTK_BOX (box), build_format_bar (self));
-  gtk_box_append (GTK_BOX (box), build_formula_bar (self));
+  self->standard_bar = build_standard_bar ();
+  self->format_bar = build_format_bar (self);
+  self->formula_bar = build_formula_bar (self);
+  gtk_box_append (GTK_BOX (box), self->standard_bar);
+  gtk_box_append (GTK_BOX (box), self->format_bar);
+  gtk_box_append (GTK_BOX (box), self->formula_bar);
 
   scrolled = gtk_scrolled_window_new ();
   gtk_widget_set_vexpand (scrolled, TRUE);
@@ -7205,7 +7261,8 @@ o42_window_init (O42Window *self)
   gtk_box_append (GTK_BOX (box), scrolled);
 
   gtk_box_append (GTK_BOX (box), build_tabs (self));
-  gtk_box_append (GTK_BOX (box), build_status_bar (self));
+  self->status_bar = build_status_bar (self);
+  gtk_box_append (GTK_BOX (box), self->status_bar);
 
   /* The formula bar is the same edit as the cell, seen from up here. */
   o42_grid_set_mirror (self->grid, self->formula_entry);

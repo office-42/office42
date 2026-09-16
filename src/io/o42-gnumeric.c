@@ -1400,6 +1400,9 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
     o42_book_date_1904 (book) ? " DateConvention=\"Apple:1904\"" : "");
     if (o42_book_precision_as_displayed (book))
       g_string_append (out, "  <gnm:o42-Options PrecisionAsDisplayed=\"1\"/>\n");
+    if (o42_book_protected (book))
+      g_string_append_printf (out, "  <gnm:o42-Protection Structure=\"1\" Hash=\"%u\"/>\n",
+                              (unsigned) o42_book_password_hash (book));
   }
   for (int i = 0; i < n; i++)
     {
@@ -2109,6 +2112,13 @@ start_element (GMarkupParseContext *context, const char *element,
   if (strcmp (name, "o42-Options") == 0)
     {
       o42_book_set_precision_as_displayed (r->book, attr_int (names, values, "PrecisionAsDisplayed", 0) != 0);
+      return;
+    }
+
+  if (strcmp (name, "o42-Protection") == 0)
+    {
+      o42_book_set_password_hash (r->book, (guint16) attr_int (names, values, "Hash", 0));
+      o42_book_set_protected (r->book, attr_int (names, values, "Structure", 0) != 0);
       return;
     }
 

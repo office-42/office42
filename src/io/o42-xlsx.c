@@ -2016,8 +2016,20 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
 
   g_string_assign (s,
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
-    "<workbook xmlns=\"" NS_MAIN "\" xmlns:r=\"" NS_REL "\">"
-    "<bookViews><workbookView activeTab=\"0\"/></bookViews><sheets>");
+    "<workbook xmlns=\"" NS_MAIN "\" xmlns:r=\"" NS_REL "\">");
+  /* workbookPr and workbookProtection come before the views, in the
+   * order the schema has them and Excel insists on. */
+  if (o42_book_date_1904 (book))
+    g_string_append (s, "<workbookPr date1904=\"1\"/>");
+  if (o42_book_protected (book))
+    {
+      if (o42_book_password_hash (book) != 0)
+        g_string_append_printf (s, "<workbookProtection workbookPassword=\"%04X\" lockStructure=\"1\"/>",
+                                o42_book_password_hash (book));
+      else
+        g_string_append (s, "<workbookProtection lockStructure=\"1\"/>");
+    }
+  g_string_append (s, "<bookViews><workbookView activeTab=\"0\"/></bookViews><sheets>");
   for (int i = 0; i < n_sheets; i++)
     if (o42_sheet_view (o42_book_sheet (book, i))->selected)
       {
@@ -2154,8 +2166,6 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     double tolerance = 0.001;
     gboolean iterate = o42_book_iteration (book, &max, &tolerance);
 
-    if (o42_book_date_1904 (book))
-      g_string_append (s, "<workbookPr date1904=\"1\"/>");
     g_string_append_printf (s, "<calcPr fullCalcOnLoad=\"1\" calcMode=\"%s\" "
                                "iterate=\"%d\" iterateCount=\"%d\" iterateDelta=\"%g\"%s/></workbook>",
                             o42_book_manual (book) ? "manual" : "auto",
@@ -2401,6 +2411,8 @@ typedef struct
   GHashTable *shared;       /* si -> master formula "row,col,text" */
   int         default_width, default_height;
   int         prop_which;   /* the property a docProps element is, or -1 */
+  gboolean    book_protected; /* workbookProtection, applied once the book is cleared */
+  guint16     book_password;
   GString    *prop_text;
   char       *drawing_rid;  /* the sheet's <drawing r:id>, if any */
   int         filter_col;   /* the filterColumn being read, or -1 */
@@ -2468,6 +2480,15 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
       g_ptr_array_add (r->sheet_names, g_strdup (sname ? sname : "Sheet"));
       g_ptr_array_add (r->sheet_rids, g_strdup (rid ? rid : ""));
       g_array_append_val (r->sheet_hidden, hidden);
+    }
+  else if (strcmp (n, "workbookProtection") == 0)
+    {
+      const char *hash = attr (names, values, "workbookPassword");
+
+      /* Read before the book is cleared for loading; applied after. */
+      if (hash != NULL)
+        r->book_password = (guint16) g_ascii_strtoull (hash, NULL, 16);
+      r->book_protected = attr_flag (names, values, "lockStructure");
     }
   else if (strcmp (n, "workbookPr") == 0)
     {
@@ -4264,6 +4285,8 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   if (ok)
     {
       o42_book_clear (book);
+      o42_book_set_password_hash (book, r.book_password);
+      o42_book_set_protected (book, r.book_protected);
       r.prop_which = -1;
       parse_part (parts, "docProps/core.xml", &props_parser, &r, NULL);
       parse_part (parts, "docProps/app.xml", &props_parser, &r, NULL);

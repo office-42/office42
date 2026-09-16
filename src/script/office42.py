@@ -282,6 +282,15 @@ class Range:
                        str(type), str(unit), float(step), bool(trend),
                        stop is not None, 0.0 if stop is None else float(stop), bool(rows))
 
+    def fill_across(self, sheets=None, what="all"):
+        """Edit > Fill > Across Worksheets: the range copied to the same
+        cells on `sheets` (names or Sheets; every other sheet by
+        default); `what` is "all", "values" or "formats"."""
+        targets = [s.index for s in book.sheets if s.index != self.sheet.index] \
+            if sheets is None else [book._sheet(s).index for s in sheets]
+        _c.fill_across(self.sheet.index, self.row0, self.col0, self.row1, self.col1,
+                       targets, str(what))
+
     def create_names(self, top=True, left=False, bottom=False, right=False):
         """Insert > Name > Create: names from the labels along the range's
         edges, each naming the cells of its column or row inside; how
@@ -999,6 +1008,17 @@ class Book:
     @property
     def names(self):
         return [s.name for s in self.sheets]
+
+    # -- Tools > Protection > Protect Workbook ---------------------------
+    @property
+    def protected(self):
+        """Whether the book's structure is locked: no sheet added,
+        deleted, renamed, moved, copied, hidden or unhidden."""
+        return _c.book_protected()
+
+    @protected.setter
+    def protected(self, on):
+        _c.book_protected(bool(on))
 
     # -- File > Properties ----------------------------------------------
     @property

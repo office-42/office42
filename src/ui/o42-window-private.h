@@ -42,6 +42,7 @@ struct _O42Window {
   struct _SetupPrompt *last_setup;   /* the Page Setup dialog open, if one is */
 
   GtkWidget  *title_label;
+  GtkWidget  *standard_bar, *format_bar, *formula_bar, *status_bar;  /* View turns them off */
   GtkWidget  *name_box;
   GtkWidget  *formula_entry;
   O42Db      *db;              /* the book's database, opened when first wanted */
@@ -128,6 +129,7 @@ void o42_window_show_error (O42Window *self, const char *heading, GError *error)
 /* The actions dialogs-edit.c answers: the File, Edit and Insert menus' dialogs. */
 void action_properties (GSimpleAction *a, GVariant *p, gpointer data);
 void action_fill_series (GSimpleAction *a, GVariant *p, gpointer data);
+void action_fill_across (GSimpleAction *a, GVariant *p, gpointer data);
 void action_move_copy_sheet (GSimpleAction *a, GVariant *p, gpointer data);
 void action_paste_name (GSimpleAction *a, GVariant *p, gpointer data);
 void action_create_names (GSimpleAction *a, GVariant *p, gpointer data);
@@ -179,6 +181,11 @@ void action_goal_seek (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_objects (GSimpleAction *a, GVariant *p, gpointer data);
 void action_page_breaks (GSimpleAction *a, GVariant *p, gpointer data);
 void action_protect (GSimpleAction *a, GVariant *p, gpointer data);
+void action_protect_book (GSimpleAction *a, GVariant *p, gpointer data);
+
+/* TRUE, with a word in the status bar, when Protect Workbook forbids
+ * changing the sheets. */
+gboolean o42_window_structure_locked (O42Window *self);
 void action_python_console (GSimpleAction *a, GVariant *p, gpointer data);
 void action_python_run (GSimpleAction *a, GVariant *p, gpointer data);
 void action_record_macro (GSimpleAction *a, GVariant *p, gpointer data);

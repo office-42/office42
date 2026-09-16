@@ -2889,6 +2889,103 @@ on_protect_ok (GtkWidget *w, gpointer data)
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
 }
 
+/* ---- Tools > Protection > Protect Workbook ----------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *entry;
+  GtkWidget *status;
+  gboolean   locking;
+} ProtectBookPrompt;
+
+static void
+on_protect_book_ok (GtkWidget *w, gpointer data)
+{
+  ProtectBookPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const char *typed = gtk_editable_get_text (GTK_EDITABLE (prompt->entry));
+
+  (void) w;
+  if (prompt->locking)
+    {
+      o42_book_set_password_hash (self->book, *typed != '\0' ? o42_password_hash (typed) : 0);
+      o42_book_set_protected (self->book, TRUE);
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("The workbook is protected: its sheets cannot be added, deleted, renamed or moved."));
+    }
+  else
+    {
+      guint16 hash = o42_book_password_hash (self->book);
+
+      if (hash != 0 && o42_password_hash (typed) != hash)
+        {
+          gtk_label_set_text (GTK_LABEL (prompt->status), _("That is not the password."));
+          return;
+        }
+      o42_book_set_protected (self->book, FALSE);
+      o42_book_set_password_hash (self->book, 0);
+      gtk_label_set_text (GTK_LABEL (self->status_label), _("The workbook is no longer protected."));
+    }
+  window_sync (self);
+  window_tell_book (self, "sheets");
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_protect_book (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  gboolean now = !o42_book_protected (self->book);
+  ProtectBookPrompt *prompt;
+  GtkWidget *content, *buttons, *grid, *ok;
+
+  (void) a; (void) p;
+
+  if (!now && o42_book_password_hash (self->book) == 0)
+    {
+      o42_book_set_protected (self->book, FALSE);
+      window_sync (self);
+      gtk_label_set_text (GTK_LABEL (self->status_label), _("The workbook is no longer protected."));
+      return;
+    }
+
+  prompt = g_new0 (ProtectBookPrompt, 1);
+  prompt->window = self;
+  prompt->locking = now;
+  prompt->dialog = dialog_frame (self, now ? _("Protect Workbook") : _("Unprotect Workbook"),
+                                 TRUE, &content, &buttons);
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->entry = labelled (grid, 0, _("Password:"), gtk_entry_new ());
+  gtk_entry_set_visibility (GTK_ENTRY (prompt->entry), FALSE);
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt->entry), TRUE);
+  if (now)
+    gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->entry), _("leave empty for none"));
+  gtk_box_append (GTK_BOX (content), grid);
+  if (now)
+    {
+      GtkWidget *hint = gtk_label_new (
+        _("Protecting the workbook keeps its sheets as they are: none can be "
+          "added, deleted, renamed, moved, copied, hidden or unhidden.  The "
+          "cells stay as editable as their sheets allow."));
+      gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
+      gtk_label_set_max_width_chars (GTK_LABEL (hint), 48);
+      gtk_box_append (GTK_BOX (content), hint);
+    }
+  prompt->status = gtk_label_new ("");
+  gtk_box_append (GTK_BOX (content), prompt->status);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_protect_book_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+  gtk_widget_grab_focus (prompt->entry);
+}
+
 void
 action_protect (GSimpleAction *a, GVariant *p, gpointer data)
 {

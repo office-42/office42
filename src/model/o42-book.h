@@ -98,6 +98,18 @@ void         o42_book_set_style    (O42Book *book, const char *name,
                                     const O42Fmt *fmt, O42FmtMask mask);
 gboolean     o42_book_remove_style (O42Book *book, const char *name);
 
+/* ---- Protecting the structure ---------------------------------------- */
+
+/* Tools > Protection > Protect Workbook: no sheet may be added,
+ * deleted, renamed, moved, copied, hidden or unhidden while it is on.
+ * The password is kept as Excel's short hash, as a sheet's is, and
+ * guards the window: a script or a file loader may still do all of it.
+ * The books' files carry it. */
+void     o42_book_set_protected     (O42Book *book, gboolean on);
+gboolean o42_book_protected         (O42Book *book);
+void     o42_book_set_password_hash (O42Book *book, guint16 hash);
+guint16  o42_book_password_hash     (O42Book *book);
+
 /* ---- Document properties --------------------------------------------- */
 
 /* File > Properties: what the Summary tab of Excel's holds.  They go
@@ -209,6 +221,13 @@ char     *o42_book_record_range_text   (O42Book *book, const O42Range *range);
 
 /* Moves the sheet at `from` so that it sits at `to`; one undo step. */
 gboolean  o42_book_move_sheet (O42Book *book, int from, int to);
+
+/* Edit > Fill > Across Worksheets: the cells of `range` on `source`
+ * copied to the same cells on each of the `n` `targets` -- everything,
+ * the contents only or the formats only, as Excel's dialog offers.  A
+ * cell empty on the source empties its twin.  One undo step. */
+void      o42_book_fill_across (O42Book *book, O42Sheet *source, const O42Range *range,
+                                O42Sheet **targets, int n, O42PasteMode mode);
 
 /* Edit > Move or Copy Sheet with "Create a copy": a copy of the sheet
  * at `from`, put at `to` (or at the end when `to` is -1), named `name`

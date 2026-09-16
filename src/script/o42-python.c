@@ -249,6 +249,20 @@ m_current (PyObject *self, PyObject *args)
 }
 
 static PyObject *
+m_book_protected (PyObject *self, PyObject *args)
+{
+  int on = -1;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "|p", &on))
+    return NULL;
+  if (current_book == NULL)
+    Py_RETURN_FALSE;
+  if (on >= 0)
+    o42_book_set_protected (current_book, on);
+  return PyBool_FromLong (o42_book_protected (current_book));
+}
+
+static PyObject *
 m_properties (PyObject *self, PyObject *args)
 {
   PyObject *d = PyDict_New ();
@@ -655,6 +669,44 @@ m_fill_series (PyObject *self, PyObject *args)
   series.has_stop = has_stop;
   series.in_rows = rows;
   o42_sheet_fill_series (sheet, &r, &series);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_fill_across (PyObject *self, PyObject *args)
+{
+  int index, n, mode = -1;
+  O42Range r;
+  O42Sheet *sheet;
+  PyObject *list;
+  const char *what;
+  O42Sheet **targets;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiiOs", &index, &r.row0, &r.col0, &r.row1, &r.col1, &list, &what) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (!PyList_Check (list))
+    return PyErr_Format (PyExc_TypeError, "sheets is a list of sheet indexes");
+  for (int i = 0; i < 4; i++)
+    if (strcmp (what, PASTE_MODES[i]) == 0)
+      mode = i;
+  if (mode < 0)
+    return PyErr_Format (PyExc_ValueError, "what is all, values or formats");
+  n = (int) PyList_Size (list);
+  targets = g_new0 (O42Sheet *, (gsize) n + 1);
+  for (int i = 0; i < n; i++)
+    {
+      long t = PyLong_AsLong (PyList_GetItem (list, i));
+
+      if ((targets[i] = sheet_arg ((int) t)) == NULL)
+        {
+          g_free (targets);
+          return NULL;
+        }
+    }
+  o42_book_fill_across (current_book, sheet, &r, targets, n, (O42PasteMode) mode);
+  g_free (targets);
   book_touched = TRUE;
   Py_RETURN_NONE;
 }
@@ -2575,6 +2627,7 @@ static PyMethodDef METHODS[] = {
   { "add_sheet",      m_add_sheet,      METH_VARARGS, "Adds a sheet; its index." },
   { "copy_sheet",     m_copy_sheet,     METH_VARARGS, "Copies sheet i to place j under a name; the copy's index." },
   { "properties",     m_properties,     METH_NOARGS,  "File > Properties, as a dict." },
+  { "book_protected", m_book_protected, METH_VARARGS, "Whether the book's structure is locked; sets it with an argument." },
   { "set_property",   m_set_property,   METH_VARARGS, "Sets one of File > Properties." },
   { "remove_sheet",   m_remove_sheet,   METH_VARARGS, "Removes sheet i." },
   { "rename_sheet",   m_rename_sheet,   METH_VARARGS, "Renames sheet i." },
@@ -2599,6 +2652,7 @@ static PyMethodDef METHODS[] = {
   { "fill_series",    m_fill_series,    METH_VARARGS, "Edit > Fill > Series over a range." },
   { "fill_justify",   m_fill_justify,   METH_VARARGS, "Edit > Fill > Justify over a range." },
   { "create_names",   m_create_names,   METH_VARARGS, "Names from the labels along a range's edges; how many." },
+  { "fill_across",    m_fill_across,    METH_VARARGS, "A range copied to the same cells on other sheets." },
   { "apply_names",    m_apply_names,    METH_VARARGS, "Writes named rectangles in a range's formulas as their names; how many." },
   { "autofill",       m_autofill,       METH_VARARGS, "Continues a range's series over a target." },
   { "sort",           m_sort,           METH_VARARGS, "Sorts a range's rows by keys." },

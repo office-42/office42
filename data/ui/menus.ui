@@ -61,6 +61,7 @@
           <item><attribute name="label" translatable="yes">_Right</attribute><attribute name="action">win.fill-right</attribute></item>
           <item><attribute name="label" translatable="yes">_Up</attribute><attribute name="action">win.fill-up</attribute></item>
           <item><attribute name="label" translatable="yes">_Left</attribute><attribute name="action">win.fill-left</attribute></item>
+          <item><attribute name="label" translatable="yes">_Across Worksheets...</attribute><attribute name="action">win.fill-across</attribute></item>
           <item><attribute name="label" translatable="yes">_Series...</attribute><attribute name="action">win.fill-series</attribute></item>
           <item><attribute name="label" translatable="yes">_Justify</attribute><attribute name="action">win.fill-justify</attribute></item>
         </submenu>
@@ -99,6 +100,15 @@
           <item><attribute name="label" translatable="yes">_Zoom...</attribute><attribute name="action">win.zoom-dialog</attribute></item>
         </submenu>
         <item><attribute name="label" translatable="yes">_Full Screen</attribute><attribute name="action">win.full-screen</attribute></item>
+      </section>
+      <section>
+        <submenu>
+          <attribute name="label" translatable="yes">_Toolbars</attribute>
+          <item><attribute name="label" translatable="yes">_Standard</attribute><attribute name="action">win.show-standard-bar</attribute></item>
+          <item><attribute name="label" translatable="yes">_Formatting</attribute><attribute name="action">win.show-format-bar</attribute></item>
+        </submenu>
+        <item><attribute name="label" translatable="yes">Formula _Bar</attribute><attribute name="action">win.show-formula-bar</attribute></item>
+        <item><attribute name="label" translatable="yes">_Status Bar</attribute><attribute name="action">win.show-status-bar</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">_Freeze Panes</attribute><attribute name="action">win.freeze-panes</attribute></item>
@@ -272,7 +282,11 @@
         <item><attribute name="label" translatable="yes">_Goal Seek...</attribute><attribute name="action">win.goal-seek</attribute></item>
         <item><attribute name="label" translatable="yes">_Euro Conversion...</attribute><attribute name="action">win.euro-convert</attribute></item>
         <item><attribute name="label" translatable="yes">Sol_ver...</attribute><attribute name="action">win.solver</attribute></item>
-        <item><attribute name="label" translatable="yes">_Protect Sheet</attribute><attribute name="action">win.protect</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Protection</attribute>
+          <item><attribute name="label" translatable="yes">Protect _Sheet...</attribute><attribute name="action">win.protect</attribute></item>
+          <item><attribute name="label" translatable="yes">Protect _Workbook...</attribute><attribute name="action">win.protect-book</attribute></item>
+        </submenu>
       </section>
       <section>
         <submenu>

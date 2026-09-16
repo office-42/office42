@@ -660,6 +660,44 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* fillacross A1:B2 all|values|formats [Sheet2,Sheet3]: Edit > Fill >
+       * Across Worksheets; every other sheet when none is named. */
+      if (g_str_has_prefix (text, "fillacross "))
+        {
+          char **words = g_strsplit (text + 11, " ", -1);
+          O42Range r;
+          gsize len = 0;
+          int n = (int) g_strv_length (words);
+
+          if (n >= 2 && o42_ref_parse (words[0], &r.row0, &r.col0, &len) && words[0][len] == ':' &&
+              o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))
+            {
+              O42PasteMode mode = strcmp (words[1], "values") == 0 ? O42_PASTE_VALUES
+                                : strcmp (words[1], "formats") == 0 ? O42_PASTE_FORMATS : O42_PASTE_ALL;
+              GPtrArray *targets = g_ptr_array_new ();
+
+              r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              if (n >= 3)
+                {
+                  char **names = g_strsplit (words[2], ",", -1);
+                  for (int i = 0; names[i] != NULL; i++)
+                    if (o42_book_find_sheet (book, names[i]) != NULL)
+                      g_ptr_array_add (targets, o42_book_find_sheet (book, names[i]));
+                  g_strfreev (names);
+                }
+              else
+                for (int i = 0; i < o42_book_n_sheets (book); i++)
+                  if (o42_book_sheet (book, i) != sheet)
+                    g_ptr_array_add (targets, o42_book_sheet (book, i));
+              o42_book_fill_across (book, sheet, &r, (O42Sheet **) targets->pdata, (int) targets->len, mode);
+              g_ptr_array_unref (targets);
+            }
+          else
+            fprintf (stderr, "usage: fillacross A1:B2 all|values|formats [Sheet2,Sheet3]\n");
+          g_strfreev (words);
+          continue;
+        }
+
       /* justify A1:C6: Edit > Fill > Justify. */
       if (g_str_has_prefix (text, "justify "))
         {
