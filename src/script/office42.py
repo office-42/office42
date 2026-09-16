@@ -863,8 +863,18 @@ class Sheet:
         return _c.row_height(self.index, row) if height is None else _c.row_height(self.index, row, int(height))
 
     def col_width(self, col, width=None):
-        """A column's width in pixels; with `width`, sets it."""
+        """A column's width in pixels; with `width`, sets it.  Column -1
+        is the standard width, every column's that has none of its own."""
         return _c.col_width(self.index, col) if width is None else _c.col_width(self.index, col, int(width))
+
+    @property
+    def standard_width(self):
+        """Format > Column > Standard Width, in pixels."""
+        return _c.col_width(self.index, -1)
+
+    @standard_width.setter
+    def standard_width(self, width):
+        _c.col_width(self.index, -1, int(width))
 
     def hide_rows(self, first, last=None):
         _c.set_hidden(self.index, True, first, first if last is None else last, True)

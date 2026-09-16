@@ -440,6 +440,17 @@ line_size (PyObject *args, gboolean rows)
   O42Sheet *sheet;
   if (!PyArg_ParseTuple (args, "ii|i", &index, &at, &size) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
+  /* Column -1 is the standard width: what every column without one of
+   * its own is. */
+  if (!rows && at == -1)
+    {
+      if (size >= 0)
+        {
+          o42_sheet_set_default_col_width (sheet, size);
+          book_touched = TRUE;
+        }
+      return PyLong_FromLong (o42_sheet_default_col_width (sheet));
+    }
   if (at < 0 || at >= (rows ? O42_MAX_ROWS : O42_MAX_COLS))
     return PyErr_Format (PyExc_IndexError, "%s %d is off the sheet", rows ? "row" : "column", at);
   if (size >= 0)

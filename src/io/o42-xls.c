@@ -2909,8 +2909,7 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
           /* In characters of the default font; every column takes it,
            * and COLINFO records after it override. */
           r->default_width = (int) (rd16 (p) * 7.0 + 5.0 + 0.5);
-          for (int c = 0; c < O42_MAX_COLS; c++)
-            o42_sheet_set_col_width (r->sheet, c, r->default_width);
+          o42_sheet_set_default_col_width (r->sheet, r->default_width);
         }
       break;
     case R_STANDARDWIDTH:
@@ -2921,8 +2920,7 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
            * given, whichever came first. */
           r->default_width = (int) (rd16 (p) / 256.0 * 7.0 + 5.0 + 0.5);
           r->saw_standard_width = TRUE;
-          for (int c = 0; c < O42_MAX_COLS; c++)
-            o42_sheet_set_col_width (r->sheet, c, r->default_width);
+          o42_sheet_set_default_col_width (r->sheet, r->default_width);
         }
       break;
     case R_AUTOFILTER:
@@ -5024,7 +5022,7 @@ anchor_object (O42Sheet *sheet, int row, int col, double dx, double dy,
 static void
 write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
 {
-  int default_width = o42_sheet_col_width (sheet, O42_MAX_COLS - 1);
+  int default_width = o42_sheet_default_col_width (sheet);
   int default_height = o42_sheet_row_height (sheet, O42_MAX_ROWS - 1);
   O42Range used;
   int frozen_rows, frozen_cols;

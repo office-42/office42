@@ -93,6 +93,7 @@
           <item><attribute name="label" translatable="yes">_75%</attribute><attribute name="action">win.zoom</attribute><attribute name="target" type="i">75</attribute></item>
           <item><attribute name="label" translatable="yes">_50%</attribute><attribute name="action">win.zoom</attribute><attribute name="target" type="i">50</attribute></item>
           <item><attribute name="label" translatable="yes">2_5%</attribute><attribute name="action">win.zoom</attribute><attribute name="target" type="i">25</attribute></item>
+          <item><attribute name="label" translatable="yes">_Zoom...</attribute><attribute name="action">win.zoom-dialog</attribute></item>
         </submenu>
         <item><attribute name="label" translatable="yes">_Full Screen</attribute><attribute name="action">win.full-screen</attribute></item>
       </section>
@@ -223,11 +224,13 @@
       <section>
         <submenu>
           <attribute name="label" translatable="yes">R_ow</attribute>
+          <item><attribute name="label" translatable="yes">_AutoFit</attribute><attribute name="action">win.autofit-rows</attribute></item>
           <item><attribute name="label" translatable="yes">_Hide</attribute><attribute name="action">win.hide-rows</attribute></item>
           <item><attribute name="label" translatable="yes">_Unhide</attribute><attribute name="action">win.unhide-rows</attribute></item>
         </submenu>
         <submenu>
           <attribute name="label" translatable="yes">Colu_mn</attribute>
+          <item><attribute name="label" translatable="yes">_Standard Width...</attribute><attribute name="action">win.standard-width</attribute></item>
           <item><attribute name="label" translatable="yes">_Hide</attribute><attribute name="action">win.hide-columns</attribute></item>
           <item><attribute name="label" translatable="yes">_Unhide</attribute><attribute name="action">win.unhide-columns</attribute></item>
         </submenu>
@@ -308,8 +311,12 @@
       <attribute name="label" translatable="yes">_Data</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_Sort...</attribute><attribute name="action">win.sort</attribute></item>
-        <item><attribute name="label" translatable="yes">Auto_Filter</attribute><attribute name="action">win.filter</attribute></item>
-        <item><attribute name="label" translatable="yes">Ad_vanced Filter...</attribute><attribute name="action">win.advanced-filter</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Filter</attribute>
+          <item><attribute name="label" translatable="yes">Auto_Filter</attribute><attribute name="action">win.filter</attribute></item>
+          <item><attribute name="label" translatable="yes">_Show All</attribute><attribute name="action">win.filter-show-all</attribute></item>
+          <item><attribute name="label" translatable="yes">Ad_vanced Filter...</attribute><attribute name="action">win.advanced-filter</attribute></item>
+        </submenu>
         <item><attribute name="label" translatable="yes">Te_xt to Columns...</attribute><attribute name="action">win.text-to-columns</attribute></item>
         <item><attribute name="label" translatable="yes">_Validation...</attribute><attribute name="action">win.validation</attribute></item>
         <item><attribute name="label" translatable="yes">Circle _Invalid Data</attribute><attribute name="action">win.circle-invalid</attribute></item>

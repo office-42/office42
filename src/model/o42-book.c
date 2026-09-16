@@ -1359,10 +1359,10 @@ o42_book_clear (O42Book *book)
     o42_sheet_remove_pivot (first, &g_array_index (o42_sheet_pivots (first), O42Pivot, 0));
   o42_sheet_clear_autofilter (first);
   for (int i = 0; i < O42_MAX_COLS; i++)
-    {
-      o42_sheet_set_col_hidden (first, i, FALSE);
-      o42_sheet_set_col_width (first, i, o42_sheet_col_width (first, O42_MAX_COLS - 1));
-    }
+    o42_sheet_set_col_hidden (first, i, FALSE);
+  /* Back to the standard width, not a width of its own on every column
+   * -- which is what a file's own standard width would then lose to. */
+  o42_sheet_reset_col_widths (first);
   o42_book_rename_sheet (book, 0, "Sheet1");
 
   names = o42_book_names (book);

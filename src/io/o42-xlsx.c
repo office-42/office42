@@ -427,7 +427,7 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     "<worksheet xmlns=\"" NS_MAIN "\" xmlns:r=\"" NS_REL "\">");
   O42Range used;
   int frozen_rows, frozen_cols;
-  int default_width = o42_sheet_col_width (sheet, O42_MAX_COLS - 1);
+  int default_width = o42_sheet_default_col_width (sheet);
   int default_height = o42_sheet_row_height (sheet, O42_MAX_ROWS - 1);
   GArray *keys = g_array_new (FALSE, FALSE, sizeof (guint64));
   O42FmtTable *table = o42_sheet_fmt_table (sheet);
@@ -3217,11 +3217,10 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         r->default_height = PT_TO_PX (h);
       if (w > 0)
         {
-          /* The file's default column width, for every column; <cols>
-           * that follow override it where they say so. */
+          /* The file's default column width, which every column is
+           * until a <col> that follows says otherwise. */
           r->default_width = CHARS_TO_PX (w);
-          for (int c = 0; c < O42_MAX_COLS; c++)
-            o42_sheet_set_col_width (r->sheet, c, r->default_width);
+          o42_sheet_set_default_col_width (r->sheet, r->default_width);
         }
     }
   else if (strcmp (n, "brk") == 0 && r->in_breaks)
@@ -4206,7 +4205,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
 
           r.row = -1;
           r.col = -1;
-          r.default_width = o42_sheet_col_width (r.sheet, O42_MAX_COLS - 1);
+          r.default_width = o42_sheet_default_col_width (r.sheet);
           r.default_height = o42_sheet_row_height (r.sheet, O42_MAX_ROWS - 1);
           g_hash_table_remove_all (r.shared);
           g_clear_pointer (&r.drawing_rid, g_free);

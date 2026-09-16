@@ -95,6 +95,12 @@ void o42_grid_delete_columns (O42Grid *self);
 void o42_grid_set_column_width (O42Grid *self, int width);
 void o42_grid_set_row_height   (O42Grid *self, int height);
 void o42_grid_autofit_columns  (O42Grid *self);
+/* Format > Row > AutoFit: each selected row as tall as its tallest
+ * text, wrapped text laid out at the column's width. */
+void o42_grid_autofit_rows     (O42Grid *self);
+/* The zoom at which `range` just fits the cells on show: View > Zoom's
+ * "Fit selection". */
+double o42_grid_fit_zoom       (O42Grid *self, const O42Range *range);
 
 /* ---- Pictures --------------------------------------------------------- */
 

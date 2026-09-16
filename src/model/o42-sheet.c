@@ -135,6 +135,7 @@ struct _O42Sheet {
   GArray      *col_stops;
   guint        row_stops_stamp, col_stops_stamp;
   GHashTable  *col_widths; /* int col -> int width */
+  int          default_col_width; /* what a column without one is; 0 for the default */
   GHashTable  *row_heights;
   GHashTable  *hidden_cols;   /* set of int */
   GHashTable  *hidden_rows;   /* set of int, hidden by hand */
@@ -5791,7 +5792,45 @@ o42_sheet_col_width (O42Sheet *sheet, int col)
     return 0;
 
   found = g_hash_table_lookup (sheet->col_widths, GINT_TO_POINTER (col));
-  return (found != NULL) ? GPOINTER_TO_INT (found) : DEFAULT_COL_WIDTH;
+  return (found != NULL) ? GPOINTER_TO_INT (found) : o42_sheet_default_col_width (sheet);
+}
+
+void
+o42_sheet_reset_col_widths (O42Sheet *sheet)
+{
+  g_return_if_fail (sheet != NULL);
+  sizes_changed (sheet);
+  g_hash_table_remove_all (sheet->col_widths);
+  sheet->default_col_width = 0;
+}
+
+int
+o42_sheet_default_col_width (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, DEFAULT_COL_WIDTH);
+  return sheet->default_col_width > 0 ? sheet->default_col_width : DEFAULT_COL_WIDTH;
+}
+
+void
+o42_sheet_set_default_col_width (O42Sheet *sheet, int width)
+{
+  GArray *places;
+
+  g_return_if_fail (sheet != NULL);
+  width = CLAMP (width, 8, 2000);
+  if (width == o42_sheet_default_col_width (sheet))
+    return;
+  /* The snapshot of column -1 is the default's. */
+  op_begin (sheet);
+  obj_capture (sheet, OBJ_COL_WIDTH, -1, 0);
+  op_end (sheet);
+  record_op_begin (sheet, "sheet.col_width(-1, %d)", width);
+  places = objects_place (sheet);
+  sizes_changed (sheet);
+  sheet->default_col_width = width;
+  objects_follow (sheet, places);
+  sheet->modified = TRUE;
+  record_op_end (sheet);
 }
 
 void
@@ -5854,7 +5893,7 @@ size_stops (O42Sheet *sheet, gboolean rows)
 {
   GArray **cache = rows ? &sheet->row_stops : &sheet->col_stops;
   guint *stamp = rows ? &sheet->row_stops_stamp : &sheet->col_stops_stamp;
-  double normal = rows ? DEFAULT_ROW_HEIGHT : DEFAULT_COL_WIDTH;
+  double normal = rows ? DEFAULT_ROW_HEIGHT : o42_sheet_default_col_width (sheet);
   GHashTable *sized = rows ? sheet->row_heights : sheet->col_widths;
   GHashTable *hidden = rows ? sheet->hidden_rows : sheet->hidden_cols;
   GHashTable *filtered = rows ? sheet->filtered_rows : NULL;
@@ -5946,7 +5985,7 @@ double
 o42_sheet_col_offset (O42Sheet *sheet, int col)
 {
   GArray *stops;
-  double normal = DEFAULT_COL_WIDTH;
+  double normal = o42_sheet_default_col_width (sheet);
   guint low, high;
 
   g_return_val_if_fail (sheet != NULL, 0);
@@ -8142,7 +8181,8 @@ obj_snap_take (O42Sheet *sheet, ObjKind kind, int index, guint64 key)
   snap.key = key;
   switch (kind)
     {
-    case OBJ_COL_WIDTH:  snap.number = o42_sheet_col_width (sheet, index); break;
+    case OBJ_COL_WIDTH:  snap.number = index < 0 ? o42_sheet_default_col_width (sheet)
+                                                  : o42_sheet_col_width (sheet, index); break;
     case OBJ_ROW_HEIGHT: snap.number = o42_sheet_row_height (sheet, index); break;
     case OBJ_ROW_HIDDEN: snap.flag = o42_sheet_row_hidden_by_hand (sheet, index); break;
     case OBJ_COL_HIDDEN: snap.flag = o42_sheet_col_hidden (sheet, index); break;
@@ -8216,7 +8256,10 @@ obj_snap_apply (const ObjSnap *snap)
     {
     case OBJ_COL_WIDTH:
       sizes_changed (sheet);
-      g_hash_table_insert (sheet->col_widths, GINT_TO_POINTER (snap->index), GINT_TO_POINTER (snap->number));
+      if (snap->index < 0)
+        sheet->default_col_width = snap->number;
+      else
+        g_hash_table_insert (sheet->col_widths, GINT_TO_POINTER (snap->index), GINT_TO_POINTER (snap->number));
       break;
     case OBJ_ROW_HEIGHT:
       sizes_changed (sheet);
@@ -13703,6 +13746,7 @@ o42_sheet_duplicate (O42Sheet *src, const char *name)
     }
 
   /* The geometry, and the formats whole rows and columns wear. */
+  dst->default_col_width = src->default_col_width;
   g_hash_table_iter_init (&iter, src->col_widths);
   while (g_hash_table_iter_next (&iter, &key_ptr, &value_ptr))
     o42_sheet_set_col_width (dst, GPOINTER_TO_INT (key_ptr), GPOINTER_TO_INT (value_ptr));

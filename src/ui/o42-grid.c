@@ -5900,6 +5900,127 @@ wrapped_height (O42Grid *self, int row, int col)
   return th + 2;
 }
 
+/* The height a cell's text needs: its wrapped height, or one line of
+ * its font; 0 for an empty cell. */
+static int
+cell_text_height (O42Grid *self, int row, int col)
+{
+  const O42Fmt *fmt = o42_sheet_get_fmt (self->sheet, row, col);
+  PangoFontDescription *desc;
+  int tw, th;
+
+  int size, n_runs = 0;
+  const O42TextRun *runs;
+
+  if (fmt == NULL || o42_sheet_is_empty (self->sheet, row, col))
+    return 0;
+  if (fmt->wrap)
+    return wrapped_height (self, row, col);
+
+  /* Rich text: the tallest of its fonts is what the row must hold. */
+  size = fmt->size;
+  runs = o42_sheet_runs (self->sheet, row, col, &n_runs);
+  for (int i = 0; runs != NULL && i < n_runs; i++)
+    size = MAX (size, runs[i].fmt.size);
+
+  desc = pango_font_description_new ();
+  pango_font_description_set_family (desc, fmt->family ? fmt->family : "Sans");
+  pango_font_description_set_size (desc, (size / 2) * PANGO_SCALE);
+  pango_font_description_set_weight (desc, fmt->bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+  pango_font_description_set_style (desc, fmt->italic ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
+  pango_layout_set_font_description (self->layout, desc);
+  pango_font_description_free (desc);
+  pango_layout_set_attributes (self->layout, NULL);
+  pango_layout_set_text (self->layout, "Xg", -1);
+  pango_layout_set_width (self->layout, -1);
+  pango_layout_get_pixel_size (self->layout, &tw, &th);
+  return th + 2;
+}
+
+typedef struct {
+  O42Grid  *grid;
+  O42Range  rows;      /* the rows being fitted */
+  GHashTable *wanted;  /* row -> the tallest text in it */
+} RowFit;
+
+static void
+note_row_fit (O42Sheet *sheet, int row, int col, gpointer user)
+{
+  RowFit *fit = user;
+  int wanted;
+
+  (void) sheet;
+  if (row < fit->rows.row0 || row > fit->rows.row1)
+    return;
+  wanted = cell_text_height (fit->grid, row, col);
+  if (wanted > GPOINTER_TO_INT (g_hash_table_lookup (fit->wanted, GINT_TO_POINTER (row))))
+    g_hash_table_insert (fit->wanted, GINT_TO_POINTER (row), GINT_TO_POINTER (wanted));
+}
+
+void
+o42_grid_autofit_rows (O42Grid *self)
+{
+  RowFit fit;
+
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->sheet == NULL)
+    return;
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  fit.grid = self;
+  selection_range (self, &fit.rows);
+  fit.wanted = g_hash_table_new (g_direct_hash, g_direct_equal);
+  /* The stored cells, not every cell of a selection that may be the
+   * whole sheet. */
+  o42_sheet_foreach_cell (self->sheet, note_row_fit, &fit);
+
+  o42_sheet_begin_group (self->sheet);
+  for (int row = fit.rows.row0; row <= fit.rows.row1; row++)
+    {
+      int wanted = GPOINTER_TO_INT (g_hash_table_lookup (fit.wanted, GINT_TO_POINTER (row)));
+
+      /* A row with nothing in it goes back to the default height; the
+       * others are as tall as their text and no shorter than that. */
+      if (wanted <= 0)
+        {
+          if (o42_sheet_row_height_set (self->sheet, row))
+            o42_sheet_set_row_height (self->sheet, row, 20);
+        }
+      else if (wanted != o42_sheet_row_height (self->sheet, row))
+        o42_sheet_set_row_height (self->sheet, row, MAX (wanted, 20));
+      /* A million empty rows below a small selection cost nothing: only
+       * the rows that have a height of their own are looked at above,
+       * but the loop itself would; stop where the cells stop. */
+      if (row - fit.rows.row0 > 100000 && g_hash_table_size (fit.wanted) == 0)
+        break;
+    }
+  o42_sheet_end_group (self->sheet);
+  g_hash_table_destroy (fit.wanted);
+
+  gtk_widget_queue_resize (GTK_WIDGET (self));
+  sheet_changed (self);
+}
+
+double
+o42_grid_fit_zoom (O42Grid *self, const O42Range *range)
+{
+  double view_w, view_h, need_w, need_h, zoom;
+
+  g_return_val_if_fail (O42_IS_GRID (self), 1.0);
+  if (self->sheet == NULL || range == NULL)
+    return 1.0;
+
+  view_w = gtk_widget_get_width (GTK_WIDGET (self)) - HEADER_W;
+  view_h = gtk_widget_get_height (GTK_WIDGET (self)) - HEADER_H;
+  need_w = o42_sheet_col_offset (self->sheet, range->col1 + 1) - o42_sheet_col_offset (self->sheet, range->col0);
+  need_h = o42_sheet_row_offset (self->sheet, range->row1 + 1) - o42_sheet_row_offset (self->sheet, range->row0);
+  if (view_w <= 0 || view_h <= 0 || need_w <= 0 || need_h <= 0)
+    return 1.0;
+  zoom = MIN (view_w / need_w, view_h / need_h);
+  return CLAMP (zoom, 0.25, 4.0);
+}
+
 /* One stored cell, on the way past: the tallest wrap in each row is
  * remembered and the rows are grown afterwards.  Walking the cells that
  * exist rather than the used rectangle is what keeps this from taking a

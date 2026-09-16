@@ -694,6 +694,87 @@ void action_filter (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p
 void action_column_width (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; size_prompt (d, TRUE); }
 void action_row_height (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; size_prompt (d, FALSE); }
 void action_autofit (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_autofit_columns (O42_WINDOW (d)->grid); }
+void action_autofit_rows (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_autofit_rows (O42_WINDOW (d)->grid); }
+
+/* Data > Filter > Show All: every column's choice back to "(All)", the
+ * filter itself staying. */
+void
+action_filter_show_all (GSimpleAction *a, GVariant *p, gpointer d)
+{
+  O42Window *self = d;
+  O42Range range;
+
+  (void) a; (void) p;
+  if (!o42_sheet_get_autofilter (self->sheet, &range))
+    return;
+  o42_sheet_begin_group (self->sheet);
+  for (int col = range.col0; col <= range.col1; col++)
+    if (o42_sheet_autofilter_choice (self->sheet, col) != NULL)
+      o42_sheet_autofilter_choose (self->sheet, col, NULL);
+  o42_sheet_end_group (self->sheet);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+}
+
+/* ---- Standard Width ---------------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *entry;
+} StandardWidthPrompt;
+
+static void
+on_standard_width_ok (GtkWidget *w, gpointer data)
+{
+  StandardWidthPrompt *prompt = data;
+  const char *text = gtk_editable_get_text (GTK_EDITABLE (prompt->entry));
+  char *end = NULL;
+  double value = g_ascii_strtod (text, &end);
+
+  (void) w;
+  if (end != text && value > 0)
+    {
+      o42_sheet_set_default_col_width (prompt->window->sheet, (int) (value + 0.5));
+      o42_grid_refresh (prompt->window->grid);
+      window_sync (prompt->window);
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_standard_width (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  StandardWidthPrompt *prompt = g_new0 (StandardWidthPrompt, 1);
+  GtkWidget *content, *buttons, *row, *ok;
+  char initial[16];
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Standard Width"), TRUE, &content, &buttons);
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Standard column width (pixels):")));
+  prompt->entry = gtk_entry_new ();
+  g_snprintf (initial, sizeof initial, "%d", o42_sheet_default_col_width (self->sheet));
+  gtk_editable_set_text (GTK_EDITABLE (prompt->entry), initial);
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->entry), 8);
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt->entry), TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->entry);
+  gtk_box_append (GTK_BOX (content), row);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_standard_width_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+  gtk_widget_grab_focus (prompt->entry);
+  gtk_editable_select_region (GTK_EDITABLE (prompt->entry), 0, -1);
+}
 
 /* ---- Format > AutoFormat, and the format painter ----------------------- */
 

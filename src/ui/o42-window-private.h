@@ -224,5 +224,9 @@ void action_filter (GSimpleAction *a, GVariant *p, gpointer data);
 void action_column_width (GSimpleAction *a, GVariant *p, gpointer data);
 void action_row_height (GSimpleAction *a, GVariant *p, gpointer data);
 void action_autofit (GSimpleAction *a, GVariant *p, gpointer data);
+void action_autofit_rows (GSimpleAction *a, GVariant *p, gpointer data);
+void action_standard_width (GSimpleAction *a, GVariant *p, gpointer data);
+void action_filter_show_all (GSimpleAction *a, GVariant *p, gpointer data);
+void action_zoom_dialog (GSimpleAction *a, GVariant *p, gpointer data);
 
 G_END_DECLS

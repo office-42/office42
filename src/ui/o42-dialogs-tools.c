@@ -3179,3 +3179,103 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_window_present (GTK_WINDOW (prompt->dialog));
   gtk_widget_grab_focus (prompt->changing);
 }
+
+/* ---- View > Zoom... ----------------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *choice[7];    /* 200, 100, 75, 50, 25, fit selection, custom */
+  GtkWidget *custom;
+} ZoomPrompt;
+
+static void
+on_zoom_ok (GtkWidget *w, gpointer data)
+{
+  static const int PERCENTS[] = { 200, 100, 75, 50, 25 };
+  ZoomPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  int percent = -1;
+
+  (void) w;
+  for (int i = 0; i < 5; i++)
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->choice[i])))
+      percent = PERCENTS[i];
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->choice[5])))
+    {
+      O42Range sel;
+
+      o42_grid_get_selection (self->grid, &sel);
+      percent = (int) (o42_grid_fit_zoom (self->grid, &sel) * 100 + 0.5);
+    }
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->choice[6])))
+    {
+      const char *text = gtk_editable_get_text (GTK_EDITABLE (prompt->custom));
+      char *end = NULL;
+      double value = g_ascii_strtod (text, &end);
+
+      if (end == text || value < 10 || value > 400)
+        {
+          o42_window_show_error (self, _("The zoom is a number from 10 to 400."), NULL);
+          return;
+        }
+      percent = (int) (value + 0.5);
+    }
+  if (percent > 0)
+    g_action_group_activate_action (G_ACTION_GROUP (self), "zoom", g_variant_new_int32 (percent));
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_zoom_dialog (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  static const char *const NAMES[] = { N_("_200%"), N_("_100%"), N_("_75%"), N_("_50%"), N_("2_5%"),
+                                       N_("_Fit selection"), N_("_Custom:") };
+  O42Window *self = data;
+  ZoomPrompt *prompt = g_new0 (ZoomPrompt, 1);
+  GtkWidget *content, *buttons, *row, *ok;
+  int now = (int) (o42_grid_get_zoom (self->grid) * 100 + 0.5);
+  char text[16];
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = o42_dialog_frame (self, _("Zoom"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Magnification")));
+  for (int i = 0; i < 7; i++)
+    {
+      prompt->choice[i] = gtk_check_button_new_with_mnemonic (_(NAMES[i]));
+      if (i > 0)
+        gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->choice[i]), GTK_CHECK_BUTTON (prompt->choice[0]));
+      if (i < 6)
+        gtk_box_append (GTK_BOX (content), prompt->choice[i]);
+    }
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), prompt->choice[6]);
+  prompt->custom = gtk_entry_new ();
+  g_snprintf (text, sizeof text, "%d", now);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->custom), text);
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->custom), 5);
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt->custom), TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->custom);
+  gtk_box_append (GTK_BOX (row), gtk_label_new ("%"));
+  gtk_box_append (GTK_BOX (content), row);
+
+  /* The zoom now is the one ticked; one of the presets, or Custom. */
+  {
+    static const int PERCENTS[] = { 200, 100, 75, 50, 25 };
+    int which = 6;
+
+    for (int i = 0; i < 5; i++)
+      if (PERCENTS[i] == now)
+        which = i;
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->choice[which]), TRUE);
+  }
+
+  ok = o42_dialog_button (buttons, _("_OK"), G_CALLBACK (on_zoom_ok), prompt);
+  o42_dialog_button (buttons, _("_Cancel"), G_CALLBACK (o42_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (o42_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}

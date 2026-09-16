@@ -2154,7 +2154,7 @@ static void
 write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
 {
   O42Range used;
-  int default_width = o42_sheet_col_width (sheet, O42_MAX_COLS - 1);
+  int default_width = o42_sheet_default_col_width (sheet);
   int default_height = o42_sheet_row_height (sheet, O42_MAX_ROWS - 1);
   O42FmtIdx default_idx = o42_fmt_table_default (o42_sheet_fmt_table (sheet));
   char *name = g_markup_escape_text (o42_sheet_get_name (sheet), -1);

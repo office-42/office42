@@ -429,6 +429,13 @@ void           o42_sheet_restyle     (O42Sheet *sheet, const char *name);   /* a
  * grid lays out at, the same convention word42 uses. */
 int  o42_sheet_col_width  (O42Sheet *sheet, int col);
 void o42_sheet_set_col_width (O42Sheet *sheet, int col, int width);
+/* Format > Column > Standard Width: the width of every column that has
+ * not been given one of its own.  One undo step. */
+int  o42_sheet_default_col_width     (O42Sheet *sheet);
+void o42_sheet_set_default_col_width (O42Sheet *sheet, int width);
+/* Every column back to the standard width, and that back to the
+ * default: what a file loader starts from.  Not undone. */
+void o42_sheet_reset_col_widths      (O42Sheet *sheet);
 /* Where a row or a column starts, in pixels from the top or the left
  * of the sheet, and which one is at an offset.  Both are answered from
  * the rows that differ from the default height -- there are few of

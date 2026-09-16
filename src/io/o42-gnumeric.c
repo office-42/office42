@@ -1010,8 +1010,10 @@ write_sheet (GString *out, O42Sheet *sheet)
 
   /* Column widths and row heights that are not the default. */
   g_string_append_printf (w.out, "      <gnm:Cols DefaultSizePts=\"%g\">\n",
-                          PX_TO_PT (o42_sheet_col_width (sheet, O42_MAX_COLS - 1)));
-  for (int col = 0; col <= used.col1; col++)
+                          PX_TO_PT (o42_sheet_default_col_width (sheet)));
+  /* Every column, not only the used ones: a width set past the last
+   * cell is a width all the same. */
+  for (int col = 0; col < O42_MAX_COLS; col++)
     {
       gboolean hidden = o42_sheet_col_hidden (sheet, col);
       int width = o42_sheet_col_width (sheet, col);
@@ -1023,7 +1025,7 @@ write_sheet (GString *out, O42Sheet *sheet)
       if (hidden)
         g_string_append_printf (w.out, "        <gnm:ColInfo No=\"%d\" Unit=\"%g\" Hidden=\"1\"%s/>\n",
                                 col, PX_TO_PT (80), outline);
-      else if (width != o42_sheet_col_width (sheet, O42_MAX_COLS - 1) || level > 0)
+      else if (width != o42_sheet_default_col_width (sheet) || level > 0)
         g_string_append_printf (w.out, "        <gnm:ColInfo No=\"%d\" Unit=\"%g\"%s/>\n",
                                 col, PX_TO_PT (width), outline);
     }
@@ -2449,6 +2451,16 @@ start_element (GMarkupParseContext *context, const char *element,
           r->fmt.border_colour[side] = gnm_colour_parse (attr (names, values, "Color"));
           o42_fmt_sync_borders (&r->fmt);
         }
+      return;
+    }
+
+  /* The width of the columns that are not listed. */
+  if (strcmp (name, "Cols") == 0)
+    {
+      double pts = attr_double (names, values, "DefaultSizePts", -1);
+
+      if (pts > 0)
+        o42_sheet_set_default_col_width (r->sheet, (int) (PT_TO_PX (pts) + 0.5));
       return;
     }
 
