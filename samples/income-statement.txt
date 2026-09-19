@@ -1,0 +1,168 @@
+# The book on the README's screenshot.  From the repository root:
+#   office42-calc < samples/income-statement.txt
+#   office42 --screenshot docs/images/screenshot.png --select H16 samples/income-statement.gnumeric
+A1 = Income Statement 2026
+font A1 bold,size=14
+rich A1 17 21 colour=1F497D,font=Georgia
+A2 = US dollars, actual against budget. Variance is actual less budget; a bracketed figure is negative.
+font A2 italic,colour=595959
+colwidth A 118
+colwidth B 72
+colwidth C 72
+colwidth D 72
+colwidth E 72
+colwidth F 72
+colwidth G 72
+colwidth H 72
+colwidth I 72
+colwidth J 108
+colwidth K 72
+A3 = Account
+B3 = Q1
+C3 = Q2
+D3 = Q3
+E3 = Q4
+F3 = Actual
+G3 = Budget
+H3 = Variance
+I3 = Var %
+font A3:I3 bold,colour=FFFFFF,fill=1F497D
+border A3:I3 bottom medium #1F497D
+A4 = Revenue
+A5 = Product sales
+B5 = 412500
+C5 = 438200
+D5 = 451900
+E5 = 487300
+G5 = 1750000
+A6 = Service income
+B6 = 96400
+C6 = 101200
+D6 = 99800
+E6 = 108600
+G6 = 420000
+A7 = Total revenue
+B7 = =SUM(B5:B6)
+fillright B7:G7
+A8 = Cost of sales
+A9 = Materials
+B9 = 158200
+C9 = 166900
+D9 = 171400
+E9 = 189700
+G9 = 660000
+A10 = Direct labour
+B10 = 94300
+C10 = 96100
+D10 = 97800
+E10 = 101200
+G10 = 390000
+A11 = Gross profit
+B11 = =B7-SUM(B9:B10)
+fillright B11:G11
+A12 = Operating expenses
+A13 = Salaries
+B13 = 186000
+C13 = 186000
+D13 = 188500
+E13 = 188500
+G13 = 750000
+A14 = Premises
+B14 = 42300
+C14 = 41800
+D14 = 43900
+E14 = 46200
+G14 = 170000
+A15 = Marketing
+B15 = 28500
+C15 = 31200
+D15 = 47600
+E15 = 33400
+G15 = 135000
+A16 = Net income
+B16 = =B11-SUM(B13:B15)
+fillright B16:G16
+F5 = =SUM(B5:E5)
+filldown F5:F7
+F9 = =SUM(B9:E9)
+filldown F9:F11
+F13 = =SUM(B13:E13)
+filldown F13:F16
+H5 = =F5-G5
+filldown H5:H7
+H9 = =F9-G9
+filldown H9:H11
+H13 = =F13-G13
+filldown H13:H16
+I5 = =H5/G5
+filldown I5:I7
+I9 = =H9/G9
+filldown I9:I11
+I13 = =H13/G13
+filldown I13:I16
+format B5:H16 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format I5:I16 0.0%
+font A4:I4 bold,fill=EEF2F8
+font A8:I8 bold,fill=EEF2F8
+font A12:I12 bold,fill=EEF2F8
+indent A5:A6 1
+indent A9:A10 1
+indent A13:A15 1
+font A7:I7 bold
+font A11:I11 bold
+border A7:I7 top thin #1F497D
+border A11:I11 top thin #1F497D
+font A16:I16 bold
+border A16:I16 top double #1F497D
+border A16:I16 bottom thin #1F497D
+cond I5:I7 < 0 red bold
+cond I11:I11 < 0 red bold
+cond I16:I16 < 0 red bold
+cond I9:I10 > 0.03 red bold
+cond I13:I15 > 0.03 red bold
+cond I5:I7 > 0.02 bold fill
+note D15 The spring trade fair, which the budget did not have.
+J3 = Quarter
+K3 = Net income
+font J3:K3 bold,colour=FFFFFF,fill=1F497D
+J4 = =B3
+J5 = =C3
+J6 = =D3
+J7 = =E3
+K4 = =B16
+K5 = =C16
+K6 = =D16
+K7 = =E16
+format K4:K7 #,##0;(#,##0)
+J9 = Expense
+K9 = Year
+font J9:K9 bold,colour=FFFFFF,fill=1F497D
+J10 = =A13
+K10 = =F13
+filldown J10:J12
+filldown K10:K12
+format K10:K12 #,##0
+J14 = Largest expense
+K14 = =INDEX(J10:J12,MATCH(MAX(K10:K12),K10:K12,0))
+J15 = Best quarter
+K15 = =INDEX(J4:J7,MATCH(MAX(K4:K7),K4:K7,0))
+J16 = Margin
+K16 = =F16/F7
+format K16 0.0%
+font J14:J16 bold
+chart column J3:K7 headings stubs Net income by quarter
+chartset 1 3d on
+chartset 1 at A18
+chartset 1 size 260 160
+chartset 1 ytitle US dollars
+chart pie J9:K12 headings stubs Operating expenses
+chartset 2 at D18
+chartset 2 size 430 160
+chartset 2 labels on
+shape textbox J18 Net income (8,600) to budget: materials ran 4% over.
+freeze A4
+rename Income
+sheet Ledger
+sheet Notes
+sheet Income
+save samples/income-statement.gnumeric

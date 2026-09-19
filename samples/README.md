@@ -45,6 +45,6 @@ Everything else agrees to the last digit, currency and percent cells
 included, and the formats book shows what it should down to the
 `[$kr-414]` currency LibreOffice put on three of the money cells.
 
-`regional-sales.txt` is the office42-calc script that makes the book on
-the README's screenshot, and `regional-sales.gnumeric` is that book;
+`income-statement.txt` is the office42-calc script that makes the book on
+the README's screenshot, and `income-statement.gnumeric` is that book;
 the comment at the top of the script says how the picture is taken.

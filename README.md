@@ -14,7 +14,7 @@ The site is [office42.net](https://office42.net/).
 [![macOS](https://github.com/office-42/office42/actions/workflows/macos.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/macos.yml)
 [![Windows](https://github.com/office-42/office42/actions/workflows/windows.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/windows.yml)
 
-![Office42 Spreadsheet showing a regional sales sheet: a title set in two fonts in one cell, a styled heading row, currency and percent formats, a total row with SUM and INDEX/MATCH formulas, conditional formats on the growth column, a note, a text box, frozen panes, a three-dimensional column chart, a pie chart with labels, and three sheet tabs](docs/images/screenshot.png)
+![Office42 Spreadsheet showing an income statement: a title set in two fonts in one cell, a styled heading row, revenue, cost of sales and operating expenses in the Accounting number format with negatives in brackets, actual against budget with SUM and INDEX/MATCH formulas, conditional formats on the variance column, a note, a text box, frozen panes, a three-dimensional column chart of net income by quarter, a pie chart of expenses with labels, and three sheet tabs](docs/images/screenshot.png)
 
 [docs/GUIDE.md](docs/GUIDE.md) is the user guide: every
 menu, every dialog, the number-format codes, the keyboard and the terminal
