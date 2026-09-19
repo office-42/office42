@@ -29,6 +29,7 @@ append_border_side (GString *out, const char *side, O42BorderStyle style, guint3
 }
 #include <stdlib.h>
 
+#include "o42-date.h"
 #include "o42-entry.h"
 #include "o42-zip.h"
 #include "o42-xlsx-draw.h"
@@ -191,6 +192,35 @@ rich_string_for (Writer *w, const char *text, const O42TextRun *runs, int n_runs
   return w->strings->len - 1;
 }
 
+/* Text as a cell holds it, escaped for XML and with the characters XML
+ * cannot carry spelled the way Excel spells them: _x000D_ for a carriage
+ * return and so on for every control character but tab and newline.  A
+ * literal "_x000D_" in the text is kept apart by writing its underscore
+ * as _x005F_, as Excel does. */
+static char *
+escape_cell_text (const char *text)
+{
+  GString *out = g_string_new (NULL);
+
+  for (const char *p = text; *p != '\0'; p++)
+    {
+      guchar c = (guchar) *p;
+
+      if (c < 0x20 && c != '\t' && c != '\n')
+        g_string_append_printf (out, "_x%04X_", c);
+      else if (c == '_' && p[1] == 'x' && g_ascii_isxdigit (p[2]) && g_ascii_isxdigit (p[3]) &&
+               g_ascii_isxdigit (p[4]) && g_ascii_isxdigit (p[5]) && p[6] == '_')
+        g_string_append (out, "_x005F_");
+      else
+        g_string_append_c (out, (char) c);
+    }
+  {
+    char *escaped = g_markup_escape_text (out->str, -1);
+    g_string_free (out, TRUE);
+    return escaped;
+  }
+}
+
 /* The shortest decimal that reads back as the same double: fifteen
  * digits when that is enough, seventeen when it is not.  Excel writes
  * "4.3", not "4.2999999999999998", and so do we. */
@@ -311,7 +341,7 @@ append_cell (Writer *w, GString *out, O42Sheet *sheet, int row, int col, guint x
           g_string_append (out, "</v>");
           break;
         case O42_VALUE_TEXT:
-          escaped = g_markup_escape_text (value.as.text, -1);
+          escaped = escape_cell_text (value.as.text);
           g_string_append_printf (out, "<v>%s</v>", escaped);
           g_free (escaped);
           break;
@@ -845,26 +875,6 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
   {
     const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
 
-    /* Manual page breaks, before the print options as the schema
-     * wants them. */
-    {
-      GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
-      GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
-      if (rb->len > 0)
-        {
-          g_string_append_printf (out, "<rowBreaks count=\"%u\" manualBreakCount=\"%u\">", rb->len, rb->len);
-          for (guint i = 0; i < rb->len; i++)
-            g_string_append_printf (out, "<brk id=\"%d\" max=\"16383\" man=\"1\"/>", g_array_index (rb, int, i));
-          g_string_append (out, "</rowBreaks>");
-        }
-      if (cb->len > 0)
-        {
-          g_string_append_printf (out, "<colBreaks count=\"%u\" manualBreakCount=\"%u\">", cb->len, cb->len);
-          for (guint i = 0; i < cb->len; i++)
-            g_string_append_printf (out, "<brk id=\"%d\" max=\"1048575\" man=\"1\"/>", g_array_index (cb, int, i));
-          g_string_append (out, "</colBreaks>");
-        }
-    }
     if (ps->gridlines || ps->headings || ps->hcenter || ps->vcenter)
       g_string_append_printf (out, "<printOptions%s%s%s%s/>",
                               ps->hcenter ? " horizontalCentered=\"1\"" : "",
@@ -924,6 +934,26 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
         g_free (h);
         g_free (f);
       }
+    /* Manual page breaks come after the header and footer, where the
+     * schema puts them; Excel repairs a file that has them earlier. */
+    {
+      GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
+      GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
+      if (rb->len > 0)
+        {
+          g_string_append_printf (out, "<rowBreaks count=\"%u\" manualBreakCount=\"%u\">", rb->len, rb->len);
+          for (guint i = 0; i < rb->len; i++)
+            g_string_append_printf (out, "<brk id=\"%d\" max=\"16383\" man=\"1\"/>", g_array_index (rb, int, i));
+          g_string_append (out, "</rowBreaks>");
+        }
+      if (cb->len > 0)
+        {
+          g_string_append_printf (out, "<colBreaks count=\"%u\" manualBreakCount=\"%u\">", cb->len, cb->len);
+          for (guint i = 0; i < cb->len; i++)
+            g_string_append_printf (out, "<brk id=\"%d\" max=\"1048575\" man=\"1\"/>", g_array_index (cb, int, i));
+          g_string_append (out, "</colBreaks>");
+        }
+    }
   }
   if (drawing_rid > 0)
     g_string_append_printf (out, "<drawing r:id=\"rId%d\"/>", drawing_rid);
@@ -1434,7 +1464,7 @@ write_comments (O42ZipWriter *zip, O42Sheet *sheet, int index, GString *content_
       guint64 k = *(guint64 *) key;
       int row = o42_key_row (k), col = o42_key_col (k);
       char *ref = o42_ref_name (row, col);
-      char *text = g_markup_escape_text (value, -1);
+      char *text = escape_cell_text (value);
 
       g_string_append_printf (comments,
         "<comment ref=\"%s\" authorId=\"0\"><text><r><t xml:space=\"preserve\">%s</t></r></text></comment>", ref, text);
@@ -2248,8 +2278,11 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     {
       const char *text = g_ptr_array_index (w.strings, i);
       GArray *runs = g_ptr_array_index (w.string_runs, i);
-      char *escaped = g_markup_escape_text (text, -1);
-      gboolean edge_space = text[0] == ' ' || (text[0] != '\0' && text[strlen (text) - 1] == ' ');
+      char *escaped = escape_cell_text (text);
+      /* Excel trims whitespace at either end of a string unless the
+       * element says to keep it. */
+      gboolean edge_space = g_ascii_isspace (text[0]) ||
+                            (text[0] != '\0' && g_ascii_isspace (text[strlen (text) - 1]));
 
       if (runs != NULL && runs->len > 0)
         {
@@ -2267,7 +2300,11 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
 
               if (end <= start)
                 continue;
-              part = g_markup_escape_text (text + start, (gssize) (end - start));
+              {
+                char *piece = g_strndup (text + start, end - start);
+                part = escape_cell_text (piece);
+                g_free (piece);
+              }
               g_string_append (s, "<r><rPr>");
               if (run->fmt.bold) g_string_append (s, "<b/>");
               if (run->fmt.italic) g_string_append (s, "<i/>");
@@ -2394,6 +2431,8 @@ typedef struct
   GPtrArray  *string_runs;    /* GArray of O42TextRun beside `strings`, or NULL */
   GArray     *cell_runs;      /* the runs of the cell being read, borrowed */
   GArray     *si_runs;        /* the runs of the string being read */
+  GArray     *is_runs;        /* the runs of an inline string being read */
+  gboolean    in_rph;         /* <rPh>: the phonetic guide, not the text */
   O42Fmt      run_fmt;
 
   /* Styles */
@@ -2419,6 +2458,7 @@ typedef struct
   gboolean    in_style_xfs;
   GArray     *xf_dates;     /* gboolean */
   gboolean    in_fonts, in_fills, in_borders, in_xfs;
+  gboolean    in_gradient;      /* a gradientFill: its first stop is the fill */
   O42Fmt      cur_font;
   guint32     cur_fill;
   gboolean    cur_fill_solid;
@@ -2433,6 +2473,7 @@ typedef struct
   O42Sheet   *sheet;
   int         row, col;
   int         xf;
+  O42NumberFormat is_date_cell;   /* a t="d" cell: the kind of date it is */
   char       *type;
   GString    *f, *v, *is;
   gboolean    in_f, in_v, in_is, has_f;
@@ -2459,6 +2500,10 @@ typedef struct
   gboolean    cf_is_expression;
   GString    *cf_formula;
   gboolean    cf_is_scale;      /* a colorScale rule */
+  char       *cf_type;          /* the rule's type, for the ones made into formulas */
+  int         cf_rank;          /* top10: how many */
+  gboolean    cf_percent, cf_bottom, cf_above, cf_equal;
+  int         cf_std_dev;       /* aboveAverage: standard deviations away, or 0 */
   int         cf_stop_count, cf_colour_count;
   int         cf_stop_type[3];
   double      cf_stop_value[3];
@@ -2475,23 +2520,6 @@ typedef struct
   int         comment_row, comment_col;
   GString    *comment_text;
 } Reader;
-
-/* ---- relationships ---- */
-
-static void
-rels_start (GMarkupParseContext *ctx, const char *name, const char **names,
-            const char **values, gpointer user, GError **error)
-{
-  Reader *r = user;
-  (void) ctx; (void) error;
-  if (strcmp (local (name), "Relationship") == 0)
-    {
-      const char *id = attr (names, values, "Id");
-      const char *target = attr (names, values, "Target");
-      if (id && target)
-        g_hash_table_insert (r->rels, g_strdup (id), g_strdup (target));
-    }
-}
 
 /* ---- workbook ---- */
 
@@ -2654,6 +2682,75 @@ workbook_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer u
 
 static guint32 rgb_attr (Reader *r, const char **names, const char **values);
 
+/* Text as a file holds it, with Excel's spelling of the characters XML
+ * cannot carry undone: _x000D_ is a carriage return, and _x005F_ the
+ * underscore of a "_x000D_" that was meant literally. */
+static void
+append_cell_text (GString *dst, const char *text, gsize len)
+{
+  for (gsize i = 0; i < len; i++)
+    {
+      if (text[i] == '_' && i + 6 < len && text[i + 1] == 'x' && text[i + 6] == '_' &&
+          g_ascii_isxdigit (text[i + 2]) && g_ascii_isxdigit (text[i + 3]) &&
+          g_ascii_isxdigit (text[i + 4]) && g_ascii_isxdigit (text[i + 5]))
+        {
+          char hex[5] = { text[i + 2], text[i + 3], text[i + 4], text[i + 5], 0 };
+          gunichar c = (gunichar) g_ascii_strtoull (hex, NULL, 16);
+
+          if (c != 0 && g_unichar_validate (c))
+            g_string_append_unichar (dst, c);
+          i += 6;
+        }
+      else
+        g_string_append_c (dst, text[i]);
+    }
+}
+
+/* One property of a rich text run, <b/>, <sz val="14"/> and the rest,
+ * onto the last run begun; the same in a shared string and an inline one. */
+static void
+run_property (Reader *r, GArray *runs, const char *n, const char **names, const char **values)
+{
+  O42Fmt *fmt;
+
+  if (runs == NULL || runs->len == 0)
+    return;
+  fmt = &g_array_index (runs, O42TextRun, runs->len - 1).fmt;
+  if (strcmp (n, "b") == 0) fmt->bold = !attr (names, values, "val") || attr_flag (names, values, "val");
+  else if (strcmp (n, "i") == 0) fmt->italic = !attr (names, values, "val") || attr_flag (names, values, "val");
+  else if (strcmp (n, "strike") == 0) fmt->strikeout = !attr (names, values, "val") || attr_flag (names, values, "val");
+  else if (strcmp (n, "u") == 0)
+    fmt->underline = attr (names, values, "val") == NULL || strcmp (attr (names, values, "val"), "none") != 0;
+  else if (strcmp (n, "sz") == 0)
+    {
+      double points = attr_double (names, values, "val", 10);
+      fmt->size = (guint8) CLAMP ((int) (points * 2 + 0.5), 2, 800);
+    }
+  else if (strcmp (n, "color") == 0)
+    {
+      guint32 colour = rgb_attr (r, names, values);
+      if (colour != 0xFFFFFFFFu) fmt->colour = colour;
+    }
+  else if (strcmp (n, "rFont") == 0)
+    {
+      const char *face = attr (names, values, "val");
+      if (face != NULL) fmt->family = g_intern_string (face);
+    }
+}
+
+/* A run begins where the text read so far ends. */
+static void
+run_begin (GArray **runs, gsize at)
+{
+  O42TextRun run;
+
+  if (*runs == NULL)
+    *runs = g_array_new (FALSE, FALSE, sizeof (O42TextRun));
+  run.start = (int) at;
+  o42_fmt_init_default (&run.fmt);
+  g_array_append_val (*runs, run);
+}
+
 static void
 sst_start (GMarkupParseContext *ctx, const char *name, const char **names,
            const char **values, gpointer user, GError **error)
@@ -2665,48 +2762,21 @@ sst_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       r->in_si = TRUE;
       r->in_run = FALSE;
+      r->in_rph = FALSE;
       g_string_truncate (r->si, 0);
       g_clear_pointer (&r->si_runs, g_array_unref);
     }
   else if (strcmp (n, "t") == 0)
     r->in_t = TRUE;
+  else if (strcmp (n, "rPh") == 0)
+    r->in_rph = TRUE;   /* furigana over the text, which is not the text */
   else if (strcmp (n, "r") == 0 && r->in_si)
     {
-      /* A run starts where the text read so far ends. */
-      O42TextRun run;
-
       r->in_run = TRUE;
-      o42_fmt_init_default (&r->run_fmt);
-      if (r->si_runs == NULL)
-        r->si_runs = g_array_new (FALSE, FALSE, sizeof (O42TextRun));
-      run.start = (int) r->si->len;
-      run.fmt = r->run_fmt;
-      g_array_append_val (r->si_runs, run);
+      run_begin (&r->si_runs, r->si->len);
     }
-  else if (r->in_run && r->si_runs != NULL && r->si_runs->len > 0)
-    {
-      O42Fmt *fmt = &g_array_index (r->si_runs, O42TextRun, r->si_runs->len - 1).fmt;
-
-      if (strcmp (n, "b") == 0) fmt->bold = 1;
-      else if (strcmp (n, "i") == 0) fmt->italic = 1;
-      else if (strcmp (n, "strike") == 0) fmt->strikeout = 1;
-      else if (strcmp (n, "u") == 0) fmt->underline = 1;
-      else if (strcmp (n, "sz") == 0)
-        {
-          double points = attr_double (names, values, "val", 10);
-          fmt->size = (guint8) CLAMP ((int) (points * 2 + 0.5), 2, 800);
-        }
-      else if (strcmp (n, "color") == 0)
-        {
-          guint32 colour = rgb_attr (r, names, values);
-          if (colour != 0xFFFFFFFFu) fmt->colour = colour;
-        }
-      else if (strcmp (n, "rFont") == 0)
-        {
-          const char *face = attr (names, values, "val");
-          if (face != NULL) fmt->family = g_intern_string (face);
-        }
-    }
+  else if (r->in_run)
+    run_property (r, r->si_runs, n, names, values);
 }
 
 static void
@@ -2726,6 +2796,8 @@ sst_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **err
     r->in_t = FALSE;
   else if (strcmp (n, "r") == 0)
     r->in_run = FALSE;
+  else if (strcmp (n, "rPh") == 0)
+    r->in_rph = FALSE;
 }
 
 static void
@@ -2733,8 +2805,8 @@ sst_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user, 
 {
   Reader *r = user;
   (void) ctx; (void) error;
-  if (r->in_si && r->in_t)
-    g_string_append_len (r->si, text, (gssize) len);
+  if (r->in_si && r->in_t && !r->in_rph)
+    append_cell_text (r->si, text, len);
 }
 
 /* ---- styles ---- */
@@ -3044,8 +3116,16 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
         {
           if (strcmp (n, "b") == 0) { c->fmt.bold = !attr (names, values, "val") || attr_flag (names, values, "val"); c->mask |= O42_FMT_BOLD; }
           else if (strcmp (n, "i") == 0) { c->fmt.italic = !attr (names, values, "val") || attr_flag (names, values, "val"); c->mask |= O42_FMT_ITALIC; }
-          else if (strcmp (n, "u") == 0) { c->fmt.underline = TRUE; c->mask |= O42_FMT_UNDERLINE; }
-          else if (strcmp (n, "strike") == 0) { c->fmt.strikeout = TRUE; c->mask |= O42_FMT_STRIKEOUT; }
+          else if (strcmp (n, "u") == 0)
+            {
+              c->fmt.underline = attr (names, values, "val") == NULL || strcmp (attr (names, values, "val"), "none") != 0;
+              c->mask |= O42_FMT_UNDERLINE;
+            }
+          else if (strcmp (n, "strike") == 0)
+            {
+              c->fmt.strikeout = !attr (names, values, "val") || attr_flag (names, values, "val");
+              c->mask |= O42_FMT_STRIKEOUT;
+            }
           else if (strcmp (n, "color") == 0)
             {
               guint32 colour = rgb_attr (r, names, values);
@@ -3087,8 +3167,9 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
         o42_fmt_init_default (&r->cur_font);
       else if (strcmp (n, "b") == 0) r->cur_font.bold = !attr (names, values, "val") || attr_flag (names, values, "val");
       else if (strcmp (n, "i") == 0) r->cur_font.italic = !attr (names, values, "val") || attr_flag (names, values, "val");
-      else if (strcmp (n, "u") == 0) r->cur_font.underline = TRUE;
-      else if (strcmp (n, "strike") == 0) r->cur_font.strikeout = TRUE;
+      else if (strcmp (n, "u") == 0)
+        r->cur_font.underline = attr (names, values, "val") == NULL || strcmp (attr (names, values, "val"), "none") != 0;
+      else if (strcmp (n, "strike") == 0) r->cur_font.strikeout = !attr (names, values, "val") || attr_flag (names, values, "val");
       else if (strcmp (n, "sz") == 0) r->cur_font.size = (int) (attr_double (names, values, "val", 10) * 2 + 0.5);
       else if (strcmp (n, "name") == 0)
         {
@@ -3109,6 +3190,16 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
           r->cur_fill_solid = FALSE;
           r->cur_pattern = O42_PATTERN_NONE;
           r->cur_pattern_colour = 0;
+          r->in_gradient = FALSE;
+        }
+      else if (strcmp (n, "gradientFill") == 0)
+        r->in_gradient = TRUE;
+      else if (strcmp (n, "color") == 0 && r->in_gradient && r->cur_fill == O42_FILL_NONE)
+        {
+          /* A gradient cannot be drawn; its first stop is the nearest
+           * one colour to it. */
+          guint32 c = rgb_attr (r, names, values);
+          if (c != 0xFFFFFFFFu) r->cur_fill = c;
         }
       else if (strcmp (n, "patternFill") == 0)
         {
@@ -3223,16 +3314,22 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
           const char *v = attr (names, values, "vertical");
           if (h)
             {
-              if (strcmp (h, "left") == 0) fmt->halign = O42_HALIGN_LEFT;
-              else if (strcmp (h, "center") == 0 || strcmp (h, "centerContinuous") == 0) fmt->halign = O42_HALIGN_CENTRE;
+              /* Justified and filled text starts at the left, as it
+               * does in Excel; distributed text sits in the middle. */
+              if (strcmp (h, "left") == 0 || strcmp (h, "justify") == 0 || strcmp (h, "fill") == 0)
+                fmt->halign = O42_HALIGN_LEFT;
+              else if (strcmp (h, "center") == 0 || strcmp (h, "centerContinuous") == 0 || strcmp (h, "distributed") == 0)
+                fmt->halign = O42_HALIGN_CENTRE;
               else if (strcmp (h, "right") == 0) fmt->halign = O42_HALIGN_RIGHT;
             }
           if (v)
             {
               if (strcmp (v, "top") == 0) fmt->valign = O42_VALIGN_TOP;
-              else if (strcmp (v, "center") == 0) fmt->valign = O42_VALIGN_MIDDLE;
+              else if (strcmp (v, "center") == 0 || strcmp (v, "justify") == 0 || strcmp (v, "distributed") == 0)
+                fmt->valign = O42_VALIGN_MIDDLE;
             }
-          fmt->wrap = attr_flag (names, values, "wrapText");
+          fmt->wrap = attr_flag (names, values, "wrapText") ||
+                      (h != NULL && (strcmp (h, "justify") == 0 || strcmp (h, "distributed") == 0));
           fmt->shrink = attr_flag (names, values, "shrinkToFit");
           fmt->indent = (guint8) CLAMP (attr_int (names, values, "indent", 0), 0, 15);
           {
@@ -3441,7 +3538,7 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if (strcmp (n, "pane") == 0)
     {
       const char *state = attr (names, values, "state");
-      if (state && strcmp (state, "frozen") == 0)
+      if (state && (strcmp (state, "frozen") == 0 || strcmp (state, "frozenSplit") == 0))
         o42_sheet_set_frozen (r->sheet, attr_int (names, values, "ySplit", 0),
                               attr_int (names, values, "xSplit", 0));
     }
@@ -3517,7 +3614,10 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       r->col = -1;
       if (row >= 0 && row < O42_MAX_ROWS)
         {
-          if (ht > 0 && attr_flag (names, values, "customHeight"))
+          /* The height the row was saved with, whether a person set it
+           * or Excel fitted it to a tall font or wrapped text: what the
+           * file showed is what is shown. */
+          if (ht > 0)
             o42_sheet_set_row_height (r->sheet, row, PT_TO_PX (ht));
           if (attr_flag (names, values, "hidden"))
             o42_sheet_set_row_hidden (r->sheet, row, TRUE);
@@ -3548,6 +3648,8 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       g_string_truncate (r->f, 0);
       g_string_truncate (r->v, 0);
       g_string_truncate (r->is, 0);
+      g_clear_pointer (&r->is_runs, g_array_unref);
+      r->in_rph = FALSE;
       r->has_f = FALSE;
       g_clear_pointer (&r->shared_si, g_free);
       g_clear_pointer (&r->array_ref, g_free);
@@ -3606,6 +3708,15 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     r->in_is = TRUE;
   else if (strcmp (n, "t") == 0 && r->in_is)
     r->in_t = TRUE;
+  else if (strcmp (n, "rPh") == 0 && r->in_is)
+    r->in_rph = TRUE;
+  else if (strcmp (n, "r") == 0 && r->in_is)
+    {
+      r->in_run = TRUE;
+      run_begin (&r->is_runs, r->is->len);
+    }
+  else if (r->in_is && r->in_run)
+    run_property (r, r->is_runs, n, names, values);
   else if (strcmp (n, "hyperlink") == 0)
     {
       const char *ref = attr (names, values, "ref");
@@ -3729,6 +3840,14 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       static const char *ops[] = { "between", "notBetween", "equal", "notEqual",
                                    "greaterThan", "lessThan", "greaterThanOrEqual", "lessThanOrEqual" };
       r->in_cf_rule = TRUE;
+      g_free (r->cf_type);
+      r->cf_type = g_strdup (type);
+      r->cf_rank = attr_int (names, values, "rank", 10);
+      r->cf_percent = attr_flag (names, values, "percent");
+      r->cf_bottom = attr_flag (names, values, "bottom");
+      r->cf_above = attr_int (names, values, "aboveAverage", 1) != 0;
+      r->cf_equal = attr_flag (names, values, "equalAverage");
+      r->cf_std_dev = attr_int (names, values, "stdDev", 0);
       r->cf_is_cellis = type != NULL && strcmp (type, "cellIs") == 0 && op != NULL;
       r->cf_is_expression = type != NULL && strcmp (type, "expression") == 0;
       /* Excel's text rules -- contains, begins with, ends with, blanks,
@@ -3912,13 +4031,38 @@ finish_cell (Reader *r)
             }
         }
       else if (strcmp (t, "inlineStr") == 0)
-        input = o42_entry_quote_text (r->is->str);
+        {
+          input = o42_entry_quote_text (r->is->str);
+          if (r->is_runs != NULL && r->is_runs->len > 0)
+            r->cell_runs = r->is_runs;
+        }
       else if (strcmp (t, "str") == 0)
         input = o42_entry_quote_text (r->v->str);
       else if (strcmp (t, "b") == 0)
-        input = g_strdup (strcmp (r->v->str, "1") == 0 ? "TRUE" : "FALSE");
+        input = g_strdup (strcmp (r->v->str, "1") == 0 || strcmp (r->v->str, "true") == 0 ? "TRUE" : "FALSE");
       else if (strcmp (t, "e") == 0)
         input = g_strdup (r->v->str);
+      else if (strcmp (t, "d") == 0)
+        {
+          /* A date written out, 2024-03-15T13:45:30, which the Strict
+           * form of the format allows: the serial it stands for. */
+          double serial;
+          gboolean has_date, has_time;
+          char *plain = g_strdup (r->v->str);
+          char *tee = strchr (plain, 'T');
+          char *tail;
+
+          if (tee != NULL) *tee = ' ';
+          if ((tail = strchr (plain, '.')) != NULL && strchr (plain, ' ') != NULL) *tail = '\0';   /* the fraction of a second */
+          if ((tail = strchr (plain, 'Z')) != NULL) *tail = '\0';
+          if (o42_date_parse (plain, &serial, &has_date, &has_time))
+            {
+              char buf[G_ASCII_DTOSTR_BUF_SIZE];
+              input = g_strdup (g_ascii_dtostr (buf, sizeof buf, serial));
+              r->is_date_cell = has_date ? (has_time ? O42_NUM_DATETIME : O42_NUM_DATE) : O42_NUM_TIME;
+            }
+          g_free (plain);
+        }
       else if (r->v->len > 0)
         {
           /* A number: pass it through as text; the sheet parses it. */
@@ -3963,6 +4107,19 @@ finish_cell (Reader *r)
       if (style != NULL)
         o42_sheet_apply_style (r->sheet, &one, style);
     }
+  if (r->is_date_cell != O42_NUM_GENERAL &&
+      !(r->xf > 0 && (guint) r->xf < r->xf_dates->len && g_array_index (r->xf_dates, gboolean, r->xf)))
+    {
+      /* A written-out date whose style does not say it is one is shown
+       * as one all the same, not as its serial. */
+      O42Range one = { r->row, r->col, r->row, r->col };
+      O42Fmt fmt;
+
+      o42_fmt_init_default (&fmt);
+      fmt.number = r->is_date_cell;
+      o42_sheet_apply_fmt (r->sheet, &one, O42_FMT_NUMBER, &fmt);
+    }
+  r->is_date_cell = O42_NUM_GENERAL;
 }
 
 static void
@@ -4046,6 +4203,49 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
             }
           o42_sheet_add_condition (r->sheet, &c);
         }
+      else if (r->cf_type != NULL && r->cf_have_range && r->cf_dxf >= 0 && (guint) r->cf_dxf < r->dxfs->len &&
+               (strcmp (r->cf_type, "duplicateValues") == 0 || strcmp (r->cf_type, "uniqueValues") == 0 ||
+                strcmp (r->cf_type, "top10") == 0 || strcmp (r->cf_type, "aboveAverage") == 0))
+        {
+          /* The rules Excel 2007 added that say nothing but their kind:
+           * each is the formula that says the same, written for the
+           * range's top-left cell as a "formula is" rule is. */
+          O42Condition c = g_array_index (r->dxfs, O42Condition, r->cf_dxf);
+          char *a = o42_ref_name_full (r->cf_range.row0, r->cf_range.col0, TRUE, TRUE);
+          char *b = o42_ref_name_full (r->cf_range.row1, r->cf_range.col1, TRUE, TRUE);
+          char *cell = o42_ref_name (r->cf_range.row0, r->cf_range.col0);
+          char *range = g_strdup_printf ("%s:%s", a, b);
+          char *expr;
+
+          if (r->cf_type[0] == 'd' || r->cf_type[0] == 'u')
+            expr = g_strdup_printf ("=AND(%s<>\"\",COUNTIF(%s,%s)%s1)", cell, range, cell,
+                                    r->cf_type[0] == 'd' ? ">" : "=");
+          else if (r->cf_type[0] == 't')
+            {
+              /* Blanks and text have no rank and are left alone; the
+               * bottom n rank from the smallest up. */
+              if (r->cf_percent)
+                expr = g_strdup_printf ("=AND(ISNUMBER(%s),RANK(%s,%s%s)<=COUNT(%s)*%d/100)",
+                                        cell, cell, range, r->cf_bottom ? ",1" : "", range, r->cf_rank);
+              else
+                expr = g_strdup_printf ("=AND(ISNUMBER(%s),RANK(%s,%s%s)<=%d)",
+                                        cell, cell, range, r->cf_bottom ? ",1" : "", r->cf_rank);
+            }
+          else if (r->cf_std_dev > 0)
+            expr = g_strdup_printf ("=AND(ISNUMBER(%s),%s%s%sAVERAGE(%s)%s%d*STDEV(%s))",
+                                    cell, cell, r->cf_above ? ">" : "<", r->cf_equal ? "=" : "",
+                                    range, r->cf_above ? "+" : "-", r->cf_std_dev, range);
+          else
+            expr = g_strdup_printf ("=AND(ISNUMBER(%s),%s%s%sAVERAGE(%s))",
+                                    cell, cell, r->cf_above ? ">" : "<", r->cf_equal ? "=" : "", range);
+          c.range = r->cf_range;
+          c.op = O42_COND_EQUAL;
+          c.is_formula = TRUE;
+          c.expr1 = g_intern_string (expr);
+          c.expr2 = NULL;
+          o42_sheet_add_condition (r->sheet, &c);
+          g_free (expr); g_free (range); g_free (cell); g_free (a); g_free (b);
+        }
       else if ((r->cf_is_cellis || r->cf_is_expression) && r->cf_have_range && r->cf_n_formulas >= 1 &&
           r->cf_dxf >= 0 && (guint) r->cf_dxf < r->dxfs->len)
         {
@@ -4062,8 +4262,10 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
     }
   else if (strcmp (n, "f") == 0) r->in_f = FALSE;
   else if (strcmp (n, "v") == 0) r->in_v = FALSE;
-  else if (strcmp (n, "is") == 0) r->in_is = FALSE;
+  else if (strcmp (n, "is") == 0) { r->in_is = FALSE; r->in_run = FALSE; }
   else if (strcmp (n, "t") == 0) r->in_t = FALSE;
+  else if (strcmp (n, "r") == 0 && r->in_is) r->in_run = FALSE;
+  else if (strcmp (n, "rPh") == 0) r->in_rph = FALSE;
 }
 
 static void
@@ -4076,7 +4278,7 @@ sheet_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user
   else if (r->in_cf_formula) g_string_append_len (r->cf_formula, text, (gssize) len);
   else if (r->in_f) g_string_append_len (r->f, text, (gssize) len);
   else if (r->in_v) g_string_append_len (r->v, text, (gssize) len);
-  else if (r->in_is && r->in_t) g_string_append_len (r->is, text, (gssize) len);
+  else if (r->in_is && r->in_t && !r->in_rph) append_cell_text (r->is, text, len);
 }
 
 /* ---- tables ---- */
@@ -4144,7 +4346,7 @@ comments_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer u
   Reader *r = user;
   (void) ctx; (void) error;
   if (r->in_comment && r->in_comment_t)
-    g_string_append_len (r->comment_text, text, (gssize) len);
+    append_cell_text (r->comment_text, text, len);
 }
 
 /* ---- driving the parts ---- */
@@ -4219,20 +4421,43 @@ parse_part (GHashTable *parts, const char *path, const GMarkupParser *parser,
   return ok;
 }
 
-/* A relationship target, resolved against xl/: "worksheets/sheet1.xml"
- * or "/xl/worksheets/sheet1.xml" both give the part name. */
+/* The target of the one relationship of a part whose type ends this way
+ * -- "/officeDocument", "/styles" -- as a part name, or NULL. */
 static char *
-resolve_target (const char *target)
+part_by_type (GHashTable *rels, const char *part, const char *type_suffix)
 {
-  if (target[0] == '/')
-    return g_strdup (target + 1);
-  return g_strconcat ("xl/", target, NULL);
+  GHashTableIter it;
+  gpointer k, v;
+
+  g_hash_table_iter_init (&it, rels);
+  while (g_hash_table_iter_next (&it, &k, &v))
+    {
+      const char *target;
+
+      if (!g_str_has_prefix (k, "type:") || !g_str_has_suffix (v, type_suffix))
+        continue;
+      target = g_hash_table_lookup (rels, (const char *) k + 5);
+      if (target != NULL)
+        return o42_xlsx_resolve (part, target);
+    }
+  return NULL;
+}
+
+/* The part a relationship of the workbook names, or where Excel puts
+ * such a part when the relationship is missing. */
+static char *
+workbook_part (GHashTable *rels, const char *workbook, const char *type_suffix, const char *usual)
+{
+  char *part = part_by_type (rels, workbook, type_suffix);
+
+  if (part == NULL)
+    part = g_strdup (usual);
+  return part;
 }
 
 gboolean
 o42_xlsx_load (O42Book *book, GFile *file, GError **error)
 {
-  static const GMarkupParser rels_parser = { rels_start, NULL, NULL, NULL, NULL };
   static const GMarkupParser workbook_parser = { workbook_start, workbook_end, workbook_text, NULL, NULL };
   static const GMarkupParser sst_parser = { sst_start, sst_end, sst_text, NULL, NULL };
   static const GMarkupParser styles_parser = { styles_start, styles_end, NULL, NULL, NULL };
@@ -4245,6 +4470,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   GHashTable *parts;
   Reader r;
   gboolean ok = TRUE;
+  char *workbook, *styles_part, *strings_part, *theme_part;
 
   archive = g_file_load_bytes (file, NULL, NULL, error);
   if (archive == NULL)
@@ -4253,11 +4479,28 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_bytes_unref (archive);
   if (parts == NULL)
     return FALSE;
-  if (g_hash_table_lookup (parts, "xl/workbook.xml") == NULL)
+
+  /* The package's own relationships say where the workbook is, and the
+   * workbook's where its styles, strings, theme and sheets are.  Excel
+   * keeps them under xl/, and so does nearly everything else, but the
+   * names are the relationships' to choose. */
+  {
+    GHashTable *package = o42_xlsx_read_rels (parts, "");
+
+    workbook = part_by_type (package, "", "/officeDocument");
+    g_hash_table_unref (package);
+    if (workbook == NULL || g_hash_table_lookup (parts, workbook) == NULL)
+      {
+        g_free (workbook);
+        workbook = g_strdup ("xl/workbook.xml");
+      }
+  }
+  if (g_hash_table_lookup (parts, workbook) == NULL)
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
                    "This is not an Excel workbook.");
       g_hash_table_unref (parts);
+      g_free (workbook);
       return FALSE;
     }
 
@@ -4278,7 +4521,10 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
 
   memset (&r, 0, sizeof r);
   r.book = book;
-  r.rels = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  r.rels = o42_xlsx_read_rels (parts, workbook);
+  styles_part = workbook_part (r.rels, workbook, "/styles", "xl/styles.xml");
+  strings_part = workbook_part (r.rels, workbook, "/sharedStrings", "xl/sharedStrings.xml");
+  theme_part = workbook_part (r.rels, workbook, "/theme", "xl/theme/theme1.xml");
   r.sheet_names = g_ptr_array_new_with_free_func (g_free);
   r.sheet_rids = g_ptr_array_new_with_free_func (g_free);
   r.sheet_hidden = g_array_new (FALSE, FALSE, sizeof (guint));
@@ -4313,12 +4559,11 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   r.theme_slot = -1;
   /* The theme's colours first, since the styles name them; a file
    * without a theme part keeps the Office defaults. */
-  if (g_hash_table_contains (parts, "xl/theme/theme1.xml"))
-    parse_part (parts, "xl/theme/theme1.xml", &theme_parser, &r, NULL);
-  ok = parse_part (parts, "xl/_rels/workbook.xml.rels", &rels_parser, &r, error) &&
-       parse_part (parts, "xl/workbook.xml", &workbook_parser, &r, error) &&
-       parse_part (parts, "xl/sharedStrings.xml", &sst_parser, &r, error) &&
-       parse_part (parts, "xl/styles.xml", &styles_parser, &r, error);
+  if (g_hash_table_contains (parts, theme_part))
+    parse_part (parts, theme_part, &theme_parser, &r, NULL);
+  ok = parse_part (parts, workbook, &workbook_parser, &r, error) &&
+       parse_part (parts, strings_part, &sst_parser, &r, error) &&
+       parse_part (parts, styles_part, &styles_parser, &r, error);
 
   if (ok)
     {
@@ -4351,7 +4596,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           const char *sname = g_ptr_array_index (r.sheet_names, i);
           const char *rid = g_ptr_array_index (r.sheet_rids, i);
           const char *target = g_hash_table_lookup (r.rels, rid);
-          char *part = target ? resolve_target (target) : g_strdup_printf ("xl/worksheets/sheet%u.xml", i + 1);
+          char *part = target ? o42_xlsx_resolve (workbook, target) : g_strdup_printf ("xl/worksheets/sheet%u.xml", i + 1);
 
           if (i == 0)
             {
@@ -4637,6 +4882,13 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
     }
 
   g_hash_table_unref (r.rels);
+  g_free (workbook);
+  g_free (styles_part);
+  g_free (strings_part);
+  g_free (theme_part);
+  g_free (r.cf_type);
+  if (r.is_runs != NULL)
+    g_array_unref (r.is_runs);
   g_ptr_array_unref (r.sheet_names);
   g_ptr_array_unref (r.sheet_rids);
   g_array_unref (r.sheet_hidden);

@@ -38,7 +38,7 @@ thing that knows what a mouse is.
 | | `o42-eval-private.h` | 180 | The seam between the machine and the families | What a family may lean on, and nothing else |
 | | `o42-fn-*.c` | 7,008 | Twelve families: text, dates, statistics, distributions, finance, options, engineering, random, Hebrew dates, Bessel, info, the data table | Each keeps its own function table and its own help |
 | io | `o42-xls.c` | 6,385 | BIFF8 both ways, BIFF5 in | Dense but commented; the record numbers are named |
-| | `o42-xlsx.c` + `-draw.c` | 6,472 | Office Open XML, on a zip of our own | The drawing half is separate, which keeps both readable |
+| | `o42-xlsx.c` + `-draw.c` | 6,820 | Office Open XML, on a zip of our own | The drawing half is separate, which keeps both readable |
 | | `o42-ods.c` | 5,951 | OpenDocument | Cells, styles, charts, controls, the metadata, both ways |
 | | `o42-gnumeric.c` | 3,990 | The native format | Carries everything the model holds, and office42's own additions in `o42-` attributes Gnumeric passes over |
 | | `o42-pdf.c` | 1,412 | Pages out, and pages in through poppler | Shares its layout with the printer |
@@ -232,6 +232,33 @@ And Tools ▸ Wizards, Conditional Sum and Lookup, the two add-ins Excel
 running program under xvfb, one --activate at a time, and the charts
 through office42-calc, out to .gnumeric and .xlsx and back.  Version
 1.0.1.
+
+**The eighth pass** was a reading of the .xlsx code against the
+files other programs write, with Excel 2007's format as the subject.
+The reader had found the workbook, the styles and the strings at the
+names Excel gives them; it now follows the package's relationships
+to wherever a file keeps them, as the format says to.  The Strict
+form of the format comes in: its namespaces, its dates written out
+as 2024-03-15T13:45:30 in a t="d" cell, its true and false.  Excel's
+spelling of a carriage return in a string, _x000D_, is read as the
+character and written back the same way, so a cell with Windows line
+ends no longer shows the spelling; the furigana in a Japanese file's
+rPh runs are no longer read as part of the text; and the rich text
+openpyxl writes inline, not in the shared strings, keeps its runs.
+The rule types Excel 2007 added -- duplicate and unique values, top
+and bottom n, above and below average -- come in as the formula that
+says the same, where before the rule was dropped.  Rows keep the
+height they were saved with whether a person set it or Excel fitted
+it, so an 18-point heading no longer sits in a 15-point row; a
+gradient fill shows its first colour rather than none; justified,
+distributed and filled alignment, and an underline turned off in a
+font, mean what they mean.  The writer put manual page breaks before
+printOptions, which the schema forbids and Excel repairs; they now
+follow headerFooter.  XOR, GAMMA and DBCS are Excel 2013's, and go
+out with _xlfn. as the other newer functions did.  Checked through
+office42-calc on books written by openpyxl, on a Strict rewrite of
+one, on one with its parts renamed, and on the samples; what
+office42 wrote was read back by LibreOffice 24.2 headless.
 
 ---
 

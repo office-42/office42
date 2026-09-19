@@ -99,9 +99,9 @@ statistics, correlation, covariance, regression, histogram, ANOVA, rank
 and percentile, moving average. Each is one undo step.
 
 **Files.** Gnumeric's `.gnumeric`, which carries everything; Excel's
-`.xlsx` and `.xls` (BIFF8 out, BIFF5 and BIFF8 in), with formulas, styles,
-charts, shapes, tables, names and notes, opening in Excel, LibreOffice and
-Gnumeric; OpenDocument `.ods`, checked against LibreOffice both ways; and
+`.xlsx` (the Strict form too) and `.xls` (BIFF8 out, BIFF5 and BIFF8 in),
+with formulas, styles, charts, shapes, tables, names and notes, opening in
+Excel, LibreOffice and Gnumeric; OpenDocument `.ods`, checked against LibreOffice both ways; and
 HTML, CSV, DIF, SYLK, LaTeX and Lotus 1-2-3. The zip and OLE2 containers
 are a few hundred lines each, so no library was added. The document's
 properties -- title, author, keywords and the rest -- travel in the
