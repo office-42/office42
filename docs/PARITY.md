@@ -260,6 +260,19 @@ office42-calc on books written by openpyxl, on a Strict rewrite of
 one, on one with its parts renamed, and on the samples; what
 office42 wrote was read back by LibreOffice 24.2 headless.
 
+**The charts' colours** were near Excel 97's and are now its own: the
+chart fills from its palette for a filled series -- periwinkle, plum,
+ivory, turquoise, purple, coral, ocean blue, ice blue -- and the chart
+lines for a drawn one -- navy, magenta, yellow, cyan, purple, maroon,
+teal, blue -- each row going on with the other past the eighth series;
+a grey plot area with black gridlines on a two-dimensional chart with
+axes, which is the look of an Excel 97 chart at a glance.  The same
+colours and the grey go into the .xlsx chart part, so Excel and
+LibreOffice show what office42 draws; the labels on a pie's slices are
+black on the light colours and white on the dark.  Checked by drawing
+every kind through office42-calc and --screenshot, and the .xlsx
+through LibreOffice headless to PDF.
+
 ---
 
 ## 2. Parity with Excel 97, area by area

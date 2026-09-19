@@ -135,6 +135,10 @@ typedef struct {
   double        height;
 } O42Chart;
 
+/* The colour the series at `index` is drawn in: Excel 97's chart fills
+ * for a filled series, its chart lines for a drawn one. */
+guint32   o42_chart_series_colour (const O42Chart *chart, int index);
+
 O42Chart *o42_chart_new  (O42ChartKind kind, const O42Range *data);
 void      o42_chart_free (O42Chart *chart);
 

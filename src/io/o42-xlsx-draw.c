@@ -173,11 +173,6 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
                        ? chart->data_sheet : o42_sheet_get_name (sheet);
   const char *element;
   int series = 0;
-  /* The series colours o42_chart_draw uses, written out so readers
-   * that take an absent style as "no fill" (LibreOffice) show bars. */
-  static const guint32 COLOURS[] = {
-    0x000080, 0x800000, 0x008000, 0x008080, 0x800080, 0x808000, 0x808080, 0x0000FF
-  };
 
   if (chart->title != NULL && chart->title[0] != '\0')
     {
@@ -279,7 +274,10 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
             g_free (ref);
           }
         {
-          guint32 colour = COLOURS[ordinal % G_N_ELEMENTS (COLOURS)];
+          /* The series colours o42_chart_draw uses, written out so
+           * readers that take an absent style as "no fill"
+           * (LibreOffice) show bars. */
+          guint32 colour = o42_chart_series_colour (chart, ordinal);
           if (chart->kind == O42_CHART_LINE || scatter)
             g_string_append_printf (out,
               "<c:spPr><a:ln w=\"28575\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill></a:ln></c:spPr>", colour);
@@ -432,6 +430,14 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
       g_free (xt);
       g_free (yt);
     }
+  /* The grey plot area Excel 97 gave a chart with axes, so that Excel
+   * and LibreOffice show what office42 draws. */
+  if (!chart->three_d &&
+      (chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_LINE || chart->kind == O42_CHART_BAR ||
+       chart->kind == O42_CHART_AREA || chart->kind == O42_CHART_SCATTER || chart->kind == O42_CHART_STACKED ||
+       chart->kind == O42_CHART_PERCENT || chart->kind == O42_CHART_BUBBLE || chart->kind == O42_CHART_STOCK))
+    g_string_append (out, "<c:spPr><a:solidFill><a:srgbClr val=\"C0C0C0\"/></a:solidFill>"
+                          "<a:ln><a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill></a:ln></c:spPr>");
   g_string_append (out, "</c:plotArea>");
   if ((series > 1 || pie) && chart->legend)
     g_string_append (out, "<c:legend><c:legendPos val=\"r\"/><c:overlay val=\"0\"/></c:legend>");
