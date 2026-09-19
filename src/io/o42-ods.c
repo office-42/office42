@@ -11,6 +11,7 @@
  */
 
 #include "o42-ods.h"
+#include "o42-xlsx.h"
 
 #include "o42-image.h"
 
@@ -2151,6 +2152,14 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
 static void write_conditional_formats (GString *out, Styles *s, O42Sheet *sheet, const char *table_name);
 
 static void
+count_dropped_cell (O42Sheet *sheet, int row, int col, gpointer user)
+{
+  (void) sheet; (void) col; (void) user;
+  if (row >= O42_EXCEL_MAX_ROWS)
+    o42_xlsx_dropped_cells++;
+}
+
+static void
 write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
 {
   O42Range used;
@@ -2200,6 +2209,13 @@ write_table (GString *out, Styles *s, O42Sheet *sheet, int sheet_index)
   for (int r = 0; r < MIN (O42_MAX_ROWS - 1, 4096); r++)
     if (o42_sheet_row_height (sheet, r) != default_height || o42_sheet_row_hidden (sheet, r))
       last_row = MAX (last_row, r);
+  /* LibreOffice's grid ends where Excel's does; the cells beyond are
+   * counted and left out, and the caller says so. */
+  if (last_row >= O42_EXCEL_MAX_ROWS)
+    {
+      o42_sheet_foreach_cell (sheet, count_dropped_cell, NULL);
+      last_row = O42_EXCEL_MAX_ROWS - 1;
+    }
 
   {
     guint32 tab = o42_sheet_tab_colour (sheet);
@@ -2650,6 +2666,7 @@ write_drawing_parts (O42ZipWriter *zip, O42Book *book, GString *manifest)
 gboolean
 o42_ods_save (O42Book *book, GFile *file, GError **error)
 {
+  o42_xlsx_dropped_cells = 0;
   O42ZipWriter *zip;
   Styles s;
   GString *body = g_string_new (NULL);

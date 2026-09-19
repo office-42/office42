@@ -15,6 +15,7 @@
 #include <glib/gstdio.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 
 /* Gnumeric measures columns and rows in points; the grid lays out at 96
@@ -306,16 +307,20 @@ write_cell (Writer *w, O42Sheet *sheet, int row, int col)
 
             /* The fewest digits that read back as the same double, so 4.3
              * is written as 4.3 and not 4.2999999999999998, and a number
-             * survives a round trip unchanged either way. */
-            for (int digits = 15; digits <= 17; digits++)
-              {
-                char spec[8];
+             * survives a round trip unchanged either way.  A whole number
+             * is written as the integer it is, straight away. */
+            if (v.as.number == floor (v.as.number) && fabs (v.as.number) < 1e15)
+              g_snprintf (buf, sizeof buf, "%lld", (long long) v.as.number);
+            else
+              for (int digits = 15; digits <= 17; digits++)
+                {
+                  char spec[8];
 
-                g_snprintf (spec, sizeof spec, "%%.%dg", digits);
-                g_ascii_formatd (buf, sizeof buf, spec, v.as.number);
-                if (g_ascii_strtod (buf, NULL) == v.as.number)
-                  break;
-              }
+                  g_snprintf (spec, sizeof spec, "%%.%dg", digits);
+                  g_ascii_formatd (buf, sizeof buf, spec, v.as.number);
+                  if (g_ascii_strtod (buf, NULL) == v.as.number)
+                    break;
+                }
             text = g_strdup (buf);
             value_type = 40;
             break;
@@ -649,30 +654,20 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
   g_free (title); g_free (sheet_name);
 }
 
-static gboolean
-write_gzipped (GFile *file, const char *data, gsize length, GError **error)
+/* The output as it is written: the XML of a big book would be hundreds
+ * of megabytes held whole, so what has been made is pushed through the
+ * compressor as it goes and the string emptied. */
+static GOutputStream *stream_out;
+static GError *stream_error;
+
+static void
+flush_if_large (GString *out)
 {
-  GFileOutputStream *raw;
-  GZlibCompressor *compressor;
-  GOutputStream *zipped;
-  gboolean ok;
-
-  raw = g_file_replace (file, NULL, FALSE, G_FILE_CREATE_NONE, NULL, error);
-  if (raw == NULL)
-    return FALSE;
-
-  compressor = g_zlib_compressor_new (G_ZLIB_COMPRESSOR_FORMAT_GZIP, -1);
-  zipped = g_converter_output_stream_new (G_OUTPUT_STREAM (raw),
-                                          G_CONVERTER (compressor));
-
-  ok = g_output_stream_write_all (zipped, data, length, NULL, NULL, error) &&
-       g_output_stream_close (zipped, NULL, error);
-
-  g_object_unref (zipped);
-  g_object_unref (compressor);
-  g_object_unref (raw);
-
-  return ok;
+  if (stream_out == NULL || out->len < (1u << 20))
+    return;
+  if (stream_error == NULL)
+    g_output_stream_write_all (stream_out, out->str, out->len, NULL, NULL, &stream_error);
+  g_string_truncate (out, 0);
 }
 
 static void
@@ -1356,6 +1351,7 @@ write_sheet (GString *out, O42Sheet *sheet)
     {
       guint64 key = g_array_index (w.keys, guint64, i);
       write_cell (&w, sheet, o42_key_row (key), o42_key_col (key));
+      flush_if_large (w.out);
     }
   g_string_append (w.out, "      </gnm:Cells>\n");
   {
@@ -1388,6 +1384,21 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
 
   n = o42_book_n_sheets (book);
   out = g_string_new (NULL);
+  {
+    GFileOutputStream *raw = g_file_replace (file, NULL, FALSE, G_FILE_CREATE_NONE, NULL, error);
+    GZlibCompressor *compressor;
+
+    if (raw == NULL)
+      {
+        g_string_free (out, TRUE);
+        return FALSE;
+      }
+    compressor = g_zlib_compressor_new (G_ZLIB_COMPRESSOR_FORMAT_GZIP, -1);
+    stream_out = g_converter_output_stream_new (G_OUTPUT_STREAM (raw), G_CONVERTER (compressor));
+    g_object_unref (compressor);
+    g_object_unref (raw);
+    g_clear_error (&stream_error);
+  }
 
   {
     int iteration_max = 100;
@@ -1674,7 +1685,12 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
       "</gnm:Workbook>\n", active_tab);
   }
 
-  ok = write_gzipped (file, out->str, out->len, error);
+  if (stream_error == NULL)
+    g_output_stream_write_all (stream_out, out->str, out->len, NULL, NULL, &stream_error);
+  ok = stream_error == NULL && g_output_stream_close (stream_out, NULL, &stream_error);
+  if (stream_error != NULL)
+    g_propagate_error (error, g_steal_pointer (&stream_error));
+  g_clear_object (&stream_out);
   g_string_free (out, TRUE);
 
   return ok;
@@ -1864,6 +1880,33 @@ start_element (GMarkupParseContext *context, const char *element,
   const char *name = local_name (element);
 
   (void) context; (void) error;
+
+  /* The cells first, a million of them against a few of everything
+   * else, and their attributes in one pass rather than one search of
+   * the list for each. */
+  if (strcmp (name, "Cell") == 0)
+    {
+      r->in_cell = TRUE;
+      r->cell_row = r->cell_col = r->cell_type = r->cell_expr_id = -1;
+      r->cell_rows = r->cell_cols = 0;
+      g_clear_pointer (&r->cell_style, g_free);
+      g_clear_pointer (&r->cell_runs, g_free);
+      for (int i = 0; names[i] != NULL; i++)
+        {
+          const char *a = names[i];
+
+          if (a[0] == 'R' && strcmp (a, "Row") == 0)            r->cell_row = atoi (values[i]);
+          else if (a[0] == 'C' && strcmp (a, "Col") == 0)       r->cell_col = atoi (values[i]);
+          else if (a[0] == 'V' && strcmp (a, "ValueType") == 0) r->cell_type = atoi (values[i]);
+          else if (a[0] == 'R' && strcmp (a, "Rows") == 0)      r->cell_rows = atoi (values[i]);
+          else if (a[0] == 'C' && strcmp (a, "Cols") == 0)      r->cell_cols = atoi (values[i]);
+          else if (a[0] == 'E' && strcmp (a, "ExprID") == 0)    r->cell_expr_id = atoi (values[i]);
+          else if (strcmp (a, "o42-style") == 0)                r->cell_style = g_strdup (values[i]);
+          else if (strcmp (a, "o42-runs") == 0)                 r->cell_runs = g_strdup (values[i]);
+        }
+      g_string_truncate (r->cell_text, 0);
+      return;
+    }
 
   if (strcmp (name, "document-meta") == 0)
     {
@@ -2899,23 +2942,6 @@ start_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
-  if (strcmp (name, "Cell") == 0)
-    {
-      r->in_cell = TRUE;
-      r->cell_row = attr_int (names, values, "Row", -1);
-      r->cell_col = attr_int (names, values, "Col", -1);
-      r->cell_type = attr_int (names, values, "ValueType", -1);
-      r->cell_rows = attr_int (names, values, "Rows", 0);
-      r->cell_cols = attr_int (names, values, "Cols", 0);
-      r->cell_expr_id = attr_int (names, values, "ExprID", -1);
-      g_free (r->cell_style);
-      r->cell_style = g_strdup (attr (names, values, "o42-style"));
-      g_free (r->cell_runs);
-      r->cell_runs = g_strdup (attr (names, values, "o42-runs"));
-      g_string_truncate (r->cell_text, 0);
-      return;
-    }
-
   if (strcmp (name, "SheetObjectGraph") == 0 || (r->in_graph && strcmp (name, "GogObject") == 0) ||
       (r->in_graph && strcmp (name, "dimension") == 0))
     {
@@ -3150,6 +3176,21 @@ finish_cell (Reader *r)
   if (*text == '\0')
     return;
 
+  /* A constant of a known type goes in as the value it is, without
+   * being read as typed text: a string stays a string whatever it
+   * looks like, and a number is not parsed twice. */
+  if (text[0] != '=' && (r->cell_type == 60 || r->cell_type == 40 || r->cell_type == 30))
+    {
+      O42Value value = r->cell_type == 60 ? o42_value_text (text)
+                                          : o42_value_number (g_ascii_strtod (text, NULL));
+
+      o42_sheet_set_value (r->sheet, r->cell_row, r->cell_col, &value);
+      o42_value_clear (&value);
+      g_free (forced);
+      forced = NULL;
+      goto placed;
+    }
+
   switch (r->cell_type)
     {
     case 60:
@@ -3176,6 +3217,7 @@ finish_cell (Reader *r)
     o42_sheet_set_input (r->sheet, r->cell_row, r->cell_col,
                          forced != NULL ? forced : text);
   g_free (forced);
+placed:
   r->seen_cell = TRUE;
   if (r->cell_runs != NULL && r->sheet != NULL)
     {
@@ -3301,6 +3343,13 @@ end_element (GMarkupParseContext *context, const char *element,
   const char *name = local_name (element);
 
   (void) context; (void) error;
+
+  if (strcmp (name, "Cell") == 0 && r->in_cell)
+    {
+      r->in_cell = FALSE;
+      finish_cell (r);
+      return;
+    }
 
   if (r->in_meta)
     {
@@ -3655,13 +3704,6 @@ end_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
-  if (strcmp (name, "Cell") == 0 && r->in_cell)
-    {
-      r->in_cell = FALSE;
-      finish_cell (r);
-      return;
-    }
-
   if (strcmp (name, "Merge") == 0 && r->in_merge)
     {
       O42Range m;
@@ -3900,44 +3942,34 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     g_string_append_len (r->content, text, (gssize) length);
 }
 
-static char *
-read_maybe_gzipped (GFile *file, gsize *length, GError **error)
+/* The file as a stream of its XML, gunzipped when it is gzipped: the
+ * XML of a big book is hundreds of megabytes, and is parsed as it is
+ * read rather than held whole. */
+static GInputStream *
+open_maybe_gzipped (GFile *file, GError **error)
 {
-  char *raw = NULL;
-  gsize raw_length = 0;
+  GFileInputStream *raw = g_file_read (file, NULL, error);
+  GBufferedInputStream *buffered;
+  const guchar *head;
+  gsize n = 0;
 
-  if (!g_file_load_contents (file, NULL, &raw, &raw_length, NULL, error))
+  if (raw == NULL)
     return NULL;
-
-  if (raw_length >= 2 && (guchar) raw[0] == 0x1f && (guchar) raw[1] == 0x8b)
+  buffered = G_BUFFERED_INPUT_STREAM (g_buffered_input_stream_new (G_INPUT_STREAM (raw)));
+  g_object_unref (raw);
+  g_buffered_input_stream_fill (buffered, 2, NULL, NULL);
+  head = g_buffered_input_stream_peek_buffer (buffered, &n);
+  if (n >= 2 && head[0] == 0x1f && head[1] == 0x8b)
     {
-      GInputStream *memory = g_memory_input_stream_new_from_data (raw, (gssize) raw_length, g_free);
       GZlibDecompressor *decompressor = g_zlib_decompressor_new (G_ZLIB_COMPRESSOR_FORMAT_GZIP);
-      GInputStream *unzipped = g_converter_input_stream_new (memory, G_CONVERTER (decompressor));
-      GByteArray *out = g_byte_array_new ();
-      guchar buffer[65536];
-      gssize n;
+      GInputStream *unzipped = g_converter_input_stream_new (G_INPUT_STREAM (buffered),
+                                                             G_CONVERTER (decompressor));
 
-      while ((n = g_input_stream_read (unzipped, buffer, sizeof buffer, NULL, error)) > 0)
-        g_byte_array_append (out, buffer, (guint) n);
-
-      g_object_unref (unzipped);
       g_object_unref (decompressor);
-      g_object_unref (memory);
-
-      if (n < 0)
-        {
-          g_byte_array_free (out, TRUE);
-          return NULL;
-        }
-
-      *length = out->len;
-      g_byte_array_append (out, (const guchar *) "", 1);
-      return (char *) g_byte_array_free (out, FALSE);
+      g_object_unref (buffered);
+      return unzipped;
     }
-
-  *length = raw_length;
-  return raw;
+  return G_INPUT_STREAM (buffered);
 }
 
 gboolean
@@ -3948,23 +3980,34 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   };
   Reader r;
   GMarkupParseContext *context;
-  char *xml;
-  gsize length = 0;
+  GInputStream *xml;
+  char *chunk;
+  gssize got;
   gboolean ok;
   O42Range everything = { 0, 0, O42_MAX_ROWS - 1, O42_MAX_COLS - 1 };
 
   g_return_val_if_fail (book != NULL, FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
-  xml = read_maybe_gzipped (file, &length, error);
+  xml = open_maybe_gzipped (file, error);
   if (xml == NULL)
     return FALSE;
 
-  if (strstr (xml, "gnm:Workbook") == NULL && strstr (xml, "<Workbook") == NULL)
+  /* The first piece says whether this is a Gnumeric file at all. */
+  chunk = g_malloc (1 << 20);
+  got = g_input_stream_read (xml, chunk, 1 << 20, NULL, error);
+  if (got < 0)
+    {
+      g_free (chunk);
+      g_object_unref (xml);
+      return FALSE;
+    }
+  if (g_strstr_len (chunk, got, "gnm:Workbook") == NULL && g_strstr_len (chunk, got, "<Workbook") == NULL)
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
                    "This is not a Gnumeric file.");
-      g_free (xml);
+      g_free (chunk);
+      g_object_unref (xml);
       return FALSE;
     }
 
@@ -4009,9 +4052,20 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   }
 
   context = g_markup_parse_context_new (&parser, G_MARKUP_TREAT_CDATA_AS_TEXT, &r, NULL);
-  ok = g_markup_parse_context_parse (context, xml, (gssize) length, error) &&
-       g_markup_parse_context_end_parse (context, error);
+  ok = TRUE;
+  while (ok && got > 0)
+    {
+      ok = g_markup_parse_context_parse (context, chunk, got, error);
+      if (ok)
+        {
+          got = g_input_stream_read (xml, chunk, 1 << 20, NULL, error);
+          ok = got >= 0;
+        }
+    }
+  ok = ok && g_markup_parse_context_end_parse (context, error);
   g_markup_parse_context_free (context);
+  g_free (chunk);
+  g_object_unref (xml);
   g_free (r.script_name);
   g_free (r.script_description);
   g_free (r.style_link);
@@ -4072,7 +4126,6 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   g_string_free (r.graph_y_title, TRUE);
   g_hash_table_destroy (r.shared_exprs);
   g_free (r.content_type);
-  g_free (xml);
 
   for (int i = 0; i < o42_book_n_sheets (book); i++)
     o42_sheet_clear_undo (o42_book_sheet (book, i));

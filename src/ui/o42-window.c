@@ -5774,6 +5774,7 @@ o42_window_open_file (O42Window *self, GFile *file)
   g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
+  o42_book_begin_load (self->book);
   if (file_is_csv (file) || file_is_html (file) ||
       file_is_dif (file) || file_is_sylk (file) || file_is_lotus (file))
     {
@@ -5793,6 +5794,7 @@ o42_window_open_file (O42Window *self, GFile *file)
                                : o42_gnumeric_load (self->book, file, &error);
       self->sheet = o42_book_sheet (self->book, 0);
     }
+  o42_book_end_load (self->book);
 
   if (!ok)
     {
@@ -5912,6 +5914,16 @@ window_save_to (O42Window *self, GFile *file)
   /* Excel 97's grid is 65,536 rows by 256 columns and office42's is
    * Excel 2007's, so a .xls may not be able to hold everything.  It is
    * saved either way, and this says what did not go in. */
+  if ((file_is_xlsx (file) || file_is_ods (file)) && o42_xlsx_dropped_cells > 0)
+    {
+      char *said = g_strdup_printf ("%d cells lie beyond the 1,048,576 rows this "
+                                    "kind of file can hold, and were not written. "
+                                    "Save as .gnumeric to keep them.",
+                                    o42_xlsx_dropped_cells);
+
+      show_error (self, said, NULL);
+      g_free (said);
+    }
   if (file_is_xls (file) && o42_xls_dropped_cells > 0)
     {
       char *said = g_strdup_printf ("%d cells lie outside the 65,536 rows by 256 "

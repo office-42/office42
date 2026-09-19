@@ -229,6 +229,13 @@ append_number (GString *out, double n)
 {
   char buf[G_ASCII_DTOSTR_BUF_SIZE];
 
+  /* Most numbers in most books are whole, and a whole one is written
+   * as the integer it is, without the two rounds of formatting. */
+  if (n == floor (n) && fabs (n) < 1e15)
+    {
+      g_string_append_printf (out, "%lld", (long long) n);
+      return;
+    }
   g_ascii_formatd (buf, sizeof buf, "%.15g", n);
   if (g_ascii_strtod (buf, NULL) != n)
     g_ascii_formatd (buf, sizeof buf, "%.17g", n);
@@ -237,11 +244,15 @@ append_number (GString *out, double n)
 
 /* Excel wants an "s" for shared strings, "str" for formula text results,
  * "b", "e", or nothing for numbers. */
+int o42_xlsx_dropped_cells;
+
 static void
 append_cell (Writer *w, GString *out, O42Sheet *sheet, int row, int col, guint xf)
 {
   char *ref = o42_ref_name (row, col);
-  char *input = o42_sheet_get_input (sheet, row, col);
+  /* Only a formula's input is wanted; a number's would be the number
+   * written out, for a million cells, to be looked at and thrown away. */
+  char *input = o42_sheet_has_formula (sheet, row, col) ? o42_sheet_get_input (sheet, row, col) : NULL;
   O42Value value;
 
   o42_sheet_get_value (sheet, row, col, &value);
@@ -486,6 +497,8 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
   }
 
   o42_sheet_used_range (sheet, &used);
+  used.row1 = MIN (used.row1, O42_EXCEL_MAX_ROWS - 1);
+  used.row0 = MIN (used.row0, used.row1);
   {
     char *a = o42_ref_name (used.row0, used.col0);
     char *b = o42_ref_name (used.row1, used.col1);
@@ -569,7 +582,17 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     while (row < O42_MAX_ROWS)
       {
         int next_key_row = i < keys->len ? o42_key_row (g_array_index (keys, guint64, i)) : O42_MAX_ROWS;
-        int height = o42_sheet_row_height (sheet, row);
+        int height;
+
+        if (row >= O42_EXCEL_MAX_ROWS)
+          {
+            /* Excel's grid ends here; what lies beyond is counted and
+             * left out, and the caller says so. */
+            while (i < keys->len)
+              { o42_xlsx_dropped_cells++; i++; }
+            break;
+          }
+        height = o42_sheet_row_height (sheet, row);
         gboolean hidden = o42_sheet_row_hidden_by_hand (sheet, row);
         int level = o42_sheet_row_level (sheet, row);
         int line_fmt = o42_sheet_line_fmt_idx (sheet, TRUE, row);
@@ -1765,6 +1788,7 @@ static const GMarkupParser vml_parser = { vml_start, vml_end, vml_text, NULL, NU
 gboolean
 o42_xlsx_save (O42Book *book, GFile *file, GError **error)
 {
+  o42_xlsx_dropped_cells = 0;
   Writer w;
   O42ZipWriter *zip = o42_zip_writer_new ();
   /* Saving as .xlsm keeps a Visual Basic project the book came with;
@@ -2452,6 +2476,9 @@ typedef struct
   BorderDef   cur_bdef;
   int         bside;
   GArray     *xfs;          /* O42Fmt, resolved */
+  GArray     *xf_idx;       /* int, beside `xfs`: each xf interned in the
+                             * current sheet's format table, or -1 */
+  O42Sheet   *xf_idx_sheet; /* the sheet `xf_idx` was interned for */
   GArray     *xf_styles;    /* int, beside `xfs`: the cellStyleXf it wears */
   GArray     *style_xfs;    /* O42Fmt: the cellStyleXfs themselves */
   GHashTable *style_names;  /* xfId -> the style's name */
@@ -2474,7 +2501,7 @@ typedef struct
   int         row, col;
   int         xf;
   O42NumberFormat is_date_cell;   /* a t="d" cell: the kind of date it is */
-  char       *type;
+  char        type[12];     /* the cell's t attribute: n, s, str, b, e, d, inlineStr */
   GString    *f, *v, *is;
   gboolean    in_f, in_v, in_is, has_f;
   char       *shared_si;
@@ -3438,6 +3465,124 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
   const char *n = local (name);
   (void) ctx; (void) error;
 
+  /* The cells first: a book has a million of them and a few of
+   * everything else, and a chain of forty strcmps a cell was a fifth
+   * of the time it took to read. */
+  if (n[0] == 'c' && n[1] == '\0')
+    {
+      const char *ref = attr (names, values, "r");
+      const char *type = attr (names, values, "t");
+      int row, col;
+      if (ref != NULL && o42_ref_parse (ref, &row, &col, NULL))
+        { r->row = row; r->col = col; }
+      else
+        r->col++;
+      r->xf = attr_int (names, values, "s", 0);
+      g_strlcpy (r->type, type ? type : "n", sizeof r->type);
+      g_string_truncate (r->f, 0);
+      g_string_truncate (r->v, 0);
+      g_string_truncate (r->is, 0);
+      g_clear_pointer (&r->is_runs, g_array_unref);
+      r->in_rph = FALSE;
+      r->has_f = FALSE;
+      g_clear_pointer (&r->shared_si, g_free);
+      g_clear_pointer (&r->array_ref, g_free);
+      return;
+    }
+  if (n[0] == 'v' && n[1] == '\0')
+    {
+      r->in_v = TRUE;
+      return;
+    }
+  if (n[0] == 't' && n[1] == '\0')
+    {
+      if (r->in_is)
+        r->in_t = TRUE;
+      return;
+    }
+  if (n[0] == 'f' && n[1] == '\0')
+    {
+      const char *t = attr (names, values, "t");
+      const char *si = attr (names, values, "si");
+      r->in_f = TRUE;
+      r->has_f = TRUE;
+      if (t != NULL && strcmp (t, "shared") == 0 && si != NULL)
+        r->shared_si = g_strdup (si);
+      if (t != NULL && strcmp (t, "array") == 0 && attr (names, values, "ref") != NULL)
+        r->array_ref = g_strdup (attr (names, values, "ref"));
+      if (t != NULL && strcmp (t, "dataTable") == 0 && attr (names, values, "ref") != NULL &&
+          attr (names, values, "r1") != NULL)
+        {
+          /* A What-If table's inside: ref is the inside, the edges lie
+           * one row and column outside it; dt2D has r1 the row input and
+           * r2 the column input, else dtr says which r1 is. */
+          O42DataTable table;
+          const char *ref = attr (names, values, "ref");
+          gsize used = 0;
+          int a_row, a_col;
+
+          memset (&table, 0, sizeof table);
+          table.row_input_row = table.row_input_col = table.col_input_row = table.col_input_col = -1;
+          if (o42_ref_parse (ref, &table.range.row0, &table.range.col0, &used) && ref[used] == ':' &&
+              o42_ref_parse (ref + used + 1, &table.range.row1, &table.range.col1, NULL) &&
+              table.range.row0 > 0 && table.range.col0 > 0 &&
+              o42_ref_parse (attr (names, values, "r1"), &a_row, &a_col, NULL))
+            {
+              gboolean two = attr_int (names, values, "dt2D", 0) != 0;
+              gboolean row_wise = attr_int (names, values, "dtr", 0) != 0;
+              int b_row = -1, b_col = -1;
+
+              table.range.row0--;
+              table.range.col0--;
+              if (two && attr (names, values, "r2") != NULL)
+                o42_ref_parse (attr (names, values, "r2"), &b_row, &b_col, NULL);
+              if (two)
+                { table.row_input_row = a_row; table.row_input_col = a_col; table.col_input_row = b_row; table.col_input_col = b_col; }
+              else if (row_wise)
+                { table.row_input_row = a_row; table.row_input_col = a_col; }
+              else
+                { table.col_input_row = a_row; table.col_input_col = a_col; }
+              if (r->data_tables == NULL)
+                r->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
+              g_array_append_val (r->data_tables, table);
+            }
+        }
+      return;
+    }
+  if (strcmp (n, "row") == 0)
+    {
+      int row = attr_int (names, values, "r", r->row + 2) - 1;
+      double ht = attr_double (names, values, "ht", -1);
+      r->row = row;
+      r->col = -1;
+      if (row >= 0 && row < O42_MAX_ROWS)
+        {
+          /* The height the row was saved with, whether a person set it
+           * or Excel fitted it to a tall font or wrapped text: what the
+           * file showed is what is shown. */
+          if (ht > 0)
+            o42_sheet_set_row_height (r->sheet, row, PT_TO_PX (ht));
+          if (attr_flag (names, values, "hidden"))
+            o42_sheet_set_row_hidden (r->sheet, row, TRUE);
+          if (attr_int (names, values, "outlineLevel", 0) > 0)
+            o42_sheet_set_row_level (r->sheet, row, attr_int (names, values, "outlineLevel", 0));
+          if (attr_flag (names, values, "customFormat"))
+            {
+              int style = attr_int (names, values, "s", 0);
+              if (style > 0 && (guint) style < r->xfs->len)
+                o42_sheet_set_line_fmt_idx (r->sheet, TRUE, row,
+                                            (int) o42_fmt_table_intern (o42_sheet_fmt_table (r->sheet),
+                                                                        &g_array_index (r->xfs, O42Fmt, style)));
+            }
+        }
+      return;
+    }
+  if (strcmp (n, "is") == 0)
+    {
+      r->in_is = TRUE;
+      return;
+    }
+
   if (strcmp (n, "outlinePr") == 0 && r->sheet != NULL)
     o42_sheet_set_outline_settings (r->sheet, attr_int (names, values, "summaryBelow", 1) == 0,
                                     attr_int (names, values, "summaryRight", 1) == 0);
@@ -3606,106 +3751,6 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
             o42_sheet_set_line_fmt_idx (r->sheet, FALSE, c, line_fmt);
         }
     }
-  else if (strcmp (n, "row") == 0)
-    {
-      int row = attr_int (names, values, "r", r->row + 2) - 1;
-      double ht = attr_double (names, values, "ht", -1);
-      r->row = row;
-      r->col = -1;
-      if (row >= 0 && row < O42_MAX_ROWS)
-        {
-          /* The height the row was saved with, whether a person set it
-           * or Excel fitted it to a tall font or wrapped text: what the
-           * file showed is what is shown. */
-          if (ht > 0)
-            o42_sheet_set_row_height (r->sheet, row, PT_TO_PX (ht));
-          if (attr_flag (names, values, "hidden"))
-            o42_sheet_set_row_hidden (r->sheet, row, TRUE);
-          if (attr_int (names, values, "outlineLevel", 0) > 0)
-            o42_sheet_set_row_level (r->sheet, row, attr_int (names, values, "outlineLevel", 0));
-          if (attr_flag (names, values, "customFormat"))
-            {
-              int style = attr_int (names, values, "s", 0);
-              if (style > 0 && (guint) style < r->xfs->len)
-                o42_sheet_set_line_fmt_idx (r->sheet, TRUE, row,
-                                            (int) o42_fmt_table_intern (o42_sheet_fmt_table (r->sheet),
-                                                                        &g_array_index (r->xfs, O42Fmt, style)));
-            }
-        }
-    }
-  else if (strcmp (n, "c") == 0)
-    {
-      const char *ref = attr (names, values, "r");
-      const char *type = attr (names, values, "t");
-      int row, col;
-      if (ref != NULL && o42_ref_parse (ref, &row, &col, NULL))
-        { r->row = row; r->col = col; }
-      else
-        r->col++;
-      r->xf = attr_int (names, values, "s", 0);
-      g_free (r->type);
-      r->type = g_strdup (type ? type : "n");
-      g_string_truncate (r->f, 0);
-      g_string_truncate (r->v, 0);
-      g_string_truncate (r->is, 0);
-      g_clear_pointer (&r->is_runs, g_array_unref);
-      r->in_rph = FALSE;
-      r->has_f = FALSE;
-      g_clear_pointer (&r->shared_si, g_free);
-      g_clear_pointer (&r->array_ref, g_free);
-    }
-  else if (strcmp (n, "f") == 0)
-    {
-      const char *t = attr (names, values, "t");
-      const char *si = attr (names, values, "si");
-      r->in_f = TRUE;
-      r->has_f = TRUE;
-      if (t != NULL && strcmp (t, "shared") == 0 && si != NULL)
-        r->shared_si = g_strdup (si);
-      if (t != NULL && strcmp (t, "array") == 0 && attr (names, values, "ref") != NULL)
-        r->array_ref = g_strdup (attr (names, values, "ref"));
-      if (t != NULL && strcmp (t, "dataTable") == 0 && attr (names, values, "ref") != NULL &&
-          attr (names, values, "r1") != NULL)
-        {
-          /* A What-If table's inside: ref is the inside, the edges lie
-           * one row and column outside it; dt2D has r1 the row input and
-           * r2 the column input, else dtr says which r1 is. */
-          O42DataTable table;
-          const char *ref = attr (names, values, "ref");
-          gsize used = 0;
-          int a_row, a_col;
-
-          memset (&table, 0, sizeof table);
-          table.row_input_row = table.row_input_col = table.col_input_row = table.col_input_col = -1;
-          if (o42_ref_parse (ref, &table.range.row0, &table.range.col0, &used) && ref[used] == ':' &&
-              o42_ref_parse (ref + used + 1, &table.range.row1, &table.range.col1, NULL) &&
-              table.range.row0 > 0 && table.range.col0 > 0 &&
-              o42_ref_parse (attr (names, values, "r1"), &a_row, &a_col, NULL))
-            {
-              gboolean two = attr_int (names, values, "dt2D", 0) != 0;
-              gboolean row_wise = attr_int (names, values, "dtr", 0) != 0;
-              int b_row = -1, b_col = -1;
-
-              table.range.row0--;
-              table.range.col0--;
-              if (two && attr (names, values, "r2") != NULL)
-                o42_ref_parse (attr (names, values, "r2"), &b_row, &b_col, NULL);
-              if (two)
-                { table.row_input_row = a_row; table.row_input_col = a_col; table.col_input_row = b_row; table.col_input_col = b_col; }
-              else if (row_wise)
-                { table.row_input_row = a_row; table.row_input_col = a_col; }
-              else
-                { table.col_input_row = a_row; table.col_input_col = a_col; }
-              if (r->data_tables == NULL)
-                r->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
-              g_array_append_val (r->data_tables, table);
-            }
-        }
-    }
-  else if (strcmp (n, "v") == 0)
-    r->in_v = TRUE;
-  else if (strcmp (n, "is") == 0)
-    r->in_is = TRUE;
   else if (strcmp (n, "t") == 0 && r->in_is)
     r->in_t = TRUE;
   else if (strcmp (n, "rPh") == 0 && r->in_is)
@@ -3963,6 +4008,8 @@ static void
 finish_cell (Reader *r)
 {
   char *input = NULL;
+  O42Value direct;
+  gboolean have_direct = FALSE;
 
   if (r->row < 0 || r->row >= O42_MAX_ROWS || r->col < 0 || r->col >= O42_MAX_COLS)
     return;
@@ -4010,6 +4057,10 @@ finish_cell (Reader *r)
         }
     }
 
+  /* A constant goes into the cell as the value it is, not as text to
+   * be parsed: text stays text, so "00123" is not 123 and "1/2" is not
+   * a date when the file says it is a string, and a number is not
+   * written out and read back. */
   if (input == NULL)
     {
       const char *t = r->type;
@@ -4021,9 +4072,8 @@ finish_cell (Reader *r)
               GArray *runs = (idx < r->string_runs->len)
                              ? g_ptr_array_index (r->string_runs, idx) : NULL;
 
-              /* Text stays text: "00123" is not 123 and "1/2" is not
-               * a date when the file says it is a string. */
-              input = o42_entry_quote_text (g_ptr_array_index (r->strings, idx));
+              direct = o42_value_text (g_ptr_array_index (r->strings, idx));
+              have_direct = TRUE;
               /* The runs go on after the text: setting the text takes
                * them off again, as typing into a cell does. */
               if (runs != NULL && runs->len > 0)
@@ -4032,14 +4082,21 @@ finish_cell (Reader *r)
         }
       else if (strcmp (t, "inlineStr") == 0)
         {
-          input = o42_entry_quote_text (r->is->str);
+          direct = o42_value_text (r->is->str);
+          have_direct = TRUE;
           if (r->is_runs != NULL && r->is_runs->len > 0)
             r->cell_runs = r->is_runs;
         }
       else if (strcmp (t, "str") == 0)
-        input = o42_entry_quote_text (r->v->str);
+        {
+          direct = o42_value_text (r->v->str);
+          have_direct = TRUE;
+        }
       else if (strcmp (t, "b") == 0)
-        input = g_strdup (strcmp (r->v->str, "1") == 0 || strcmp (r->v->str, "true") == 0 ? "TRUE" : "FALSE");
+        {
+          direct = o42_value_bool (strcmp (r->v->str, "1") == 0 || strcmp (r->v->str, "true") == 0);
+          have_direct = TRUE;
+        }
       else if (strcmp (t, "e") == 0)
         input = g_strdup (r->v->str);
       else if (strcmp (t, "d") == 0)
@@ -4057,21 +4114,26 @@ finish_cell (Reader *r)
           if ((tail = strchr (plain, 'Z')) != NULL) *tail = '\0';
           if (o42_date_parse (plain, &serial, &has_date, &has_time))
             {
-              char buf[G_ASCII_DTOSTR_BUF_SIZE];
-              input = g_strdup (g_ascii_dtostr (buf, sizeof buf, serial));
+              direct = o42_value_number (serial);
+              have_direct = TRUE;
               r->is_date_cell = has_date ? (has_time ? O42_NUM_DATETIME : O42_NUM_DATE) : O42_NUM_TIME;
             }
           g_free (plain);
         }
       else if (r->v->len > 0)
         {
-          /* A number: pass it through as text; the sheet parses it. */
-          char buf[G_ASCII_DTOSTR_BUF_SIZE];
-          input = g_strdup (g_ascii_dtostr (buf, sizeof buf, g_ascii_strtod (r->v->str, NULL)));
+          direct = o42_value_number (g_ascii_strtod (r->v->str, NULL));
+          have_direct = TRUE;
         }
     }
 
-  if (input != NULL && input[0] == '=' && r->array_ref != NULL)
+  if (have_direct)
+    {
+      if (!o42_sheet_array_range (r->sheet, r->row, r->col, NULL))
+        o42_sheet_set_value (r->sheet, r->row, r->col, &direct);
+      o42_value_clear (&direct);
+    }
+  else if (input != NULL && input[0] == '=' && r->array_ref != NULL)
     {
       O42Range block;
       gsize used;
@@ -4101,9 +4163,24 @@ finish_cell (Reader *r)
       int wears = g_array_index (r->xf_styles, int, r->xf);
       const char *style = wears > 0 ? g_hash_table_lookup (r->style_names,
                                                            GINT_TO_POINTER (wears)) : NULL;
+      int *idx;
 
-      o42_sheet_apply_fmt (r->sheet, &one, O42_FMT_ALL,
-                           &g_array_index (r->xfs, O42Fmt, r->xf));
+      /* Each xf is interned in the sheet's table once, the first time
+       * a cell wears it, and the cells take the index: a million cells
+       * wear a few dozen xfs. */
+      if (r->xf_idx_sheet != r->sheet)
+        {
+          g_array_set_size (r->xf_idx, 0);
+          g_array_set_size (r->xf_idx, r->xfs->len);
+          for (guint i = 0; i < r->xfs->len; i++)
+            g_array_index (r->xf_idx, int, i) = -1;
+          r->xf_idx_sheet = r->sheet;
+        }
+      idx = &g_array_index (r->xf_idx, int, r->xf);
+      if (*idx < 0)
+        *idx = (int) o42_fmt_table_intern (o42_sheet_fmt_table (r->sheet),
+                                           &g_array_index (r->xfs, O42Fmt, r->xf));
+      o42_sheet_set_cell_fmt_idx (r->sheet, r->row, r->col, (O42FmtIdx) *idx);
       if (style != NULL)
         o42_sheet_apply_style (r->sheet, &one, style);
     }
@@ -4129,6 +4206,18 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
   const char *n = local (name);
   (void) ctx; (void) error;
 
+  /* The cells first, as in sheet_start. */
+  if (n[1] == '\0')
+    {
+      if (n[0] == 'c') { finish_cell (r); return; }
+      if (n[0] == 'v') { r->in_v = FALSE; return; }
+      if (n[0] == 'f') { r->in_f = FALSE; return; }
+      if (n[0] == 't') { r->in_t = FALSE; return; }
+      if (n[0] == 'r' && r->in_is) { r->in_run = FALSE; return; }
+    }
+  else if (strcmp (n, "is") == 0)
+    { r->in_is = FALSE; r->in_run = FALSE; return; }
+
   if (strcmp (n, "rowBreaks") == 0 || strcmp (n, "colBreaks") == 0)
     {
       r->in_breaks = 0;
@@ -4142,9 +4231,7 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
       return;
     }
 
-  if (strcmp (n, "c") == 0)
-    finish_cell (r);
-  else if (strcmp (n, "formula") == 0 && r->in_cf_formula)
+  if (strcmp (n, "formula") == 0 && r->in_cf_formula)
     {
       char *end_ptr = NULL;
       double v = g_ascii_strtod (r->cf_formula->str, &end_ptr);
@@ -4260,11 +4347,6 @@ sheet_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
           o42_sheet_add_condition (r->sheet, &c);
         }
     }
-  else if (strcmp (n, "f") == 0) r->in_f = FALSE;
-  else if (strcmp (n, "v") == 0) r->in_v = FALSE;
-  else if (strcmp (n, "is") == 0) { r->in_is = FALSE; r->in_run = FALSE; }
-  else if (strcmp (n, "t") == 0) r->in_t = FALSE;
-  else if (strcmp (n, "r") == 0 && r->in_is) r->in_run = FALSE;
   else if (strcmp (n, "rPh") == 0) r->in_rph = FALSE;
 }
 
@@ -4544,6 +4626,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   r.borders = g_array_new (FALSE, FALSE, sizeof (guint8));
   r.bdefs = g_array_new (FALSE, TRUE, sizeof (BorderDef));
   r.xfs = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
+  r.xf_idx = g_array_new (FALSE, FALSE, sizeof (int));
   r.xf_dates = g_array_new (FALSE, FALSE, sizeof (gboolean));
   r.dxfs = g_array_new (FALSE, FALSE, sizeof (O42Condition));
   r.cf_formula = g_string_new (NULL);
@@ -4916,6 +4999,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_array_unref (r.borders);
   g_array_unref (r.bdefs);
   g_array_unref (r.xfs);
+  g_array_unref (r.xf_idx);
   g_array_unref (r.xf_dates);
   g_array_unref (r.dxfs);
   g_string_free (r.cf_formula, TRUE);
@@ -4924,7 +5008,6 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_string_free (r.f, TRUE);
   g_string_free (r.v, TRUE);
   g_string_free (r.is, TRUE);
-  g_free (r.type);
   g_free (r.shared_si);
   g_free (r.array_ref);
   g_free (r.drawing_rid);

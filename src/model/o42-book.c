@@ -35,6 +35,7 @@ typedef struct {
 } Watcher;
 
 struct _O42Book {
+  gboolean   loading;      /* a file is being read in: see o42_book_begin_load */
   GPtrArray *views;        /* O42BookView *, the named window states */
   GPtrArray *watches;      /* O42Watch *, the Watch Window's cells */
   GString *recording;      /* the macro being recorded, or NULL */
@@ -1708,6 +1709,30 @@ o42_book_undo_stack (O42Book *book)
 {
   g_return_val_if_fail (book != NULL, NULL);
   return book->stack;
+}
+
+void
+o42_book_begin_load (O42Book *book)
+{
+  g_return_if_fail (book != NULL);
+  book->loading = TRUE;
+}
+
+void
+o42_book_end_load (O42Book *book)
+{
+  g_return_if_fail (book != NULL);
+  if (!book->loading)
+    return;
+  book->loading = FALSE;
+  for (guint i = 0; i < book->sheets->len; i++)
+    o42_sheet_finish_load (g_ptr_array_index (book->sheets, i));
+}
+
+gboolean
+o42_book_loading (const O42Book *book)
+{
+  return book != NULL && book->loading;
 }
 
 void

@@ -35,7 +35,7 @@ office42 aims at two programs:
   box, two toolbars and sheet tabs along the bottom. No ribbon.
   [docs/PARITY.md](docs/PARITY.md) keeps the score menu by menu, and
   [docs/ROADMAP.md](docs/ROADMAP.md) lists what is left. Later Excels are
-  drawn on where they got something right -- the 1,048,576-row grid,
+  drawn on where they got something right -- the 16,777,216-row grid,
   dynamic arrays, `LET` and `LAMBDA`, the `.xlsx` file -- but the ribbon,
   co-authoring and Power Query are not what this is.
 - **[Gnumeric](https://en.wikipedia.org/wiki/Gnumeric)**, for how to do it
@@ -45,7 +45,7 @@ office42 aims at two programs:
 
 ## What it does
 
-**The window.** A grid of 1,048,576 rows by 16,384 columns, with Excel's
+**The window.** A grid of 16,777,216 rows by 16,384 columns, with Excel's
 keys: Enter steps down, Tab steps right and Tab-Tab-Enter returns to the
 column the row began in. The formula bar is the same edit as the cell, with
 every reference in its own colour; two letters into a function name the

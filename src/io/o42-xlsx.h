@@ -24,6 +24,10 @@
 
 G_BEGIN_DECLS
 
+/* How many cells the last save left out for lying beyond Excel's
+ * 1,048,576 rows, for the caller to say so. */
+extern int o42_xlsx_dropped_cells;
+
 gboolean o42_xlsx_save (O42Book *book, GFile *file, GError **error);
 
 /* Shared with the .xls reader: the format code Excel's built-in number

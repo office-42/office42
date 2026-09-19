@@ -41,6 +41,7 @@ scenario_free (gpointer data)
 }
 
 typedef struct {
+  guint64    key;         /* where the cell is; the table's key points here */
   O42Value   value;       /* the last computed value */
   char      *input;       /* what the user typed, when it was text or a
                            * formula; numbers keep theirs in `value` */
@@ -245,15 +246,22 @@ value_input_text (const O42Value *value)
 static guint
 key_hash (gconstpointer p)
 {
-  /* The cell's place down its column, columns a million apart: the
-   * cells of a column hash to neighbouring values, so a walk down A:A
-   * stays in cache, and no two cells of a block share one.  Row XOR
-   * column, which this was, put a dense block of 500 by 500 into a few
-   * hundred buckets and walked chains of hundreds for each cell. */
+  /* The key mixed down to 32 bits, MurmurHash3's way, so that every
+   * bit of the row and the column moves every bit of the hash.  The
+   * hash was row + (col << 20), which put the cells of one column in
+   * order down the table; but GHashTable keeps a table of some power
+   * of two and indexes it by hash * 11, so below a million cells the
+   * column's bits fell off the top, every cell of a row landed in one
+   * slot, and a lookup in a book of a hundred thousand rows walked a
+   * chain of thousands. */
   guint64 k = *(const guint64 *) p;
-  guint32 row = (guint32) (k >> 32), col = (guint32) k;
 
-  return row + (col << 20);
+  k ^= k >> 33;
+  k *= 0xff51afd7ed558ccdULL;
+  k ^= k >> 33;
+  k *= 0xc4ceb9fe1a85ec53ULL;
+  k ^= k >> 33;
+  return (guint) k;
 }
 
 static gboolean
@@ -269,6 +277,14 @@ key_compare_reading_order (gconstpointer a, gconstpointer b)
 {
   guint64 x = *(const guint64 *) a, y = *(const guint64 *) b;
   return (x < y) ? -1 : (x > y) ? 1 : 0;
+}
+
+/* Whether a file is being read into the sheet's book: see
+ * o42_book_begin_load for what is put off until it is in. */
+static gboolean
+loading (const O42Sheet *sheet)
+{
+  return sheet->book != NULL && o42_book_loading (sheet->book);
 }
 
 static O42Cell *
@@ -305,18 +321,17 @@ sheet_ensure (O42Sheet *sheet, int row, int col)
 {
   guint64 key = o42_key (row, col);
   O42Cell *cell = g_hash_table_lookup (sheet->cells, &key);
-  guint64 *stored;
 
   if (cell != NULL)
     return cell;
 
   cell = g_new0 (O42Cell, 1);
+  cell->key = key;
   cell->value = o42_value_empty ();
   cell->fmt = sheet_line_fmt (sheet, row, col);
 
-  stored = g_new (guint64, 1);
-  *stored = key;
-  g_hash_table_insert (sheet->cells, stored, cell);
+  /* The key lives in the cell: one allocation a cell, not two. */
+  g_hash_table_insert (sheet->cells, &cell->key, cell);
 
   /* A new cell can only make the used range larger. */
   if (sheet->used_valid)
@@ -1904,6 +1919,14 @@ sheet_invalidate (O42Sheet *sheet, int row, int col)
 {
   if (sheet->data_tables->len > 0 && !sheet->filling_tables)
     sheet->tables_stale = TRUE;
+  if (loading (sheet))
+    {
+      /* Every formula read in is dirty from the start and nothing has
+       * been worked out yet, so there is no one to tell; the stamp
+       * still moves, for the caches that watch it. */
+      sheet->content_stamp++;
+      return;
+    }
   sheet_invalidate_named (sheet, sheet->name, row, col);
 
   if (sheet->book != NULL)
@@ -2040,7 +2063,7 @@ op_begin (O42Sheet *sheet)
 {
   O42UndoStack *stack = sheet->stack;
 
-  if (stack->depth++ == 0)
+  if (stack->depth++ == 0 && !loading (sheet))
     stack->pending = undo_new ();
 }
 
@@ -2152,7 +2175,7 @@ o42_sheet_new (const char *name)
   O42Sheet *sheet = g_new0 (O42Sheet, 1);
 
   sheet->name = g_strdup (name != NULL ? name : "Sheet1");
-  sheet->cells = g_hash_table_new_full (key_hash, key_equal, g_free, cell_free);
+  sheet->cells = g_hash_table_new_full (key_hash, key_equal, NULL, cell_free);
   sheet->formulas = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
   sheet->volatiles = g_hash_table_new_full (key_hash, key_equal, g_free, NULL);
   sheet->dependents = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, dep_band_free);
@@ -3066,12 +3089,13 @@ set_input_internal (O42Sheet *sheet, int row, int col, const char *text)
 
   /* A formula over a range may spill; evaluating it now puts the
    * spilled cells in place before anyone reads them. */
-  {
-    O42Cell *fresh = sheet_find (sheet, row, col);
-    if (fresh != NULL && fresh->ast != NULL && tree_has_range (fresh->ast) &&
-        !sheet->placing_array && array_at (sheet, row, col) == NULL)
-      sheet_evaluate (sheet, o42_key (row, col), fresh);
-  }
+  if (!loading (sheet))
+    {
+      O42Cell *fresh = sheet_find (sheet, row, col);
+      if (fresh != NULL && fresh->ast != NULL && tree_has_range (fresh->ast) &&
+          !sheet->placing_array && array_at (sheet, row, col) == NULL)
+        sheet_evaluate (sheet, o42_key (row, col), fresh);
+    }
 }
 
 void
@@ -3082,9 +3106,118 @@ o42_sheet_set_input (O42Sheet *sheet, int row, int col, const char *text)
   op_begin (sheet);
   op_capture (sheet, row, col);
   set_input_internal (sheet, row, col, text);
-  if (sheet->tables_stale)
+  if (sheet->tables_stale && !loading (sheet))
     data_tables_fill (sheet);
   op_end (sheet);
+}
+
+void
+o42_sheet_set_value (O42Sheet *sheet, int row, int col, const O42Value *value)
+{
+  guint64 key;
+  O42Cell *cell;
+
+  g_return_if_fail (sheet != NULL);
+  g_return_if_fail (value != NULL);
+
+  if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+    return;
+  /* The recorder, and an empty value, want the typed form. */
+  if (value->type == O42_VALUE_EMPTY || value->type == O42_VALUE_ERROR ||
+      o42_book_recording (sheet->book))
+    {
+      char *text = value_input_text (value);
+      o42_sheet_set_input (sheet, row, col, text);
+      g_free (text);
+      return;
+    }
+
+  op_begin (sheet);
+  op_capture (sheet, row, col);
+  if (!sheet->shifting)
+    array_dissolve_at (sheet, row, col);
+  key = o42_key (row, col);
+  cell = sheet_ensure (sheet, row, col);
+  cell->spilled = 0;
+  cell_clear_content (sheet, key, cell);
+  g_clear_pointer (&cell->runs, g_array_unref);
+  cell->value = o42_value_copy (value);
+  if (value->type == O42_VALUE_NUMBER)
+    round_to_display (sheet, cell);
+  sheet_invalidate (sheet, row, col);
+  /* The cell holds something, so there is nothing to prune. */
+  if (sheet->tables_stale && !loading (sheet))
+    data_tables_fill (sheet);
+  op_end (sheet);
+}
+
+void
+o42_sheet_set_cell_fmt_idx (O42Sheet *sheet, int row, int col, O42FmtIdx idx)
+{
+  O42Cell *cell;
+
+  g_return_if_fail (sheet != NULL);
+  if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+    return;
+  cell = sheet_find (sheet, row, col);
+  if (cell == NULL && idx == sheet_line_fmt (sheet, row, col))
+    return;   /* what a cell there would wear anyway */
+  if (cell != NULL && cell->fmt == idx)
+    return;
+  op_begin (sheet);
+  op_capture (sheet, row, col);
+  if (cell == NULL)
+    cell = sheet_ensure (sheet, row, col);
+  cell->fmt = idx;
+  op_end (sheet);
+}
+
+void
+o42_sheet_finish_load (O42Sheet *sheet)
+{
+  GHashTableIter iter;
+  gpointer k;
+  GArray *heads;
+
+  g_return_if_fail (sheet != NULL);
+
+  /* Every formula is worked out afresh when first read, whatever was
+   * read while the file came in. */
+  heads = g_array_new (FALSE, FALSE, sizeof (guint64));
+  g_hash_table_iter_init (&iter, sheet->formulas);
+  while (g_hash_table_iter_next (&iter, &k, NULL))
+    {
+      guint64 key = *(guint64 *) k;
+      O42Cell *cell = sheet_find_key (sheet, key);
+
+      if (cell == NULL)
+        continue;
+      cell->dirty = 1;
+      /* A formula over a range may spill: it is worked out now, so that
+       * the cells it spills into are in place before anyone reads
+       * them, as it would have been on entry. */
+      if (cell->ast != NULL && tree_has_range (cell->ast) &&
+          array_at (sheet, o42_key_row (key), o42_key_col (key)) == NULL)
+        g_array_append_val (heads, key);
+    }
+  g_array_sort (heads, key_compare_reading_order);
+  for (guint i = 0; i < heads->len; i++)
+    {
+      guint64 key = g_array_index (heads, guint64, i);
+      O42Cell *cell = sheet_find_key (sheet, key);
+
+      if (cell != NULL && cell->dirty)
+        sheet_evaluate (sheet, key, cell);
+    }
+  g_array_free (heads, TRUE);
+  if (sheet->tables_stale)
+    data_tables_fill (sheet);
+  /* A filter judges values, some of them a formula's over cells that
+   * were not in yet when the filter was read. */
+  if (sheet->has_filter)
+    o42_sheet_autofilter_refresh (sheet);
+  sheet->content_stamp++;
+  o42_eval_sheet_changed (sheet_key_of (sheet));
 }
 
 char *
@@ -12804,6 +12937,14 @@ data_tables_fill (O42Sheet *sheet)
   if (sheet->filling_tables || sheet->data_tables->len == 0)
     {
       sheet->tables_stale = FALSE;
+      return;
+    }
+  if (loading (sheet))
+    {
+      /* Working a table out puts values into its input cell and reads
+       * the formulas that depend on it, which needs the dependents
+       * told; that waits for the end of the load, when they are. */
+      sheet->tables_stale = TRUE;
       return;
     }
   sheet->filling_tables = TRUE;

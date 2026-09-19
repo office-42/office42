@@ -89,6 +89,21 @@ O42FmtTable *o42_sheet_fmt_table (O42Sheet *sheet);
  * else is text.  Passing NULL or "" empties the cell. */
 void  o42_sheet_set_input (O42Sheet *sheet, int row, int col, const char *text);
 
+/* A constant put straight into a cell, as a file reader has it: no
+ * parsing of text, so "00123" stays the text it is and 4.2 needs no
+ * writing out and reading back.  An empty or error value, or a book
+ * that is recording, goes the typed way. */
+void  o42_sheet_set_value (O42Sheet *sheet, int row, int col, const O42Value *value);
+
+/* A format already interned in the sheet's table, put on one cell:
+ * what a reader does for every cell of a file, having interned each
+ * of the file's formats once. */
+void  o42_sheet_set_cell_fmt_idx (O42Sheet *sheet, int row, int col, O42FmtIdx idx);
+
+/* The end of reading a file into the sheet: see o42_book_end_load,
+ * which calls it for every sheet. */
+void  o42_sheet_finish_load (O42Sheet *sheet);
+
 /* What the user typed, for editing: the formula source for a formula cell,
  * otherwise the value as text.  Caller frees. */
 char *o42_sheet_get_input (O42Sheet *sheet, int row, int col);

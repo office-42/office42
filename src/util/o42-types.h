@@ -19,8 +19,13 @@ G_BEGIN_DECLS
  * one Excel 2007 grew to, so an .xlsx comes in whole.  The limits are not
  * a storage decision -- the sheet is sparse and an empty cell costs
  * nothing -- they are what a reference like XFD1048576 can name. */
-#define O42_MAX_ROWS 1048576
+/* The grid: Gnumeric's 16,777,216 rows, sixteen times Excel's
+ * 1,048,576, and the 16,384 columns both have.  A cell beyond Excel's
+ * rows cannot go into an .xlsx, an .xls or an .ods, and the writers
+ * count what they leave out: see O42_EXCEL_MAX_ROWS. */
+#define O42_MAX_ROWS 16777216
 #define O42_MAX_COLS 16384
+#define O42_EXCEL_MAX_ROWS 1048576
 
 /* A cell address.  Rows and columns are zero-based inside the program and
  * one-based-and-lettered on screen, which is the only place the two

@@ -216,6 +216,17 @@ gboolean        o42_book_remove_watch (O42Book *book, int index);
  * -- an insert of rows is one line, sheet.insert_rows(at, count), and
  * the cells it moves are not written down one by one. */
 void      o42_book_record_start (O42Book *book);
+/* A file is being read in between these two.  While it is, the sheets
+ * keep no undo, tell no formula that a cell it reads has changed --
+ * every formula read in is already waiting to be worked out, and the
+ * cells it reads arrive in any order -- and put off spilling a formula
+ * over its block until the end, when everything it reads is there.  A
+ * book of a million cells reads in seconds this way rather than
+ * minutes.  The end tidies every sheet: see o42_sheet_finish_load. */
+void      o42_book_begin_load   (O42Book *book);
+void      o42_book_end_load     (O42Book *book);
+gboolean  o42_book_loading      (const O42Book *book);
+
 gboolean  o42_book_recording    (O42Book *book);
 /* The script recorded so far, and an end to the recording.  The caller
  * owns the text. */

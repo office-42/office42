@@ -573,6 +573,8 @@ main (int argc, char *argv[])
           gboolean ok;
 
           if (text[0] == 'l')
+            o42_book_begin_load (book);
+          if (text[0] == 'l')
             ok = csv ? o42_csv_load (sheet, file, &error)
                : xlsx ? o42_xlsx_load (book, file, &error)
                : xls ? o42_xls_load (book, file, &error)
@@ -582,7 +584,9 @@ main (int argc, char *argv[])
                : sylk ? o42_sylk_load (sheet, file, &error)
                : wk1 ? o42_lotus_load (sheet, file, &error)
                      : o42_gnumeric_load (book, file, &error);
-          else
+          if (text[0] == 'l')
+            o42_book_end_load (book);
+          if (text[0] != 'l')
             ok = csv ? o42_csv_save (sheet, file, &error)
                : xlsx ? o42_xlsx_save (book, file, &error)
                : xls ? o42_xls_save (book, file, &error)
@@ -598,6 +602,10 @@ main (int argc, char *argv[])
             fprintf (stderr, "%s: %d cells outside the 65,536 rows by 256 "
                              "columns Excel 97 holds were not written\n",
                      path, o42_xls_dropped_cells);
+          if (ok && (xlsx || ods) && text[0] == 115 && o42_xlsx_dropped_cells > 0)
+            fprintf (stderr, "%s: %d cells beyond the 1,048,576 rows Excel "
+                             "holds were not written\n",
+                     path, o42_xlsx_dropped_cells);
 
           if (ok && !csv && !html && !dif && !sylk && !wk1 && text[0] == 'l')
             sheet = o42_book_sheet (book, 0);

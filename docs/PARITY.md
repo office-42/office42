@@ -260,6 +260,39 @@ office42-calc on books written by openpyxl, on a Strict rewrite of
 one, on one with its parts renamed, and on the samples; what
 office42 wrote was read back by LibreOffice 24.2 headless.
 
+**Big books.** A .xlsx of 200,000 rows by 12 columns, 2.4 million
+cells, took 155 seconds and 1.5 gigabytes to open; it takes 8 seconds
+and 500 megabytes now, and the window shows it 2 seconds later.  Four
+things were wrong.  Every cell read went in as if typed: an undo
+record was kept for it, every formula that might read it was looked
+up and told, and a formula over a range was worked out on the spot,
+before the cells it read were in, to be told again and again as they
+arrived.  A file is now read between o42_book_begin_load and
+o42_book_end_load: no undo, no telling, and the working-out put off
+to the end, when every cell is in and each formula is done once.  The
+cell table's hash put every cell of a row into one slot below a
+million cells -- GHashTable indexes by hash times eleven modulo a
+power of two, and the column's bits, shifted up twenty, fell off --
+so a lookup walked a chain of thousands; it is MurmurHash3's mix now.
+A number came in as text, written out by the reader and parsed by
+the sheet, and went out the same way, twice over, to see whether the
+cell held a formula; readers put values in as the values they are and
+the writers ask whether a cell has a formula.  And a cell's key was a
+second allocation beside the cell; it lives in the cell.  The
+.gnumeric writer held a book's whole XML before compressing it, and
+the reader the whole decompressed file before parsing it; both go
+through in pieces of a megabyte.  Checked with office42-calc on books
+of 10,000 to 1,200,000 rows made for the purpose, timed and measured,
+the values compared after each change, and the samples read as they
+were read before.
+
+**The grid** is Gnumeric's 16,777,216 rows now, sixteen times Excel's:
+a .csv with more rows than Excel can hold comes in whole, and the
+window scrolls to it.  A .xlsx or an .ods cannot hold a cell beyond
+row 1,048,576, and the writers leave such cells out and say how many,
+as the .xls writer has done for its own smaller grid; .gnumeric keeps
+them.
+
 **The charts' colours** were near Excel 97's and are now its own: the
 chart fills from its palette for a filled series -- periwinkle, plum,
 ivory, turquoise, purple, coral, ocean blue, ice blue -- and the chart
@@ -312,19 +345,26 @@ sparklines, slicers and the ribbon are not.
 
 | | Rows | Columns |
 |---|---:|---:|
-| office42 | 1,048,576 | 16,384 |
+| office42 | 16,777,216 | 16,384 |
 | Excel 97 to 2003 | 65,536 | 256 |
 | Excel 2007 and later | 1,048,576 | 16,384 |
+| Gnumeric | 16,777,216 | 16,384 |
 
-The grid is Excel 2007's, a `.xlsx` written by a modern Excel comes in
-whole, and the scrollbars reach all of it: the grid is a widget the
-size of the window that scrolls itself and paints where the scroll
-says, so nothing is drawn at a coordinate cairo cannot address. One
-thing is worth knowing:
+The grid is Gnumeric's, sixteen times Excel 2007's rows, so a `.xlsx`
+written by a modern Excel comes in whole and a `.csv` with more rows
+than Excel can hold comes in too; the scrollbars reach all of it: the
+grid is a widget the size of the window that scrolls itself and paints
+where the scroll says, so nothing is drawn at a coordinate cairo cannot
+address. Two things are worth knowing:
 
 - **An `.xls` cannot hold it all.** Excel 97's file format stops at
   65,536 by 256; office42 writes what fits, leaves out what does not,
   and says how many cells that was rather than losing them quietly.
+- **Nor can an `.xlsx` or an `.ods`, past a million rows.** Both stop
+  at 1,048,576 rows; a cell beyond that is left out and counted the
+  same way, and `.gnumeric` keeps everything.  `ROWS(A:A)` answers
+  16,777,216 here, as it does in Gnumeric, where Excel says
+  1,048,576.
 
 ### What Excel 97 has and office42 has not
 
