@@ -1172,17 +1172,20 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
                 started = TRUE;
               }
 
-            /* An area chart fills down to the axis, translucently so
-             * the series behind still show. */
+            /* An area chart fills down to the axis, opaquely and with a
+             * black edge, as Excel 97 drew it: each series lies over
+             * the ones before it, and a big early series hides a small
+             * later one, which is what its order is for. */
             if (chart->kind == O42_CHART_AREA && started)
               {
-                guint32 c = o42_chart_series_colour (chart, s);
                 cairo_line_to (cr, last_x, VYS (s, 0));
                 cairo_line_to (cr, first_x, VYS (s, 0));
                 cairo_close_path (cr);
-                cairo_set_source_rgba (cr, ((c >> 16) & 0xff) / 255.0, ((c >> 8) & 0xff) / 255.0,
-                                       (c & 0xff) / 255.0, 0.45);
-                cairo_fill (cr);
+                cairo_fill_preserve (cr);
+                cairo_set_source_rgb (cr, 0, 0, 0);
+                cairo_set_line_width (cr, 1);
+                cairo_stroke (cr);
+                cairo_set_line_width (cr, 2);
                 continue;
               }
             cairo_stroke (cr);
