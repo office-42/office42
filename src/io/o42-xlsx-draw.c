@@ -166,7 +166,16 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   int first_col = d->col0 + (chart->first_col_labels ? 1 : 0);
   gboolean scatter = chart->kind == O42_CHART_SCATTER;
   gboolean pie = chart->kind == O42_CHART_PIE;
-  gboolean secondary = chart->secondary_from > 0 && !pie;
+  /* A round chart's series takes no trendline and no error bars, and a
+   * surface's takes no labels either: the schema has nowhere to put
+   * them, and Excel calls the file broken rather than ignoring them. */
+  gboolean round = pie || chart->kind == O42_CHART_DOUGHNUT;
+  gboolean surface = chart->kind == O42_CHART_SURFACE || chart->kind == O42_CHART_CONTOUR;
+  gboolean radar = chart->kind == O42_CHART_RADAR || chart->kind == O42_CHART_POLAR;
+  /* A bubble is plotted from three lines, as a scatter is from two:
+   * across, up, and the size of each bubble. */
+  gboolean bubble = chart->kind == O42_CHART_BUBBLE;
+  gboolean secondary = chart->secondary_from > 0 && !pie && chart->kind != O42_CHART_DOUGHNUT;
   /* The sheet the cells are on, which is not the chart's own when it
    * sits on a chart sheet. */
   const char *source = (chart->data_sheet != NULL && chart->data_sheet[0] != '\0')
@@ -185,7 +194,6 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   else
     g_string_append (out, "<c:autoTitleDeleted val=\"1\"/>");
 
-  g_string_append (out, "<c:plotArea><c:layout/>");
   /* Excel has a 3-D element of its own for each kind that can have
    * depth; a scatter cannot. */
   switch (chart->kind)
@@ -206,9 +214,14 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_SCATTER: element = "scatterChart"; break;
     default:                element = chart->three_d ? "bar3DChart" : "barChart"; break;
     }
+  /* The viewing angle belongs to the chart, before the plot area:
+   * inside it, which is where this used to be written, Excel finds an
+   * element the schema does not allow there and offers to repair the
+   * file. */
   if (chart->three_d)
     g_string_append (out, "<c:view3D><c:rotX val=\"15\"/><c:rotY val=\"20\"/>"
                           "<c:rAngAx val=\"1\"/></c:view3D>");
+  g_string_append (out, "<c:plotArea><c:layout/>");
   /* Series from secondary_from on go into a second chart group with
    * its own pair of axes, which is how Excel writes a secondary axis. */
   for (int group = 0; group < (secondary ? 2 : 1); group++)
@@ -231,7 +244,9 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_DOUGHNUT: g_string_append (out, "<c:varyColors val=\"1\"/>"); break;
     case O42_CHART_RADAR:   g_string_append (out, "<c:radarStyle val=\"marker\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_BUBBLE:  g_string_append (out, "<c:varyColors val=\"0\"/>"); break;
-    case O42_CHART_STOCK:   g_string_append (out, "<c:varyColors val=\"0\"/>"); break;
+    /* A stock chart's group holds its series and nothing before
+     * them: the schema gives it no varyColors. */
+    case O42_CHART_STOCK:   break;
     case O42_CHART_SURFACE:
     case O42_CHART_CONTOUR: g_string_append (out, "<c:wireframe val=\"0\"/>"); break;
     case O42_CHART_POLAR:   g_string_append (out, "<c:radarStyle val=\"filled\"/><c:varyColors val=\"0\"/>"); break;
@@ -254,11 +269,13 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     int x_line = -1;
     int r0, c0, r1, c1;
 
-    /* A scatter's first line is x, not a series of its own. */
-    if (scatter)
+    /* A scatter's first line is x, not a series of its own, and a
+     * bubble's first is x with the second up and a third for the
+     * sizes -- the three the chart is drawn from. */
+    if (scatter || bubble)
       { x_line = cat_line; first = cat_line + 1; }
 
-    for (int i = first; i <= last && (!pie || series == 0); i++)
+    for (int i = first; i <= last && (!pie || series == 0) && (!bubble || series == 0); i++)
       {
         int ordinal = i - first;
 
@@ -288,8 +305,47 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
               chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT)
             g_string_append (out, "<c:invertIfNegative val=\"0\"/>");
         }
-        line_range (chart, first_row, first_col, i, &r0, &c0, &r1, &c1);
+        /* What follows is in the order the schema lays a series out:
+         * the marker, then the labels, the trendline and the error
+         * bars, and the cells last.  Excel reads a series against that
+         * order and offers to repair a file that puts the cells first,
+         * which is how this was written before. */
         if (scatter)
+          g_string_append (out, "<c:marker><c:symbol val=\"circle\"/></c:marker>");
+        if (chart->data_labels && !surface)
+          g_string_append (out, "<c:dLbls><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/>"
+                                "<c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbls>");
+        if (chart->trend != O42_TREND_NONE && !round && !surface && !radar)
+          {
+            static const char *types[] = { "", "linear", "poly", "exp", "log", "power", "movingAvg" };
+
+            g_string_append_printf (out, "<c:trendline><c:trendlineType val=\"%s\"/>",
+                                    types[chart->trend]);
+            if (chart->trend == O42_TREND_POLY)
+              g_string_append_printf (out, "<c:order val=\"%d\"/>", CLAMP (chart->trend_order, 2, 6));
+            else if (chart->trend == O42_TREND_MOVING)
+              g_string_append_printf (out, "<c:period val=\"%d\"/>", MAX (chart->trend_order, 2));
+            g_string_append (out, "</c:trendline>");
+          }
+        if (chart->err_bars != O42_ERRBAR_NONE && !round && !surface && !radar)
+          {
+            static const char *types[] = { "", "fixedVal", "percentage", "stdDev", "stdErr" };
+
+            g_string_append_printf (out,
+              "<c:errBars><c:errDir val=\"y\"/><c:errBarType val=\"both\"/>"
+              "<c:errValType val=\"%s\"/><c:noEndCap val=\"0\"/>", types[chart->err_bars]);
+            if (chart->err_bars != O42_ERRBAR_STDERR)
+              {
+                char buf[G_ASCII_DTOSTR_BUF_SIZE];
+
+                g_ascii_dtostr (buf, sizeof buf, chart->err_value);
+                g_string_append_printf (out, "<c:val val=\"%s\"/>", buf);
+              }
+            g_string_append (out, "</c:errBars>");
+          }
+
+        line_range (chart, first_row, first_col, i, &r0, &c0, &r1, &c1);
+        if (scatter || bubble)
           {
             int xr0, xc0, xr1, xc1;
             char *yref = ref_text (source, r0, c0, r1, c1);
@@ -298,11 +354,23 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
             line_range (chart, first_row, first_col, x_line, &xr0, &xc0, &xr1, &xc1);
             xref = ref_text (source, xr0, xc0, xr1, xc1);
             g_string_append_printf (out,
-              "<c:marker><c:symbol val=\"circle\"/></c:marker>"
               "<c:xVal><c:numRef><c:f>%s</c:f></c:numRef></c:xVal>"
               "<c:yVal><c:numRef><c:f>%s</c:f></c:numRef></c:yVal>", xref, yref);
             g_free (xref);
             g_free (yref);
+            /* The line after the values, where there is one, gives the
+             * size of each bubble. */
+            if (bubble && i + 1 <= last)
+              {
+                int sr0, sc0, sr1, sc1;
+                char *sref;
+
+                line_range (chart, first_row, first_col, i + 1, &sr0, &sc0, &sr1, &sc1);
+                sref = ref_text (source, sr0, sc0, sr1, sc1);
+                g_string_append_printf (out,
+                  "<c:bubbleSize><c:numRef><c:f>%s</c:f></c:numRef></c:bubbleSize>", sref);
+                g_free (sref);
+              }
           }
         else
           {
@@ -319,37 +387,6 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
               }
             g_string_append_printf (out, "<c:val><c:numRef><c:f>%s</c:f></c:numRef></c:val>", vref);
             g_free (vref);
-          }
-        if (chart->data_labels)
-          g_string_append (out, "<c:dLbls><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/>"
-                                "<c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbls>");
-        if (chart->trend != O42_TREND_NONE && !pie)
-          {
-            static const char *types[] = { "", "linear", "poly", "exp", "log", "power", "movingAvg" };
-
-            g_string_append_printf (out, "<c:trendline><c:trendlineType val=\"%s\"/>",
-                                    types[chart->trend]);
-            if (chart->trend == O42_TREND_POLY)
-              g_string_append_printf (out, "<c:order val=\"%d\"/>", CLAMP (chart->trend_order, 2, 6));
-            else if (chart->trend == O42_TREND_MOVING)
-              g_string_append_printf (out, "<c:period val=\"%d\"/>", MAX (chart->trend_order, 2));
-            g_string_append (out, "</c:trendline>");
-          }
-        if (chart->err_bars != O42_ERRBAR_NONE && !pie)
-          {
-            static const char *types[] = { "", "fixedVal", "percentage", "stdDev", "stdErr" };
-
-            g_string_append_printf (out,
-              "<c:errBars><c:errDir val=\"y\"/><c:errBarType val=\"both\"/>"
-              "<c:errValType val=\"%s\"/><c:noEndCap val=\"0\"/>", types[chart->err_bars]);
-            if (chart->err_bars != O42_ERRBAR_STDERR)
-              {
-                char buf[G_ASCII_DTOSTR_BUF_SIZE];
-
-                g_ascii_dtostr (buf, sizeof buf, chart->err_value);
-                g_string_append_printf (out, "<c:val val=\"%s\"/>", buf);
-              }
-            g_string_append (out, "</c:errBars>");
           }
         g_string_append (out, "</c:ser>");
         series++;
@@ -371,15 +408,16 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
      * and the series into the page. */
     g_string_append (out, "<c:axId val=\"10001\"/><c:axId val=\"10002\"/>"
                           "<c:axId val=\"10005\"/>");
-  else if (!pie)
+  else if (!round)
     g_string_append_printf (out, "<c:axId val=\"%d\"/><c:axId val=\"%d\"/>",
                             group == 0 ? 10001 : 10003, group == 0 ? 10002 : 10004);
   g_string_append_printf (out, "</c:%s>", element);
     }
 
-  if (!pie)
+  /* A round chart -- a pie or a doughnut -- has no axes at all. */
+  if (!round)
     {
-      const char *cat_axis = scatter ? "valAx" : "catAx";
+      const char *cat_axis = scatter || bubble ? "valAx" : "catAx";
       gboolean bar = chart->kind == O42_CHART_BAR;
       char *xt = axis_title_xml (chart->x_title);
       char *yt = axis_title_xml (chart->y_title);
@@ -398,7 +436,11 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
         "<c:axPos val=\"%s\"/>%s<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:tickLblPos val=\"nextTo\"/>"
         "<c:crossAx val=\"10002\"/><c:crosses val=\"autoZero\"/>%s</c:%s>",
         cat_axis, bar ? "l" : "b", xt,
-        scatter ? "<c:crossBetween val=\"midCat\"/>" : "<c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/>",
+        /* The tail of an axis differs with its kind: a value axis
+         * across (a scatter's or a bubble's) takes crossBetween, and a
+         * category axis the three that say how its labels sit. */
+        scatter || bubble ? "<c:crossBetween val=\"midCat\"/>"
+                          : "<c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/>",
         cat_axis);
       g_string_append_printf (out,
         "<c:valAx><c:axId val=\"10002\"/><c:scaling><c:orientation val=\"minMax\"/>%s</c:scaling><c:delete val=\"0\"/>"
@@ -407,7 +449,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
         "<c:crossBetween val=\"%s\"/></c:valAx>",
         minmax, bar ? "b" : "l", chart->gridlines ? "<c:majorGridlines/>" : "", yt,
         code, *code == 'G' ? 1 : 0,
-        scatter ? "midCat" : "between");
+        scatter || bubble ? "midCat" : "between");
       if (chart->kind == O42_CHART_SURFACE)
         g_string_append (out,
           "<c:serAx><c:axId val=\"10005\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling>"
@@ -901,7 +943,7 @@ typedef struct
   int          groups, n_ser, secondary_at;
   double       min, max;
   GString     *x_title, *y_title, *y_format;
-  const char  *role;      /* tx, cat, val, xVal, yVal */
+  const char  *role;      /* tx, cat, val, xVal, yVal, bubbleSize */
   GString     *f;
   GString     *title;
   O42Range     box;
@@ -976,7 +1018,8 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
       c->in_err = FALSE;
     }
   else if (strcmp (n, "tx") == 0 || strcmp (n, "cat") == 0 || strcmp (n, "val") == 0 ||
-           strcmp (n, "xVal") == 0 || strcmp (n, "yVal") == 0)
+           strcmp (n, "xVal") == 0 || strcmp (n, "yVal") == 0 ||
+           strcmp (n, "bubbleSize") == 0)
     c->role = g_intern_string (n);
   else if (strcmp (n, "f") == 0)
     { c->in_f = TRUE; g_string_truncate (c->f, 0); }
@@ -1105,7 +1148,8 @@ chart_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
       o42_node_free (tree);
     }
   else if (strcmp (n, "tx") == 0 || strcmp (n, "cat") == 0 || strcmp (n, "val") == 0 ||
-           strcmp (n, "xVal") == 0 || strcmp (n, "yVal") == 0)
+           strcmp (n, "xVal") == 0 || strcmp (n, "yVal") == 0 ||
+           strcmp (n, "bubbleSize") == 0)
     c->role = NULL;
   else if (strcmp (n, "title") == 0)
     c->in_title = FALSE;
