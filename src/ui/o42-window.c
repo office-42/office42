@@ -5990,9 +5990,9 @@ spreadsheet_filter (void)
 }
 
 /* The formats a book can be read from or written in, in the order the
- * dialogs list them.  Opening leads with Excel's, which is the one it
- * starts on; saving keeps each format apart, since the name's ending
- * is what picks the one written. */
+ * dialogs list them.  Both lead with Excel's, which is the format
+ * either dialog starts on; saving keeps each format apart, since the
+ * name's ending is what picks the one written. */
 static GListModel *
 book_filters (gboolean opening)
 {
@@ -6003,13 +6003,13 @@ book_filters (gboolean opening)
       g_list_store_append (filters, excel_filter ());
       g_list_store_append (filters, spreadsheet_filter ());
     }
-  g_list_store_append (filters, pattern_filter ("Gnumeric Spreadsheets (*.gnumeric)", "*.gnumeric"));
   if (!opening)
     {
       g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
       g_list_store_append (filters, pattern_filter ("Excel Macro-Enabled Workbooks (*.xlsm)", "*.xlsm"));
       g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
     }
+  g_list_store_append (filters, pattern_filter ("Gnumeric Spreadsheets (*.gnumeric)", "*.gnumeric"));
   g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods, *.fods)", "*.ods"));
   g_list_store_append (filters, pattern_filter ("Web Pages (*.html)", "*.html"));
   g_list_store_append (filters, pattern_filter ("Comma-Separated Values (*.csv)", "*.csv"));
@@ -6020,6 +6020,39 @@ book_filters (gboolean opening)
   g_list_store_append (filters, pattern_filter ("All Files", "*"));
 
   return G_LIST_MODEL (filters);
+}
+
+/* The filter Save As starts on: the one for the format the book is
+ * already in, and Excel's for a book that has no file yet.  The order
+ * here follows the list book_filters builds for saving. */
+static GtkFileFilter *
+save_filter_for (GListModel *filters, GFile *file)
+{
+  static const char *const SUFFIXES[] = {
+    ".xlsx", ".xlsm", ".xls", ".gnumeric", ".ods", ".html", ".csv",
+    ".dif", ".slk", ".tex", ".wk1"
+  };
+  char *name = file != NULL ? g_file_get_basename (file) : NULL;
+  char *folded = name != NULL ? g_ascii_strdown (name, -1) : NULL;
+  guint pick = 0;
+
+  if (folded != NULL)
+    {
+      /* The two endings that share a line with another. */
+      if (g_str_has_suffix (folded, ".fods")) pick = 4;
+      else if (g_str_has_suffix (folded, ".htm")) pick = 5;
+      else
+        for (guint i = 0; i < G_N_ELEMENTS (SUFFIXES); i++)
+          if (g_str_has_suffix (folded, SUFFIXES[i]))
+            {
+              pick = i;
+              break;
+            }
+    }
+
+  g_free (folded);
+  g_free (name);
+  return g_list_model_get_item (filters, pick);
 }
 
 static void
@@ -6053,19 +6086,25 @@ action_save_as (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   GtkFileDialog *dialog = gtk_file_dialog_new ();
   GListModel *filters = book_filters (FALSE);
+  GtkFileFilter *chosen = save_filter_for (filters, self->file);
 
   (void) a; (void) p;
 
   gtk_file_dialog_set_title (dialog, _("Save As"));
   gtk_file_dialog_set_filters (dialog, filters);
+  gtk_file_dialog_set_default_filter (dialog, chosen);
 
+  /* A book that has never been saved is offered as Excel's, the same
+   * format the Open dialog starts on; one that came from a file keeps
+   * the name and the format it came in. */
   if (self->file != NULL)
     gtk_file_dialog_set_initial_file (dialog, self->file);
   else
-    gtk_file_dialog_set_initial_name (dialog, "Book1.gnumeric");
+    gtk_file_dialog_set_initial_name (dialog, "Book1.xlsx");
 
   gtk_file_dialog_save (dialog, GTK_WINDOW (self), NULL, on_save_as_response, self);
 
+  g_object_unref (chosen);
   g_object_unref (filters);
   g_object_unref (dialog);
 }

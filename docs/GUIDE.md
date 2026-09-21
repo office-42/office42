@@ -867,9 +867,13 @@ templates that came with the program -- a loan amortization schedule,
 an invoice, an expense report, a balance sheet -- or from a `.gnumeric`
 of your own in the templates folder.
 
-File ▸ Open and Save As choose the format by the name you give, and
-the four files most recently opened or saved wait at the bottom of the
-File menu, newest first, to be opened with a click:
+File ▸ Open and Save As choose the format by the name you give. Both
+start on Excel's: Open lists `.xlsx`, `.xlsm` and `.xls` until you ask
+for All Spreadsheets or another format, and Save As offers a book that
+has never been saved as `Book1.xlsx`, a book that came from a file
+under its own name and format. The four files most recently opened or
+saved wait at the bottom of the File menu, newest first, to be opened
+with a click:
 
 | Extension | What it is | What travels |
 |---|---|---|
