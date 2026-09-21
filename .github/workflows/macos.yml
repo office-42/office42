@@ -7,11 +7,15 @@ on:
     paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   pull_request:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   workflow_dispatch:
 
 concurrency:
   group: macos-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
   HOMEBREW_NO_AUTO_UPDATE: '1'
@@ -20,17 +24,19 @@ env:
 
 jobs:
   build:
-    runs-on: macos-14
+    # macos-14 is deprecated on GitHub's runners; 15 is the oldest image
+    # still kept, and the arm64 one the machines people buy now run.
+    runs-on: macos-15
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: brew install meson ninja pkg-config gtk4 pango cairo glib gdk-pixbuf poppler ccache python sqlite hunspell
 
       - name: Restore ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/ccache
           key: ccache-macos-${{ github.sha }}
@@ -40,6 +46,7 @@ jobs:
         run: |
           export CC="ccache clang"
           ccache --max-size=200M
+          ccache --zero-stats
           # No --werror: Apple clang warns about different things than the
           # GCC the other two jobs use, and a warning it invents on its own
           # should not turn the tree red.
@@ -48,19 +55,14 @@ jobs:
       - name: Build
         run: meson compile -C builddir
 
+      - name: ccache statistics
+        run: ccache --show-stats
+
       - name: Smoke test
-        run: |
-          printf 'A1 = 10\nA2 = 20\nB1 = =SUM(A1:A2)*2\nB1\nC1 = =SUM(A:A)\nC1\npy print(1+1)\ndbembed\nsqlprint SELECT 6*7\n' \
-            | ./builddir/src/office42-calc | tee out.txt
-          grep -q 'B1	60' out.txt
-          grep -q 'C1	30' out.txt
-          grep -q '^2$' out.txt
-          grep -q '^42$' out.txt
-          ./builddir/src/office42-calc --version | grep -q '^office42-calc '
+        run: sh build-aux/smoke-test.sh builddir/src/office42-calc
 
       - name: Upload binary
-        if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: office42-macos
           path: builddir/src/office42-calc

@@ -7,11 +7,15 @@ on:
     paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   pull_request:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
   workflow_dispatch:
 
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -23,13 +27,14 @@ jobs:
         shell: msys2 {0}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up MSYS2 / MinGW64
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
+          cache: true
           install: >-
             git
           pacboy: >-
@@ -57,7 +62,7 @@ jobs:
           pkg-config --modversion gtk4
 
       - name: Restore ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ github.workspace }}/.ccache
           key: ccache-windows-${{ github.sha }}
@@ -68,6 +73,7 @@ jobs:
           export CCACHE_DIR="${GITHUB_WORKSPACE}/.ccache"
           export CC="ccache gcc"
           ccache --max-size=200M
+          ccache --zero-stats
           meson setup builddir --werror
 
       - name: Build
@@ -75,15 +81,13 @@ jobs:
           export CCACHE_DIR="${GITHUB_WORKSPACE}/.ccache"
           meson compile -C builddir
 
-      - name: Smoke test
+      - name: ccache statistics
         run: |
-          printf 'A1 = 10\nA2 = 20\nB1 = =SUM(A1:A2)*2\nB1\nC1 = =SUM(A:A)\nC1\npy print(1+1)\ndbembed\nsqlprint SELECT 6*7\n' \
-            | ./builddir/src/office42-calc.exe | tee out.txt
-          grep -q 'B1	60' out.txt
-          grep -q 'C1	30' out.txt
-          grep -q '^2$' out.txt
-          grep -q '^42$' out.txt
-          ./builddir/src/office42-calc.exe --version | grep -q '^office42-calc '
+          export CCACHE_DIR="${GITHUB_WORKSPACE}/.ccache"
+          ccache --show-stats
+
+      - name: Smoke test
+        run: sh build-aux/smoke-test.sh builddir/src/office42-calc.exe
 
       # The bundle runs without MSYS2: the two exes, every DLL they need,
       # the pixbuf loaders, Python's library, the dictionaries and GTK's
@@ -93,9 +97,16 @@ jobs:
           bash build-aux/bundle-windows.sh builddir dist
           cp README.md LICENSE dist/ 2>/dev/null || true
 
+      # The same smoke test again, this time against the bundled copy and
+      # with MSYS2's bin off the PATH: what a machine that has only
+      # Windows would run, and the check that no DLL was left behind.
+      - name: Smoke test the bundle
+        run: |
+          PATH="/c/Windows/System32:/c/Windows:/usr/bin" \
+            sh build-aux/smoke-test.sh dist/bin/office42-calc.exe
+
       - name: Upload bundle
-        if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: office42-windows
           path: dist
@@ -111,8 +122,7 @@ jobs:
           ls -l msix
 
       - name: Upload MSIX
-        if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: office42-windows-msix
           path: msix/*.msix

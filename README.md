@@ -154,6 +154,11 @@ meson compile -C builddir
 ./builddir/src/office42-calc       # the engine, from a terminal
 ```
 
+`sh build-aux/smoke-test.sh builddir/src/office42-calc` puts the engine
+through its paces afterwards -- formulas, recalculation, undo, the five
+file formats, Python and the database -- and is what the three CI jobs
+run on every push.
+
 Per-platform dependency lists are the same as word42's; see its
 [docs/BUILD.md](https://github.com/office-42/word42/blob/main/docs/BUILD.md).
 On Windows, `build-aux/bundle-windows.sh` gathers a tree that runs
