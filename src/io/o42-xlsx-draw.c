@@ -881,8 +881,18 @@ rels_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *id = attr (names, values, "Id");
       const char *target = attr (names, values, "Target");
       const char *type = attr (names, values, "Type");
+      const char *mode = attr (names, values, "TargetMode");
       if (id && target)
-        g_hash_table_insert (user, g_strdup (id), g_strdup (target));
+        {
+          /* A part's name in a relationship is a URI, so a space in it
+           * is written %20 and has to be put back before the part can
+           * be found in the package.  A target that leads out of the
+           * book -- a hyperlink -- is left exactly as it was written. */
+          char *plain = (mode == NULL || g_ascii_strcasecmp (mode, "External") != 0)
+                        ? g_uri_unescape_string (target, NULL) : NULL;
+
+          g_hash_table_insert (user, g_strdup (id), plain != NULL ? plain : g_strdup (target));
+        }
       /* The kind of part as well, under "type:" and the id, for the
        * callers that must tell a comments part from its name -- which
        * Excel calls comments1.xml and openpyxl comment1.xml. */
