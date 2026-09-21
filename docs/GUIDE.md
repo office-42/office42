@@ -2,10 +2,10 @@
 
 # The office42 user guide
 
-This is the long form of how to use office42. The README says what the
-program is and what is in it; this says how to do the work. It follows
-the menus, so if you can find a thing in the window you can find it
-here.
+This is the long form of how to use office42 -- Numbers42 is the same
+program under its other name. The README says what the program is and
+what is in it; this says how to do the work. It follows the menus, so
+if you can find a thing in the window you can find it here.
 
 Everything described below is in the program as it stands. Where
 something is not there, or is there in a smaller way than Excel has it,

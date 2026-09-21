@@ -1233,10 +1233,10 @@ write_styles (Writer *w)
       if (c->mask & O42_FMT_BORDERS)
         {
           g_string_append (out, "<border>");
-          if (f->border_left) g_string_append (out, "<left style=\"thin\"><color auto=\"1\"/></left>");
-          if (f->border_right) g_string_append (out, "<right style=\"thin\"><color auto=\"1\"/></right>");
-          if (f->border_top) g_string_append (out, "<top style=\"thin\"><color auto=\"1\"/></top>");
-          if (f->border_bottom) g_string_append (out, "<bottom style=\"thin\"><color auto=\"1\"/></bottom>");
+          if (f->border_left) append_border_side (out, "left", f->border_style[O42_SIDE_LEFT], f->border_colour[O42_SIDE_LEFT]);
+          if (f->border_right) append_border_side (out, "right", f->border_style[O42_SIDE_RIGHT], f->border_colour[O42_SIDE_RIGHT]);
+          if (f->border_top) append_border_side (out, "top", f->border_style[O42_SIDE_TOP], f->border_colour[O42_SIDE_TOP]);
+          if (f->border_bottom) append_border_side (out, "bottom", f->border_style[O42_SIDE_BOTTOM], f->border_colour[O42_SIDE_BOTTOM]);
           g_string_append (out, "</border>");
         }
       g_string_append (out, "</dxf>");
@@ -2475,6 +2475,7 @@ typedef struct
   GArray     *bdefs;        /* BorderDef, one per <border> */
   BorderDef   cur_bdef;
   int         bside;
+  int         dxf_bside;    /* the side of a conditional format's border */
   GArray     *xfs;          /* O42Fmt, resolved */
   GArray     *xf_idx;       /* int, beside `xfs`: each xf interned in the
                              * current sheet's format table, or -1 */
@@ -3138,7 +3139,7 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
       else if (!r->in_dxf) {}
       else if (strcmp (n, "font") == 0) r->in_dxf_font = TRUE;
       else if (strcmp (n, "fill") == 0) r->in_dxf_fill = TRUE;
-      else if (strcmp (n, "border") == 0) r->in_dxf_border = TRUE;
+      else if (strcmp (n, "border") == 0) { r->in_dxf_border = TRUE; r->dxf_bside = -1; }
       else if (r->in_dxf_font)
         {
           if (strcmp (n, "b") == 0) { c->fmt.bold = !attr (names, values, "val") || attr_flag (names, values, "val"); c->mask |= O42_FMT_BOLD; }
@@ -3165,13 +3166,30 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
           if (colour != 0xFFFFFFFFu && !(c->mask & O42_FMT_FILL && strcmp (n, "fgColor") == 0))
             { c->fmt.fill = colour; c->mask |= O42_FMT_FILL; }
         }
-      else if (r->in_dxf_border && attr (names, values, "style") != NULL && strcmp (attr (names, values, "style"), "none") != 0)
+      else if (r->in_dxf_border && (strcmp (n, "left") == 0 || strcmp (n, "right") == 0 ||
+                                    strcmp (n, "top") == 0 || strcmp (n, "bottom") == 0))
         {
-          c->mask |= O42_FMT_BORDERS;
-          if (strcmp (n, "left") == 0) c->fmt.border_left = TRUE;
-          else if (strcmp (n, "right") == 0) c->fmt.border_right = TRUE;
-          else if (strcmp (n, "top") == 0) c->fmt.border_top = TRUE;
-          else if (strcmp (n, "bottom") == 0) c->fmt.border_bottom = TRUE;
+          const char *style = attr (names, values, "style");
+          int side = n[0] == 't' ? O42_SIDE_TOP : n[0] == 'b' ? O42_SIDE_BOTTOM
+                   : n[0] == 'l' ? O42_SIDE_LEFT : O42_SIDE_RIGHT;
+
+          /* The style is what makes a side drawn at all: a side with
+           * the flag set and no style is no border, so it is read here
+           * rather than assumed. */
+          r->dxf_bside = side;
+          if (style != NULL && strcmp (style, "none") != 0)
+            {
+              c->mask |= O42_FMT_BORDERS;
+              c->fmt.border_style[side] = xlsx_border_style (style);
+              o42_fmt_sync_borders (&c->fmt);
+            }
+        }
+      else if (r->in_dxf_border && strcmp (n, "color") == 0 && r->dxf_bside >= 0)
+        {
+          guint32 rgb = rgb_attr (r, names, values);
+
+          if (rgb != 0xFFFFFFFFu)
+            c->fmt.border_colour[r->dxf_bside] = rgb;
         }
     }
   else if (strcmp (n, "fonts") == 0) r->in_fonts = TRUE;
@@ -3380,7 +3398,7 @@ styles_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **
       if (strcmp (n, "dxf") == 0) { g_array_append_val (r->dxfs, r->cur_dxf); r->in_dxf = FALSE; }
       else if (strcmp (n, "font") == 0) r->in_dxf_font = FALSE;
       else if (strcmp (n, "fill") == 0) r->in_dxf_fill = FALSE;
-      else if (strcmp (n, "border") == 0) r->in_dxf_border = FALSE;
+      else if (strcmp (n, "border") == 0) { r->in_dxf_border = FALSE; r->dxf_bside = -1; }
     }
   else if (strcmp (n, "fonts") == 0) r->in_fonts = FALSE;
   else if (strcmp (n, "fills") == 0) r->in_fills = FALSE;
@@ -4640,6 +4658,8 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   memcpy (r.theme, DEFAULT_THEME, sizeof r.theme);
   memcpy (r.indexed, DEFAULT_INDEXED, sizeof r.indexed);
   r.theme_slot = -1;
+  r.bside = -1;
+  r.dxf_bside = -1;
   /* The theme's colours first, since the styles name them; a file
    * without a theme part keeps the Office defaults. */
   if (g_hash_table_contains (parts, theme_part))

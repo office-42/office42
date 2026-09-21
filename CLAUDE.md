@@ -1,4 +1,5 @@
-Office42 Spreadsheet ("office42", one word, is the project and binary name) is a spreadsheet with GPL license, built on the same principles as
+Office42 Spreadsheet ("office42", one word, is the project and binary name;
+"Numbers42" is an alternative nickname for the same program) is a spreadsheet with GPL license, built on the same principles as
 word42: a small, honest C codebase on GTK 4, Pango and Cairo, in the shape of
 Excel 97, aiming at feature parity with Excel 97 and at Gnumeric's
 correctness.  docs/PARITY.md keeps the score, menu by menu, and

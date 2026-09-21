@@ -38,6 +38,7 @@
 #include "o42-spell.h"
 
 #include "o42-grid.h"
+#include "o42-cursor.h"
 #include "o42-application.h"
 #include "o42-date.h"
 #include "o42-entry.h"
@@ -2170,8 +2171,8 @@ on_preview_motion (GtkEventControllerMotion *controller, double px, double py, g
   int which = prompt->dragging != 0 ? prompt->dragging : preview_margin_at (prompt, px, py);
 
   (void) controller;
-  gtk_widget_set_cursor_from_name (prompt->area, which == 0 ? NULL
-                                   : (which == 1 || which == 2) ? "col-resize" : "row-resize");
+  o42_set_cursor_name (prompt->area, which == 0 ? NULL
+                       : (which == 1 || which == 2) ? "col-resize" : "row-resize");
 }
 
 static void
@@ -5951,15 +5952,64 @@ window_save_to (O42Window *self, GFile *file)
   return TRUE;
 }
 
+/* A filter over several endings at once, by suffix rather than by
+ * pattern so that a name written in capitals -- BUDGET.XLS, as it
+ * often comes from Windows -- is shown as well. */
+static GtkFileFilter *
+suffix_filter (const char *name, const char *const *suffixes)
+{
+  GtkFileFilter *filter = gtk_file_filter_new ();
+
+  gtk_file_filter_set_name (filter, name);
+  for (int i = 0; suffixes[i] != NULL; i++)
+    gtk_file_filter_add_suffix (filter, suffixes[i]);
+  return filter;
+}
+
+/* Excel's own formats, which is what the Open dialog starts on: this
+ * is a spreadsheet in Excel's shape, and a workbook is what it is
+ * nearly always asked for. */
+static GtkFileFilter *
+excel_filter (void)
+{
+  static const char *const suffixes[] = { "xlsx", "xlsm", "xls", NULL };
+
+  return suffix_filter ("Excel Files (*.xlsx, *.xlsm, *.xls)", suffixes);
+}
+
+/* Everything the program can read, for the book that is not Excel's. */
+static GtkFileFilter *
+spreadsheet_filter (void)
+{
+  static const char *const suffixes[] = {
+    "xlsx", "xlsm", "xls", "gnumeric", "ods", "fods", "html", "htm",
+    "csv", "txt", "prn", "dif", "slk", "tex", "wk1", "wks", "123", NULL
+  };
+
+  return suffix_filter ("All Spreadsheets", suffixes);
+}
+
+/* The formats a book can be read from or written in, in the order the
+ * dialogs list them.  Opening leads with Excel's, which is the one it
+ * starts on; saving keeps each format apart, since the name's ending
+ * is what picks the one written. */
 static GListModel *
-book_filters (void)
+book_filters (gboolean opening)
 {
   GListStore *filters = g_list_store_new (GTK_TYPE_FILE_FILTER);
 
+  if (opening)
+    {
+      g_list_store_append (filters, excel_filter ());
+      g_list_store_append (filters, spreadsheet_filter ());
+    }
   g_list_store_append (filters, pattern_filter ("Gnumeric Spreadsheets (*.gnumeric)", "*.gnumeric"));
-  g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
-  g_list_store_append (filters, pattern_filter ("Excel Macro-Enabled Workbooks (*.xlsm)", "*.xlsm"));
-  g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
+  if (!opening)
+    {
+      g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
+      g_list_store_append (filters, pattern_filter ("Excel Macro-Enabled Workbooks (*.xlsm)", "*.xlsm"));
+      g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
+    }
   g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods, *.fods)", "*.ods"));
   g_list_store_append (filters, pattern_filter ("Web Pages (*.html)", "*.html"));
   g_list_store_append (filters, pattern_filter ("Comma-Separated Values (*.csv)", "*.csv"));
@@ -6002,7 +6052,7 @@ action_save_as (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   GtkFileDialog *dialog = gtk_file_dialog_new ();
-  GListModel *filters = book_filters ();
+  GListModel *filters = book_filters (FALSE);
 
   (void) a; (void) p;
 
@@ -6069,13 +6119,18 @@ action_open (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   GtkFileDialog *dialog = gtk_file_dialog_new ();
-  GListModel *filters = book_filters ();
+  GListModel *filters = book_filters (TRUE);
+  GtkFileFilter *excel = g_list_model_get_item (filters, 0);
 
   (void) a; (void) p;
 
   gtk_file_dialog_set_title (dialog, _("Open"));
   gtk_file_dialog_set_filters (dialog, filters);
+  /* Excel's formats are the ones the dialog opens on.  GTK would take
+   * the first of the list anyway; saying so leaves nothing to chance. */
+  gtk_file_dialog_set_default_filter (dialog, excel);
   gtk_file_dialog_open (dialog, GTK_WINDOW (self), NULL, on_open_response, self);
+  g_object_unref (excel);
 
   g_object_unref (filters);
   g_object_unref (dialog);
@@ -6296,7 +6351,8 @@ action_about (GSimpleAction *a, GVariant *p, gpointer data)
                          "program-name", "Office42 Spreadsheet",
                          "version", O42_VERSION,
                          "logo", logo,
-                         "comments", "A spreadsheet in the shape of Excel 97, at parity with its features and Gnumeric's arithmetic, "
+                         "comments", "Also known as Numbers42.\n"
+                                     "A spreadsheet in the shape of Excel 97, at parity with its features and Gnumeric's arithmetic, "
                                      "written in C on GTK 4, Pango and Cairo.\n"
                                      "Source: github.com/office-42/office42",
                          "website", "https://office42.net",

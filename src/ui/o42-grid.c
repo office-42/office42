@@ -25,6 +25,7 @@
 #include "o42-pdf.h"
 #include "o42-formula.h"
 #include "o42-eval.h"
+#include "o42-cursor.h"
 
 #include <glib/gi18n.h>
 #include <math.h>
@@ -304,7 +305,7 @@ o42_grid_pick_up_format (O42Grid *self)
     return;
   self->paint_fmt = *fmt;
   self->painting = TRUE;
-  gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "copy");
+  o42_set_cursor_name (GTK_WIDGET (self), "copy");
 }
 
 gboolean
@@ -328,7 +329,7 @@ paint_onto (O42Grid *self, int row, int col)
 
   o42_sheet_apply_fmt (self->sheet, &where, O42_FMT_ALL, &self->paint_fmt);
   self->painting = FALSE;
-  gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "cell");
+  o42_set_cursor_name (GTK_WIDGET (self), "cell");
   sheet_changed (self);
 }
 
@@ -5225,7 +5226,7 @@ on_click_pressed (GtkGestureClick *gesture,
           return;
         }
       self->painting = FALSE;
-      gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "cell");
+      o42_set_cursor_name (GTK_WIDGET (self), "cell");
     }
 
   /* A split bar can be taken hold of and moved, as in Excel. */
@@ -5800,10 +5801,9 @@ on_motion (GtkEventControllerMotion *controller,
       if (handle >= 0)
         cursor = HANDLE_CURSORS[handle];
       else if (x >= HEADER_W && y >= HEADER_H && on_selection_edge (self, x, y))
-        gtk_widget_set_cursor_from_name (GTK_WIDGET (self),
-                                         (gtk_event_controller_get_current_event_state (
-                                            GTK_EVENT_CONTROLLER (controller)) & GDK_CONTROL_MASK)
-                                         ? "copy" : "move");
+        cursor = (gtk_event_controller_get_current_event_state (
+                    GTK_EVENT_CONTROLLER (controller)) & GDK_CONTROL_MASK)
+                 ? "copy" : "move";
       else if (x >= HEADER_W && y >= HEADER_H && on_fill_handle (self, x, y))
         cursor = "crosshair";
       else if (split_bar_at (self, x, y) == 1)     cursor = "row-resize";
@@ -5814,7 +5814,7 @@ on_motion (GtkEventControllerMotion *controller,
       else if (row_boundary_at (self, x, y) >= 0) cursor = "row-resize";
       else if (y < HEADER_H || x < HEADER_W)      cursor = "default";
 
-      gtk_widget_set_cursor_from_name (GTK_WIDGET (self), cursor);
+      o42_set_cursor_name (GTK_WIDGET (self), cursor);
     }
 
   if (self->picture_drag && self->sheet != NULL)
@@ -6395,18 +6395,71 @@ draw_cell_text (O42Grid      *self,
   g_free (text);
 }
 
-/* The cells of a rectangle of rows and columns: fills first, then the
- * selection wash, then gridlines, text and borders.  Called once for the
- * scrolled area and once more for each frozen band, translated. */
+/* The format a cell is drawn with: its own, or what a conditional
+ * format makes of it.  `scratch` is somewhere to build the second on;
+ * the answer points either at it or into the sheet. */
+static const O42Fmt *
+cell_fmt (O42Grid *self, int row, int col, O42Fmt *scratch)
+{
+  if (o42_sheet_conditional_fmt (self->sheet, row, col, scratch))
+    return scratch;
+  return o42_sheet_get_fmt (self->sheet, row, col);
+}
+
+/* The borders round a merged range, drawn on the whole of it rather
+ * than on the cells it swallowed: each edge takes its style from the
+ * cell along that side, which is where Excel keeps it. */
+static void
+paint_merge_borders (O42Grid *self, cairo_t *cr, const O42Range *m,
+                     double x, double y, double w, double h)
+{
+  O42Fmt near, far;
+  double at = x;
+
+  for (int col = m->col0; col <= m->col1; col++)
+    {
+      double cw = o42_sheet_col_width (self->sheet, col);
+      const O42Fmt *top = cell_fmt (self, m->row0, col, &near);
+      const O42Fmt *bottom = cell_fmt (self, m->row1, col, &far);
+
+      if (top->border_top)
+        o42_draw_border_line (cr, top->border_style[O42_SIDE_TOP], top->border_colour[O42_SIDE_TOP],
+                              at, floor (y) + 0.5, at + cw, floor (y) + 0.5);
+      if (bottom->border_bottom)
+        o42_draw_border_line (cr, bottom->border_style[O42_SIDE_BOTTOM], bottom->border_colour[O42_SIDE_BOTTOM],
+                              at, floor (y + h) + 0.5, at + cw, floor (y + h) + 0.5);
+      at += cw;
+    }
+
+  at = y;
+  for (int row = m->row0; row <= m->row1; row++)
+    {
+      double ch = o42_sheet_row_height (self->sheet, row);
+      const O42Fmt *left = cell_fmt (self, row, m->col0, &near);
+      const O42Fmt *right = cell_fmt (self, row, m->col1, &far);
+
+      if (left->border_left)
+        o42_draw_border_line (cr, left->border_style[O42_SIDE_LEFT], left->border_colour[O42_SIDE_LEFT],
+                              floor (x) + 0.5, at, floor (x) + 0.5, at + ch);
+      if (right->border_right)
+        o42_draw_border_line (cr, right->border_style[O42_SIDE_RIGHT], right->border_colour[O42_SIDE_RIGHT],
+                              floor (x + w) + 0.5, at, floor (x + w) + 0.5, at + ch);
+      at += ch;
+    }
+}
+
 /* Paints one merged range as a single cell: its fill, the top-left cell's
- * text over the whole, and its border. */
+ * text over the whole, and its border.  The fill goes down over the
+ * borders the cells underneath drew, so the borders are drawn again
+ * here, round the range as a whole. */
 static void
 paint_merge (O42Grid *self, cairo_t *cr, const O42Range *sel, const O42Range *m)
 {
   double x = col_x (self, m->col0), y = row_y (self, m->row0);
   double w = col_x (self, m->col1) + o42_sheet_col_width (self->sheet, m->col1) - x;
   double h = row_y (self, m->row1) + o42_sheet_row_height (self->sheet, m->row1) - y;
-  const O42Fmt *fmt = o42_sheet_get_fmt (self->sheet, m->row0, m->col0);
+  O42Fmt scratch;
+  const O42Fmt *fmt = cell_fmt (self, m->row0, m->col0, &scratch);
 
   if (w <= 0 || h <= 0)
     return;
@@ -6427,8 +6480,13 @@ paint_merge (O42Grid *self, cairo_t *cr, const O42Range *sel, const O42Range *m)
 
   if (!(self->editing && m->row0 == self->active_row && m->col0 == self->active_col))
     draw_cell_text (self, cr, m->row0, m->col0, x, y, w, h);
+
+  paint_merge_borders (self, cr, m, x, y, w, h);
 }
 
+/* The cells of a rectangle of rows and columns: fills first, then the
+ * selection wash, then gridlines, text and borders.  Called once for the
+ * scrolled area and once more for each frozen band, translated. */
 static void
 paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
              int first_row, int last_row, int first_col, int last_col)
@@ -6446,11 +6504,8 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
       for (int col = first_col; col <= last_col; col++)
         {
           double w = o42_sheet_col_width (self->sheet, col);
-          const O42Fmt *fmt = o42_sheet_get_fmt (self->sheet, row, col);
           O42Fmt conditional;
-
-          if (o42_sheet_conditional_fmt (self->sheet, row, col, &conditional))
-            fmt = &conditional;
+          const O42Fmt *fmt = cell_fmt (self, row, col, &conditional);
 
           o42_pattern_fill (fmt, cr, x, y, w, h);
 
@@ -6550,7 +6605,10 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
       for (int col = first_col; col <= last_col; col++)
         {
           double w = o42_sheet_col_width (self->sheet, col);
-          const O42Fmt *fmt = o42_sheet_get_fmt (self->sheet, row, col);
+          O42Fmt conditional;
+          /* A conditional format carries borders of its own, and they
+           * are the ones to draw where one holds. */
+          const O42Fmt *fmt = cell_fmt (self, row, col, &conditional);
 
           if (fmt->border_top)
             o42_draw_border_line (cr, fmt->border_style[O42_SIDE_TOP], fmt->border_colour[O42_SIDE_TOP],
@@ -8427,7 +8485,7 @@ o42_grid_init (O42Grid *self)
   GtkGesture *click;
 
   gtk_widget_set_focusable (GTK_WIDGET (self), TRUE);
-  gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "cell");
+  o42_set_cursor_name (GTK_WIDGET (self), "cell");
   /* A validation's input message can only be shown once the grid is on
    * screen; a cell chosen before that gets it then. */
   g_signal_connect_after (self, "map", G_CALLBACK (validation_prompt_update), NULL);

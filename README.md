@@ -3,9 +3,9 @@
 # Office42 Spreadsheet
 
 **Office42 Spreadsheet** (the binary is `office42`, and that is one word:
-Office42) is a spreadsheet in the shape of Excel 97, at feature parity with
-it and with Gnumeric, written from scratch in C on GTK 4, Pango and
-Cairo. It is the sister project of
+Office42; **Numbers42** is its other name, and means the same program) is a
+spreadsheet in the shape of Excel 97, at feature parity with it and with
+Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. It is the sister project of
 [word42](https://github.com/office-42/word42), built on the same
 principles: a small, honest codebase that does one thing well.
 The site is [office42.net](https://office42.net/).

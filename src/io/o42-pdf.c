@@ -518,12 +518,31 @@ draw_page (cairo_t      *cr,
         {
           double w = o42_sheet_col_width (sheet, c);
           const O42Fmt *fmt = o42_sheet_get_fmt (sheet, r, c);
+          O42Fmt conditional;
+          O42Range merged;
+          gboolean top = TRUE, bottom = TRUE, left = TRUE, right = TRUE;
           guint32 black = 0;
 
-          if (fmt->border_top)    o42_draw_border_line (cr, fmt->border_style[O42_SIDE_TOP], plain ? black : fmt->border_colour[O42_SIDE_TOP], x, y, x + w, y);
-          if (fmt->border_bottom) o42_draw_border_line (cr, fmt->border_style[O42_SIDE_BOTTOM], plain ? black : fmt->border_colour[O42_SIDE_BOTTOM], x, y + h, x + w, y + h);
-          if (fmt->border_left)   o42_draw_border_line (cr, fmt->border_style[O42_SIDE_LEFT], plain ? black : fmt->border_colour[O42_SIDE_LEFT], x, y, x, y + h);
-          if (fmt->border_right)  o42_draw_border_line (cr, fmt->border_style[O42_SIDE_RIGHT], plain ? black : fmt->border_colour[O42_SIDE_RIGHT], x + w, y, x + w, y + h);
+          /* A conditional format brings borders of its own, as it does
+           * on screen. */
+          if (o42_sheet_conditional_fmt (sheet, r, c, &conditional))
+            fmt = &conditional;
+
+          /* A merged range is bordered round the whole of it: the
+           * sides that fall inside it are not drawn, which is what the
+           * grid shows. */
+          if (o42_sheet_merged_at (sheet, r, c, &merged))
+            {
+              top = r == merged.row0;
+              bottom = r == merged.row1;
+              left = c == merged.col0;
+              right = c == merged.col1;
+            }
+
+          if (top && fmt->border_top)    o42_draw_border_line (cr, fmt->border_style[O42_SIDE_TOP], plain ? black : fmt->border_colour[O42_SIDE_TOP], x, y, x + w, y);
+          if (bottom && fmt->border_bottom) o42_draw_border_line (cr, fmt->border_style[O42_SIDE_BOTTOM], plain ? black : fmt->border_colour[O42_SIDE_BOTTOM], x, y + h, x + w, y + h);
+          if (left && fmt->border_left)   o42_draw_border_line (cr, fmt->border_style[O42_SIDE_LEFT], plain ? black : fmt->border_colour[O42_SIDE_LEFT], x, y, x, y + h);
+          if (right && fmt->border_right)  o42_draw_border_line (cr, fmt->border_style[O42_SIDE_RIGHT], plain ? black : fmt->border_colour[O42_SIDE_RIGHT], x + w, y, x + w, y + h);
           x += w;
         }
       y += h;
