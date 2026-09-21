@@ -1,0 +1,1034 @@
+# The books of a small trading company, for 2026: a journal, the trial
+# balance gathered from it, and the three statements drawn from that.
+# Every figure after the journal is a formula over the one before it, so
+# the book is a test that the sums tie up as much as it is a sample: the
+# Accounts, Trial, Balance and Cashflow sheets each end in a line that
+# says in words whether they still do.
+#
+# From the repository root:
+#   office42-calc < samples/accounts.txt
+#   office42 --screenshot docs/images/screenshot.png --select B9 samples/accounts.gnumeric
+
+rename Dashboard
+sheet Profit
+sheet Balance
+sheet Cashflow
+sheet Trial
+sheet Journal
+sheet Accounts
+
+# ---- Chart of accounts, and what each held on 1 January -----------------
+sheet Accounts
+A1 = Code
+B1 = Account
+C1 = Type
+D1 = Opening balance
+font A1:D1 bold,colour=FFFFFF,fill=1F497D
+A2 = 1000
+B2 = Cash at bank
+C2 = Asset
+D2 = 180000
+A3 = 1100
+B3 = Accounts receivable
+C3 = Asset
+D3 = 210000
+A4 = 1200
+B4 = Inventory
+C4 = Asset
+D4 = 145000
+A5 = 1500
+B5 = Equipment at cost
+C5 = Asset
+D5 = 375000
+A6 = 1510
+B6 = Accumulated depreciation
+C6 = Asset
+D6 = -150000
+A7 = 2000
+B7 = Accounts payable
+C7 = Liability
+D7 = -130000
+A8 = 2100
+B8 = Accrued expenses
+C8 = Liability
+D8 = -35000
+A9 = 2500
+B9 = Bank loan
+C9 = Liability
+D9 = -250000
+A10 = 3000
+B10 = Share capital
+C10 = Equity
+D10 = -200000
+A11 = 3100
+B11 = Retained earnings
+C11 = Equity
+D11 = -145000
+A12 = 4000
+B12 = Product sales
+C12 = Income
+D12 = 0
+A13 = 4100
+B13 = Service income
+C13 = Income
+D13 = 0
+A14 = 5000
+B14 = Materials
+C14 = Cost of sales
+D14 = 0
+A15 = 5100
+B15 = Direct labour
+C15 = Cost of sales
+D15 = 0
+A16 = 6000
+B16 = Salaries
+C16 = Expense
+D16 = 0
+A17 = 6100
+B17 = Premises
+C17 = Expense
+D17 = 0
+A18 = 6200
+B18 = Marketing
+C18 = Expense
+D18 = 0
+A19 = 6300
+B19 = Technology
+C19 = Expense
+D19 = 0
+A20 = 6400
+B20 = Depreciation
+C20 = Expense
+D20 = 0
+A21 = 7000
+B21 = Interest payable
+C21 = Expense
+D21 = 0
+A22 = 8000
+B22 = Corporation tax
+C22 = Expense
+D22 = 0
+format D2:D22 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth A 64
+colwidth B 220
+colwidth C 120
+colwidth D 130
+A24 = Opening trial balance
+D24 = =SUM(D2:D22)
+font A24:D24 bold
+border A24:D24 top thin #1F497D
+format D24 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+B25 = =IF(ROUND(D24,2)=0,"The opening balances net to nothing, as a set of books must.","Out by "&TEXT(D24,"#,##0.00"))
+font B25 italic,colour=595959
+freeze A2
+tabcolour 808080
+
+# ---- The journal: a line a transaction, its two sides side by side ------
+sheet Journal
+A1 = Date
+B1 = Ref
+C1 = Description
+D1 = Dr
+E1 = Cr
+F1 = Amount
+G1 = Quarter
+font A1:G1 bold,colour=FFFFFF,fill=1F497D
+A2 = 2026-03-31
+B2 = JV-001
+C2 = Product sales invoiced
+D2 = 1100
+E2 = 4000
+F2 = 468000
+G2 = ="Q"&ROUNDUP(MONTH(A2)/3,0)
+A3 = 2026-03-31
+B3 = JV-002
+C3 = Services invoiced
+D3 = 1100
+E3 = 4100
+F3 = 118000
+G3 = ="Q"&ROUNDUP(MONTH(A3)/3,0)
+A4 = 2026-03-31
+B4 = JV-003
+C4 = Received from customers
+D4 = 1000
+E4 = 1100
+F4 = 590000
+G4 = ="Q"&ROUNDUP(MONTH(A4)/3,0)
+A5 = 2026-03-31
+B5 = JV-004
+C5 = Materials purchased
+D5 = 5000
+E5 = 2000
+F5 = 172000
+G5 = ="Q"&ROUNDUP(MONTH(A5)/3,0)
+A6 = 2026-03-31
+B6 = JV-005
+C6 = Paid suppliers
+D6 = 2000
+E6 = 1000
+F6 = 175000
+G6 = ="Q"&ROUNDUP(MONTH(A6)/3,0)
+A7 = 2026-03-31
+B7 = JV-006
+C7 = Direct labour paid
+D7 = 5100
+E7 = 1000
+F7 = 104000
+G7 = ="Q"&ROUNDUP(MONTH(A7)/3,0)
+A8 = 2026-03-31
+B8 = JV-007
+C8 = Salaries paid
+D8 = 6000
+E8 = 1000
+F8 = 168000
+G8 = ="Q"&ROUNDUP(MONTH(A8)/3,0)
+A9 = 2026-03-31
+B9 = JV-008
+C9 = Premises costs paid
+D9 = 6100
+E9 = 1000
+F9 = 46000
+G9 = ="Q"&ROUNDUP(MONTH(A9)/3,0)
+A10 = 2026-03-31
+B10 = JV-009
+C10 = Marketing spend
+D10 = 6200
+E10 = 1000
+F10 = 31000
+G10 = ="Q"&ROUNDUP(MONTH(A10)/3,0)
+A11 = 2026-03-31
+B11 = JV-010
+C11 = Technology and licences
+D11 = 6300
+E11 = 1000
+F11 = 22500
+G11 = ="Q"&ROUNDUP(MONTH(A11)/3,0)
+A12 = 2026-03-31
+B12 = JV-011
+C12 = Depreciation for the quarter
+D12 = 6400
+E12 = 1510
+F12 = 18750
+G12 = ="Q"&ROUNDUP(MONTH(A12)/3,0)
+A13 = 2026-03-31
+B13 = JV-012
+C13 = Loan interest paid
+D13 = 7000
+E13 = 1000
+F13 = 7500
+G13 = ="Q"&ROUNDUP(MONTH(A13)/3,0)
+A14 = 2026-06-30
+B14 = JV-013
+C14 = Product sales invoiced
+D14 = 1100
+E14 = 4000
+F14 = 502000
+G14 = ="Q"&ROUNDUP(MONTH(A14)/3,0)
+A15 = 2026-06-30
+B15 = JV-014
+C15 = Services invoiced
+D15 = 1100
+E15 = 4100
+F15 = 126500
+G15 = ="Q"&ROUNDUP(MONTH(A15)/3,0)
+A16 = 2026-06-30
+B16 = JV-015
+C16 = Received from customers
+D16 = 1000
+E16 = 1100
+F16 = 610000
+G16 = ="Q"&ROUNDUP(MONTH(A16)/3,0)
+A17 = 2026-06-30
+B17 = JV-016
+C17 = Materials purchased
+D17 = 5000
+E17 = 2000
+F17 = 184500
+G17 = ="Q"&ROUNDUP(MONTH(A17)/3,0)
+A18 = 2026-06-30
+B18 = JV-017
+C18 = Paid suppliers
+D18 = 2000
+E18 = 1000
+F18 = 180000
+G18 = ="Q"&ROUNDUP(MONTH(A18)/3,0)
+A19 = 2026-06-30
+B19 = JV-018
+C19 = Direct labour paid
+D19 = 5100
+E19 = 1000
+F19 = 108000
+G19 = ="Q"&ROUNDUP(MONTH(A19)/3,0)
+A20 = 2026-06-30
+B20 = JV-019
+C20 = Salaries paid
+D20 = 6000
+E20 = 1000
+F20 = 168000
+G20 = ="Q"&ROUNDUP(MONTH(A20)/3,0)
+A21 = 2026-06-30
+B21 = JV-020
+C21 = Premises costs paid
+D21 = 6100
+E21 = 1000
+F21 = 46000
+G21 = ="Q"&ROUNDUP(MONTH(A21)/3,0)
+A22 = 2026-06-30
+B22 = JV-021
+C22 = Marketing spend
+D22 = 6200
+E22 = 1000
+F22 = 38500
+G22 = ="Q"&ROUNDUP(MONTH(A22)/3,0)
+A23 = 2026-06-30
+B23 = JV-022
+C23 = Technology and licences
+D23 = 6300
+E23 = 1000
+F23 = 24000
+G23 = ="Q"&ROUNDUP(MONTH(A23)/3,0)
+A24 = 2026-06-30
+B24 = JV-023
+C24 = Depreciation for the quarter
+D24 = 6400
+E24 = 1510
+F24 = 18750
+G24 = ="Q"&ROUNDUP(MONTH(A24)/3,0)
+A25 = 2026-06-30
+B25 = JV-024
+C25 = Loan interest paid
+D25 = 7000
+E25 = 1000
+F25 = 7500
+G25 = ="Q"&ROUNDUP(MONTH(A25)/3,0)
+A26 = 2026-06-30
+B26 = JV-025
+C26 = Fitting-out equipment bought
+D26 = 1500
+E26 = 1000
+F26 = 60000
+G26 = ="Q"&ROUNDUP(MONTH(A26)/3,0)
+A27 = 2026-09-30
+B27 = JV-026
+C27 = Product sales invoiced
+D27 = 1100
+E27 = 4000
+F27 = 524500
+G27 = ="Q"&ROUNDUP(MONTH(A27)/3,0)
+A28 = 2026-09-30
+B28 = JV-027
+C28 = Services invoiced
+D28 = 1100
+E28 = 4100
+F28 = 131000
+G28 = ="Q"&ROUNDUP(MONTH(A28)/3,0)
+A29 = 2026-09-30
+B29 = JV-028
+C29 = Received from customers
+D29 = 1000
+E29 = 1100
+F29 = 640000
+G29 = ="Q"&ROUNDUP(MONTH(A29)/3,0)
+A30 = 2026-09-30
+B30 = JV-029
+C30 = Materials purchased
+D30 = 5000
+E30 = 2000
+F30 = 191000
+G30 = ="Q"&ROUNDUP(MONTH(A30)/3,0)
+A31 = 2026-09-30
+B31 = JV-030
+C31 = Paid suppliers
+D31 = 2000
+E31 = 1000
+F31 = 185000
+G31 = ="Q"&ROUNDUP(MONTH(A31)/3,0)
+A32 = 2026-09-30
+B32 = JV-031
+C32 = Direct labour paid
+D32 = 5100
+E32 = 1000
+F32 = 112500
+G32 = ="Q"&ROUNDUP(MONTH(A32)/3,0)
+A33 = 2026-09-30
+B33 = JV-032
+C33 = Salaries paid
+D33 = 6000
+E33 = 1000
+F33 = 172000
+G33 = ="Q"&ROUNDUP(MONTH(A33)/3,0)
+A34 = 2026-09-30
+B34 = JV-033
+C34 = Premises costs paid
+D34 = 6100
+E34 = 1000
+F34 = 47500
+G34 = ="Q"&ROUNDUP(MONTH(A34)/3,0)
+A35 = 2026-09-30
+B35 = JV-034
+C35 = Marketing spend
+D35 = 6200
+E35 = 1000
+F35 = 29500
+G35 = ="Q"&ROUNDUP(MONTH(A35)/3,0)
+A36 = 2026-09-30
+B36 = JV-035
+C36 = Technology and licences
+D36 = 6300
+E36 = 1000
+F36 = 25500
+G36 = ="Q"&ROUNDUP(MONTH(A36)/3,0)
+A37 = 2026-09-30
+B37 = JV-036
+C37 = Depreciation for the quarter
+D37 = 6400
+E37 = 1510
+F37 = 18750
+G37 = ="Q"&ROUNDUP(MONTH(A37)/3,0)
+A38 = 2026-09-30
+B38 = JV-037
+C38 = Loan interest paid
+D38 = 7000
+E38 = 1000
+F38 = 7500
+G38 = ="Q"&ROUNDUP(MONTH(A38)/3,0)
+A39 = 2026-12-31
+B39 = JV-038
+C39 = Product sales invoiced
+D39 = 1100
+E39 = 4000
+F39 = 581000
+G39 = ="Q"&ROUNDUP(MONTH(A39)/3,0)
+A40 = 2026-12-31
+B40 = JV-039
+C40 = Services invoiced
+D40 = 1100
+E40 = 4100
+F40 = 142500
+G40 = ="Q"&ROUNDUP(MONTH(A40)/3,0)
+A41 = 2026-12-31
+B41 = JV-040
+C41 = Received from customers
+D41 = 1000
+E41 = 1100
+F41 = 680000
+G41 = ="Q"&ROUNDUP(MONTH(A41)/3,0)
+A42 = 2026-12-31
+B42 = JV-041
+C42 = Materials purchased
+D42 = 5000
+E42 = 2000
+F42 = 210000
+G42 = ="Q"&ROUNDUP(MONTH(A42)/3,0)
+A43 = 2026-12-31
+B43 = JV-042
+C43 = Paid suppliers
+D43 = 2000
+E43 = 1000
+F43 = 200000
+G43 = ="Q"&ROUNDUP(MONTH(A43)/3,0)
+A44 = 2026-12-31
+B44 = JV-043
+C44 = Direct labour paid
+D44 = 5100
+E44 = 1000
+F44 = 121000
+G44 = ="Q"&ROUNDUP(MONTH(A44)/3,0)
+A45 = 2026-12-31
+B45 = JV-044
+C45 = Salaries paid
+D45 = 6000
+E45 = 1000
+F45 = 178000
+G45 = ="Q"&ROUNDUP(MONTH(A45)/3,0)
+A46 = 2026-12-31
+B46 = JV-045
+C46 = Premises costs paid
+D46 = 6100
+E46 = 1000
+F46 = 47500
+G46 = ="Q"&ROUNDUP(MONTH(A46)/3,0)
+A47 = 2026-12-31
+B47 = JV-046
+C47 = Marketing spend
+D47 = 6200
+E47 = 1000
+F47 = 52000
+G47 = ="Q"&ROUNDUP(MONTH(A47)/3,0)
+A48 = 2026-12-31
+B48 = JV-047
+C48 = Technology and licences
+D48 = 6300
+E48 = 1000
+F48 = 27000
+G48 = ="Q"&ROUNDUP(MONTH(A48)/3,0)
+A49 = 2026-12-31
+B49 = JV-048
+C49 = Depreciation for the quarter
+D49 = 6400
+E49 = 1510
+F49 = 18750
+G49 = ="Q"&ROUNDUP(MONTH(A49)/3,0)
+A50 = 2026-12-31
+B50 = JV-049
+C50 = Loan interest paid
+D50 = 7000
+E50 = 1000
+F50 = 7500
+G50 = ="Q"&ROUNDUP(MONTH(A50)/3,0)
+A51 = 2026-12-31
+B51 = JV-050
+C51 = Corporation tax accrued
+D51 = 8000
+E51 = 2100
+F51 = 35750
+G51 = ="Q"&ROUNDUP(MONTH(A51)/3,0)
+A52 = 2026-12-31
+B52 = JV-051
+C52 = Bank loan repayment
+D52 = 2500
+E52 = 1000
+F52 = 50000
+G52 = ="Q"&ROUNDUP(MONTH(A52)/3,0)
+format F2:F52 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+font D2:E52 halign=3
+font G2:G52 halign=2
+colwidth A 96
+colwidth B 72
+colwidth C 236
+colwidth D 56
+colwidth E 56
+colwidth F 112
+colwidth G 76
+table Journal A1:G52
+validate F2:F52 decimal greater 0
+note D1 The account debited, and beside it the one credited. Every line moves the same amount both ways, which is what keeps the books in balance.
+A54 = Posted
+F54 = =SUM(F2:F52)
+font A54:G54 bold
+border A54:G54 top thin #1F497D
+format F54 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+C55 = =TEXT(COUNT(F2:F52),"#,##0")&" transactions, one debit against one credit apiece."
+font C55 italic,colour=595959
+freeze A2
+tabcolour 808080
+
+# ---- Trial balance: the journal gathered by account ---------------------
+sheet Trial
+A1 = Trial balance at 31 December 2026
+font A1 bold,size=13,colour=1F497D
+A2 = Debits are positive and credits negative, so the closing column adds to nothing.
+font A2 italic,colour=595959
+A3 = Code
+B3 = Account
+C3 = Type
+D3 = Opening
+E3 = Debits
+F3 = Credits
+G3 = Closing
+font A3:G3 bold,colour=FFFFFF,fill=1F497D
+A4 = =Accounts!A2
+B4 = =Accounts!B2
+C4 = =Accounts!C2
+D4 = =Accounts!D2
+E4 = =SUMIF(Journal!$D$2:$D$52,$A4,Journal!$F$2:$F$52)
+F4 = =SUMIF(Journal!$E$2:$E$52,$A4,Journal!$F$2:$F$52)
+G4 = =D4+E4-F4
+filldown A4:G24
+format D4:G24 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth A 64
+colwidth B 220
+colwidth C 120
+colwidth D 118
+colwidth E 118
+colwidth F 118
+colwidth G 118
+A26 = Totals
+D26 = =SUM(D4:D24)
+E26 = =SUM(E4:E24)
+F26 = =SUM(F4:F24)
+G26 = =SUM(G4:G24)
+font A26:G26 bold
+border A26:G26 top thin #1F497D
+border A26:G26 bottom double #1F497D
+format D26:G26 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+A27 = =IF(ROUND(G26,2)=0,"The books balance: every debit has its credit.","The books are out by "&TEXT(G26,"#,##0.00"))
+font A27 bold,colour=006100
+cond G26:G26 <> 0 red bold
+freeze A4
+tabcolour 4472C4
+
+# ---- Profit and loss, quarter by quarter, against the budget -----------
+sheet Profit
+A1 = Profit and loss for the year ended 31 December 2026
+font A1 bold,size=13,colour=1F497D
+A2 = Every figure is the journal gathered by account and by quarter.
+font A2 italic,colour=595959
+A4 = Account
+B4 = Q1
+C4 = Q2
+D4 = Q3
+E4 = Q4
+F4 = Year
+G4 = Budget
+H4 = Variance
+I4 = Var %
+font A4:I4 bold,colour=FFFFFF,fill=1F497D
+border A4:I4 bottom medium #1F497D
+A5 = Revenue
+A6 = Product sales
+B6 = =SUMIFS(Journal!$F$2:$F$52,Journal!$E$2:$E$52,4000,Journal!$G$2:$G$52,B$4)
+fillright B6:E6
+F6 = =SUM(B6:E6)
+G6 = 2050000
+A7 = Service income
+B7 = =SUMIFS(Journal!$F$2:$F$52,Journal!$E$2:$E$52,4100,Journal!$G$2:$G$52,B$4)
+fillright B7:E7
+F7 = =SUM(B7:E7)
+G7 = 520000
+A8 = Total revenue
+B8 = =SUM(B6:B7)
+fillright B8:F8
+G8 = =SUM(G6:G7)
+A9 = Cost of sales
+A10 = Materials
+B10 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,5000,Journal!$G$2:$G$52,B$4)
+fillright B10:E10
+F10 = =SUM(B10:E10)
+G10 = 740000
+A11 = Direct labour
+B11 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,5100,Journal!$G$2:$G$52,B$4)
+fillright B11:E11
+F11 = =SUM(B11:E11)
+G11 = 450000
+A12 = Gross profit
+B12 = =B8-SUM(B10:B11)
+fillright B12:F12
+G12 = =G8-SUM(G10:G11)
+A13 = Operating expenses
+A14 = Salaries
+B14 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,6000,Journal!$G$2:$G$52,B$4)
+fillright B14:E14
+F14 = =SUM(B14:E14)
+G14 = 690000
+A15 = Premises
+B15 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,6100,Journal!$G$2:$G$52,B$4)
+fillright B15:E15
+F15 = =SUM(B15:E15)
+G15 = 185000
+A16 = Marketing
+B16 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,6200,Journal!$G$2:$G$52,B$4)
+fillright B16:E16
+F16 = =SUM(B16:E16)
+G16 = 140000
+A17 = Technology
+B17 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,6300,Journal!$G$2:$G$52,B$4)
+fillright B17:E17
+F17 = =SUM(B17:E17)
+G17 = 95000
+A18 = Depreciation
+B18 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,6400,Journal!$G$2:$G$52,B$4)
+fillright B18:E18
+F18 = =SUM(B18:E18)
+G18 = 75000
+A19 = Total operating expenses
+B19 = =SUM(B14:B18)
+fillright B19:F19
+G19 = =SUM(G14:G18)
+A20 = Operating profit
+B20 = =B12-B19
+fillright B20:F20
+G20 = =G12-G19
+A21 = Interest payable
+B21 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,7000,Journal!$G$2:$G$52,B$4)
+fillright B21:E21
+F21 = =SUM(B21:E21)
+G21 = 30000
+A22 = Profit before tax
+B22 = =B20-B21
+fillright B22:F22
+G22 = =G20-G21
+A23 = Corporation tax
+B23 = =SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,8000,Journal!$G$2:$G$52,B$4)
+fillright B23:E23
+F23 = =SUM(B23:E23)
+G23 = 34000
+A24 = Net income
+B24 = =B22-B23
+fillright B24:F24
+G24 = =G22-G23
+H6 = =F6-G6
+filldown H6:H24
+I6 = =IF(G6=0,"",H6/G6)
+filldown I6:I24
+H5 = 
+I5 = 
+H9 = 
+I9 = 
+H13 = 
+I13 = 
+format B5:H24 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format I5:I24 0.0%
+colwidth A 178
+colwidth B 86
+colwidth C 86
+colwidth D 86
+colwidth E 86
+colwidth F 100
+colwidth G 100
+colwidth H 92
+colwidth I 70
+font A5:I5 bold,fill=EEF2F8
+font A9:I9 bold,fill=EEF2F8
+font A13:I13 bold,fill=EEF2F8
+font A8:I8 bold
+border A8:I8 top thin #1F497D
+font A12:I12 bold
+border A12:I12 top thin #1F497D
+font A19:I19 bold
+border A19:I19 top thin #1F497D
+font A20:I20 bold
+border A20:I20 top thin #1F497D
+font A22:I22 bold
+border A22:I22 top thin #1F497D
+font A24:I24 bold
+border A24:I24 top thin #1F497D
+border A24:I24 top double #1F497D
+border A24:I24 bottom thin #1F497D
+indent A6:A7 1
+indent A10:A11 1
+indent A14:A18 1
+indent A21:A21 1
+indent A23:A23 1
+cond I10:I11 > 0 red bold
+cond I14:I18 > 0 red bold
+cond I21:I21 > 0 red bold
+cond I6:I7 < 0 red bold
+cond I24:I24 < 0 red bold
+cond I6:I7 > 0 bold fill
+cond I24:I24 > 0 bold fill
+note D16 The spring trade fair, which the budget did not allow for.
+A26 = Against budget
+B26 = Actual
+C26 = Budget
+font A26:C26 bold,colour=FFFFFF,fill=1F497D
+A27 = Revenue
+B27 = =F8
+C27 = =G8
+A28 = Cost of sales
+B28 = =SUM(F10:F11)
+C28 = =SUM(G10:G11)
+A29 = Operating expenses
+B29 = =F19
+C29 = =G19
+A30 = Net income
+B30 = =F24
+C30 = =G24
+format B27:C30 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+chart bar A26:C30 headings stubs The year against the budget
+chartset 1 at E26
+chartset 1 size 430 200
+chartset 1 yformat #,##0,
+chartset 1 ytitle US dollars, thousands
+freeze A5
+tabcolour 4472C4
+
+# ---- Balance sheet, this year against last ----------------------------
+sheet Balance
+A1 = Balance sheet at 31 December 2026
+font A1 bold,size=13,colour=1F497D
+A3 = 
+B3 = 2026
+C3 = 2025
+font A3:C3 bold,colour=FFFFFF,fill=1F497D
+font B3:C3 halign=3
+A4 = Assets
+A5 = Cash at bank
+B5 = =INDEX(Trial!$G$4:$G$24,MATCH(1000,Trial!$A$4:$A$24,0))
+C5 = =INDEX(Trial!$D$4:$D$24,MATCH(1000,Trial!$A$4:$A$24,0))
+A6 = Accounts receivable
+B6 = =INDEX(Trial!$G$4:$G$24,MATCH(1100,Trial!$A$4:$A$24,0))
+C6 = =INDEX(Trial!$D$4:$D$24,MATCH(1100,Trial!$A$4:$A$24,0))
+A7 = Inventory
+B7 = =INDEX(Trial!$G$4:$G$24,MATCH(1200,Trial!$A$4:$A$24,0))
+C7 = =INDEX(Trial!$D$4:$D$24,MATCH(1200,Trial!$A$4:$A$24,0))
+A8 = Equipment at cost
+B8 = =INDEX(Trial!$G$4:$G$24,MATCH(1500,Trial!$A$4:$A$24,0))
+C8 = =INDEX(Trial!$D$4:$D$24,MATCH(1500,Trial!$A$4:$A$24,0))
+A9 = Accumulated depreciation
+B9 = =INDEX(Trial!$G$4:$G$24,MATCH(1510,Trial!$A$4:$A$24,0))
+C9 = =INDEX(Trial!$D$4:$D$24,MATCH(1510,Trial!$A$4:$A$24,0))
+A10 = Total assets
+B10 = =SUM(B5:B9)
+C10 = =SUM(C5:C9)
+A12 = Liabilities
+A13 = Accounts payable
+B13 = =-INDEX(Trial!$G$4:$G$24,MATCH(2000,Trial!$A$4:$A$24,0))
+C13 = =-INDEX(Trial!$D$4:$D$24,MATCH(2000,Trial!$A$4:$A$24,0))
+A14 = Accrued expenses
+B14 = =-INDEX(Trial!$G$4:$G$24,MATCH(2100,Trial!$A$4:$A$24,0))
+C14 = =-INDEX(Trial!$D$4:$D$24,MATCH(2100,Trial!$A$4:$A$24,0))
+A15 = Bank loan
+B15 = =-INDEX(Trial!$G$4:$G$24,MATCH(2500,Trial!$A$4:$A$24,0))
+C15 = =-INDEX(Trial!$D$4:$D$24,MATCH(2500,Trial!$A$4:$A$24,0))
+A16 = Total liabilities
+B16 = =SUM(B13:B15)
+C16 = =SUM(C13:C15)
+A18 = Equity
+A19 = Share capital
+B19 = =-INDEX(Trial!$G$4:$G$24,MATCH(3000,Trial!$A$4:$A$24,0))
+C19 = =-INDEX(Trial!$D$4:$D$24,MATCH(3000,Trial!$A$4:$A$24,0))
+A20 = Retained earnings
+B20 = =-INDEX(Trial!$G$4:$G$24,MATCH(3100,Trial!$A$4:$A$24,0))+Profit!F24
+C20 = =-INDEX(Trial!$D$4:$D$24,MATCH(3100,Trial!$A$4:$A$24,0))
+A21 = Total equity
+B21 = =SUM(B19:B20)
+C21 = =SUM(C19:C20)
+A22 = Total liabilities and equity
+B22 = =B16+B21
+C22 = =C16+C21
+format B4:C22 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth A 230
+colwidth B 130
+colwidth C 130
+font A4:C4 bold,fill=EEF2F8
+font A12:C12 bold,fill=EEF2F8
+font A18:C18 bold,fill=EEF2F8
+font A10:C10 bold
+border A10:C10 top thin #1F497D
+font A16:C16 bold
+border A16:C16 top thin #1F497D
+font A21:C21 bold
+border A21:C21 top thin #1F497D
+font A22:C22 bold
+border A22:C22 top thin #1F497D
+indent A5:A9 1
+indent A13:A15 1
+indent A19:A20 1
+border A22:C22 top double #1F497D
+border A22:C22 bottom thin #1F497D
+A24 = =IF(ROUND(B10-B22,2)=0,"Assets match liabilities and equity, to the penny.","Out by "&TEXT(B10-B22,"#,##0.00"))
+font A24 bold,colour=006100
+freeze A4
+tabcolour 4472C4
+
+# ---- Cash flow, worked back from the profit and the balances -----------
+sheet Cashflow
+A1 = Cash flow for the year ended 31 December 2026
+font A1 bold,size=13,colour=1F497D
+A3 = 
+B3 = 2026
+font A3:B3 bold,colour=FFFFFF,fill=1F497D
+font B3 halign=3
+A4 = Operating
+A5 = Net income
+B5 = =Profit!F24
+A6 = Depreciation charged
+B6 = =Profit!F18
+A7 = Movement in receivables
+B7 = =-(INDEX(Trial!$G$4:$G$24,MATCH(1100,Trial!$A$4:$A$24,0))-INDEX(Trial!$D$4:$D$24,MATCH(1100,Trial!$A$4:$A$24,0)))
+A8 = Movement in payables
+B8 = =-(INDEX(Trial!$G$4:$G$24,MATCH(2000,Trial!$A$4:$A$24,0))-INDEX(Trial!$D$4:$D$24,MATCH(2000,Trial!$A$4:$A$24,0)))
+A9 = Movement in accruals
+B9 = =-(INDEX(Trial!$G$4:$G$24,MATCH(2100,Trial!$A$4:$A$24,0))-INDEX(Trial!$D$4:$D$24,MATCH(2100,Trial!$A$4:$A$24,0)))
+A10 = Cash from operations
+B10 = =SUM(B5:B9)
+A12 = Investing
+A13 = Equipment bought
+B13 = =-INDEX(Trial!$E$4:$E$24,MATCH(1500,Trial!$A$4:$A$24,0))
+A14 = Cash used in investing
+B14 = =B13
+A16 = Financing
+A17 = Bank loan repaid
+B17 = =-INDEX(Trial!$E$4:$E$24,MATCH(2500,Trial!$A$4:$A$24,0))
+A18 = Cash used in financing
+B18 = =B17
+A20 = Movement in cash
+B20 = =B10+B14+B18
+A21 = Cash at 1 January
+B21 = =INDEX(Trial!$D$4:$D$24,MATCH(1000,Trial!$A$4:$A$24,0))
+A22 = Cash at 31 December
+B22 = =B20+B21
+format B5:B22 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth A 230
+colwidth B 130
+font A4:B4 bold,fill=EEF2F8
+font A12:B12 bold,fill=EEF2F8
+font A16:B16 bold,fill=EEF2F8
+font A10:B10 bold
+border A10:B10 top thin #1F497D
+font A14:B14 bold
+border A14:B14 top thin #1F497D
+font A18:B18 bold
+border A18:B18 top thin #1F497D
+font A20:B20 bold
+border A20:B20 top thin #1F497D
+font A22:B22 bold
+border A22:B22 top thin #1F497D
+border A22:B22 top double #1F497D
+border A22:B22 bottom thin #1F497D
+indent A5:A9 1
+indent A13:A13 1
+indent A17:A17 1
+A24 = =IF(ROUND(B22-INDEX(Trial!$G$4:$G$24,MATCH(1000,Trial!$A$4:$A$24,0)),2)=0,"The closing cash is the cash in the trial balance.","Out by "&TEXT(B22-INDEX(Trial!$G$4:$G$24,MATCH(1000,Trial!$A$4:$A$24,0)),"#,##0.00"))
+font A24 bold,colour=006100
+D3 = Quarter
+E3 = Cash at the end
+font D3:E3 bold,colour=FFFFFF,fill=1F497D
+D4 = Q1
+E4 = =$B$21+SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,1000,Journal!$G$2:$G$52,D4)-SUMIFS(Journal!$F$2:$F$52,Journal!$E$2:$E$52,1000,Journal!$G$2:$G$52,D4)
+D5 = Q2
+E5 = =E4+SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,1000,Journal!$G$2:$G$52,D5)-SUMIFS(Journal!$F$2:$F$52,Journal!$E$2:$E$52,1000,Journal!$G$2:$G$52,D5)
+D6 = Q3
+E6 = =E5+SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,1000,Journal!$G$2:$G$52,D6)-SUMIFS(Journal!$F$2:$F$52,Journal!$E$2:$E$52,1000,Journal!$G$2:$G$52,D6)
+D7 = Q4
+E7 = =E6+SUMIFS(Journal!$F$2:$F$52,Journal!$D$2:$D$52,1000,Journal!$G$2:$G$52,D7)-SUMIFS(Journal!$F$2:$F$52,Journal!$E$2:$E$52,1000,Journal!$G$2:$G$52,D7)
+format E4:E7 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth D 90
+colwidth E 130
+chart line D3:E7 headings stubs Cash at bank through the year
+chartset 1 at D9
+chartset 1 size 380 190
+chartset 1 ytitle US dollars, thousands
+chartset 1 yformat #,##0,
+chartset 1 legend off
+freeze A4
+tabcolour 4472C4
+
+# ---- The dashboard, and the three charts on it -------------------------
+sheet Dashboard
+A1 = Northwind Trading 2026
+font A1 bold,size=14
+rich A1 18 22 colour=1F497D,font=Georgia
+A2 = Management accounts in US dollars. Every figure comes from the journal behind these sheets, and each statement says for itself whether it still ties up.
+font A2 italic,colour=595959
+colwidth A 150
+colwidth B 88
+colwidth C 88
+colwidth D 88
+colwidth E 88
+colwidth F 100
+colwidth G 100
+colwidth H 100
+colwidth I 120
+colwidth J 110
+merge A4:B4
+merge A5:B5
+A4 = Revenue
+A5 = =Profit!F8
+font A4:B4 bold,colour=FFFFFF,fill=1F497D,halign=2
+font A5:B5 bold,size=13,halign=2,fill=EEF2F8
+format A5 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+border A4:A5 left thin #1F497D
+border B4:B5 right thin #1F497D
+merge C4:D4
+merge C5:D5
+C4 = Gross margin
+C5 = =Profit!F12/Profit!F8
+font C4:D4 bold,colour=FFFFFF,fill=1F497D,halign=2
+font C5:D5 bold,size=13,halign=2,fill=EEF2F8
+format C5 0.0%
+border C4:C5 left thin #1F497D
+border D4:D5 right thin #1F497D
+merge E4:F4
+merge E5:F5
+E4 = Operating profit
+E5 = =Profit!F20
+font E4:F4 bold,colour=FFFFFF,fill=1F497D,halign=2
+font E5:F5 bold,size=13,halign=2,fill=EEF2F8
+format E5 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+border E4:E5 left thin #1F497D
+border F4:F5 right thin #1F497D
+merge G4:H4
+merge G5:H5
+G4 = Cash at 31 Dec
+G5 = =Balance!B5
+font G4:H4 bold,colour=FFFFFF,fill=1F497D,halign=2
+font G5:H5 bold,size=13,halign=2,fill=EEF2F8
+format G5 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+border G4:G5 left thin #1F497D
+border H4:H5 right thin #1F497D
+border A5:H5 bottom thin #1F497D
+A7 = Quarterly performance
+font A7 bold,colour=1F497D
+A8 = Measure
+B8 = Q1
+C8 = Q2
+D8 = Q3
+E8 = Q4
+F8 = Year
+font A8:F8 bold,colour=FFFFFF,fill=1F497D
+A9 = Revenue
+B9 = =Profit!B8
+fillright B9:F9
+A10 = Gross profit
+B10 = =Profit!B12
+fillright B10:F10
+A11 = Operating profit
+B11 = =Profit!B20
+fillright B11:F11
+A12 = Net income
+B12 = =Profit!B24
+fillright B12:F12
+A13 = Operating margin
+B13 = =IF(B9=0,"",B11/B9)
+fillright B13:F13
+format B9:F12 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format B13:F13 0.0%
+font A9:F9 bold
+font A12:F12 bold
+border A12:F12 top thin #1F497D
+font A13:F13 italic,colour=595959
+cond B13:F13 < 0.05 red bold
+note A13 Operating profit as a share of revenue, quarter by quarter.
+A28 = Quarter
+B28 = Revenue
+C28 = Operating profit
+A29 = Q1
+B29 = =B9
+C29 = =B11
+A30 = Q2
+B30 = =C9
+C30 = =C11
+A31 = Q3
+B31 = =D9
+C31 = =D11
+A32 = Q4
+B32 = =E9
+C32 = =E11
+E28 = Expense
+F28 = Year
+E29 = =Profit!A14
+F29 = =Profit!F14
+E30 = =Profit!A15
+F30 = =Profit!F15
+E31 = =Profit!A16
+F31 = =Profit!F16
+E32 = =Profit!A17
+F32 = =Profit!F17
+E33 = =Profit!A18
+F33 = =Profit!F18
+font A28:C28 bold,colour=FFFFFF,fill=1F497D
+font E28:F28 bold,colour=FFFFFF,fill=1F497D
+format B29:C32 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format F29:F33 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+A27 = The numbers behind the pictures
+font A27 italic,colour=595959
+chart column A28:C32 headings stubs Revenue and operating profit by quarter
+chartset 1 at A15
+chartset 1 size 430 190
+chartset 1 ytitle US dollars, thousands
+chartset 1 yformat #,##0,
+chart pie E28:F33 headings stubs Where the money goes
+chartset 2 at F15
+chartset 2 size 392 190
+chartset 2 labels on
+freeze A3
+tabcolour 1F497D
+printarea A1:I32
+header &[TAB]
+footer Northwind Trading  Page &[PAGE]
+
+sheet Dashboard
+select B9
+save samples/accounts.gnumeric

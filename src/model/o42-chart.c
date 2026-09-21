@@ -396,14 +396,12 @@ stacked_extent (const ChartData *d, double *min, double *max)
 static char *
 chart_number (const O42Chart *chart, double v)
 {
+  /* The code as written, which is what a cell wearing it would show.
+   * Reducing it to one of the presets first threw away what only the
+   * code can say -- the comma that scales an axis by a thousand went
+   * missing, and "#,##0," wrote out every digit. */
   if (chart != NULL && chart->y_format != NULL && *chart->y_format != '\0')
-    {
-      O42NumberFormat number = O42_NUM_GENERAL;
-      int decimals = 2;
-      if (o42_number_format_parse (chart->y_format, &number, &decimals))
-        return o42_number_format (v, number, decimals);
-      return o42_format_string (chart->y_format, v, NULL);
-    }
+    return o42_format_string (chart->y_format, v, NULL);
   return o42_number_format (v, O42_NUM_GENERAL, 0);
 }
 
