@@ -1426,44 +1426,37 @@ o42_sheet_precedents (O42Sheet *sheet, int row, int col)
   return out;
 }
 
-/* A neighbour's formula as it would read moved to (row, col), for
- * telling whether two formulas are the same one filled along; NULL
- * when the neighbour holds no formula. */
-static char *
-formula_moved_to (O42Sheet *sheet, int from_row, int from_col, int row, int col)
+/* A neighbour's formula, for telling whether two formulas are the same
+ * one filled along; NULL when the neighbour holds none. */
+static const O42Node *
+formula_at (O42Sheet *sheet, int row, int col)
 {
-  O42Cell *cell = sheet_find (sheet, from_row, from_col);
-  O42Node *copy;
-  char *text;
+  O42Cell *cell = sheet_find (sheet, row, col);
 
-  if (cell == NULL || cell->ast == NULL)
-    return NULL;
-  copy = o42_node_copy (cell->ast);
-  o42_node_relocate (copy, row - from_row, col - from_col);
-  text = o42_node_to_string (copy);
-  o42_node_free (copy);
-  return text;
+  return cell != NULL ? cell->ast : NULL;
 }
 
 /* TRUE when the two cells either side both hold the same formula,
- * relatively speaking, and this cell holds a different one. */
+ * relatively speaking, and this cell holds a different one.  The
+ * comparison moves each neighbour's formula to this cell as it stands,
+ * rather than copying it and writing it out: the grid asks this of
+ * every formula cell on screen every time it draws. */
 static gboolean
-formula_inconsistent (O42Sheet *sheet, int row, int col, const char *mine, gboolean rows)
+formula_inconsistent (O42Sheet *sheet, int row, int col, const O42Node *mine, gboolean rows)
 {
   int r0 = rows ? row - 1 : row, c0 = rows ? col : col - 1;
   int r1 = rows ? row + 1 : row, c1 = rows ? col : col + 1;
-  char *before, *after;
-  gboolean odd = FALSE;
+  const O42Node *before, *after;
 
   if (r0 < 0 || c0 < 0 || r1 >= O42_MAX_ROWS || c1 >= O42_MAX_COLS)
     return FALSE;
-  before = formula_moved_to (sheet, r0, c0, row, col);
-  after = formula_moved_to (sheet, r1, c1, row, col);
-  if (before != NULL && after != NULL && strcmp (before, after) == 0 && strcmp (before, mine) != 0)
-    odd = TRUE;
-  g_free (before);
-  g_free (after);
-  return odd;
+  before = formula_at (sheet, r0, c0);
+  after = formula_at (sheet, r1, c1);
+  if (before == NULL || after == NULL)
+    return FALSE;
+
+  return o42_node_same_moved (before, row - r0, col - c0, after, row - r1, col - c1) &&
+         !o42_node_same_moved (before, row - r0, col - c0, mine, 0, 0);
 }
 
 static gboolean
@@ -1554,14 +1547,9 @@ o42_sheet_error_check (O42Sheet *sheet, int row, int col)
   if (check != O42_CHECK_NONE)
     return check;
 
-  {
-    char *mine = o42_node_to_string (cell->ast);
-
-    if (formula_inconsistent (sheet, row, col, mine, FALSE) ||
-        formula_inconsistent (sheet, row, col, mine, TRUE))
-      check = O42_CHECK_INCONSISTENT;
-    g_free (mine);
-  }
+  if (formula_inconsistent (sheet, row, col, cell->ast, FALSE) ||
+      formula_inconsistent (sheet, row, col, cell->ast, TRUE))
+    check = O42_CHECK_INCONSISTENT;
   if (check == O42_CHECK_NONE && formula_omits_cells (sheet, cell, row, col))
     check = O42_CHECK_OMITS_CELLS;
   return check;
@@ -1790,9 +1778,8 @@ sheet_eval_key (O42EvalContext *ctx, const char *sheet_name)
 }
 
 static void
-sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
+invalidate_step (O42Sheet *sheet, const char *changed, int row, int col, GArray *staled)
 {
-  GArray *to_visit;
   DepBand *candidates[4] = { NULL, NULL, NULL, NULL };
   gboolean any_candidate = FALSE;
 
@@ -1848,8 +1835,6 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
   if (!any_candidate && g_hash_table_size (sheet->volatiles) == 0)
     return;
 
-  to_visit = g_array_new (FALSE, FALSE, sizeof (guint64));
-
   /* Volatile formulas read cells the precedents cannot name: any change
    * on this sheet stales them, as Excel recalculates them every time. */
   (void) changed;   /* any sheet: a 3-D reference reads several, and Excel redoes them all */
@@ -1865,7 +1850,7 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
           if (cell != NULL && !cell->dirty && fkey != o42_key (row, col))
             {
               cell->dirty = 1;
-              g_array_append_val (to_visit, fkey);
+              g_array_append_val (staled, fkey);
             }
         }
     }
@@ -1894,24 +1879,53 @@ sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
                   o42_range_contains (&p->range, row, col))
                 {
                   cell->dirty = 1;
-                  g_array_append_val (to_visit, fkey);
+                  g_array_append_val (staled, fkey);
                   break;
                 }
             }
         }
     }
 
-  /* Recursing only on cells that have just gone from clean to dirty is what
-   * makes this terminate even when the sheet contains a cycle.  The cells
-   * just staled are on this sheet, so the recursion is a plain
-   * invalidation -- which also tells the other sheets. */
-  for (guint i = 0; i < to_visit->len; i++)
+}
+
+/* A change at (row, col) on sheet `changed`, and everything that follows
+ * from it: the formulas that read the cell go stale, then the formulas
+ * that read those, and so on.
+ *
+ * The cells staled are worked through a queue rather than by recursing,
+ * because the chain can be as long as the sheet is deep -- a running
+ * total filled down twenty thousand rows is twenty thousand cells deep --
+ * and a C frame apiece overran the stack and brought the program down.
+ * Only a cell that has just gone from clean to dirty joins the queue,
+ * which is what makes this end even when the sheet holds a cycle. */
+static void
+sheet_invalidate_named (O42Sheet *sheet, const char *changed, int row, int col)
+{
+  GArray *staled = g_array_new (FALSE, FALSE, sizeof (guint64));
+  guint at = 0;
+
+  invalidate_step (sheet, changed, row, col, staled);
+
+  /* The cells just staled are on this sheet, so each is a plain
+   * invalidation in its turn -- which also tells the other sheets. */
+  while (at < staled->len)
     {
-      guint64 k = g_array_index (to_visit, guint64, i);
-      sheet_invalidate (sheet, o42_key_row (k), o42_key_col (k));
+      guint64 k = g_array_index (staled, guint64, at++);
+      int r = o42_key_row (k), c = o42_key_col (k);
+
+      if (sheet->data_tables->len > 0 && !sheet->filling_tables)
+        sheet->tables_stale = TRUE;
+      if (loading (sheet))
+        {
+          sheet->content_stamp++;
+          continue;
+        }
+      invalidate_step (sheet, sheet->name, r, c, staled);
+      if (sheet->book != NULL)
+        o42_book_cell_changed (sheet->book, sheet, r, c);
     }
 
-  g_array_free (to_visit, TRUE);
+  g_array_free (staled, TRUE);
 }
 
 static void

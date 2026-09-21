@@ -118,6 +118,17 @@ O42Node *o42_node_copy (const O42Node *node);
  * changed. */
 gboolean o42_node_relocate (O42Node *node, int drow, int dcol);
 
+/* Whether two formulas would read the same once each has been moved by
+ * its own number of rows and columns -- what the error checker asks
+ * when it compares a cell with the ones above and below it.  It answers
+ * what relocating both, writing them out and comparing the text would,
+ * without copying a tree or building a string, since that question is
+ * asked of every formula cell on screen every time the grid is drawn.
+ * A reference moved off the sheet counts as #REF!, as relocating it
+ * would make it. */
+gboolean o42_node_same_moved (const O42Node *a, int a_drow, int a_dcol,
+                              const O42Node *b, int b_drow, int b_dcol);
+
 /* Adjusts every reference into sheet `target` for rows (or columns)
  * inserted or deleted there at `at`: `count` rows inserted when positive,
  * -`count` rows deleted when negative.  `own` is the name of the sheet the

@@ -1269,6 +1269,137 @@ o42_node_relocate (O42Node *node, int drow, int dcol)
   return visit_refs (node, relocate_visit, &d);
 }
 
+/* ---- Comparing two formulas as they would read somewhere else ------- */
+
+/* A reference or range as moving it by (drow, dcol) would leave it,
+ * without touching the node.  `gone` says it would have fallen off the
+ * sheet, which relocating turns into #REF!. */
+typedef struct {
+  int      row0, col0, row1, col1;
+  gboolean gone;
+} MovedRef;
+
+static MovedRef
+moved_ref (const O42Node *node, int drow, int dcol)
+{
+  MovedRef m = { 0, 0, 0, 0, FALSE };
+
+  if (node->type == O42_NODE_REF)
+    {
+      m.row0 = m.row1 = node->as.ref.row + ((node->abs & O42_ABS_ROW0) ? 0 : drow);
+      m.col0 = m.col1 = node->as.ref.col + ((node->abs & O42_ABS_COL0) ? 0 : dcol);
+      m.gone = !in_sheet (m.row0, m.col0);
+    }
+  else
+    {
+      const O42Range *r = &node->as.range;
+      int dr = (node->abs & O42_WHOLE_COLS) ? 0 : drow;
+      int dc = (node->abs & O42_WHOLE_ROWS) ? 0 : dcol;
+
+      m.row0 = r->row0 + ((node->abs & O42_ABS_ROW0) ? 0 : dr);
+      m.col0 = r->col0 + ((node->abs & O42_ABS_COL0) ? 0 : dc);
+      m.row1 = r->row1 + ((node->abs & O42_ABS_ROW1) ? 0 : dr);
+      m.col1 = r->col1 + ((node->abs & O42_ABS_COL1) ? 0 : dc);
+      m.gone = !in_sheet (m.row0, m.col0) || !in_sheet (m.row1, m.col1);
+    }
+  return m;
+}
+
+/* Whether a node is, or would become, the #REF! error. */
+static gboolean
+is_ref_error (const O42Node *node, int drow, int dcol)
+{
+  if (node->type == O42_NODE_ERROR)
+    return node->as.error == O42_ERR_REF;
+  if (node->type == O42_NODE_REF || node->type == O42_NODE_RANGE)
+    return moved_ref (node, drow, dcol).gone;
+  return FALSE;
+}
+
+static gboolean
+same_args (const GPtrArray *a, int a_drow, int a_dcol,
+           const GPtrArray *b, int b_drow, int b_dcol)
+{
+  guint n = a != NULL ? a->len : 0;
+
+  if (n != (b != NULL ? b->len : 0))
+    return FALSE;
+  for (guint i = 0; i < n; i++)
+    if (!o42_node_same_moved (g_ptr_array_index (a, i), a_drow, a_dcol,
+                              g_ptr_array_index (b, i), b_drow, b_dcol))
+      return FALSE;
+  return TRUE;
+}
+
+gboolean
+o42_node_same_moved (const O42Node *a, int a_drow, int a_dcol,
+                     const O42Node *b, int b_drow, int b_dcol)
+{
+  if (a == NULL || b == NULL)
+    return a == b;
+
+  /* A reference moved off the sheet reads as #REF!, and so is the same
+   * as any other #REF! however it arose. */
+  if (is_ref_error (a, a_drow, a_dcol) || is_ref_error (b, b_drow, b_dcol))
+    return is_ref_error (a, a_drow, a_dcol) && is_ref_error (b, b_drow, b_dcol);
+
+  if (a->type != b->type)
+    return FALSE;
+
+  switch (a->type)
+    {
+    case O42_NODE_NUMBER:
+      return a->as.number == b->as.number;
+    case O42_NODE_STRING:
+      return g_strcmp0 (a->as.string, b->as.string) == 0;
+    case O42_NODE_BOOL:
+      return a->as.boolean == b->as.boolean;
+    case O42_NODE_ERROR:
+      return a->as.error == b->as.error;
+
+    case O42_NODE_REF:
+    case O42_NODE_RANGE:
+      {
+        MovedRef ma = moved_ref (a, a_drow, a_dcol);
+        MovedRef mb = moved_ref (b, b_drow, b_dcol);
+
+        return a->abs == b->abs &&
+               g_strcmp0 (a->sheet, b->sheet) == 0 &&
+               g_strcmp0 (a->sheet_last, b->sheet_last) == 0 &&
+               ma.row0 == mb.row0 && ma.col0 == mb.col0 &&
+               ma.row1 == mb.row1 && ma.col1 == mb.col1;
+      }
+
+    case O42_NODE_UNARY:
+    case O42_NODE_BINARY:
+      return a->as.op.op == b->as.op.op &&
+             o42_node_same_moved (a->as.op.a, a_drow, a_dcol, b->as.op.a, b_drow, b_dcol) &&
+             o42_node_same_moved (a->as.op.b, a_drow, a_dcol, b->as.op.b, b_drow, b_dcol);
+
+    case O42_NODE_CALL:
+      return g_strcmp0 (a->as.call.name, b->as.call.name) == 0 &&
+             same_args (a->as.call.args, a_drow, a_dcol, b->as.call.args, b_drow, b_dcol);
+
+    case O42_NODE_NAME:
+      return g_strcmp0 (a->as.name, b->as.name) == 0;
+
+    case O42_NODE_EMPTY:
+      return TRUE;
+
+    case O42_NODE_ARRAY:
+      return a->as.array.rows == b->as.array.rows &&
+             a->as.array.cols == b->as.array.cols &&
+             same_args (a->as.array.items, a_drow, a_dcol, b->as.array.items, b_drow, b_dcol);
+
+    case O42_NODE_APPLY:
+      return o42_node_same_moved (a->as.apply.callee, a_drow, a_dcol,
+                                  b->as.apply.callee, b_drow, b_dcol) &&
+             same_args (a->as.apply.args, a_drow, a_dcol, b->as.apply.args, b_drow, b_dcol);
+    }
+
+  return FALSE;
+}
+
 typedef struct {
   gboolean    rows;
   int         at, count;
