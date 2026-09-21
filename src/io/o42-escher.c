@@ -573,7 +573,12 @@ o42_escher_parse_group (const guchar *data, gsize len, GPtrArray *images, GPtrAr
                   skip = (two ? 32 : 16) + 34;
                   if (h + 34 <= body + rlen && blen >= skip && img + blen <= end)
                     {
-                      guint32 cb = rd32 (h);
+                      /* The header says how large the metafile unpacks
+                       * to, and a file may say anything: a picture in a
+                       * sheet is never as large as this allows, and
+                       * without a cap a few compressed bytes could ask
+                       * for gigabytes. */
+                      guint32 cb = MIN (rd32 (h), 64u * 1024 * 1024);
                       GBytes *raw = g_bytes_new (img + skip, blen - skip);
                       if (h[32] == 0)
                         {
@@ -584,8 +589,8 @@ o42_escher_parse_group (const guchar *data, gsize len, GPtrArray *images, GPtrAr
                           GByteArray *out = g_byte_array_new ();
                           guchar buffer[8192];
                           gssize got;
-                          while ((got = g_input_stream_read (in, buffer, sizeof buffer, NULL, NULL)) > 0 &&
-                                 out->len < cb + sizeof buffer)
+                          while (out->len < cb &&
+                                 (got = g_input_stream_read (in, buffer, sizeof buffer, NULL, NULL)) > 0)
                             g_byte_array_append (out, buffer, got);
                           g_object_unref (in);
                           g_object_unref (mem);

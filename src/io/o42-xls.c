@@ -249,6 +249,47 @@ error_to_biff (O42ErrorCode code)
 static guint16 rd16 (const guchar *p) { return p[0] | (p[1] << 8); }
 static guint32 rd32 (const guchar *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((guint32) p[3] << 24); }
 
+/* Excel keeps its text as UTF-16, and everything outside the basic
+ * plane -- an emoji, the rarer CJK, the musical symbols -- arrives as a
+ * pair of surrogates.  Appending each half as a character of its own
+ * makes a string that is not UTF-8 at all, which nothing further on can
+ * show or write out, so the pair is put back together here.  `pending`
+ * holds a high surrogate until its low one arrives; a surrogate left on
+ * its own means nothing and becomes U+FFFD. */
+static void
+append_utf16 (GString *s, guint unit, guint *pending)
+{
+  if (*pending != 0)
+    {
+      guint high = *pending;
+
+      *pending = 0;
+      if (unit >= 0xDC00 && unit <= 0xDFFF)
+        {
+          g_string_append_unichar (s, 0x10000 + ((high - 0xD800) << 10) + (unit - 0xDC00));
+          return;
+        }
+      g_string_append_unichar (s, 0xFFFD);
+    }
+  if (unit >= 0xD800 && unit <= 0xDBFF)
+    *pending = unit;
+  else if (unit >= 0xDC00 && unit <= 0xDFFF)
+    g_string_append_unichar (s, 0xFFFD);
+  else
+    g_string_append_unichar (s, unit);
+}
+
+/* A high surrogate still waiting when the string ends. */
+static void
+flush_utf16 (GString *s, guint *pending)
+{
+  if (*pending != 0)
+    {
+      *pending = 0;
+      g_string_append_unichar (s, 0xFFFD);
+    }
+}
+
 static double
 rd_double (const guchar *p)
 {
@@ -418,6 +459,7 @@ typedef struct
   guint       obj_id;
   gboolean    obj_is_note;
   int         txo_chars;        /* characters still to read for the note */
+  guint       txo_pending;      /* a high surrogate waiting for its low one */
   GString    *txo_text;
   gboolean    txo_runs_next;    /* the text is in; the CONTINUE to come holds its runs */
   GHashTable *note_texts;       /* obj id -> char* */
@@ -545,12 +587,14 @@ read_hlink_target (const guchar *p, const guchar *end)
               guint32 size = rd32 (p + 16);
               const guchar *q = p + 20;
               GString *u = g_string_new (NULL);
+              guint pending = 0;
               for (guint32 i = 0; i + 1 < size && q + 2 * i + 2 <= end; i++)
                 {
-                  gunichar c = rd16 (q + 2 * i);
+                  guint c = rd16 (q + 2 * i);
                   if (c == 0) break;
-                  g_string_append_unichar (u, c);
+                  append_utf16 (u, c, &pending);
                 }
+              flush_utf16 (u, &pending);
               url = g_string_free (u, FALSE);
               p = q + MIN (size, (guint32) (end - q));
             }
@@ -623,6 +667,7 @@ read_str (Reader *r, const guchar **pp, const guchar *end, gboolean wide_len)
       guint flags;
       guint runs = 0;
       guint32 ext = 0;
+      guint pending = 0;
       if (p >= end) { *pp = end; return g_string_free (s, FALSE); }
       flags = *p++;
       if (flags & 0x08) { runs = p + 2 <= end ? rd16 (p) : 0; p += 2; }
@@ -633,9 +678,10 @@ read_str (Reader *r, const guchar **pp, const guchar *end, gboolean wide_len)
            * is what office42 separates them with. */
           for (guint i = 0; i < n && p + 2 <= end; i++, p += 2)
             {
-              if (rd16 (p) != 0) g_string_append_unichar (s, rd16 (p));
-              else if (n > 1) g_string_append_c (s, ',');
+              if (rd16 (p) != 0) append_utf16 (s, rd16 (p), &pending);
+              else if (n > 1) { flush_utf16 (s, &pending); g_string_append_c (s, ','); }
             }
+          flush_utf16 (s, &pending);
         }
       else
         {
@@ -684,6 +730,7 @@ read_sst (Reader *r, GPtrArray *segs)
     {
       guint n, flags, runs = 0;
       guint32 ext = 0;
+      guint pending = 0;
       GString *s;
 
       /* A string's header is never split across a CONTINUE, so a
@@ -705,10 +752,11 @@ read_sst (Reader *r, GPtrArray *segs)
               flags = (*p++ & 0x01) | (flags & ~0x01u);
             }
           if (flags & 0x01)
-            { if (p + 2 > end) break; g_string_append_unichar (s, rd16 (p)); p += 2; }
+            { if (p + 2 > end) break; append_utf16 (s, rd16 (p), &pending); p += 2; }
           else
             g_string_append_unichar (s, *p++);
         }
+      flush_utf16 (s, &pending);
       g_ptr_array_add (r->sst, g_string_free (s, FALSE));
       {
         /* The formatting runs, four bytes each -- a character index and
@@ -1669,8 +1717,10 @@ read_name (Reader *r, const guchar *p, gsize len)
       else if (sflags & 0x01)
         {
           GString *s = g_string_new (NULL);
+          guint pending = 0;
           for (guint i = 0; i < cch && p + 2 <= end; i++, p += 2)
-            g_string_append_unichar (s, rd16 (p));
+            append_utf16 (s, rd16 (p), &pending);
+          flush_utf16 (s, &pending);
           name = g_string_free (s, FALSE);
         }
       else
@@ -2954,13 +3004,15 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
                 {
                   guint flags = *q++;
                   GString *str = g_string_new (NULL);
+                  guint pending = 0;
                   for (guint i = 0; i < cch; i++)
                     {
-                      gunichar c;
+                      guint c;
                       if (flags & 1) { if (q + 2 > p + len) break; c = rd16 (q); q += 2; }
                       else { if (q + 1 > p + len) break; c = *q++; }
-                      g_string_append_unichar (str, c);
+                      append_utf16 (str, c, &pending);
                     }
+                  flush_utf16 (str, &pending);
                   value = g_string_free (str, FALSE);
                   /* LibreOffice writes a number's condition as an empty
                    * string, which would match nothing: left out. */
@@ -3435,10 +3487,12 @@ read_workbook (Reader *r, GError **error)
               gboolean wide = (body[0] & 0x01) != 0;
               while (r->txo_chars > 0 && q < qend)
                 {
-                  if (wide) { if (q + 2 > qend) break; g_string_append_unichar (r->txo_text, rd16 (q)); q += 2; }
+                  if (wide) { if (q + 2 > qend) break; append_utf16 (r->txo_text, rd16 (q), &r->txo_pending); q += 2; }
                   else g_string_append_unichar (r->txo_text, *q++);
                   r->txo_chars--;
                 }
+              if (r->txo_chars == 0)
+                flush_utf16 (r->txo_text, &r->txo_pending);
               if (r->txo_chars == 0)
                 {
                   if (r->obj_is_note)

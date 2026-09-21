@@ -32,6 +32,15 @@ crc32_bytes (const guchar *data, gsize n)
   return crc ^ 0xffffffffu;
 }
 
+/* How much one part may come to, and how much the whole archive may,
+ * however little of it is on disk.  A part that swells by more than
+ * SWELL_MAX is refused outright unless it is small: deflate can turn a
+ * megabyte of zeros into a gigabyte, and a file that does is a trap
+ * rather than a book.  Spreadsheet XML compresses by ten or twenty to
+ * one, so there is a wide margin before an honest file is refused. */
+#define PART_FLOOR (32u * 1024 * 1024)
+#define SWELL_MAX  500
+
 /* Runs `data` through a GConverter and returns the result. */
 static GBytes *
 convert (GConverter *conv, const guchar *data, gsize n)
@@ -46,6 +55,44 @@ convert (GConverter *conv, const guchar *data, gsize n)
   g_object_unref (out);
   g_object_unref (mem);
   return result;
+}
+
+/* Inflates a stored entry, stopping if it comes to more than `limit`.
+ * The limit is what the archive's directory says the entry unpacks to:
+ * a stream that says one thing and does another is broken or hostile,
+ * and either way is not read further. */
+static GBytes *
+inflate_bounded (const guchar *data, gsize n, gsize limit)
+{
+  GConverter *conv = G_CONVERTER (g_zlib_decompressor_new (G_ZLIB_COMPRESSOR_FORMAT_RAW));
+  GInputStream *mem = g_memory_input_stream_new_from_data (data, n, NULL);
+  GInputStream *in = g_converter_input_stream_new (mem, conv);
+  GByteArray *out = g_byte_array_sized_new ((guint) MIN (limit + 1, 1u << 16));
+  guchar buffer[65536];
+  gssize got;
+  gboolean ok = TRUE;
+
+  while ((got = g_input_stream_read (in, buffer, sizeof buffer, NULL, NULL)) > 0)
+    {
+      if (out->len + (gsize) got > limit)
+        {
+          ok = FALSE;
+          break;
+        }
+      g_byte_array_append (out, buffer, (guint) got);
+    }
+  if (got < 0)
+    ok = FALSE;
+
+  g_object_unref (in);
+  g_object_unref (mem);
+  g_object_unref (conv);
+  if (!ok)
+    {
+      g_byte_array_unref (out);
+      return NULL;
+    }
+  return g_byte_array_free_to_bytes (out);
 }
 
 /* Little-endian readers over a bounds-checked buffer. */
@@ -124,12 +171,10 @@ o42_zip_read (GBytes *archive, GError **error)
       GBytes *content = NULL;
       if (method == 0)
         content = g_bytes_new (buf + data, csize);
+      else if (method == 8 && usize > PART_FLOOR && csize > 0 && usize / csize > SWELL_MAX)
+        content = NULL;    /* a megabyte that claims to be a gigabyte */
       else if (method == 8)
-        {
-          GConverter *conv = G_CONVERTER (g_zlib_decompressor_new (G_ZLIB_COMPRESSOR_FORMAT_RAW));
-          content = convert (conv, buf + data, csize);
-          g_object_unref (conv);
-        }
+        content = inflate_bounded (buf + data, csize, usize != 0 ? usize : PART_FLOOR);
       if (content == NULL || (usize != 0 && g_bytes_get_size (content) != usize))
         {
           g_clear_pointer (&content, g_bytes_unref);
