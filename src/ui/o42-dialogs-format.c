@@ -33,14 +33,15 @@
 
 /* ---- Format Cells ----------------------------------------------------- */
 
-/* Excel 5's Format Cells: one dialog, tabbed, holding everything a cell's
+/* Excel 97's Format Cells: one dialog, tabbed, holding everything a cell's
  * format can be.  Every control starts from the active cell and the whole
  * format is applied to the selection on OK. */
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
-  GtkWidget *number, *decimals, *custom;
-  GtkWidget *halign, *valign, *wrap;
+  GtkWidget *number, *decimals, *custom, *symbol, *negative;
+  GPtrArray *symbols;      /* what the symbol list offers, "" for none */
+  GtkWidget *halign, *valign, *wrap, *shrink;
   GtkWidget *family, *size, *bold, *italic, *underline, *strikeout, *colour;
   GtkWidget *border[4];
   GtkWidget *border_style[4], *border_colour;
@@ -54,12 +55,52 @@ static const char *BORDER_STYLE_NAMES[] = { N_("None"), N_("Thin"), N_("Medium")
 static const O42NumberFormat NUMBER_CHOICES[] = {
   O42_NUM_GENERAL, O42_NUM_FIXED, O42_NUM_COMMA, O42_NUM_CURRENCY,
   O42_NUM_PERCENT, O42_NUM_SCIENTIFIC, O42_NUM_TEXT, O42_NUM_DATE,
-  O42_NUM_TIME, O42_NUM_DATETIME,
+  O42_NUM_TIME, O42_NUM_DATETIME, O42_NUM_ACCOUNTING,
 };
 static const char *NUMBER_NAMES[] = {
   N_("General"), N_("Fixed"), N_("Comma"), N_("Currency"), N_("Percent"), N_("Scientific"), N_("Text"),
-  N_("Date"), N_("Time"), N_("Date and Time"), N_("Custom"), NULL,
+  N_("Date"), N_("Time"), N_("Date and Time"), N_("Accounting"), N_("Custom"), NULL,
 };
+/* How a negative can look, for Number and Currency: the order of
+ * O42NegativeStyle. */
+static const char *NEGATIVE_NAMES[] = {
+  N_("-1,234.10"), N_("1,234.10 in red"), N_("(1,234.10)"), N_("(1,234.10) in red"), NULL,
+};
+/* The symbols Format Cells offers, after "None" and the machine's own. */
+static const char *SYMBOL_CHOICES[] = { "$", "\xe2\x82\xac", "\xc2\xa3", "\xc2\xa5", "kr", "CHF" };
+
+static void
+format_prompt_free (FormatPrompt *prompt)
+{
+  if (prompt->symbols != NULL)
+    g_ptr_array_unref (prompt->symbols);
+  g_free (prompt);
+}
+
+static gboolean
+number_takes_symbol (O42NumberFormat number)
+{
+  return number == O42_NUM_CURRENCY || number == O42_NUM_ACCOUNTING;
+}
+
+static gboolean
+number_takes_negative (O42NumberFormat number)
+{
+  return number == O42_NUM_FIXED || number == O42_NUM_COMMA || number == O42_NUM_CURRENCY;
+}
+
+static void
+on_number_category_changed (GObject *drop_down, GParamSpec *pspec, gpointer data)
+{
+  FormatPrompt *prompt = data;
+  guint index = gtk_drop_down_get_selected (GTK_DROP_DOWN (drop_down));
+  O42NumberFormat number = index < G_N_ELEMENTS (NUMBER_CHOICES) ? NUMBER_CHOICES[index] : O42_NUM_GENERAL;
+
+  (void) pspec;
+  gtk_widget_set_sensitive (prompt->symbol, number_takes_symbol (number));
+  gtk_widget_set_sensitive (prompt->negative, number_takes_negative (number));
+}
+
 static const char *HALIGN_NAMES[] = { N_("General"), N_("Left"), N_("Center"), N_("Right"), NULL };
 static const char *VALIGN_NAMES[] = { N_("Bottom"), N_("Middle"), N_("Top"), NULL };
 
@@ -128,6 +169,27 @@ on_format_ok (GtkWidget *w, gpointer data)
       if (*code != '\0' && g_ascii_strcasecmp (code, "General") != 0)
         fmt.custom = g_intern_string (code);
     }
+  else if (number_takes_symbol (fmt.number) || number_takes_negative (fmt.number))
+    {
+      /* A symbol other than the machine's, or negatives shown some other
+       * way than with a minus, are more than the preset says: the code
+       * is kept beside it, and the preset still names the kind. */
+      guint s = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->symbol));
+      guint n = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->negative));
+      const char *symbol = number_takes_symbol (fmt.number) && s < prompt->symbols->len
+                           ? g_ptr_array_index (prompt->symbols, s) : NULL;
+      O42NegativeStyle negative = number_takes_negative (fmt.number) && n < 4
+                                  ? (O42NegativeStyle) n : O42_NEG_MINUS;
+      gboolean own_symbol = symbol != NULL && strcmp (symbol, o42_numfmt_currency ()) != 0;
+
+      if (own_symbol || negative != O42_NEG_MINUS)
+        {
+          char *code = o42_number_format_code (fmt.number, fmt.decimals,
+                                               number_takes_symbol (fmt.number) ? symbol : NULL, negative);
+          fmt.custom = g_intern_string (code);
+          g_free (code);
+        }
+    }
 
   fmt.halign = (O42HAlign) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->halign));
   switch (gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->valign)))
@@ -137,6 +199,7 @@ on_format_ok (GtkWidget *w, gpointer data)
     default: fmt.valign = O42_VALIGN_BOTTOM; break;
     }
   fmt.wrap = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->wrap));
+  fmt.shrink = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->shrink));
 
   item = gtk_drop_down_get_selected_item (GTK_DROP_DOWN (prompt->family));
   if (item != NULL)
@@ -230,11 +293,63 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->number), G_N_ELEMENTS (NUMBER_CHOICES));
   prompt->decimals = labelled (page, 1, _("Decimal places:"), gtk_spin_button_new_with_range (0, 15, 1));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->decimals), fmt->decimals);
-  prompt->custom = labelled (page, 2, _("Format code:"), gtk_entry_new ());
   {
+    /* The symbol and the negatives, as Excel's Currency and Number
+     * categories offer them.  A custom code that names either has them
+     * shown, so that reopening the dialog shows what was chosen. */
     char *code = o42_fmt_format_string (fmt);
+    char *symbol = NULL;
+    O42NegativeStyle negative = O42_NEG_MINUS;
+    GtkStringList *list = gtk_string_list_new (NULL);
+    guint chosen = 0;
+
+    o42_number_format_details (fmt->custom != NULL ? fmt->custom : code, &symbol, &negative);
+    if (symbol == NULL && number_takes_symbol (fmt->number))
+      symbol = g_strdup (o42_numfmt_currency ());
+
+    prompt->symbols = g_ptr_array_new_with_free_func (g_free);
+    g_ptr_array_add (prompt->symbols, g_strdup (""));
+    gtk_string_list_append (list, _("None"));
+    g_ptr_array_add (prompt->symbols, g_strdup (o42_numfmt_currency ()));
+    gtk_string_list_append (list, o42_numfmt_currency ());
+    for (guint i = 0; i < G_N_ELEMENTS (SYMBOL_CHOICES); i++)
+      if (strcmp (SYMBOL_CHOICES[i], o42_numfmt_currency ()) != 0)
+        {
+          g_ptr_array_add (prompt->symbols, g_strdup (SYMBOL_CHOICES[i]));
+          gtk_string_list_append (list, SYMBOL_CHOICES[i]);
+        }
+    if (symbol != NULL)
+      {
+        gboolean found = FALSE;
+        for (guint i = 0; i < prompt->symbols->len && !found; i++)
+          if (strcmp (g_ptr_array_index (prompt->symbols, i), symbol) == 0)
+            { chosen = i; found = TRUE; }
+        if (!found && *symbol != '\0')
+          {
+            g_ptr_array_add (prompt->symbols, g_strdup (symbol));
+            gtk_string_list_append (list, symbol);
+            chosen = prompt->symbols->len - 1;
+          }
+      }
+    prompt->symbol = labelled (page, 2, _("Symbol:"), gtk_drop_down_new (G_LIST_MODEL (list), NULL));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->symbol), chosen);
+    prompt->negative = labelled (page, 3, _("Negative numbers:"), drop_down_of (NEGATIVE_NAMES));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->negative), (guint) negative);
+    if (fmt->custom != NULL && fmt->number != O42_NUM_GENERAL &&
+        (number_takes_symbol (fmt->number) || number_takes_negative (fmt->number)))
+      {
+        /* A preset with a code beside it: the dialog shows the preset. */
+        for (guint i = 0; i < G_N_ELEMENTS (NUMBER_CHOICES); i++)
+          if (NUMBER_CHOICES[i] == fmt->number)
+            gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->number), i);
+      }
+    g_signal_connect (prompt->number, "notify::selected", G_CALLBACK (on_number_category_changed), prompt);
+    on_number_category_changed (G_OBJECT (prompt->number), NULL, prompt);
+
+    prompt->custom = labelled (page, 4, _("Format code:"), gtk_entry_new ());
     gtk_editable_set_text (GTK_EDITABLE (prompt->custom), code);
     g_free (code);
+    g_free (symbol);
   }
   gtk_editable_set_width_chars (GTK_EDITABLE (prompt->custom), 24);
 
@@ -248,9 +363,12 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->wrap = gtk_check_button_new_with_mnemonic ( _("_Wrap text"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->wrap), fmt->wrap);
   gtk_grid_attach (GTK_GRID (page), prompt->wrap, 0, 2, 2, 1);
-  prompt->indent = labelled (page, 3, _("Indent:"), gtk_spin_button_new_with_range (0, 15, 1));
+  prompt->shrink = gtk_check_button_new_with_mnemonic ( _("Shrin_k to fit"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->shrink), fmt->shrink);
+  gtk_grid_attach (GTK_GRID (page), prompt->shrink, 0, 3, 2, 1);
+  prompt->indent = labelled (page, 4, _("Indent:"), gtk_spin_button_new_with_range (0, 15, 1));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->indent), fmt->indent);
-  prompt->rotation = labelled (page, 4, _("Orientation (degrees):"), gtk_spin_button_new_with_range (-90, 90, 5));
+  prompt->rotation = labelled (page, 5, _("Orientation (degrees):"), gtk_spin_button_new_with_range (-90, 90, 5));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->rotation), fmt->rotation);
 
   /* Font */
@@ -337,7 +455,7 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
   gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
-  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (format_prompt_free), prompt);
 
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
@@ -460,7 +578,7 @@ action_conditional (GSimpleAction *a, GVariant *p, gpointer data)
 /* ---- Column Width and Row Height ------------------------------------- */
 
 /* One small dialog serves both: a label, an entry, OK and Cancel, in the
- * shape Excel 5's had.  The value is in pixels at the grid's 96 dpi. */
+ * shape Excel 97's had.  The value is in pixels at the grid's 96 dpi. */
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
@@ -576,6 +694,87 @@ void action_filter (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p
 void action_column_width (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; size_prompt (d, TRUE); }
 void action_row_height (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; size_prompt (d, FALSE); }
 void action_autofit (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_autofit_columns (O42_WINDOW (d)->grid); }
+void action_autofit_rows (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_autofit_rows (O42_WINDOW (d)->grid); }
+
+/* Data > Filter > Show All: every column's choice back to "(All)", the
+ * filter itself staying. */
+void
+action_filter_show_all (GSimpleAction *a, GVariant *p, gpointer d)
+{
+  O42Window *self = d;
+  O42Range range;
+
+  (void) a; (void) p;
+  if (!o42_sheet_get_autofilter (self->sheet, &range))
+    return;
+  o42_sheet_begin_group (self->sheet);
+  for (int col = range.col0; col <= range.col1; col++)
+    if (o42_sheet_autofilter_choice (self->sheet, col) != NULL)
+      o42_sheet_autofilter_choose (self->sheet, col, NULL);
+  o42_sheet_end_group (self->sheet);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+}
+
+/* ---- Standard Width ---------------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *entry;
+} StandardWidthPrompt;
+
+static void
+on_standard_width_ok (GtkWidget *w, gpointer data)
+{
+  StandardWidthPrompt *prompt = data;
+  const char *text = gtk_editable_get_text (GTK_EDITABLE (prompt->entry));
+  char *end = NULL;
+  double value = g_ascii_strtod (text, &end);
+
+  (void) w;
+  if (end != text && value > 0)
+    {
+      o42_sheet_set_default_col_width (prompt->window->sheet, (int) (value + 0.5));
+      o42_grid_refresh (prompt->window->grid);
+      window_sync (prompt->window);
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_standard_width (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  StandardWidthPrompt *prompt = g_new0 (StandardWidthPrompt, 1);
+  GtkWidget *content, *buttons, *row, *ok;
+  char initial[16];
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Standard Width"), TRUE, &content, &buttons);
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_box_append (GTK_BOX (row), gtk_label_new (_("Standard column width (pixels):")));
+  prompt->entry = gtk_entry_new ();
+  g_snprintf (initial, sizeof initial, "%d", o42_sheet_default_col_width (self->sheet));
+  gtk_editable_set_text (GTK_EDITABLE (prompt->entry), initial);
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->entry), 8);
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt->entry), TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->entry);
+  gtk_box_append (GTK_BOX (content), row);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_standard_width_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+  gtk_widget_grab_focus (prompt->entry);
+  gtk_editable_select_region (GTK_EDITABLE (prompt->entry), 0, -1);
+}
 
 /* ---- Format > AutoFormat, and the format painter ----------------------- */
 

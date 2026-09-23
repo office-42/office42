@@ -15,11 +15,17 @@
 
 G_BEGIN_DECLS
 
-/* Excel 5 offered 16384 rows and 256 columns, and so does office42.  The
- * limits are not a storage decision -- the sheet is sparse and an empty cell
- * costs nothing -- they are what a reference like IV16384 can name. */
-#define O42_MAX_ROWS 1048576
+/* Excel 97 offered 65,536 rows and 256 columns; office42's grid is the
+ * one Excel 2007 grew to, so an .xlsx comes in whole.  The limits are not
+ * a storage decision -- the sheet is sparse and an empty cell costs
+ * nothing -- they are what a reference like XFD1048576 can name. */
+/* The grid: Gnumeric's 16,777,216 rows, sixteen times Excel's
+ * 1,048,576, and the 16,384 columns both have.  A cell beyond Excel's
+ * rows cannot go into an .xlsx, an .xls or an .ods, and the writers
+ * count what they leave out: see O42_EXCEL_MAX_ROWS. */
+#define O42_MAX_ROWS 16777216
 #define O42_MAX_COLS 16384
+#define O42_EXCEL_MAX_ROWS 1048576
 
 /* A cell address.  Rows and columns are zero-based inside the program and
  * one-based-and-lettered on screen, which is the only place the two
@@ -36,6 +42,20 @@ typedef struct {
   int row1;
   int col1;
 } O42Range;
+
+/* How an object that floats over the grid follows the cells under it,
+ * Excel's three: moved and sized with them (its far corner is a cell
+ * too, so widening a column widens it), moved but not sized (its size
+ * is its own, its corner a cell), or neither (it stays put on the sheet
+ * in pixels). */
+typedef enum {
+  O42_ANCHOR_TWO_CELL = 0,
+  O42_ANCHOR_ONE_CELL,
+  O42_ANCHOR_ABSOLUTE
+} O42AnchorMode;
+
+const char *o42_anchor_mode_name  (O42AnchorMode mode);        /* "twoCell", "oneCell", "absolute" */
+gboolean    o42_anchor_mode_parse (const char *name, O42AnchorMode *mode);
 
 /* Cells are keyed by one integer so the sparse store can be an ordinary hash
  * table rather than anything clever. */

@@ -40,6 +40,7 @@ o42_core_sources = files(
   'model/o42-book.c',
   'formula/o42-formula.c',
   'formula/o42-eval.c',
+  'formula/o42-eval-steps.c',
   'formula/o42-fn-bessel.c',
   'formula/o42-fn-random.c',
   'formula/o42-fn-info.c',
@@ -49,6 +50,7 @@ o42_core_sources = files(
   'formula/o42-fn-hdate.c',
   'formula/o42-fn-text.c',
   'formula/o42-fn-dates.c',
+  'formula/o42-fn-table.c',
   'formula/o42-fn-statistics.c',
   'formula/o42-fn-options.c',
 )
@@ -104,11 +106,14 @@ executable('office42-calc',
 )
 
 o42_ui_sources = files(
+  'ui/o42-cursor.c',
   'ui/o42-grid.c',
   'ui/o42-dialogs-data.c',
+  'ui/o42-dialogs-edit.c',
   'ui/o42-dialogs-tools.c',
   'ui/o42-dialogs-format.c',
   'ui/o42-window.c',
+  'ui/o42-scan.c',
   'ui/o42-application.c',
   'main.c',
 )

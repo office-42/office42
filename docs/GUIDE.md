@@ -2,10 +2,10 @@
 
 # The office42 user guide
 
-This is the long form of how to use office42. The README says what the
-program is and what is in it; this says how to do the work. It follows
-the menus, so if you can find a thing in the window you can find it
-here.
+This is the long form of how to use office42 -- Numbers42 is the same
+program under its other name. The README says what the program is and
+what is in it; this says how to do the work. It follows the menus, so
+if you can find a thing in the window you can find it here.
 
 Everything described below is in the program as it stands. Where
 something is not there, or is there in a smaller way than Excel has it,
@@ -71,12 +71,14 @@ is how a scrolled view gets pictured.
 From the top down:
 
 - **The menu bar** — File, Edit, View, Insert, Format, Tools, Data,
-  Window, Help, in the order Excel 5 had them.
+  Window, Help, in the order Excel 97 had them.
 - **Two toolbars** — the standard one (new, open, save, print, cut,
   copy, paste, undo, redo, AutoSum, the Function Wizard, sort and the
   ChartWizard) and the formatting one (font name and size, bold, italic,
   underline, the three alignments, currency, percent, comma, and more or
-  fewer decimals).
+  fewer decimals). View ▸ Toolbars turns either off, and View ▸ Formula
+  Bar and View ▸ Status Bar do the same for those; the grid takes the
+  room.
 - **The Name Box** on the left of the formula bar. It shows where the
   cursor is; type a reference or a defined name into it and press Enter
   to go there.
@@ -143,15 +145,49 @@ in that column that begins with it, with the rest selected, so carrying
 on typing replaces the suggestion and pressing Enter accepts it.
 
 **Filling.** Ctrl+D fills down from the top row of the selection and
-Ctrl+R fills right. Dragging the small square at the bottom-right
-corner of the selection continues a series: numbers step by the
-difference between the first two, dates by day, and names of days and
-months by name.
+Ctrl+R fills right, and Edit ▸ Fill ▸ Up and Left go the other way,
+copying the bottom row or the right column over the rest. Edit ▸ Fill ▸
+Across Worksheets copies the selection to the same cells on the other
+sheets -- each offered and ticked, since office42 has no grouped sheets
+-- as all of it, its contents or its formats. Dragging the
+small square at the bottom-right corner of the selection continues a
+series: numbers step by the difference between the first two, dates by
+day, and names of days and months by name.
+
+**Series and Justify.** Edit ▸ Fill ▸ Series is Excel's dialog: each
+column of the selection (each row, with Rows chosen) runs on from its
+first cell -- Linear adds the step, Growth multiplies by it, Date steps
+by day, weekday, month or year, and AutoFill continues whatever the
+leading cells hold as the fill handle would. A stop value ends the
+series where it would pass it, and with one cell selected the series
+runs down from it until it does; Trend fits a line (or, for Growth, an
+exponential) through the numbers already there and writes the fit over
+them. A month series from 31 January goes 29 February, 31 March, 30
+April, as it does in Excel. Edit ▸ Fill ▸ Justify takes the text in the
+first column of the selection and lays it out again in rows that fit
+the selection's width, a blank row starting a new paragraph, running on
+below the selection when the words need more rows.
+
+**Clear.** Edit ▸ Clear takes away All, only the Formats, only the
+Contents (which is what Delete does) or only the Notes.
+
+**AutoCorrect.** Tools ▸ AutoCorrect does to typed text what Excel 97
+does: TWo INitial CApitals become one, the letter after a full stop
+becomes a capital, a day's name typed in lower case gets its capital,
+and the words in the replacement list are replaced as whole words --
+`(c)` by ©, `...` by …, `teh` by `the`, `i` by `I`. A formula, a
+quoted text, a number, a date or a word in capitals is never touched.
+Each of the four can be turned off in the dialog, which also edits the
+list; Excel keeps the list in its options, office42 keeps it with the
+book, so a new book starts with a short list and `.gnumeric` carries
+yours.
 
 **Moving and copying.** Ctrl+X, Ctrl+C and Ctrl+V cut, copy and paste,
 with references relocated the way Excel relocates them. Edit ▸ Paste
 Special pastes only the values, only the formats or only the formulas,
-and can turn the block on its side. Dragging the outline of a selection
+and can turn the block on its side. Edit ▸ Paste as Hyperlink pastes
+the copied cells as text, each a link back to the cell it came from,
+so Ctrl+click on the copy goes to the original. Dragging the outline of a selection
 moves those cells -- formulas inside travel unchanged, and formulas
 elsewhere that pointed into the block follow it -- and holding Ctrl
 while dragging copies them instead; the pointer says which it will be.
@@ -228,7 +264,17 @@ typed still enters it.
 
 **Names.** Insert ▸ Name ▸ Define (Ctrl+F3) gives a cell or a range a
 name, which then works anywhere a reference does: `=SUM(Sales)`. The
-Name Box lists them.
+Name Box lists them. Insert ▸ Name ▸ Create makes names from the labels
+along the edges of the selection -- its top row, left column, bottom
+row or right column, the dialog guessing the first two from whether the
+corner cells are text -- each naming the cells of its column or row
+inside; "Unit Cost" becomes `UNIT_COST`. Insert ▸ Name ▸ Apply rewrites
+the formulas of the selection (of the whole sheet, when one cell is
+selected) so that every reference that is exactly a named rectangle
+reads as the name: `=SUM(A2:A9)` becomes `=SUM(Sales)`. Insert ▸ Name ▸
+Paste puts a name into the formula being typed, or starts the cell
+with `=Name`; its Paste List button writes every name and what it
+refers to in two columns from the active cell.
 
 **Array formulas.** Ctrl+Shift+Enter enters a formula over the whole
 selection, and the braces appear in the formula bar. Functions that
@@ -298,7 +344,7 @@ a range is skipped by `SUM` and counted by `SUMA`, as in Gnumeric.
 
 ## 7. Formatting
 
-Format ▸ Cells (Ctrl+1) has the tabs Excel 5 had: **Number**,
+Format ▸ Cells (Ctrl+1) has the tabs Excel 97 had: **Number**,
 **Alignment**, **Font**, **Border**, **Patterns** and **Protection**.
 Everything applies to the whole selection and is one undo step.
 
@@ -376,18 +422,38 @@ Columns and Delete take it away. Formulas that pointed at what moved
 follow it.
 
 Format ▸ Column Width, Row Height and Column AutoFit set sizes by
-number, or drag the boundary between two headers. Format ▸ Row ▸ Hide
-and Column ▸ Hide take a band out of sight; Unhide brings it back.
+number, or drag the boundary between two headers. Format ▸ Row ▸
+AutoFit makes each selected row as tall as its tallest text, wrapped
+text laid out at the column's width; Format ▸ Column ▸ Standard Width
+sets the width of every column that has not been given one of its own,
+and the file keeps it. Format ▸ Row ▸ Hide and Column ▸ Hide take a
+band out of sight; Unhide brings it back.
 
 Data ▸ Group Rows and Group Columns make an outline, with the level
-buttons above the headers to fold and unfold it.
+buttons above the headers to fold and unfold it; Auto Outline finds the
+groups from the SUM rows and columns, Clear Outline takes them away,
+Show Detail and Hide Detail work one group, and Settings says whether
+the summary rows lie below or above the detail, the summary columns
+right or left.
 
 Format ▸ Merge Cells joins the selection into one; the top-left cell's
 content is what shows.
 
-Insert ▸ Worksheet adds a sheet before the current one, Format ▸ Rename
-Sheet names it, Edit ▸ Delete Sheet removes it -- and Ctrl+Z brings it
-back with everything on it. Click a tab to go to that sheet.
+Insert ▸ Worksheet adds a sheet before the current one, Format ▸ Sheet
+▸ Rename names it, Edit ▸ Delete Sheet removes it -- and Ctrl+Z brings it
+back with everything on it. Edit ▸ Move or Copy Sheet puts the sheet
+before another one or at the end, or, with Create a copy, makes a copy
+there named "Sheet1 (2)" as Excel names it: every cell, format, note,
+chart, shape and setting comes along, and formulas on the copy that
+named the original by name now name the copy. Click a tab to go to that
+sheet. Format ▸
+Sheet ▸ Hide takes a sheet out of the tab strip, Unhide lists the hidden
+ones and brings one back; a hidden sheet's cells are still there for
+formulas. Format ▸ Sheet ▸ Background puts a picture behind the cells,
+tiled from the sheet's corner and never printed, and Delete Background
+takes it away; `.gnumeric` and `.xlsx` carry it. Each sheet keeps its
+own zoom, gridlines, zeros, selection and active cell, and the file
+keeps them.
 
 Drag a tab sideways to move the sheet where you let it go. The tab's
 right-click menu has **Tab Colour...** and **No Tab Colour**; the colour
@@ -396,7 +462,9 @@ and `.ods`.
 
 ## 9. Looking at a large sheet
 
-- **Zoom.** View ▸ Zoom from 25% to 200%. Everything scales, charts
+- **Zoom.** View ▸ Zoom from 25% to 200%, or View ▸ Zoom ▸ Zoom... for
+  a custom percentage or Fit selection, which picks the zoom at which
+  the selection just fills the window. Everything scales, charts
   included.
 - **Full Screen.** View ▸ Full Screen (F11) gives the whole screen to
   the window; F11 again puts it back.
@@ -410,6 +478,13 @@ and `.ods`.
   mouse wheel moves whichever pane the pointer is over, the scrollbars
   move the main one. Split again to put it back. The split is a view,
   not part of the file.
+- **Windows.** Window ▸ New Window opens a second window on the same
+  book, and the bottom of the Window menu lists every open window by
+  its title; pick one to bring it to the front. Window ▸ Hide takes
+  the current window off the screen without closing its book, as long
+  as another window stays, and Window ▸ Unhide brings a hidden one
+  back. Arranging windows is the one thing this menu does not do: GTK
+  4 gives a program no way to move its own windows.
 - **Custom Views.** View ▸ Custom Views keeps a named window state --
   the sheet, the selection, the zoom, and whether the panes were frozen
   or split -- to come back to. They belong to the book and travel in
@@ -423,15 +498,28 @@ and `.ods`.
 **Sort.** Data ▸ Sort sorts the selection by up to three keys, each
 ascending or descending, with or without a header row.
 
-**AutoFilter.** Data ▸ AutoFilter puts a dropdown on each heading.
+**Form.** Data ▸ Form is Excel's data form: the list around the active
+cell -- the block of filled cells bounded by empty rows and columns,
+its first row the headings -- shown one record at a time, a formula's
+value as a label rather than a field. New starts an empty record and
+writes it to the row under the list, Delete takes the record's row
+out, Restore puts the fields back as the record has them, Find Prev
+and Find Next move through the records, and Criteria turns the fields
+into criteria -- text a field must begin with, or a comparison such as
+`>100` or `<>Oslo` -- after which Find Prev and Find Next visit only
+the records that meet them. Enter in a field writes the record and
+moves to the next; each record written or deleted is one undo step.
+
+**AutoFilter.** Data ▸ Filter ▸ AutoFilter puts a dropdown on each heading.
 It lists `(All)` and every distinct value in the column, and a Custom
 entry that asks for a test instead: equals, does not equal, is greater
 than, is greater than or equal to, is less than, is less than or equal
 to, begins with, ends with, contains. Rows that do not match are
 hidden, and the row numbers stay as they were so you can see what is
-filtered.
+filtered. Data ▸ Filter ▸ Show All puts every column back to `(All)`
+at once, the filter itself staying.
 
-**Advanced Filter.** Data ▸ Advanced Filter takes a criteria table --
+**Advanced Filter.** Data ▸ Filter ▸ Advanced Filter takes a criteria table --
 headings on top, conditions under them, several rows meaning "or" --
 and either hides the rows that do not match or copies the ones that do
 somewhere else.
@@ -442,8 +530,14 @@ you type.
 
 **Validation.** Data ▸ Validation says what a cell may hold: a whole
 number, a decimal, a date, a time, a text length -- between, outside,
-equal to, greater or less than the bounds you give -- or one of a list
-of values. Anything else is refused with a message of your own.
+equal to, greater or less than the bounds you give -- one of a list of
+values, or whatever a formula of your own allows. An input message with
+a title shows under the cell while it is chosen; a list gets an arrow
+in the cell that drops the choices. What happens to an entry the rule
+refuses is Excel's three styles: Stop refuses it with the title and
+message, Warning asks whether to keep it anyway, Information tells and
+keeps it. Data ▸ Circle Invalid Data draws a red ring round every cell
+that breaks its rule; Clear Validation Circles takes them away.
 
 **Tables.** Data ▸ Table turns a range into a named table with banded
 rows, filter buttons and an optional total row; formulas can name its
@@ -463,7 +557,10 @@ it the source table, one or two fields down the rows, one or two
 across the columns, a field to summarise and a function for it (sum,
 count, average, min, max) -- or a calculated field written as a
 formula over the column names, `=Sales-Costs` -- and a field to filter
-on. It is
+on. Several data fields stand side by side, or down the rows; a date
+field groups by years, quarters, months or days, a number field into
+buckets of a size from a start, and any field into named groups; the
+subtotals and the grand totals can be turned off. It is
 written as values, not as Excel's own pivot part, so a file opened in
 Excel shows the table but does not offer to refresh it. Data ▸ Refresh
 Pivot Table rebuilds it here.
@@ -484,16 +581,41 @@ rate down column B.
 **Goal Seek.** Tools ▸ Goal Seek changes one cell until another reaches
 a value.
 
+**Wizards.** Tools ▸ Wizards ▸ Conditional Sum writes a SUMIF for
+you: give it a list with its headings, the column to add up, the
+column to test and the condition, and it puts the formula where you
+say. Tools ▸ Wizards ▸ Lookup writes INDEX and MATCH over a table with
+labels along the top and down the left, for the value where a row and
+a column meet; the row and column labels can be typed or taken from
+cells. Both were add-ins in Excel 97 and are built in here.
+
 **Solver.** Tools ▸ Solver maximises, minimises or hits a target by
-changing several cells, subject to constraints, by a Nelder-Mead search
-with penalties.
+changing any number of cells, subject to constraints that may hold a
+cell to a whole number or to 0 and 1, by a Nelder-Mead search with
+penalties and a branch-and-bound over the whole-number ones; Assume
+Non-Negative keeps the cells above zero, and the Answer Report is
+written to a sheet of its own.
+
+**What-If tables.** Data ▸ What-If Table fills a row or column (or
+both) of inputs through a formula, and the results are Excel's own
+`=TABLE(row_input, column_input)` array, worked out again whenever the
+inputs or the formula change.
+
+**Euro Conversion.** Tools ▸ Euro Conversion converts a range between
+the euro and the currencies that joined it, at the fixed rates, as
+values or as EUROCONVERT formulas, with the rounding Excel's tool used.
 
 **Scenarios.** Tools ▸ Scenarios keeps named sets of values for the
-same cells and puts any of them back.
+same cells and puts any of them back; Summary writes a report sheet
+with the changing cells and the result cells under each scenario.
 
-**Protection.** Format ▸ Protect Sheet locks the sheet and asks for a
-password, which may be left empty; taking the protection off asks for
-the same one back. The password is kept as the sixteen-bit hash Excel
+**Protection.** Tools ▸ Protection ▸ Protect Sheet locks the sheet and
+asks for a password, which may be left empty; taking the protection off
+asks for the same one back. Tools ▸ Protection ▸ Protect Workbook locks
+the sheets as they are instead: none can be added, deleted, renamed,
+moved, copied, hidden or unhidden until it is taken off, and the cells
+stay as editable as their sheets allow; `.gnumeric`, `.xlsx` and `.ods`
+carry it. The password is kept as the sixteen-bit hash Excel
 invented for this and every spreadsheet since has had to keep -- it
 cannot be turned back into the password, and it cannot be relied on
 either: a hash that short collides, and anything reading the file can
@@ -558,6 +680,10 @@ Click a chart and Format ▸ Chart sets:
 - whether the legend, the gridlines and the data labels show;
 - three dimensions, which draws each bar as a solid and a pie as an
   ellipse on a wall;
+- for a pie, a **pie of pie** or **bar of pie**: the last few slices
+  are gathered into one slice called Other and shown again, at their
+  own scale, in a second pie or a stacked bar beside the first, with
+  lines joining the two. The number of slices to move is yours to set;
 - a **trendline** through every series: linear, polynomial of order two
   to six, exponential, logarithmic, power, or a moving average over a
   period;
@@ -592,20 +718,41 @@ of its own.
 
 ## 12. Pictures, shapes, notes and links
 
-- **Insert ▸ Picture** floats a picture over the grid, anchored to the
-  active cell. Click to select, drag to move, drag a handle to resize,
-  Delete to remove.
-- **Insert ▸ Shape** puts a rectangle, an oval, a line, an arrow or a
-  text box over the grid. Format ▸ Shape sets its text, fill, line
-  colour and line width.
+- **Insert ▸ Picture ▸ From File** floats a picture over the grid,
+  anchored to the active cell. Click to select, drag to move, drag a
+  handle to resize, Delete to remove.
+- **Insert ▸ Picture ▸ From Scanner or Camera** asks the scanner --
+  through Windows' own acquire dialog, or SANE's `scanimage` elsewhere
+  -- and puts what it gives where a picture from a file would go.
+- **Insert ▸ Shape** puts a rectangle, an oval, a line, an arrow, a
+  text box or any of Excel's AutoShapes -- rounded rectangle, triangles,
+  diamond, pentagon, hexagon, octagon, cross, stars, block arrows,
+  callouts, flowchart symbols -- over the grid. Format ▸ Shape sets its
+  text, fill, line colour, line width, dash, the heads at either end of
+  a line, its rotation and flips. Format ▸ Order brings an object to the
+  front or sends it back, a step at a time or all the way. Format ▸
+  Picture crops a picture and turns it.
 - **Insert ▸ Control** puts a form control on the sheet: a button, a
   check box, an option button, a spinner, a scroll bar, a list box, a
   combo box, a label or a group box. See the next section.
+- **Shift+click** adds an object to the selection; a set is dragged,
+  deleted, ordered or grouped together. The handle on a stalk above a
+  shape turns it (Shift snaps to 15 degrees); Shift on a corner keeps
+  the proportions. Insert ▸ Shape ▸ Freeform draws an outline click by
+  click, double-click ending it.
+- **Format ▸ Shape** has tabs: Colors and Lines (a solid, gradient or
+  pattern fill, a shadow, the line, its dash and heads), Size (width,
+  height, rotation, flips), Text (font, size, colour, alignment, wrap,
+  inset) and Properties -- whether the object moves and sizes with the
+  cells under it, only moves, or stays put, as Excel's Format dialog
+  asks. Format ▸ Picture crops, turns, and sets brightness and contrast.
 - **Format ▸ Group Objects** puts everything anchored in the selection
   into a group: dragging one then moves them all. Ungroup takes them
   apart.
 - **Insert ▸ Note** (Shift+F2) attaches a note to a cell, marked with a
-  small red triangle and shown as a tooltip.
+  small red triangle and shown as a tooltip. View ▸ Comments shows
+  every note on the sheet at once, each in its box beside its cell, and
+  again to put them away.
 - **Insert ▸ Hyperlink** makes a cell a link, to a place in the book
   (`#Sheet2!A1`) or to the world outside. Ctrl+click follows it.
 
@@ -659,26 +806,52 @@ found, the menu item says so and nothing else changes.
 
 ## 14. Printing and PDF
 
-File ▸ Page Setup chooses the paper and the orientation -- landscape by
-default, since a sheet is usually wider than it is tall.
+File ▸ Page Setup is Excel's dialog, four tabs over the sheet's own
+setup, which is kept in the file whatever the format:
 
-File ▸ Page Setup: Sheet sets:
-
-- a header and a footer in Excel's notation: `&L`, `&C` and `&R` for
-  the three parts, `&P` the page number, `&N` the count, `&D` the date,
-  `&T` the time, `&F` the file, `&A` the sheet;
-- whether the gridlines and the row and column headings print;
-- rows to repeat at the top of every page;
-- a scale, or a number of pages to fit into;
-- the margin.
+- **Page**: portrait or landscape; the paper (Letter, Legal, A3, A4,
+  A5, B4, B5 and the rest, A4 unless the locale prints on Letter);
+  a scale, or a number of pages wide and tall to fit into; the number
+  the first page has.
+- **Margins**: the six of them -- left, right, top, bottom, and where
+  the header and the footer stand -- in centimetres, or inches when
+  the paper is Letter; and whether the cells are centred on the page
+  horizontally, vertically, or both.
+- **Header/Footer**: in Excel's notation. `&L`, `&C` and `&R` start
+  the three parts; `&P` is the page number (`&P+1` the next), `&N` the
+  count, `&D` the date, `&T` the time, `&F` the file, `&A` the sheet;
+  `&B`, `&I`, `&U`, `&S` turn bold, italic, underline and strikeout on
+  and off, `&14` sets a size, `&"Arial,Bold"` a font, `&K00FF00` a
+  colour, `&&` is an ampersand. Custom Header and Custom Footer open
+  Excel's dialog: the three sections as boxes, and buttons that put the
+  font, page number, page count, date, time, file name or sheet name at
+  the caret. View ▸ Header and Footer opens this tab.
+- **Sheet**: the print area (the used range when there is none) --
+  several ranges a comma apart, `A1:C8,E1:F3`, each printed on pages of
+  its own; rows to repeat at the top (`$5:$6`) and columns to repeat at
+  the left (`$B:$C`) of every page;
+  gridlines; row and column headings; black and white; draft quality
+  (no fills, gridlines or graphics); how notes print -- not at all, on
+  pages of their own after the sheet, or beside their cells; what cell
+  errors print as (as shown, blank, `--` or `#N/A`); and the page order,
+  down then over (Excel's default) or over then down.
 
 File ▸ Set Print Area limits printing to the selection; Clear Print
 Area gives it back. Insert ▸ Page Break puts a break above and left of
-the active cell.
+the active cell, or only the one when a whole row or column is
+selected. View ▸ Page Breaks is Excel's Page Break Preview: what is not
+printed is greyed, each print area edged in blue, the pages divided by
+dashed lines that can be dragged, and "Page N" written across each.
 
-File ▸ Print Preview shows the pages one at a time. File ▸ Print goes
-through the system's print dialog; File ▸ Print Book does every sheet
-of the book, one after another.
+File ▸ Print Preview shows the pages one at a time, fitted to the
+window or at life size (Zoom), with the margins as dotted lines when
+asked -- drag one and the margin moves -- and Setup opens Page Setup
+from it; Print Preview: Book pages
+through every sheet. File ▸ Print goes through the system's print
+dialog, which offers the selection as well as the sheet; File ▸ Print
+Book does every sheet of the book, one after another, each on its own
+paper. Print, preview and PDF lay the page out the same way to the
+point.
 
 File ▸ Export as PDF writes the sheet, and Export Book as PDF the whole
 book, drawing exactly what the printer would.
@@ -689,14 +862,25 @@ as a PDF. It needs poppler, and says so if the build has none.
 
 ## 15. Files
 
-File ▸ Open and Save As choose the format by the name you give:
+File ▸ New from Template starts an untitled book from one of the
+templates that came with the program -- a loan amortization schedule,
+an invoice, an expense report, a balance sheet -- or from a `.gnumeric`
+of your own in the templates folder.
+
+File ▸ Open and Save As choose the format by the name you give. Both
+start on Excel's: Open lists `.xlsx`, `.xlsm` and `.xls` until you ask
+for All Spreadsheets or another format, and Save As offers a book that
+has never been saved as `Book1.xlsx`, a book that came from a file
+under its own name and format. The four files most recently opened or
+saved wait at the bottom of the File menu, newest first, to be opened
+with a click:
 
 | Extension | What it is | What travels |
 |---|---|---|
-| `.gnumeric` | Gnumeric's own, gzipped XML | everything office42 has, including the things no other format holds |
-| `.xlsx` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, charts, shapes, pictures, print setup, protection, chart sheets, custom views, scripts |
-| `.xls` | Excel 5 to 2003, BIFF8 | cells, formulas as Excel's own tokens, formats, notes, pictures, charts, form controls |
-| `.ods` | OpenDocument, LibreOffice Calc's own | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, frozen panes, pictures, shapes, charts, form controls |
+| `.gnumeric` | Gnumeric's own, gzipped XML | everything office42 has, the properties included, and the things no other format holds |
+| `.xlsx`, `.xlsm` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, validations, conditional formats, charts, shapes, pictures, print setup, protection, chart sheets, hidden sheets, custom views, scripts, the standard column width, the properties, the workbook protection, sheet backgrounds; an `.xlsm`'s Visual Basic is kept for Excel, not run |
+| `.xls` | Excel 97 to 2003, BIFF8 (and the older BIFF5 read) | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view, the properties |
+| `.ods`, `.fods` | OpenDocument, LibreOffice Calc's own, zipped or flat | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, validations, frozen panes, print setup, pictures, shapes, charts, form controls, the properties |
 | `.html` | a table per sheet | values, fonts, fills, borders, alignments, merges, links |
 | `.csv` | comma separated | the values as shown, quoted where they need it |
 | `.dif` | VisiCalc's Data Interchange Format | one sheet: the numbers as numbers and everything else as text |
@@ -704,6 +888,14 @@ File ▸ Open and Save As choose the format by the name you give:
 | `.tex` | export only | a LaTeX tabular of what the cells show, bold and italic kept |
 | `.wk1` | Lotus 1-2-3 release 2 | one sheet: labels and numbers, and what a formula last worked out |
 | `.pdf` | export only (import with poppler) | the printed pages |
+
+File ▸ Properties holds what Excel's Summary tab holds -- title,
+subject, author, manager, company, category, keywords and comments --
+and every format that can carries them. A `.gnumeric` keeps them as
+Gnumeric does, in `office:document-meta`; an `.xlsx` in
+`docProps/core.xml` and `app.xml`; an `.ods` in `meta.xml`; an `.xls`
+in the SummaryInformation and DocumentSummaryInformation streams Excel
+keeps them in.
 
 Every one of them but LaTeX and PDF is read as well as written, and
 each has been checked both ways against the program it belongs to --
@@ -802,7 +994,7 @@ and `SQLVALUE` is not there.
 
 Format ▸ Cells ▸ Protection marks cells locked (which they all are to
 begin with, as in Excel) or hidden. Neither does anything until Tools ▸
-Protect Sheet is on; then a locked cell refuses to be typed into and a
+Protection ▸ Protect Sheet is on; then a locked cell refuses to be typed into and a
 hidden cell's formula does not show in the formula bar.
 
 This guards the window, not the file: a script or the terminal
@@ -826,15 +1018,15 @@ prints the used range. The commands, by family:
 
 | Family | Commands |
 |---|---|
-| Cells | `dump`, `copy`, `paste`, `filldown`, `fillright`, `autofill`, `moverange`, `merge`, `unmerge`, `merges`, `insertrows`, `deleterows`, `insertcols`, `deletecols`, `insertcells`, `deletecells`, `array` |
+| Cells | `dump`, `copy`, `paste`, `filldown`, `fillright`, `fillup`, `fillleft`, `fillacross`, `series`, `justify`, `autofill`, `moverange`, `merge`, `unmerge`, `merges`, `insertrows`, `deleterows`, `insertcols`, `deletecols`, `insertcells`, `deletecells`, `array` |
 | Formats | `format`, `font`, `fontinfo`, `border`, `pattern`, `rich`, `runs`, `indent`, `rotate`, `fmtinfo`, `style`, `styles`, `defstyle`, `styleat`, `autoformat`, `cond`, `conds`, `uncond`, `customlist`, `customlists` |
-| Sheets | `sheet`, `rename`, `delsheet`, `tabcolour`, `freeze`, `split`, `hiderows`, `unhiderows`, `hidecols`, `unhidecols`, `levels`, `group`, `ungroup`, `protect`, `lock`, `hide`, `editable`, `chartsheet` |
-| Data | `sort`, `find`, `replace`, `filter`, `advfilter`, `subtotal`, `unsubtotal`, `dedupe`, `consolidate`, `table`, `tables`, `untable`, `pivot`, `refresh`, `validate`, `validations`, `unvalidate`, `goalseek`, `solve`, `scenario`, `scenarios`, `showscenario`, `delscenario`, `analyse`, `whatif` |
-| Objects | `chart`, `charts`, `chartset`, `chartinfo`, `shape`, `shapes`, `controlset`, `click`, `picture`, `pictures`, `objgroup`, `objungroup`, `note`, `link`, `links` |
-| Files | `load`, `save`, `pdf`, `pdfbook`, `printarea`, `printscale`, `printsetup`, `printopt`, `pagebreak`, `margin`, `header`, `footer`, `titlerows` |
-| Python | `py`, `pyfile`, `script`, `scripts`, `runscript`, `delscript`, `record` |
+| Sheets | `sheet`, `rename`, `delsheet`, `copysheet`, `background`, `tabcolour`, `freeze`, `split`, `hiderows`, `unhiderows`, `hidecols`, `unhidecols`, `levels`, `group`, `ungroup`, `autooutline`, `clearoutline`, `detail`, `outlinelevel`, `protect`, `lock`, `hide`, `editable`, `chartsheet` |
+| Data | `sort`, `find`, `replace`, `filter`, `advfilter`, `subtotal`, `unsubtotal`, `dedupe`, `consolidate`, `table`, `tables`, `untable`, `pivot`, `refresh`, `validate`, `validations`, `unvalidate`, `goalseek`, `solve`, `scenario`, `scenarios`, `showscenario`, `delscenario`, `summary`, `analyse`, `whatif`, `split`, `splitfixed`, `autofilter` |
+| Objects | `chart`, `charts`, `chartset`, `chartinfo`, `shape`, `shapes`, `controlset`, `click`, `picture`, `pictures`, `objgroup`, `objungroup`, `note`, `link`, `links`, `pictureset`, `objects`, `order` |
+| Files | `load`, `save`, `pdf`, `pdfbook`, `printarea`, `printscale`, `printsetup`, `printopt`, `pagebreak`, `margin`, `header`, `footer`, `titlerows`, `pageopt`, `titlecols` |
+| Python | `py`, `pyfile`, `script`, `scripts`, `runscript`, `delscript`, `record`, `select` |
 | Database | `db`, `dbembed`, `dbtables`, `dbcols`, `dbexec`, `sql`, `sqlprint`, `dbput`, `dbrefresh`, `queries` |
-| Other | `undo`, `redo`, `name`, `names`, `unname`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc` |
+| Other | `undo`, `redo`, `name`, `names`, `unname`, `createnames`, `applynames`, `prop`, `props`, `autocorrect`, `correction`, `uncorrect`, `corrections`, `autocorrectopt`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc`, `evaluate`, `watch`, `watches`, `unwatch`, `check`, `date1904`, `precision`, `fixeddecimals` |
 
 `office42-calc --functions` prints every function with its signature
 and a line about what it does; `--help` prints the commands by family
@@ -868,6 +1060,9 @@ and `--version` the version.
 | F9 | work everything out again |
 | F11 | full screen |
 | Ctrl+Shift+Enter | enter a formula over the whole selection |
+| Ctrl+Shift+~ 1 2 3 4 5 6 | General, Comma, Time, Date, Currency, Percent, Scientific formats |
+| Alt+F8 | the Macros dialog |
+| Ctrl+Shift+letter | run the macro given that letter in Macro Options |
 | Escape | cancel the edit |
 
 ---

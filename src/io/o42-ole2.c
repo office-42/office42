@@ -37,19 +37,29 @@ o42_ole2_is_compound (GBytes *file)
 }
 
 /* Follows a chain through a FAT (an array of guint32) and returns the
- * sector numbers in order.  Bounded, so a looping FAT ends rather
- * than hangs. */
+ * sector numbers in order.
+ *
+ * A sector cannot honestly be in a chain twice, and a file that says it
+ * is would have the chain go round its loop until it had as many
+ * sectors as the FAT has entries -- which a small file can make very
+ * many of, by naming the same FAT sector in every one of its DIFAT
+ * slots.  Ten megabytes of such a file asked for seven of stream and a
+ * hundred would have asked for gigabytes, so each sector is taken once
+ * and the loop ends where it closes. */
 static GArray *
 chain (const guint32 *fat, gsize n_fat, guint32 start)
 {
   GArray *sectors = g_array_new (FALSE, FALSE, sizeof (guint32));
+  guchar *seen = g_malloc0 (n_fat / 8 + 1);
   guint32 s = start;
 
-  while (s < n_fat && sectors->len < n_fat)
+  while (s < n_fat && !(seen[s / 8] & (1 << (s % 8))))
     {
+      seen[s / 8] |= 1 << (s % 8);
       g_array_append_val (sectors, s);
       s = fat[s];
     }
+  g_free (seen);
   return sectors;
 }
 

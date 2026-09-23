@@ -27,7 +27,16 @@ GBytes  *o42_image_load_file (GFile       *file,
                               const char **format,
                               GError     **error);
 
-/* Premultiplied ARGB32, or NULL if the bytes are not a picture. */
+/* Premultiplied ARGB32, or NULL if the bytes are not a picture gdk-pixbuf
+ * can draw (a metafile is not). */
 cairo_surface_t *o42_image_surface (GBytes *data);
+
+/* An EMF or WMF: kept as bytes, passed on to the file formats that hold
+ * them, and drawn as a placeholder.  The size is the header's. */
+gboolean o42_image_is_metafile (GBytes *data, int *width, int *height, const char **format);
+
+/* The picture re-encoded as PNG, for a file format that holds nothing
+ * else; NULL if gdk-pixbuf cannot decode it. */
+GBytes  *o42_image_as_png (GBytes *data);
 
 G_END_DECLS

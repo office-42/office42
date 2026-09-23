@@ -38,6 +38,8 @@ typedef struct {
   char         *sheet_last;  /* owned: the second sheet of Sheet1:Sheet3!A1 */
   O42ErrorCode  error;
   char          op[3];
+  gboolean      space_before;   /* whitespace was skipped to reach it: the
+                                 * intersection operator is a space */
 } Token;
 
 typedef struct {
@@ -78,6 +80,8 @@ static const struct {
   { "#NAME?",   O42_ERR_NAME  },
   { "#NUM!",    O42_ERR_NUM   },
   { "#N/A",     O42_ERR_NA    },
+  { "#SPILL!",  O42_ERR_SPILL },
+  { "#CALC!",   O42_ERR_CALC  },
 };
 
 static void
@@ -89,7 +93,10 @@ next_token (Parser *ps)
   memset (&ps->tok, 0, sizeof ps->tok);
 
   while (g_ascii_isspace (*p))
-    p++;
+    {
+      ps->tok.space_before = TRUE;
+      p++;
+    }
 
   if (*p == '\0')
     {
@@ -140,6 +147,47 @@ next_token (Parser *ps)
     }
 
   /* An error literal. */
+  /* [y]: a LAMBDA parameter that may be left out, brackets and all. */
+  /* [Sales], [@Sales], [#Headers]: a structured reference into the
+   * table the formula is in, with no table name in front. */
+  if (*p == '[' && (g_ascii_isalpha (p[1]) || p[1] == '_' || p[1] == '@' || p[1] == '#' || p[1] == '['))
+    {
+      const char *q = p + 1;
+
+      while (g_ascii_isalnum (*q) || *q == '_' || *q == '.')
+        q++;
+      if (*q != ']')
+        {
+          /* Not a bare word in brackets: the whole specifier to the
+           * bracket that closes it, [@[Qty]] and [[#Data],[Qty]] too. */
+          int depth = 0;
+
+          for (q = p; *q != '\0'; q++)
+            {
+              if (*q == '[') depth++;
+              else if (*q == ']' && --depth == 0) break;
+            }
+          if (*q != ']')
+            q = p + 1;   /* unclosed: back to the error literal */
+        }
+      if (*q == ']')
+        {
+          ps->tok.type = TOK_IDENT;
+          ps->tok.text = g_strndup (p, (gsize) (q + 1 - p));
+          ps->p = q + 1;
+          return;
+        }
+    }
+
+  /* A1#: the block a dynamic array spilled into, as a postfix. */
+  if (*p == '#' && !g_ascii_isalpha (p[1]))
+    {
+      ps->tok.type = TOK_OP;
+      g_strlcpy (ps->tok.op, "#", sizeof ps->tok.op);
+      ps->p = p + 1;
+      return;
+    }
+
   if (*p == '#')
     {
       for (guint i = 0; i < G_N_ELEMENTS (ERROR_LITERALS); i++)
@@ -539,6 +587,14 @@ parse_primary (Parser *ps)
         next_token (ps);
         inner = parse_expr (ps);
 
+        /* (A1:A2,C1:C2): commas inside parentheses join references
+         * into one operand of several areas. */
+        while (ps->tok.type == TOK_COMMA)
+          {
+            next_token (ps);
+            inner = make_binary (O42_OP_UNION, inner, parse_expr (ps));
+          }
+
         if (ps->tok.type == TOK_RPAREN)
           next_token (ps);
 
@@ -806,10 +862,27 @@ parse_whole_range (Parser *ps, gboolean cols, int first, gboolean first_abs,
 /* Trailing % divides by a hundred, and binds tighter than anything
  * else; a "(" after a call or a name calls what it came to, which is
  * how LAMBDA(x,x+1)(4) and a LET-bound function are written. */
+/* A1:B5 B2:C9: a space between two references is the intersection
+ * operator, which binds tightest of all. */
+static O42Node *
+parse_intersection (Parser *ps)
+{
+  O42Node *n = parse_primary (ps);
+
+  while (ps->tok.space_before &&
+         (ps->tok.type == TOK_IDENT || ps->tok.type == TOK_LPAREN) &&
+         (n->type == O42_NODE_REF || n->type == O42_NODE_RANGE || n->type == O42_NODE_NAME ||
+          n->type == O42_NODE_CALL || (n->type == O42_NODE_BINARY &&
+                                       (n->as.op.op == O42_OP_UNION || n->as.op.op == O42_OP_ISECT))))
+    n = make_binary (O42_OP_ISECT, n, parse_primary (ps));
+
+  return n;
+}
+
 static O42Node *
 parse_postfix (Parser *ps)
 {
-  O42Node *n = parse_primary (ps);
+  O42Node *n = parse_intersection (ps);
 
   for (;;)
     {
@@ -817,6 +890,19 @@ parse_postfix (Parser *ps)
         {
           next_token (ps);
           n = make_unary (O42_OP_PERCENT, n);
+          continue;
+        }
+      if (op_is (ps, "#") && (n->type == O42_NODE_REF || n->type == O42_NODE_NAME))
+        {
+          /* A1#: written in the file as ANCHORARRAY(A1), which is how
+           * Excel spells it there. */
+          O42Node *call = node_new (O42_NODE_CALL);
+
+          next_token (ps);
+          call->as.call.name = g_strdup ("ANCHORARRAY");
+          call->as.call.args = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_node_free);
+          g_ptr_array_add (call->as.call.args, n);
+          n = call;
           continue;
         }
       if (ps->tok.type == TOK_LPAREN &&
@@ -869,6 +955,13 @@ parse_unary (Parser *ps)
     {
       next_token (ps);
       return make_unary (O42_OP_POS, parse_unary (ps));
+    }
+
+  /* @A1:A3 asks for the one cell that lines up with the formula. */
+  if (op_is (ps, "@"))
+    {
+      next_token (ps);
+      return make_unary (O42_OP_IMPLICIT, parse_unary (ps));
     }
 
   return parse_postfix (ps);
@@ -1174,6 +1267,137 @@ o42_node_relocate (O42Node *node, int drow, int dcol)
     return FALSE;
 
   return visit_refs (node, relocate_visit, &d);
+}
+
+/* ---- Comparing two formulas as they would read somewhere else ------- */
+
+/* A reference or range as moving it by (drow, dcol) would leave it,
+ * without touching the node.  `gone` says it would have fallen off the
+ * sheet, which relocating turns into #REF!. */
+typedef struct {
+  int      row0, col0, row1, col1;
+  gboolean gone;
+} MovedRef;
+
+static MovedRef
+moved_ref (const O42Node *node, int drow, int dcol)
+{
+  MovedRef m = { 0, 0, 0, 0, FALSE };
+
+  if (node->type == O42_NODE_REF)
+    {
+      m.row0 = m.row1 = node->as.ref.row + ((node->abs & O42_ABS_ROW0) ? 0 : drow);
+      m.col0 = m.col1 = node->as.ref.col + ((node->abs & O42_ABS_COL0) ? 0 : dcol);
+      m.gone = !in_sheet (m.row0, m.col0);
+    }
+  else
+    {
+      const O42Range *r = &node->as.range;
+      int dr = (node->abs & O42_WHOLE_COLS) ? 0 : drow;
+      int dc = (node->abs & O42_WHOLE_ROWS) ? 0 : dcol;
+
+      m.row0 = r->row0 + ((node->abs & O42_ABS_ROW0) ? 0 : dr);
+      m.col0 = r->col0 + ((node->abs & O42_ABS_COL0) ? 0 : dc);
+      m.row1 = r->row1 + ((node->abs & O42_ABS_ROW1) ? 0 : dr);
+      m.col1 = r->col1 + ((node->abs & O42_ABS_COL1) ? 0 : dc);
+      m.gone = !in_sheet (m.row0, m.col0) || !in_sheet (m.row1, m.col1);
+    }
+  return m;
+}
+
+/* Whether a node is, or would become, the #REF! error. */
+static gboolean
+is_ref_error (const O42Node *node, int drow, int dcol)
+{
+  if (node->type == O42_NODE_ERROR)
+    return node->as.error == O42_ERR_REF;
+  if (node->type == O42_NODE_REF || node->type == O42_NODE_RANGE)
+    return moved_ref (node, drow, dcol).gone;
+  return FALSE;
+}
+
+static gboolean
+same_args (const GPtrArray *a, int a_drow, int a_dcol,
+           const GPtrArray *b, int b_drow, int b_dcol)
+{
+  guint n = a != NULL ? a->len : 0;
+
+  if (n != (b != NULL ? b->len : 0))
+    return FALSE;
+  for (guint i = 0; i < n; i++)
+    if (!o42_node_same_moved (g_ptr_array_index (a, i), a_drow, a_dcol,
+                              g_ptr_array_index (b, i), b_drow, b_dcol))
+      return FALSE;
+  return TRUE;
+}
+
+gboolean
+o42_node_same_moved (const O42Node *a, int a_drow, int a_dcol,
+                     const O42Node *b, int b_drow, int b_dcol)
+{
+  if (a == NULL || b == NULL)
+    return a == b;
+
+  /* A reference moved off the sheet reads as #REF!, and so is the same
+   * as any other #REF! however it arose. */
+  if (is_ref_error (a, a_drow, a_dcol) || is_ref_error (b, b_drow, b_dcol))
+    return is_ref_error (a, a_drow, a_dcol) && is_ref_error (b, b_drow, b_dcol);
+
+  if (a->type != b->type)
+    return FALSE;
+
+  switch (a->type)
+    {
+    case O42_NODE_NUMBER:
+      return a->as.number == b->as.number;
+    case O42_NODE_STRING:
+      return g_strcmp0 (a->as.string, b->as.string) == 0;
+    case O42_NODE_BOOL:
+      return a->as.boolean == b->as.boolean;
+    case O42_NODE_ERROR:
+      return a->as.error == b->as.error;
+
+    case O42_NODE_REF:
+    case O42_NODE_RANGE:
+      {
+        MovedRef ma = moved_ref (a, a_drow, a_dcol);
+        MovedRef mb = moved_ref (b, b_drow, b_dcol);
+
+        return a->abs == b->abs &&
+               g_strcmp0 (a->sheet, b->sheet) == 0 &&
+               g_strcmp0 (a->sheet_last, b->sheet_last) == 0 &&
+               ma.row0 == mb.row0 && ma.col0 == mb.col0 &&
+               ma.row1 == mb.row1 && ma.col1 == mb.col1;
+      }
+
+    case O42_NODE_UNARY:
+    case O42_NODE_BINARY:
+      return a->as.op.op == b->as.op.op &&
+             o42_node_same_moved (a->as.op.a, a_drow, a_dcol, b->as.op.a, b_drow, b_dcol) &&
+             o42_node_same_moved (a->as.op.b, a_drow, a_dcol, b->as.op.b, b_drow, b_dcol);
+
+    case O42_NODE_CALL:
+      return g_strcmp0 (a->as.call.name, b->as.call.name) == 0 &&
+             same_args (a->as.call.args, a_drow, a_dcol, b->as.call.args, b_drow, b_dcol);
+
+    case O42_NODE_NAME:
+      return g_strcmp0 (a->as.name, b->as.name) == 0;
+
+    case O42_NODE_EMPTY:
+      return TRUE;
+
+    case O42_NODE_ARRAY:
+      return a->as.array.rows == b->as.array.rows &&
+             a->as.array.cols == b->as.array.cols &&
+             same_args (a->as.array.items, a_drow, a_dcol, b->as.array.items, b_drow, b_dcol);
+
+    case O42_NODE_APPLY:
+      return o42_node_same_moved (a->as.apply.callee, a_drow, a_dcol,
+                                  b->as.apply.callee, b_drow, b_dcol) &&
+             same_args (a->as.apply.args, a_drow, a_dcol, b->as.apply.args, b_drow, b_dcol);
+    }
+
+  return FALSE;
 }
 
 typedef struct {
@@ -1484,6 +1708,9 @@ op_text (O42Op op)
     case O42_OP_NEG:    return "-";
     case O42_OP_POS:    return "+";
     case O42_OP_PERCENT: return "%";
+    case O42_OP_UNION:  return ",";
+    case O42_OP_ISECT:  return " ";
+    case O42_OP_IMPLICIT: return "@";
     default:            return "?";
     }
 }
@@ -1594,6 +1821,8 @@ op_precedence (const O42Node *node)
 
   switch (node->as.op.op)
     {
+    case O42_OP_ISECT:  return 9;
+    case O42_OP_UNION:  return 8;   /* always written in its parentheses */
     case O42_OP_POW:    return 5;
     case O42_OP_MUL:
     case O42_OP_DIV:    return 4;
@@ -1605,6 +1834,11 @@ op_precedence (const O42Node *node)
 }
 
 static void node_write (const O42Node *node, GString *out);
+
+/* The node whose text o42_node_to_string_marked wants the position of,
+ * and where it was found to start and end. */
+static const O42Node *marked_node;
+static int marked_start = -1, marked_end = -1;
 
 static void
 node_write_child (const O42Node *child, const O42Node *parent,
@@ -1629,12 +1863,26 @@ node_write_child (const O42Node *child, const O42Node *parent,
   if (parens) g_string_append_c (out, ')');
 }
 
+static void node_write_body (const O42Node *node, GString *out);
+
 static void
 node_write (const O42Node *node, GString *out)
 {
   if (node == NULL)
     return;
+  if (node == marked_node)
+    {
+      marked_start = (int) out->len;
+      node_write_body (node, out);
+      marked_end = (int) out->len;
+      return;
+    }
+  node_write_body (node, out);
+}
 
+static void
+node_write_body (const O42Node *node, GString *out)
+{
   switch (node->type)
     {
     case O42_NODE_NUMBER:
@@ -1763,12 +2011,39 @@ node_write (const O42Node *node, GString *out)
       break;
 
     case O42_NODE_BINARY:
+      if (node->as.op.op == O42_OP_UNION)
+        {
+          /* A union is read only inside parentheses, so it is written
+           * inside them; a union within a union shares the pair. */
+          g_string_append_c (out, '(');
+          if (node->as.op.a->type == O42_NODE_BINARY && node->as.op.a->as.op.op == O42_OP_UNION)
+            {
+              GString *inner = g_string_new (NULL);
+              node_write (node->as.op.a, inner);
+              g_string_append_len (out, inner->str + 1, (gssize) inner->len - 2);
+              g_string_free (inner, TRUE);
+            }
+          else
+            node_write (node->as.op.a, out);
+          g_string_append_c (out, ',');
+          node_write (node->as.op.b, out);
+          g_string_append_c (out, ')');
+          break;
+        }
       node_write_child (node->as.op.a, node, FALSE, out);
       g_string_append (out, op_text (node->as.op.op));
       node_write_child (node->as.op.b, node, TRUE, out);
       break;
 
     case O42_NODE_CALL:
+      if (strcmp (node->as.call.name, "ANCHORARRAY") == 0 &&
+          node->as.call.args != NULL && node->as.call.args->len == 1)
+        {
+          /* Written A1#, as it was typed; the file gets the long name. */
+          node_write (g_ptr_array_index (node->as.call.args, 0), out);
+          g_string_append_c (out, '#');
+          break;
+        }
       g_string_append (out, node->as.call.name);
       g_string_append_c (out, '(');
       if (node->as.call.args != NULL)
@@ -1796,9 +2071,111 @@ o42_node_to_string (const O42Node *node)
   return g_string_free (out, FALSE);
 }
 
-void
-o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
-                           const char *prefix)
+char *
+o42_node_to_string_marked (const O42Node *node, const O42Node *mark,
+                           int *start, int *length)
+{
+  GString *out = g_string_new (NULL);
+
+  marked_node = mark;
+  marked_start = marked_end = -1;
+  node_write (node, out);
+  marked_node = NULL;
+  if (start != NULL)
+    *start = marked_start;
+  if (length != NULL)
+    *length = marked_start >= 0 ? marked_end - marked_start : 0;
+
+  return g_string_free (out, FALSE);
+}
+
+/* The parameters of LAMBDA and the variables of LET are written with
+ * _xlpm. in Excel's files, where the functions get _xlfn.: a LAMBDA whose
+ * parameters go out bare comes up #NAME? in Excel.  `bound` holds the
+ * names in scope, bare, as the walk descends. */
+static void
+prefix_walk (O42Node *node, gboolean (*is_future) (const char *),
+             const char *prefix, GPtrArray *bound)
+{
+  guint pushed = 0;
+
+  if (node == NULL)
+    return;
+  switch (node->type)
+    {
+    case O42_NODE_UNARY:
+    case O42_NODE_BINARY:
+      prefix_walk (node->as.op.a, is_future, prefix, bound);
+      prefix_walk (node->as.op.b, is_future, prefix, bound);
+      break;
+    case O42_NODE_NAME:
+      for (guint i = 0; i < bound->len; i++)
+        if (g_ascii_strcasecmp (g_ptr_array_index (bound, i), node->as.name) == 0)
+          {
+            char *renamed = node->as.name[0] == '['
+                            ? g_strdup_printf ("[_xlpm.%.*s]", (int) strlen (node->as.name) - 2, node->as.name + 1)
+                            : g_strconcat ("_xlpm.", node->as.name, NULL);
+            g_free (node->as.name);
+            node->as.name = renamed;
+            break;
+          }
+      break;
+    case O42_NODE_CALL:
+      {
+        gboolean lambda = g_ascii_strcasecmp (node->as.call.name, "LAMBDA") == 0;
+        gboolean let = g_ascii_strcasecmp (node->as.call.name, "LET") == 0;
+        guint n = node->as.call.args != NULL ? node->as.call.args->len : 0;
+
+        if (is_future (node->as.call.name))
+          {
+            char *renamed = g_strconcat (prefix, node->as.call.name, NULL);
+            g_free (node->as.call.name);
+            node->as.call.name = renamed;
+          }
+        /* Bind first, so the body sees the names; a LAMBDA's are all
+         * its arguments but the last, a LET's every other one. */
+        for (guint i = 0; i + 1 < n; i++)
+          {
+            O42Node *arg = g_ptr_array_index (node->as.call.args, i);
+            if (arg != NULL && arg->type == O42_NODE_NAME && (lambda || (let && i % 2 == 0)))
+              {
+                const char *bare = arg->as.name;
+                char *stripped = NULL;
+                if (bare[0] == '[')
+                  bare = stripped = g_strndup (bare + 1, strlen (bare) - 2);
+                g_ptr_array_add (bound, g_strdup (bare));
+                g_free (stripped);
+                pushed++;
+              }
+          }
+        for (guint i = 0; i < n; i++)
+          prefix_walk (g_ptr_array_index (node->as.call.args, i), is_future, prefix, bound);
+        for (; pushed > 0; pushed--)
+          {
+            g_free (g_ptr_array_index (bound, bound->len - 1));
+            g_ptr_array_remove_index (bound, bound->len - 1);
+          }
+        break;
+      }
+    case O42_NODE_ARRAY:
+      if (node->as.array.items != NULL)
+        for (guint i = 0; i < node->as.array.items->len; i++)
+          prefix_walk (g_ptr_array_index (node->as.array.items, i), is_future, prefix, bound);
+      break;
+
+    case O42_NODE_APPLY:
+      prefix_walk (node->as.apply.callee, is_future, prefix, bound);
+      if (node->as.apply.args != NULL)
+        for (guint i = 0; i < node->as.apply.args->len; i++)
+          prefix_walk (g_ptr_array_index (node->as.apply.args, i), is_future, prefix, bound);
+      break;
+    default:
+      break;
+    }
+}
+
+static void
+qualify_walk (O42Node *node, const char *table)
 {
   if (node == NULL)
     return;
@@ -1806,33 +2183,63 @@ o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
     {
     case O42_NODE_UNARY:
     case O42_NODE_BINARY:
-      o42_node_prefix_functions (node->as.op.a, is_future, prefix);
-      o42_node_prefix_functions (node->as.op.b, is_future, prefix);
+      qualify_walk (node->as.op.a, table);
+      qualify_walk (node->as.op.b, table);
       break;
     case O42_NODE_CALL:
-      if (is_future (node->as.call.name))
-        {
-          char *renamed = g_strconcat (prefix, node->as.call.name, NULL);
-          g_free (node->as.call.name);
-          node->as.call.name = renamed;
-        }
       if (node->as.call.args != NULL)
         for (guint i = 0; i < node->as.call.args->len; i++)
-          o42_node_prefix_functions (g_ptr_array_index (node->as.call.args, i), is_future, prefix);
+          qualify_walk (g_ptr_array_index (node->as.call.args, i), table);
       break;
-    case O42_NODE_ARRAY:
-      if (node->as.array.items != NULL)
-        for (guint i = 0; i < node->as.array.items->len; i++)
-          o42_node_prefix_functions (g_ptr_array_index (node->as.array.items, i), is_future, prefix);
-      break;
-
     case O42_NODE_APPLY:
-      o42_node_prefix_functions (node->as.apply.callee, is_future, prefix);
+      qualify_walk (node->as.apply.callee, table);
       if (node->as.apply.args != NULL)
         for (guint i = 0; i < node->as.apply.args->len; i++)
-          o42_node_prefix_functions (g_ptr_array_index (node->as.apply.args, i), is_future, prefix);
+          qualify_walk (g_ptr_array_index (node->as.apply.args, i), table);
+      break;
+    case O42_NODE_NAME:
+      if (node->as.name[0] == '[')
+        {
+          const char *inner = node->as.name + 1;
+          gsize len = strlen (inner);
+          char *renamed;
+
+          if (len > 0 && inner[len - 1] == ']')
+            len--;
+          if (inner[0] == '@')
+            {
+              /* [@Qty] and [@[Qty]] both to [[#This Row],[Qty]]. */
+              const char *column = inner + 1;
+              gsize clen = len - 1;
+
+              if (clen >= 2 && column[0] == '[' && column[clen - 1] == ']')
+                { column++; clen -= 2; }
+              renamed = g_strdup_printf ("%s[[#This Row],[%.*s]]", table, (int) clen, column);
+            }
+          else
+            renamed = g_strdup_printf ("%s[%.*s]", table, (int) len, inner);
+          g_free (node->as.name);
+          node->as.name = renamed;
+        }
       break;
     default:
       break;
     }
+}
+
+void
+o42_node_qualify_structured (O42Node *node, const char *table)
+{
+  if (table != NULL)
+    qualify_walk (node, table);
+}
+
+void
+o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
+                           const char *prefix)
+{
+  GPtrArray *bound = g_ptr_array_new ();
+
+  prefix_walk (node, is_future, prefix, bound);
+  g_ptr_array_free (bound, TRUE);
 }

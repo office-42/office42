@@ -19,6 +19,7 @@
 
 #include "o42-fmt.h"
 #include "o42-formula.h"
+#include "o42-eval.h"
 #include "o42-picture.h"
 #include "o42-chart.h"
 #include "o42-shape.h"
@@ -40,6 +41,17 @@ void        o42_sheet_set_name (O42Sheet *sheet, const char *name);
 void        o42_sheet_set_book (O42Sheet *sheet, O42Book *book);
 O42Book    *o42_sheet_get_book (O42Sheet *sheet);
 
+/* A copy of the sheet under another name, on its own and in no book:
+ * every cell with its format, rich text and style, the widths, heights,
+ * hidden rows and outline levels, merges, notes, links, conditions,
+ * validations, tables, queries, pivots, scenarios, the print setup, the
+ * view, the AutoFilter, and the charts, pictures and shapes.  Array
+ * formulas are set again over their blocks and spills spill again when
+ * they are next worked out.  Formulas are copied as they read, so one
+ * naming the original sheet still names it; the book's copy renames
+ * those.  The caller owns the copy until a book takes it. */
+O42Sheet   *o42_sheet_duplicate (O42Sheet *sheet, const char *name);
+
 /* ---- Between sheets: called by the book ------------------------------ */
 
 /* A cell on the sheet named `sheet_name` changed: stale every formula here
@@ -51,6 +63,14 @@ void o42_sheet_invalidate_from (O42Sheet *sheet, const char *sheet_name,
  * rewrite every formula here that points into it. */
 void o42_sheet_shift_references (O42Sheet *sheet, const char *target,
                                  gboolean rows, int at, int count);
+
+/* Insert > Name > Apply: every reference in the formulas of `range`
+ * (NULL for the whole sheet) that is exactly the rectangle a name of
+ * the book's stands for, on this sheet, is written as the name.
+ * `names` limits it to those names (upper case, NULL for all).  How
+ * many formulas changed. */
+int  o42_sheet_apply_names (O42Sheet *sheet, const O42Range *range,
+                            const char *const *names);
 
 /* A sheet was renamed: rewrite every formula here that names it. */
 void o42_sheet_rename_references (O42Sheet *sheet, const char *old_name,
@@ -68,6 +88,21 @@ O42FmtTable *o42_sheet_fmt_table (O42Sheet *sheet);
  * as a formula; text that reads entirely as a number becomes one; everything
  * else is text.  Passing NULL or "" empties the cell. */
 void  o42_sheet_set_input (O42Sheet *sheet, int row, int col, const char *text);
+
+/* A constant put straight into a cell, as a file reader has it: no
+ * parsing of text, so "00123" stays the text it is and 4.2 needs no
+ * writing out and reading back.  An empty or error value, or a book
+ * that is recording, goes the typed way. */
+void  o42_sheet_set_value (O42Sheet *sheet, int row, int col, const O42Value *value);
+
+/* A format already interned in the sheet's table, put on one cell:
+ * what a reader does for every cell of a file, having interned each
+ * of the file's formats once. */
+void  o42_sheet_set_cell_fmt_idx (O42Sheet *sheet, int row, int col, O42FmtIdx idx);
+
+/* The end of reading a file into the sheet: see o42_book_end_load,
+ * which calls it for every sheet. */
+void  o42_sheet_finish_load (O42Sheet *sheet);
 
 /* What the user typed, for editing: the formula source for a formula cell,
  * otherwise the value as text.  Caller frees. */
@@ -93,6 +128,11 @@ void o42_sheet_clear_formats (O42Sheet *sheet, const O42Range *range);
 char *o42_sheet_get_input_relocated (O42Sheet *sheet, int row, int col,
                                      int drow, int dcol);
 
+/* A formula's text as it would read copied `drow` rows down and `dcol`
+ * across: what a macro recorded relatively puts into a cell.  Text
+ * that is not a formula comes back as it is.  Caller frees. */
+char *o42_sheet_relocate_formula (const char *text, int drow, int dcol);
+
 /* Copies a rectangle -- content, formulas relocated, and formatting -- so
  * that its top-left corner lands on `row`,`col`.  One undo record. */
 void o42_sheet_copy_range (O42Sheet *sheet, const O42Range *source,
@@ -111,9 +151,65 @@ void o42_sheet_copy_range_special (O42Sheet *sheet, const O42Range *source,
                                    int row, int col, O42PasteMode mode,
                                    gboolean transpose);
 
-/* Fill Down and Fill Right: the first row (or column) of the range is
- * copied into every other row (or column) of it. */
-void o42_sheet_fill (O42Sheet *sheet, const O42Range *range, gboolean down);
+/* Fill Down, Right, Up and Left: the edge row (or column) of the range
+ * is copied into every other row (or column) of it, formulas relocated
+ * as they go.  o42_sheet_fill is the older pair, down or right. */
+typedef enum {
+  O42_FILL_DOWN,
+  O42_FILL_RIGHT,
+  O42_FILL_UP,
+  O42_FILL_LEFT
+} O42FillDirection;
+
+void o42_sheet_fill           (O42Sheet *sheet, const O42Range *range, gboolean down);
+void o42_sheet_fill_direction (O42Sheet *sheet, const O42Range *range,
+                               O42FillDirection direction);
+
+/* Edit > Fill > Series, as Excel 97's dialog has it.  Each column of
+ * the range (each row, `in_rows`) is a series that starts from its
+ * first cell: a linear series adds the step to each cell to make the
+ * next, a growth series multiplies by it, a date series steps by days,
+ * weekdays, months or years, and AutoFill continues whatever the leading
+ * cells hold as dragging the fill handle would.  A trend fits a line
+ * (or, for growth, an exponential) to the numbers the line already
+ * holds and writes the fit over them, the step ignored.  A stop value
+ * ends a series where it would pass it, and with a single cell
+ * selected the series runs down (or across) from that cell until it
+ * does.  Lines whose first cell is not a number are left alone.  One
+ * undo step. */
+typedef enum {
+  O42_SERIES_LINEAR,
+  O42_SERIES_GROWTH,
+  O42_SERIES_DATE,
+  O42_SERIES_AUTOFILL
+} O42SeriesType;
+
+typedef enum {
+  O42_SERIES_DAY,
+  O42_SERIES_WEEKDAY,
+  O42_SERIES_MONTH,
+  O42_SERIES_YEAR
+} O42SeriesUnit;
+
+typedef struct {
+  gboolean      in_rows;   /* a series along each row; else down each column */
+  O42SeriesType type;
+  O42SeriesUnit unit;      /* for a date series */
+  double        step;
+  gboolean      trend;
+  gboolean      has_stop;
+  double        stop;
+} O42Series;
+
+void o42_sheet_fill_series (O42Sheet *sheet, const O42Range *range,
+                            const O42Series *series);
+
+/* Edit > Fill > Justify: the text in the first column of the range, row
+ * after row, is broken into words and laid out again so that each row
+ * holds as many as fit across the range's width; an empty row starts a
+ * new paragraph.  When the words need more rows than the range has, the
+ * rows below it are used, as Excel uses them.  One undo step. */
+void o42_sheet_fill_justify (O42Sheet *sheet, const O42Range *range);
 
 /* What dragging the fill handle does: extends `source` to cover `target`
  * (which contains it and reaches past it in one direction) by continuing
@@ -171,38 +267,109 @@ void o42_sheet_sort_keys (O42Sheet *sheet, const O42Range *range,
 
 /* ---- Printing ------------------------------------------------------ */
 
-/* What File > Page Setup keeps per sheet: the print area (the used
- * range when there is none), a header and footer in Excel's notation
- * (&L, &C, &R start the left, centre and right parts; &P the page
- * number, &N the page count, &D the date, &T the time, &F the file
- * name, &A the sheet name; && an ampersand), whether gridlines and the
- * row and column headings print, and rows repeated at the top of every
- * page.  New sheets have Excel 5's "&A" and "Page &P". */
+/* What File > Page Setup keeps per sheet, the four tabs of Excel's
+ * dialog: the page (orientation, paper, scale, first page number), the
+ * margins (six of them, in points, and centring), the header and
+ * footer in Excel's notation (&L, &C, &R start the left, centre and
+ * right parts; &P the page number, &N the page count, &D the date, &T
+ * the time, &F the file name, &A the sheet name; &B &I &U &S styles,
+ * &12 a size, &"Face" a font; && an ampersand), and the sheet (the
+ * print area -- the used range when there is none -- the rows and
+ * columns repeated on every page, gridlines, headings, black and
+ * white, draft, how notes and errors print, and the page order).
+ * New sheets have Excel 97's "&A" and "Page &P". */
+
+typedef enum {
+  O42_PRINT_NOTES_NONE,         /* Excel's "(None)" */
+  O42_PRINT_NOTES_AT_END,       /* on pages of their own after the sheet */
+  O42_PRINT_NOTES_IN_PLACE      /* the ones shown, where they are */
+} O42PrintNotes;
+
+typedef enum {
+  O42_PRINT_ERRORS_SHOWN,       /* #DIV/0! as on screen */
+  O42_PRINT_ERRORS_BLANK,
+  O42_PRINT_ERRORS_DASHES,      /* -- */
+  O42_PRINT_ERRORS_NA           /* #N/A */
+} O42PrintErrors;
+
+#define O42_PRINT_AREAS_MAX 8
+
 typedef struct {
   gboolean  has_area;
-  O42Range  area;
+  O42Range  area;           /* the first print area; areas[0] */
+  O42Range  areas[O42_PRINT_AREAS_MAX];   /* Excel allows several, each printed
+                                           * on pages of its own */
+  int       n_areas;        /* 0 when has_area is FALSE */
   char     *header;
   char     *footer;
   gboolean  gridlines;
   gboolean  headings;
-  int       title_rows;     /* rows 0..title_rows-1 repeat; 0 for none */
+  int       title_rows;     /* this many rows repeat at the top; 0 for none */
+  int       title_cols;     /* this many columns repeat at the left */
+  int       title_row_first;    /* the first of them, usually 0: Excel's $5:$6
+                                 * repeats rows 5 and 6 */
+  int       title_col_first;
   int       scale;          /* per cent, 100 for life size */
   int       fit_wide;       /* fit the sheet into this many pages across,
                              * and `fit_tall` down; 0 for neither, and
                              * then `scale` is used */
   int       fit_tall;
-  double    margin;         /* points around the page */
+  gboolean  landscape;
+  int       paper;          /* Excel's paper code: 1 Letter, 9 A4, ... */
+  double    margin_left, margin_right, margin_top, margin_bottom;  /* points */
+  double    margin_header;  /* the header's top from the paper's edge */
+  double    margin_footer;  /* the footer's bottom from the paper's edge */
+  gboolean  hcenter, vcenter;
+  gboolean  down_then_over; /* the page order; the other is over, then down */
+  int       first_page;     /* what &P shows on the first page */
+  gboolean  black_white;
+  gboolean  draft;          /* no fills, gridlines, pictures or charts */
+  O42PrintNotes  notes;
+  O42PrintErrors errors;
 } O42PrintSetup;
 
 const O42PrintSetup *o42_sheet_print_setup       (O42Sheet *sheet);
 void                 o42_sheet_set_print_area    (O42Sheet *sheet, const O42Range *area);  /* NULL clears */
+/* Several areas, each on pages of its own; 0 clears. */
+void                 o42_sheet_set_print_areas   (O42Sheet *sheet, const O42Range *areas, int n);
 void                 o42_sheet_set_header_footer (O42Sheet *sheet, const char *header, const char *footer);
 void                 o42_sheet_set_print_options (O42Sheet *sheet, gboolean gridlines,
                                                   gboolean headings, int title_rows);
+void                 o42_sheet_set_print_titles  (O42Sheet *sheet, int title_rows, int title_cols);
+/* As ranges: rows row0..row1 and columns col0..col1 repeat; a range with
+ * row1 < row0 (col1 < col0) means none. */
+void                 o42_sheet_set_print_title_ranges (O42Sheet *sheet, int row0, int row1, int col0, int col1);
 /* Life size, a percentage, or fitted into so many pages across and
  * down (either may be zero for "as many as it takes"). */
 void                 o42_sheet_set_print_scale   (O42Sheet *sheet, int scale, int fit_wide, int fit_tall);
+/* The same distance on all four sides, as the old one-margin setup had. */
 void                 o42_sheet_set_print_margin  (O42Sheet *sheet, double points);
+/* The whole setup at once, for the readers and the dialog: every field
+ * is copied, the strings duplicated. */
+void                 o42_sheet_set_print_setup   (O42Sheet *sheet, const O42PrintSetup *setup);
+
+/* The paper a code names, portrait, in points: Excel's codes, which
+ * .xls and .xlsx carry.  Unknown codes are A4.  `o42_paper_code` goes
+ * the other way from a size, and `o42_paper_name` gives "A4", "Letter". */
+void        o42_paper_size (int code, double *width_pt, double *height_pt);
+int         o42_paper_code (double width_pt, double height_pt);
+const char *o42_paper_name (int code);
+int         o42_paper_from_name (const char *name);   /* "A4", "na_letter", "iso_a4"; 0 if unknown */
+int         o42_paper_count (void);                   /* how many the tables know */
+int         o42_paper_nth  (int n);                   /* their codes, in order */
+
+/* The print areas as text, "A1:C5,E1:F9", and back; the repeated rows
+ * as "5:6" or "$5:$6" (columns "A:B"), and back -- the forms Excel's
+ * dialog shows.  The parsers return FALSE for text that is not one;
+ * empty text is no area (no titles).  Caller frees the text. */
+char    *o42_print_areas_text  (const O42PrintSetup *setup);
+gboolean o42_print_areas_parse (const char *text, O42Range *areas, int *n_areas);
+char    *o42_print_titles_text (int first, int count, gboolean rows);
+gboolean o42_print_titles_parse (const char *text, gboolean rows, int *first, int *count);
+
+/* The printed page's size in points, as the setup has it: the paper
+ * turned if landscape. */
+void        o42_print_setup_paper (const O42PrintSetup *setup, double *width_pt, double *height_pt);
 
 /* Manual page breaks: the printing starts a new page at this row (or
  * column).  Setting one again takes it away. */
@@ -277,6 +444,13 @@ void           o42_sheet_restyle     (O42Sheet *sheet, const char *name);   /* a
  * grid lays out at, the same convention word42 uses. */
 int  o42_sheet_col_width  (O42Sheet *sheet, int col);
 void o42_sheet_set_col_width (O42Sheet *sheet, int col, int width);
+/* Format > Column > Standard Width: the width of every column that has
+ * not been given one of its own.  One undo step. */
+int  o42_sheet_default_col_width     (O42Sheet *sheet);
+void o42_sheet_set_default_col_width (O42Sheet *sheet, int width);
+/* Every column back to the standard width, and that back to the
+ * default: what a file loader starts from.  Not undone. */
+void o42_sheet_reset_col_widths      (O42Sheet *sheet);
 /* Where a row or a column starts, in pixels from the top or the left
  * of the sheet, and which one is at an offset.  Both are answered from
  * the rows that differ from the default height -- there are few of
@@ -323,7 +497,27 @@ typedef struct {
   double      value2;
   O42FmtMask  mask;
   O42Fmt      fmt;
+  /* Excel's other forms: an operand that is a formula rather than a
+   * number ("=$B$1" or "=A1*2", interned, NULL for the number), read
+   * as standing in the range's top-left cell and moved with each cell
+   * as a copied formula would be; and a rule that is a formula of its
+   * own, true or false, in expr1. */
+  const char *expr1;
+  const char *expr2;
+  gboolean    is_formula;
+  /* Excel's colour scale: a fill that runs from one colour to another
+   * (and a third between) as the value runs from the range's least to
+   * its greatest.  `kind` is O42_COND_SCALE, and the rest above is not
+   * looked at. */
+  int         kind;             /* O42_COND_CELL or O42_COND_SCALE */
+  int         stops;            /* 2 or 3 */
+  int         stop_type[3];     /* O42_SCALE_MIN .. */
+  double      stop_value[3];    /* for NUM, PERCENT and PERCENTILE */
+  guint32     stop_colour[3];   /* RGB */
 } O42Condition;
+
+enum { O42_COND_CELL = 0, O42_COND_SCALE = 1 };
+enum { O42_SCALE_MIN = 0, O42_SCALE_MAX, O42_SCALE_NUM, O42_SCALE_PERCENT, O42_SCALE_PERCENTILE };
 
 void       o42_sheet_add_condition    (O42Sheet *sheet, const O42Condition *cond);
 void       o42_sheet_clear_conditions (O42Sheet *sheet, const O42Range *range);   /* those touching it */
@@ -332,6 +526,10 @@ GArray    *o42_sheet_conditions       (O42Sheet *sheet);   /* O42Condition, owne
 /* The format a cell shows with its conditions applied, in `out`; FALSE
  * (and `out` untouched) when no rule applies. */
 gboolean   o42_sheet_conditional_fmt  (O42Sheet *sheet, int row, int col, O42Fmt *out);
+
+/* Whether a rule holds for a cell: what o42_sheet_conditional_fmt asks
+ * of each rule, for anything else that wants to know. */
+gboolean   o42_sheet_condition_holds  (O42Sheet *sheet, const O42Condition *cond, int row, int col);
 
 /* ---- Outline groups ------------------------------------------------------ */
 
@@ -349,6 +547,31 @@ int  o42_sheet_max_col_level (O42Sheet *sheet);
 /* Group raises the level of every row (column) in lo..hi by one;
  * ungroup lowers it. */
 void o42_sheet_group (O42Sheet *sheet, gboolean rows, int lo, int hi, gboolean group);
+
+/* Data > Group and Outline > Auto Outline: the rows a formula sums up
+ * from directly above it (SUM(B2:B9) in B10) become a group, and the
+ * columns one sums up from directly to its left likewise; nested sums
+ * nest.  Any outline there was goes first.  Returns how many groups
+ * were made.  Clear Outline takes every level away. */
+int  o42_sheet_auto_outline  (O42Sheet *sheet);
+void o42_sheet_clear_outline (O42Sheet *sheet);
+
+/* Show Detail and Hide Detail for the row (column) `at`: the group it
+ * is in, or the one ending just above (left of) it when it is a
+ * summary row, is unfolded or folded. */
+gboolean o42_sheet_outline_detail (O42Sheet *sheet, gboolean rows, int at, gboolean show);
+
+/* The outline's level buttons: everything deeper than `level` folded,
+ * everything at or above it shown. */
+void o42_sheet_outline_to_level (O42Sheet *sheet, gboolean rows, int level);
+
+/* Data > Group and Outline > Settings: where the summary rows stand,
+ * below their detail (Excel's default) or above, and the summary
+ * columns to the right or the left.  Auto Outline, Show and Hide
+ * Detail and the fold boxes follow it. */
+void     o42_sheet_set_outline_settings (O42Sheet *sheet, gboolean summary_above, gboolean summary_left);
+gboolean o42_sheet_summary_above (O42Sheet *sheet);
+gboolean o42_sheet_summary_left  (O42Sheet *sheet);
 
 /* ---- Pivot tables -------------------------------------------------------- */
 
@@ -373,12 +596,34 @@ typedef struct {
   char        *filter_value;   /* owned */
   int          row, col;       /* where the table is laid out */
   int          rows, cols;     /* the extent of the last layout, for clearing */
+
+  /* Excel's further parts.  More data fields, each "Agg:Header" with
+   * Agg one of Sum Count Average Min Max, laid side by side under each
+   * column key (or down the rows, one per row key, when data_on_rows).
+   * Grouping, per field: "Date=y,q,m" groups a date field by any of
+   * years (y), quarters (q), months (m), days (d), outer to inner;
+   * "Amount=n,0,100" puts a number into buckets of 100 from 0;
+   * "Region=g,Coast=East|West,Inland=Central" gathers items into named
+   * groups, the rest standing alone.  Fields are separated by ';'.
+   * Subtotals close each outer key of an axis with a "key Total" line;
+   * the grand totals can be left out. */
+  char       **data_fields;    /* owned; NULL or empty for the one data_field */
+  gboolean     data_on_rows;
+  char        *groups;         /* owned; NULL or "" for none */
+  gboolean     subtotals;
+  gboolean     no_grand_rows, no_grand_cols;
 } O42Pivot;
 
 /* The fields of one axis as text, "Region|Year", and back: how the
  * files and office42-calc spell them. */
 char  *o42_pivot_fields_to_string (char **fields);
 char **o42_pivot_fields_from_string (const char *text);
+
+/* The further parts as one text -- "data=Count:Orders|Average:Price;
+ * groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=r;dataon=rows" -- and
+ * back, for the files. */
+char  *o42_pivot_options_to_string (const O42Pivot *pivot);
+void   o42_pivot_options_apply     (O42Pivot *pivot, const char *text);   /* sets owned copies */
 
 /* Adds a pivot (copying the strings) and lays it out; `define` only
  * remembers one, for a file whose cells already hold the layout;
@@ -488,7 +733,10 @@ gboolean o42_sheet_formula_hidden (O42Sheet *sheet, int row, int col);
  * the small problems a spreadsheet poses.  The whole search is one
  * undo step. */
 typedef enum { O42_SOLVER_MAX = 0, O42_SOLVER_MIN, O42_SOLVER_VALUE } O42SolverGoal;
-typedef enum { O42_SOLVER_LE = 0, O42_SOLVER_GE, O42_SOLVER_EQ } O42SolverOp;
+/* INT and BIN name a changing cell that must come out a whole number,
+ * or 0 or 1; the search branches on such a cell -- no more than its
+ * floor, no less than its ceiling -- until every one is whole. */
+typedef enum { O42_SOLVER_LE = 0, O42_SOLVER_GE, O42_SOLVER_EQ, O42_SOLVER_INT, O42_SOLVER_BIN } O42SolverOp;
 
 typedef struct {
   int          row, col;   /* the cell that must stay in bounds */
@@ -501,6 +749,16 @@ gboolean o42_sheet_solve (O42Sheet *sheet, int target_row, int target_col,
                           const O42Ref *changing, int n_changing,
                           const O42SolverBound *bounds, int n_bounds,
                           double *reached);
+
+/* Excel's Answer Report on a sheet of its own: the target, the
+ * adjustable cells and the constraints, each with what it was and what
+ * it came to.  `original` holds the changing cells' values before the
+ * search, and `original_target` the target's. */
+O42Sheet *o42_sheet_solver_report (O42Sheet *sheet, int target_row, int target_col,
+                                   O42SolverGoal goal, double goal_value,
+                                   const O42Ref *changing, int n_changing,
+                                   const O42SolverBound *bounds, int n_bounds,
+                                   const double *original, double original_target);
 
 /* ---- Advanced filter ----------------------------------------------------- */
 
@@ -546,6 +804,12 @@ gboolean    o42_sheet_scenario_cells  (O42Sheet *sheet, const char *name,
 /* Puts a scenario together cell by cell, for the file readers. */
 void        o42_sheet_define_scenario (O42Sheet *sheet, const char *name, const char *comment,
                                        int row, int col, const char *value);
+/* Excel's Scenario Summary: a new sheet in the book with a column for
+ * the values as they stand and one per scenario, the changing cells
+ * above and the result cells (guint64 keys on this sheet) below, each
+ * result worked out under that scenario.  The sheet is left as it was.
+ * Returns the new sheet, or NULL when there are no scenarios. */
+O42Sheet   *o42_sheet_scenario_summary (O42Sheet *sheet, const GArray *results);
 
 /* ---- Tables -------------------------------------------------------------- */
 
@@ -572,6 +836,14 @@ GArray    *o42_sheet_tables       (O42Sheet *sheet);   /* O42Table, owned */
  * column. */
 gboolean   o42_sheet_table_range  (O42Sheet *sheet, const char *text, int row, O42Range *out);
 
+/* ---- The sheet's background ---------------------------------------------- */
+
+/* Format > Sheet > Background: a picture tiled behind the cells on the
+ * screen, and not printed, as Excel 97 has it.  `data` NULL takes it
+ * away.  Not undone, which is how Excel has it too. */
+void    o42_sheet_set_background (O42Sheet *sheet, GBytes *data, const char *format);
+GBytes *o42_sheet_background     (O42Sheet *sheet, const char **format);   /* NULL for none */
+
 /* ---- The tab's colour --------------------------------------------------- */
 
 /* Excel colours a sheet tab; so does Gnumeric.  O42_TAB_NO_COLOUR is
@@ -580,6 +852,30 @@ gboolean   o42_sheet_table_range  (O42Sheet *sheet, const char *text, int row, O
 void    o42_sheet_set_tab_colour (O42Sheet *sheet, guint32 colour);
 guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
 
+/* Format > Sheet > Hide: the sheet keeps everything, formulas still
+ * reach it, but it has no tab.  Every file format carries it. */
+void     o42_sheet_set_hidden (O42Sheet *sheet, gboolean hidden);
+gboolean o42_sheet_hidden     (O42Sheet *sheet);
+
+/* How the sheet is looked at, which Excel keeps per sheet and every
+ * format carries: the zoom, whether gridlines and zeros show, the
+ * active cell and the selection, and whether this is the sheet the
+ * book opens on.  The window reads it when it shows the sheet and
+ * writes it back as the user moves about. */
+typedef struct {
+  int       zoom;             /* per cent; 100 */
+  gboolean  gridlines;        /* shown */
+  gboolean  zeros;            /* shown */
+  gboolean  right_to_left;
+  gboolean  outline_symbols;
+  int       active_row, active_col;
+  O42Range  selection;
+  gboolean  selected;         /* the book opens on this sheet */
+} O42SheetView;
+
+const O42SheetView *o42_sheet_view     (O42Sheet *sheet);
+void                o42_sheet_set_view (O42Sheet *sheet, const O42SheetView *view);
+
 /* ---- Auditing --------------------------------------------------------- */
 
 /* What a cell's formula reads, and which cells read it, both as
@@ -587,6 +883,22 @@ guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
  * Dependents draw arrows for.  Each array is the caller's to free. */
 GArray *o42_sheet_precedents (O42Sheet *sheet, int row, int col);
 GArray *o42_sheet_dependents (O42Sheet *sheet, int row, int col);
+
+/* Excel's background error checking: what is doubtful about a cell,
+ * for the green triangle in its corner.  A formula that comes to an
+ * error; a formula unlike the ones either side of it, when those two
+ * agree; a number kept as text; a formula whose range stops short of a
+ * number right beside it. */
+typedef enum {
+  O42_CHECK_NONE = 0,
+  O42_CHECK_ERROR,
+  O42_CHECK_INCONSISTENT,
+  O42_CHECK_NUMBER_AS_TEXT,
+  O42_CHECK_OMITS_CELLS
+} O42ErrorCheck;
+
+O42ErrorCheck o42_sheet_error_check (O42Sheet *sheet, int row, int col);
+const char   *o42_error_check_text  (O42ErrorCheck check);   /* a sentence, or "" */
 
 /* ---- AutoFormat -------------------------------------------------------- */
 
@@ -600,13 +912,42 @@ void        o42_sheet_auto_format (O42Sheet *sheet, const O42Range *range, int w
 
 /* Excel's Data > Table.  The rectangle's edges hold what an input may
  * be and its corner the formula -- or, with one variable, the top row
- * or left column holds the formulas.  Each value is put into the input
- * cell named, everything is worked out, and the answer is written into
- * the inside of the rectangle.  Pass -1 for an input that is not used;
+ * or left column holds the formulas.  The inside is filled with
+ * =TABLE(row_input, column_input), Excel's own array formula, whose
+ * cells show what the corner comes to with each edge value put into
+ * the input cell: worked out again whenever anything on the sheet
+ * changes, as Excel does.  Pass -1 for an input that is not used;
  * FALSE if neither is given or the rectangle is too small. */
+typedef struct {
+  O42Range range;                      /* edges included */
+  int      row_input_row, row_input_col;   /* -1 when not used */
+  int      col_input_row, col_input_col;
+} O42DataTable;
+
 gboolean o42_sheet_data_table (O42Sheet *sheet, const O42Range *range,
                                int row_input_row, int row_input_col,
                                int col_input_row, int col_input_col);
+
+/* For the files: remembers a table and fills it (the cells' own TABLE
+ * formulas are written by the reader or here); the table whose inside
+ * holds a cell; all of them; one taken away, its cells left as values. */
+void                o42_sheet_define_data_table (O42Sheet *sheet, const O42DataTable *table);
+const O42DataTable *o42_sheet_data_table_at    (O42Sheet *sheet, int row, int col);
+GArray             *o42_sheet_data_tables      (O42Sheet *sheet);   /* O42DataTable */
+void                o42_sheet_remove_data_table (O42Sheet *sheet, const O42Range *range);
+void                o42_sheet_refresh_data_tables (O42Sheet *sheet);
+
+/* ---- Euro Conversion ----------------------------------------------------- */
+
+/* Excel's Euro Currency Tools: every number in `source` converted from
+ * one member currency to another, written at `row`,`col` and on, as
+ * EUROCONVERT formulas or as the values they give, in the target's
+ * currency format.  `triangulation` is the decimals the euro amount is
+ * rounded to on the way (0 for none); `full_precision` keeps the
+ * result's.  Returns how many cells were written; one undo step. */
+int o42_sheet_euro_convert (O42Sheet *sheet, const O42Range *source, int row, int col,
+                            const char *from, const char *to, gboolean as_formulas,
+                            gboolean full_precision, int triangulation);
 
 /* ---- Database queries --------------------------------------------------- */
 
@@ -655,8 +996,17 @@ typedef enum {
   O42_VALID_LIST,
   O42_VALID_DATE,
   O42_VALID_TIME,
-  O42_VALID_LENGTH
+  O42_VALID_LENGTH,
+  O42_VALID_CUSTOM            /* `value` is a formula, true or false, read as
+                               * standing in the range's top-left cell */
 } O42ValidKind;
+
+/* What happens to an entry the rule refuses: Excel's three styles. */
+typedef enum {
+  O42_VALID_STOP = 0,       /* refused, with the message */
+  O42_VALID_WARNING,        /* the message, and a Yes/No: keep it anyway? */
+  O42_VALID_INFORMATION     /* the message, and the entry stands */
+} O42ValidStyle;
 
 typedef struct {
   O42Range      range;
@@ -664,8 +1014,14 @@ typedef struct {
   O42CondOp     op;
   char         *value;        /* owned by the sheet once added */
   char         *value2;
-  char         *message;      /* shown when an entry is refused; may be NULL */
+  char         *message;      /* the error's text, shown when an entry is refused; may be NULL */
   gboolean      allow_blank;
+  char         *title;        /* the error's title; may be NULL */
+  O42ValidStyle style;
+  char         *prompt_title; /* the input message, shown while the cell is chosen; may be NULL */
+  char         *prompt;
+  gboolean      no_error;     /* Excel's showErrorMessage off: anything goes, quietly */
+  gboolean      no_dropdown;  /* a list without the in-cell arrow */
 } O42Validation;
 
 void       o42_sheet_add_validation    (O42Sheet *sheet, const O42Validation *v);   /* copies */
@@ -677,6 +1033,15 @@ GArray    *o42_sheet_validations       (O42Sheet *sheet);   /* O42Validation, ow
 gboolean   o42_sheet_validate (O42Sheet *sheet, int row, int col,
                                const char *input, char **message);
 
+/* The rule over a cell, or NULL; and whether what the cell holds now
+ * breaks its rule, for Circle Invalid Data. */
+const O42Validation *o42_sheet_validation_at (O42Sheet *sheet, int row, int col);
+gboolean   o42_sheet_cell_invalid (O42Sheet *sheet, int row, int col);
+
+/* A list rule's entries -- the comma-separated ones, or the cells of
+ * the range it names -- as a NULL-terminated vector, to free. */
+char     **o42_sheet_validation_items (O42Sheet *sheet, const O42Validation *v);
+
 /* ---- Text to Columns --------------------------------------------------- */
 
 /* Splits the text in each cell of the range's first column at `delimiter`
@@ -685,6 +1050,28 @@ gboolean   o42_sheet_validate (O42Sheet *sheet, int row, int col,
  * Returns how many rows changed.  One undo step. */
 int o42_sheet_text_to_columns (O42Sheet *sheet, const O42Range *range,
                                const char *delimiter);
+
+/* The same, cut at fixed character positions: `breaks` are the
+ * offsets (in characters, ascending) where each new column starts, so
+ * n_breaks + 1 columns come out.  `types`, when given, says per column
+ * how its piece is taken: as typed, as text whatever it looks like, or
+ * not at all. */
+typedef enum {
+  O42_SPLIT_GENERAL = 0,
+  O42_SPLIT_TEXT,
+  O42_SPLIT_DATE,
+  O42_SPLIT_SKIP
+} O42SplitType;
+
+int o42_sheet_text_to_columns_fixed (O42Sheet *sheet, const O42Range *range,
+                                     const int *breaks, int n_breaks,
+                                     const O42SplitType *types);
+
+/* Where the columns seem to divide: the character positions at which
+ * every row of the range's first column that is long enough has a
+ * space and the character before is not, as Excel guesses them.
+ * Appended to `breaks` (int). */
+void o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *breaks);
 
 /* ---- View state -------------------------------------------------------- */
 
@@ -705,7 +1092,7 @@ gboolean o42_sheet_goal_seek (O42Sheet *sheet, int target_row, int target_col,
 
 /* ---- Notes ------------------------------------------------------------- */
 
-/* A note on a cell: Excel 5's cell note, shown as a small mark in the
+/* A note on a cell: Excel 97's cell comment, shown as a small mark in the
  * corner and read on hover.  NULL or "" removes it. */
 void        o42_sheet_set_note (O42Sheet *sheet, int row, int col, const char *text);
 const char *o42_sheet_get_note (O42Sheet *sheet, int row, int col);   /* NULL if none */
@@ -732,7 +1119,7 @@ GArray     *o42_sheet_merges    (O42Sheet *sheet);   /* O42Range, owned by the s
 
 /* ---- AutoFilter ------------------------------------------------------- */
 
-/* Excel 5's AutoFilter: a range whose first row is headings, each with a
+/* Excel 97's AutoFilter: a range whose first row is headings, each with a
  * dropdown of the values below it; choosing one hides every row whose
  * cell is different.  One choice per column; NULL means "(All)". */
 void        o42_sheet_set_autofilter   (O42Sheet *sheet, const O42Range *range);
@@ -755,9 +1142,19 @@ void o42_sheet_used_range (O42Sheet *sheet, O42Range *out);
  * result.  #NAME? for a formula that does not parse. */
 O42Value o42_sheet_evaluate_formula (O42Sheet *sheet, const char *text);
 
+/* The context the sheet's formulas are worked out in, for working one
+ * out a step at a time (o42-eval-steps.h).  Borrowed; whoever uses it
+ * puts its row and column back as they were. */
+O42EvalContext *o42_sheet_eval_context (O42Sheet *sheet);
+
 /* Every stored cell -- one with content or a format -- in no particular
  * order.  The sheet is sparse, and this is how a writer visits what is
  * there without walking every cell of the used rectangle. */
+/* Rounds every number on the sheet to the decimals its format shows,
+ * for the book's precision-as-displayed option; the cells that are
+ * worked out or typed afterwards are rounded as they are made. */
+void o42_sheet_round_to_display (O42Sheet *sheet);
+
 typedef void (*O42CellFunc) (O42Sheet *sheet, int row, int col, gpointer user);
 void o42_sheet_foreach_cell (O42Sheet *sheet, O42CellFunc func, gpointer user);
 
@@ -829,6 +1226,42 @@ GPtrArray  *o42_sheet_charts       (O42Sheet *sheet);   /* owned by the sheet */
 void        o42_sheet_draw_chart   (O42Sheet *sheet, const O42Chart *chart,
                                     cairo_t *cr, double width, double height);
 
+/* ---- The objects together ---------------------------------------------- */
+
+/* Pictures, shapes and charts share one painting order: each carries a
+ * `z`, and whoever paints or hit-tests them walks this list, which is
+ * every object on the sheet from the back to the front. */
+typedef enum {
+  O42_OBJECT_PICTURE,
+  O42_OBJECT_SHAPE,
+  O42_OBJECT_CHART
+} O42ObjectType;
+
+typedef struct {
+  O42ObjectType type;
+  gpointer      object;   /* the O42Picture, O42Shape or O42Chart */
+  guint         id;
+  guint         z;
+} O42ObjectRef;
+
+GArray  *o42_sheet_objects (O42Sheet *sheet);   /* O42ObjectRef, back to front; free it */
+
+/* Puts the objects named (by type and id) into one new group, the way
+ * Excel groups a multi-selection; the group's number comes back, 0
+ * when fewer than two were found. */
+guint    o42_sheet_group_refs (O42Sheet *sheet, const GArray *refs);
+
+/* Format > Order: the object goes to the front or the back of them all,
+ * or one step either way.  One undo step.  FALSE if nothing moved. */
+typedef enum {
+  O42_ORDER_FRONT,
+  O42_ORDER_BACK,
+  O42_ORDER_FORWARD,
+  O42_ORDER_BACKWARD
+} O42Order;
+
+gboolean o42_sheet_reorder_object (O42Sheet *sheet, O42ObjectType type, guint id, O42Order how);
+
 /* Before moving or resizing a picture or chart by hand, inside a
  * begin/end group, so the drag is one undo step. */
 void        o42_sheet_capture_object (O42Sheet *sheet, guint id);
@@ -860,5 +1293,13 @@ gboolean o42_sheet_redo_full   (O42Sheet *sheet, O42Sheet **target, O42Range *to
 
 /* Forgets the whole history, the book's when the sheet is in one. */
 void     o42_sheet_clear_undo  (O42Sheet *sheet);
+
+/* What typing `text` into the cell means, with the conveniences Excel
+ * gives the person at the keyboard and not a file: the fixed-decimals
+ * habit, and a plain number typed into a cell formatted as a
+ * percentage taken as that many per cent -- 5 into a 0% cell is 5%.
+ * The text to set, newly allocated, or NULL when `text` is to be set
+ * as it is.  Only what is typed goes through it. */
+char *o42_sheet_typed_input (O42Sheet *sheet, int row, int col, const char *text);
 
 G_END_DECLS

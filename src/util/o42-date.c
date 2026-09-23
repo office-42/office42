@@ -9,22 +9,39 @@
 #include <math.h>
 #include <string.h>
 
+static gboolean date_1904;
+
+void
+o42_date_set_1904 (gboolean on)
+{
+  date_1904 = on;
+}
+
+gboolean
+o42_date_1904 (void)
+{
+  return date_1904;
+}
+
 /* Days from the Julian day count to a serial: the Julian day of 30 December
- * 1899, the day serial 0 would be if 1900 had not been given a leap day. */
+ * 1899, the day serial 0 would be if 1900 had not been given a leap day --
+ * or of 1 January 1904, when the book counts from there. */
 static guint32
 epoch_julian (void)
 {
-  static guint32 julian = 0;
+  static guint32 julian_1900 = 0, julian_1904 = 0;
 
-  if (julian == 0)
+  if (julian_1900 == 0)
     {
       GDate d;
       g_date_clear (&d, 1);
       g_date_set_dmy (&d, 30, 12, 1899);
-      julian = g_date_get_julian (&d);
+      julian_1900 = g_date_get_julian (&d);
+      g_date_set_dmy (&d, 1, 1, 1904);
+      julian_1904 = g_date_get_julian (&d);
     }
 
-  return julian;
+  return date_1904 ? julian_1904 : julian_1900;
 }
 
 double
@@ -51,8 +68,13 @@ o42_date_serial (int year, int month, int day)
 
   days = (gint32) g_date_get_julian (&d) - (gint32) epoch_julian () + (day - 1);
 
-  if (days < 61)
-    days -= 1;        /* the 1900 leap-day bug, as Lotus and Excel have it */
+  /* The 1900 leap-day bug, as Lotus and Excel have it: every day before
+   * 1 March 1900 is one serial earlier than the calendar says, so that
+   * 29 February 1900 -- a day that never was -- is serial 60.  A day
+   * counted from February 1900 keeps the shift even when it runs past
+   * the 28th: DATE(1900,2,29) is 60, DATE(1900,2,30) 61. */
+  if (!date_1904 && (y < 1900 || (y == 1900 && m <= 2)))
+    days -= 1;
 
   return days;
 }
@@ -63,8 +85,26 @@ o42_date_from_serial (double serial, int *year, int *month, int *day)
   GDate d;
   gint32 days = (gint32) floor (serial);
 
-  if (days < 61)
-    days += 1;
+  if (!date_1904)
+    {
+      /* Serial 60 is Excel's 29 February 1900, and 0 its "0 January". */
+      if (days == 60)
+        {
+          if (year)  *year  = 1900;
+          if (month) *month = 2;
+          if (day)   *day   = 29;
+          return TRUE;
+        }
+      if (days == 0)
+        {
+          if (year)  *year  = 1900;
+          if (month) *month = 1;
+          if (day)   *day   = 0;
+          return TRUE;
+        }
+      if (days < 61)
+        days += 1;
+    }
 
   if ((gint64) epoch_julian () + days < 1)
     return FALSE;
@@ -91,12 +131,13 @@ void
 o42_time_from_serial (double serial, int *hour, int *minute, int *second)
 {
   double frac = serial - floor (serial);
-  /* Rounded to the nearest second, so that 0.5 is 12:00:00 and not
-   * 11:59:59.999. */
-  int total = (int) floor (frac * 86400.0 + 0.5);
+  /* Cut to the second, as Excel's HOUR, MINUTE and SECOND cut, with a
+   * hair's allowance so that 0.3 is 7:12:00 and not 7:11:59; 0.999999
+   * is 23:59:59, not the next day's midnight. */
+  int total = (int) floor (frac * 86400.0 + 1e-4);
 
   if (total >= 86400)
-    total = 0;
+    total = 86399;
 
   if (hour)   *hour   = total / 3600;
   if (minute) *minute = (total / 60) % 60;
@@ -245,6 +286,12 @@ read_date (const char **p, double *serial)
                   q = r;
                   y = widen_year (c, dc);
                 }
+              else if (db == 4 && sep != '.' && a >= 1 && a <= 12)
+                {
+                  /* "12/2021": a month and a year, the first of the month. */
+                  y = b; mo = a; d = 1;
+                  goto have_date;
+                }
               if (!day_first && a > 12 && b <= 12)
                 day_first = TRUE;
               if (day_first) { d = a; mo = b; }
@@ -322,6 +369,7 @@ read_date (const char **p, double *serial)
   else
     return FALSE;
 
+have_date:
   if (y < 0)
     y = this_year ();
   if (mo < 1 || mo > 12 || d < 1 || d > 31 || y < 1 || y > 9999)
@@ -346,9 +394,10 @@ read_time (const char **p, double *fraction)
 {
   const char *q = *p;
   int h, mi = 0, s = 0, dh, dm, ds;
+  double second_fraction = 0;
   gboolean colon;
 
-  if (!read_number (&q, &h, &dh) || dh > 2)
+  if (!read_number (&q, &h, &dh) || dh > 4)
     return FALSE;
   colon = (*q == ':');
   if (colon)
@@ -361,6 +410,13 @@ read_time (const char **p, double *fraction)
           q++;
           if (!read_number (&q, &s, &ds) || ds > 2)
             return FALSE;
+          /* "12:00:59.6": the fraction of a second. */
+          if (*q == '.' && g_ascii_isdigit (q[1]))
+            {
+              char *end = NULL;
+              second_fraction = g_ascii_strtod (q, &end);
+              q = end;
+            }
         }
     }
 
@@ -387,10 +443,15 @@ read_time (const char **p, double *fraction)
       return FALSE;
   }
 
-  if (h > 23 || mi > 59 || s > 59)
+  /* "24:00" and "25:30" are hours past a day, as they are to Excel,
+   * which shows them as [h]:mm:ss; a clock with AM or PM after it
+   * cannot pass twelve.  Minutes and seconds past sixty carry over. */
+  if (h > 9999 || mi > 9999 || s > 9999)
+    return FALSE;
+  if (dh > 2 && !colon)
     return FALSE;
 
-  *fraction = o42_time_fraction (h, mi, s);
+  *fraction = o42_time_fraction (h, mi, s + second_fraction);
   *p = q;
   return TRUE;
 }
@@ -460,12 +521,12 @@ o42_date_format (double serial, O42NumberFormat format)
 int
 o42_date_weekday (double serial)
 {
-  /* Serial 1, 1 January 1900, was a Monday; the leap-day shift below 61
-   * has to be undone to count from there. */
+  /* Excel's arithmetic, not the calendar's: serial 1 is a Sunday to it
+   * (1 January 1900 was a Monday, but the leap day that never was puts
+   * every date from March 1900 on right), and 1 January 1904 a Friday. */
   gint32 days = (gint32) floor (serial);
 
-  if (days >= 61)
-    days -= 1;
-
-  return (int) (((days - 1) % 7 + 7) % 7) + 1;
+  if (date_1904)
+    return (int) (((days + 4) % 7 + 7) % 7) + 1;
+  return (int) (((days - 2) % 7 + 7) % 7) + 1;
 }

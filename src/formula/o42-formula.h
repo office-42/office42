@@ -37,7 +37,11 @@ typedef enum {
   O42_OP_ADD, O42_OP_SUB, O42_OP_MUL, O42_OP_DIV, O42_OP_POW,
   O42_OP_CONCAT,
   O42_OP_EQ, O42_OP_NE, O42_OP_LT, O42_OP_GT, O42_OP_LE, O42_OP_GE,
-  O42_OP_NEG, O42_OP_POS, O42_OP_PERCENT
+  O42_OP_NEG, O42_OP_POS, O42_OP_PERCENT,
+  /* The reference operators: (A1:A3,C1:C3) is both ranges, A1:B5 B2:C9
+   * the cells they share, and @A1:A3 the one cell of the range that
+   * lines up with the formula. */
+  O42_OP_UNION, O42_OP_ISECT, O42_OP_IMPLICIT
 } O42Op;
 
 typedef struct _O42Node O42Node;
@@ -114,6 +118,17 @@ O42Node *o42_node_copy (const O42Node *node);
  * changed. */
 gboolean o42_node_relocate (O42Node *node, int drow, int dcol);
 
+/* Whether two formulas would read the same once each has been moved by
+ * its own number of rows and columns -- what the error checker asks
+ * when it compares a cell with the ones above and below it.  It answers
+ * what relocating both, writing them out and comparing the text would,
+ * without copying a tree or building a string, since that question is
+ * asked of every formula cell on screen every time the grid is drawn.
+ * A reference moved off the sheet counts as #REF!, as relocating it
+ * would make it. */
+gboolean o42_node_same_moved (const O42Node *a, int a_drow, int a_dcol,
+                              const O42Node *b, int b_drow, int b_dcol);
+
 /* Adjusts every reference into sheet `target` for rows (or columns)
  * inserted or deleted there at `at`: `count` rows inserted when positive,
  * -`count` rows deleted when negative.  `own` is the name of the sheet the
@@ -159,9 +174,20 @@ char    *o42_sheet_name_quote (const char *name);
  * formula bar with its references in canonical form. */
 char    *o42_node_to_string (const O42Node *node);
 
+/* The same, saying where the subtree `mark` landed in the text: its
+ * byte offset and length, or -1 and 0 when it is not in the tree.  For
+ * underlining the part of a formula that is evaluated next. */
+char    *o42_node_to_string_marked (const O42Node *node, const O42Node *mark,
+                                    int *start, int *length);
+
 /* Prefixes every call to a function `is_future` says yes to with
  * `prefix`, in place: how .xlsx spells the newer functions. */
 void     o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
                                     const char *prefix);
+
+/* Writes the table's name in front of every structured reference that
+ * has none -- [@Qty], [Qty], [#Headers] -- as Excel's files spell
+ * them: Table[[#This Row],[Qty]], Table[Qty], Table[#Headers]. */
+void     o42_node_qualify_structured (O42Node *node, const char *table);
 
 G_END_DECLS

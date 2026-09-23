@@ -12,11 +12,59 @@
 #include <pango/pangocairo.h>
 #include <string.h>
 
-/* Excel 5's default series colours, near enough: navy, maroon, green,
- * teal, purple, olive, grey, blue. */
-static const guint32 SERIES_COLOURS[] = {
-  0x000080, 0x800000, 0x008000, 0x008080, 0x800080, 0x808000, 0x808080, 0x0000FF
+/* Excel 97's default series colours, from the two rows of its palette
+ * that are kept for charts.  A filled series -- a column, a bar, a
+ * slice, an area -- takes the chart fills in turn, periwinkle first
+ * and plum second; a drawn one -- a line, a scatter series, a radar
+ * polygon -- takes the chart lines, navy first and magenta second.
+ * Past the eighth series each row goes on with the other. */
+static const guint32 FILL_COLOURS[] = {
+  0x9999FF, 0x993366, 0xFFFFCC, 0xCCFFFF, 0x660066, 0xFF8080, 0x0066CC, 0xCCCCFF,
+  0x000080, 0xFF00FF, 0xFFFF00, 0x00FFFF, 0x800080, 0x800000, 0x008080, 0x0000FF
 };
+static const guint32 LINE_COLOURS[] = {
+  0x000080, 0xFF00FF, 0xFFFF00, 0x00FFFF, 0x800080, 0x800000, 0x008080, 0x0000FF,
+  0x9999FF, 0x993366, 0xFFFFCC, 0xCCFFFF, 0x660066, 0xFF8080, 0x0066CC, 0xCCCCFF
+};
+
+/* The plot area of a two-dimensional chart with axes: Excel 97 shaded
+ * it grey and drew the gridlines black across it. */
+#define PLOT_AREA_GREY 0xC0C0C0
+
+guint32
+o42_chart_series_colour (const O42Chart *chart, int index)
+{
+  gboolean drawn = chart->kind == O42_CHART_LINE || chart->kind == O42_CHART_SCATTER ||
+                   chart->kind == O42_CHART_RADAR || chart->kind == O42_CHART_POLAR ||
+                   chart->kind == O42_CHART_STOCK;
+  const guint32 *row = drawn ? LINE_COLOURS : FILL_COLOURS;
+
+  return row[((index % 16) + 16) % 16];
+}
+
+static void
+set_rgb (cairo_t *cr, guint32 rgb);
+
+/* Text laid over a series colour: black on the light ones, ivory and
+ * turquoise among them, white on the dark. */
+static void
+set_text_over (cairo_t *cr, guint32 rgb)
+{
+  double luminance = 0.299 * ((rgb >> 16) & 0xFF) + 0.587 * ((rgb >> 8) & 0xFF) + 0.114 * (rgb & 0xFF);
+
+  if (luminance < 140)
+    cairo_set_source_rgb (cr, 1, 1, 1);
+  else
+    cairo_set_source_rgb (cr, 0, 0, 0);
+}
+
+static void
+fill_plot_area (cairo_t *cr, double left, double top, double right, double bottom)
+{
+  set_rgb (cr, PLOT_AREA_GREY);
+  cairo_rectangle (cr, left, top, right - left, bottom - top);
+  cairo_fill (cr);
+}
 
 O42Chart *
 o42_chart_new (O42ChartKind kind, const O42Range *data)
@@ -348,14 +396,12 @@ stacked_extent (const ChartData *d, double *min, double *max)
 static char *
 chart_number (const O42Chart *chart, double v)
 {
+  /* The code as written, which is what a cell wearing it would show.
+   * Reducing it to one of the presets first threw away what only the
+   * code can say -- the comma that scales an axis by a thousand went
+   * missing, and "#,##0," wrote out every digit. */
   if (chart != NULL && chart->y_format != NULL && *chart->y_format != '\0')
-    {
-      O42NumberFormat number = O42_NUM_GENERAL;
-      int decimals = 2;
-      if (o42_number_format_parse (chart->y_format, &number, &decimals))
-        return o42_number_format (v, number, decimals);
-      return o42_format_string (chart->y_format, v, NULL);
-    }
+    return o42_format_string (chart->y_format, v, NULL);
   return o42_number_format (v, O42_NUM_GENERAL, 0);
 }
 
@@ -953,6 +999,9 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
 
   #define VY(v) (bottom - ((v) - lo) / (hi - lo) * plot_h)
 
+  if (!chart->three_d)
+    fill_plot_area (cr, left, top, right, bottom);
+
   /* Gridlines and the value axis. */
   cairo_set_line_width (cr, 1);
   for (double v = lo; v <= hi + step / 2; v += step)
@@ -961,7 +1010,10 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
 
       if (chart->gridlines)
         {
-          cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+          if (chart->three_d)
+            cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+          else
+            cairo_set_source_rgb (cr, 0, 0, 0);
           cairo_move_to (cr, left, floor (VY (v)) + 0.5);
           cairo_line_to (cr, right, floor (VY (v)) + 0.5);
           cairo_stroke (cr);
@@ -1045,10 +1097,10 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
                 if (chart->three_d)
                   draw_solid (cr, left + slot * p + gap / 2, VY (MAX (from, to)),
                               slot - gap, fabs (VY (to) - VY (from)),
-                              SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+                              o42_chart_series_colour (chart, s));
                 else
                   {
-                    set_rgb (cr, SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+                    set_rgb (cr, o42_chart_series_colour (chart, s));
                     cairo_rectangle (cr, left + slot * p + gap / 2, VY (MAX (from, to)),
                                      slot - gap, fabs (VY (to) - VY (from)));
                     cairo_fill (cr);
@@ -1066,7 +1118,7 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
 
         for (int s = 0; s < d->n_series; s++)
           {
-            set_rgb (cr, SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+            set_rgb (cr, o42_chart_series_colour (chart, s));
             for (int p = 0; p < d->n_points; p++)
               {
                 double v = d->values[s * d->n_points + p];
@@ -1079,7 +1131,7 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
                 bh = fabs (VYS (s, v) - VYS (s, 0));
                 if (chart->three_d)
                   draw_solid (cr, bx, by, MAX (bar - 1, 1), bh,
-                              SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+                              o42_chart_series_colour (chart, s));
                 else if (!fill_with_picture (chart, cr, d, bx, by, MAX (bar - 1, 1), bh))
                   {
                     cairo_rectangle (cr, bx, by, MAX (bar - 1, 1), bh);
@@ -1105,7 +1157,7 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
             gboolean started = FALSE;
             double first_x = 0, last_x = 0;
 
-            set_rgb (cr, SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+            set_rgb (cr, o42_chart_series_colour (chart, s));
             for (int p = 0; p < d->n_points; p++)
               {
                 double v = d->values[s * d->n_points + p];
@@ -1118,17 +1170,20 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
                 started = TRUE;
               }
 
-            /* An area chart fills down to the axis, translucently so
-             * the series behind still show. */
+            /* An area chart fills down to the axis, opaquely and with a
+             * black edge, as Excel 97 drew it: each series lies over
+             * the ones before it, and a big early series hides a small
+             * later one, which is what its order is for. */
             if (chart->kind == O42_CHART_AREA && started)
               {
-                guint32 c = SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)];
                 cairo_line_to (cr, last_x, VYS (s, 0));
                 cairo_line_to (cr, first_x, VYS (s, 0));
                 cairo_close_path (cr);
-                cairo_set_source_rgba (cr, ((c >> 16) & 0xff) / 255.0, ((c >> 8) & 0xff) / 255.0,
-                                       (c & 0xff) / 255.0, 0.45);
-                cairo_fill (cr);
+                cairo_fill_preserve (cr);
+                cairo_set_source_rgb (cr, 0, 0, 0);
+                cairo_set_line_width (cr, 1);
+                cairo_stroke (cr);
+                cairo_set_line_width (cr, 2);
                 continue;
               }
             cairo_stroke (cr);
@@ -1171,7 +1226,7 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
           {
             const double *ys = d->values + (gsize) s * d->n_points;
 
-            set_rgb (cr, SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+            set_rgb (cr, o42_chart_series_colour (chart, s));
             for (int p = 0; p < d->n_points; p++)
               {
                 double v = ys[p];
@@ -1209,7 +1264,7 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
                                       d->n_points, cx, cy, TREND_SAMPLES);
             gboolean down = FALSE;
 
-            set_rgb (cr, SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+            set_rgb (cr, o42_chart_series_colour (chart, s));
             for (int i = 0; i < count; i++)
               {
                 double px, py;
@@ -1304,7 +1359,7 @@ draw_bubble (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Char
       /* The area of a bubble follows the value, as Excel's does, so
        * the radius follows its square root. */
       r = 4 + 22 * sqrt (fabs (size) / biggest);
-      set_rgb (cr, SERIES_COLOURS[p % G_N_ELEMENTS (SERIES_COLOURS)]);
+      set_rgb (cr, o42_chart_series_colour (chart, p));
       cairo_new_path (cr);
       cairo_arc (cr, BX (x), BY (y), r, 0, 2 * G_PI);
       cairo_fill_preserve (cr);
@@ -1381,7 +1436,7 @@ draw_radar (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Chart
     {
       gboolean started = FALSE;
 
-      set_rgb (cr, SERIES_COLOURS[series % G_N_ELEMENTS (SERIES_COLOURS)]);
+      set_rgb (cr, o42_chart_series_colour (chart, series));
       for (int p = 0; p <= d->n_points; p++)
         {
           int index = p % d->n_points;
@@ -1414,6 +1469,8 @@ draw_bar_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const C
   double top = y0 + 8, bottom = y0 + h - 22;
   double plot_w = right - left, plot_h = bottom - top;
 
+  fill_plot_area (cr, left, top, right, bottom);
+
   if (hi <= lo)
     hi = lo + step;
 
@@ -1424,7 +1481,7 @@ draw_bar_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const C
     {
       char *label = o42_number_format (v, O42_NUM_GENERAL, 0);
 
-      cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+      cairo_set_source_rgb (cr, 0, 0, 0);
       cairo_move_to (cr, floor (VX (v)) + 0.5, top);
       cairo_line_to (cr, floor (VX (v)) + 0.5, bottom);
       cairo_stroke (cr);
@@ -1453,7 +1510,7 @@ draw_bar_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const C
 
     for (int s = 0; s < d->n_series; s++)
       {
-        set_rgb (cr, SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+        set_rgb (cr, o42_chart_series_colour (chart, s));
         for (int p = 0; p < d->n_points; p++)
           {
             double v = d->values[s * d->n_points + p];
@@ -1489,6 +1546,8 @@ draw_stock (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Chart
   double lo = 0, hi = 0, step, ylo, yhi, slot;
   double left = x0 + 44, right = x0 + w - 8;
   double top = y0 + 8, bottom = y0 + h - 22;
+
+  fill_plot_area (cr, left, top, right, bottom);
   gboolean any = FALSE, candles;
   int high_at, low_at, close_at, open_at = -1;
 
@@ -1527,7 +1586,7 @@ draw_stock (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Chart
 
       if (chart->gridlines)
         {
-          cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+          cairo_set_source_rgb (cr, 0, 0, 0);
           cairo_move_to (cr, left, floor (KY (v)) + 0.5);
           cairo_line_to (cr, right, floor (KY (v)) + 0.5);
           cairo_stroke (cr);
@@ -1733,6 +1792,8 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
   double xstep, ystep, xlo, xhi, ylo, yhi;
   double left = x0 + 44, right = x0 + w - 8;
   double top = y0 + 8, bottom = y0 + h - 22;
+
+  fill_plot_area (cr, left, top, right, bottom);
   gboolean any = FALSE;
 
   if (d->n_series < 2 || d->n_points == 0)
@@ -1766,7 +1827,7 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
   for (double v = ylo; v <= yhi + ystep / 2; v += ystep)
     {
       char *label = o42_number_format (v, O42_NUM_GENERAL, 0);
-      cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+      cairo_set_source_rgb (cr, 0, 0, 0);
       cairo_move_to (cr, left, floor (SY (v)) + 0.5);
       cairo_line_to (cr, right, floor (SY (v)) + 0.5);
       cairo_stroke (cr);
@@ -1777,7 +1838,7 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
   for (double v = xlo; v <= xhi + xstep / 2; v += xstep)
     {
       char *label = o42_number_format (v, O42_NUM_GENERAL, 0);
-      cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+      cairo_set_source_rgb (cr, 0, 0, 0);
       cairo_move_to (cr, floor (SX (v)) + 0.5, top);
       cairo_line_to (cr, floor (SX (v)) + 0.5, bottom);
       cairo_stroke (cr);
@@ -1792,7 +1853,7 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
 
   for (int s = 1; s < d->n_series; s++)
     {
-      set_rgb (cr, SERIES_COLOURS[(s - 1) % G_N_ELEMENTS (SERIES_COLOURS)]);
+      set_rgb (cr, o42_chart_series_colour (chart, (s - 1)));
       for (int p = 0; p < d->n_points; p++)
         {
           double x = d->values[p], y = d->values[s * d->n_points + p];
@@ -1807,7 +1868,7 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
 
           cairo_save (cr);
           cairo_set_line_width (cr, 1);
-          set_rgb (cr, SERIES_COLOURS[(s - 1) % G_N_ELEMENTS (SERIES_COLOURS)]);
+          set_rgb (cr, o42_chart_series_colour (chart, (s - 1)));
           for (int p = 0; p < d->n_points; p++)
             {
               double x = d->values[p], y = ys[p];
@@ -1833,7 +1894,7 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
           cairo_save (cr);
           cairo_set_dash (cr, dashes, 2, 0);
           cairo_set_line_width (cr, 1.5);
-          set_rgb (cr, SERIES_COLOURS[(s - 1) % G_N_ELEMENTS (SERIES_COLOURS)]);
+          set_rgb (cr, o42_chart_series_colour (chart, (s - 1)));
           for (int i = 0; i < count; i++)
             {
               double px, py;
@@ -1856,6 +1917,156 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
   #undef SY
 }
 
+/* Excel 97's pie-of-pie and bar-of-pie: the last `count` slices are
+ * gathered into one "Other" slice of the main pie and shown again, at
+ * their own scale, in a small pie or a stacked bar to its right, with
+ * two lines joining the slice to the plot. */
+static void
+draw_of_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartData *d,
+             double x0, double y0, double w, double h)
+{
+  int count = CLAMP (chart->of_pie_count > 0 ? chart->of_pie_count : 2, 1, d->n_points - 1);
+  int split = d->n_points - count;
+  double total = 0, other = 0;
+  double cx = x0 + w * 0.24, cy = y0 + h / 2;
+  double radius = MIN (w * 0.20, h / 2 - 12);
+  double sx = x0 + w * 0.60, sr = radius * 0.62;
+  double angle = -G_PI / 2, other_from = 0, other_to = 0;
+
+  for (int p = 0; p < d->n_points; p++)
+    if (!isnan (d->values[p]) && d->values[p] > 0)
+      {
+        total += d->values[p];
+        if (p >= split)
+          other += d->values[p];
+      }
+  if (total <= 0)
+    return;
+
+  /* The main pie: the first slices, then "Other". */
+  for (int p = 0; p <= split; p++)
+    {
+      double v = p < split ? d->values[p] : other;
+      double sweep;
+
+      if (isnan (v) || v <= 0)
+        continue;
+      sweep = 2 * G_PI * v / total;
+      if (p < split)
+        set_rgb (cr, o42_chart_series_colour (chart, p));
+      else
+        {
+          cairo_set_source_rgb (cr, 0.72, 0.72, 0.72);
+          other_from = angle;
+          other_to = angle + sweep;
+        }
+      cairo_new_path (cr);
+      cairo_move_to (cr, cx, cy);
+      cairo_arc (cr, cx, cy, radius, angle, angle + sweep);
+      cairo_close_path (cr);
+      cairo_fill_preserve (cr);
+      cairo_set_source_rgb (cr, 1, 1, 1);
+      cairo_set_line_width (cr, 1);
+      cairo_stroke (cr);
+      if (chart->data_labels)
+        {
+          char *text = g_strdup_printf ("%.0f%%", 100 * v / total);
+          double mid = angle + sweep / 2;
+          set_text_over (cr, o42_chart_series_colour (chart, p));
+          show_text (chart, cr, layout, text, cx + cos (mid) * radius * 0.65,
+                     cy + sin (mid) * radius * 0.65 - 7, 0.5, FALSE);
+          g_free (text);
+        }
+      angle += sweep;
+    }
+
+  /* The second plot, the last slices at their own scale. */
+  if (other > 0)
+    {
+      double top, bottom;
+
+      if (chart->of_pie == 2)
+        {
+          /* A stacked bar as tall as the pie is wide. */
+          double bw = sr * 1.1, bh = radius * 1.6, y = cy + bh / 2;
+
+          for (int p = split; p < d->n_points; p++)
+            {
+              double v = d->values[p];
+              double part;
+
+              if (isnan (v) || v <= 0)
+                continue;
+              part = bh * v / other;
+              set_rgb (cr, o42_chart_series_colour (chart, p));
+              cairo_rectangle (cr, sx - bw / 2, y - part, bw, part);
+              cairo_fill_preserve (cr);
+              cairo_set_source_rgb (cr, 1, 1, 1);
+              cairo_stroke (cr);
+              y -= part;
+            }
+          top = cy - bh / 2;
+          bottom = cy + bh / 2;
+          sx -= bw / 2;
+        }
+      else
+        {
+          double a2 = -G_PI / 2;
+
+          for (int p = split; p < d->n_points; p++)
+            {
+              double v = d->values[p];
+              double sweep;
+
+              if (isnan (v) || v <= 0)
+                continue;
+              sweep = 2 * G_PI * v / other;
+              set_rgb (cr, o42_chart_series_colour (chart, p));
+              cairo_new_path (cr);
+              cairo_move_to (cr, sx, cy);
+              cairo_arc (cr, sx, cy, sr, a2, a2 + sweep);
+              cairo_close_path (cr);
+              cairo_fill_preserve (cr);
+              cairo_set_source_rgb (cr, 1, 1, 1);
+              cairo_stroke (cr);
+              a2 += sweep;
+            }
+          top = cy - sr;
+          bottom = cy + sr;
+        }
+
+      /* The two lines from the Other slice's edges to the plot. */
+      cairo_set_source_rgb (cr, 0.45, 0.45, 0.45);
+      cairo_set_line_width (cr, 1);
+      cairo_move_to (cr, cx + cos (other_from) * radius, cy + sin (other_from) * radius);
+      cairo_line_to (cr, sx, top);
+      cairo_move_to (cr, cx + cos (other_to) * radius, cy + sin (other_to) * radius);
+      cairo_line_to (cr, sx, bottom);
+      cairo_stroke (cr);
+    }
+
+  /* The legend, down the right: every category, and Other. */
+  for (int p = 0; p <= d->n_points && p < 12; p++)
+    {
+      double ly = y0 + 12 + p * 16;
+      double v = p < d->n_points ? d->values[p] : other;
+      char *label;
+
+      if (isnan (v) || v <= 0)
+        continue;
+      if (p < d->n_points)
+        set_rgb (cr, o42_chart_series_colour (chart, p));
+      else
+        cairo_set_source_rgb (cr, 0.72, 0.72, 0.72);
+      cairo_rectangle (cr, x0 + w * 0.80, ly + 2, 10, 10);
+      cairo_fill (cr);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      label = g_strdup_printf ("%s (%.0f%%)", p < d->n_points ? d->categories[p] : "Other", 100 * v / total);
+      show_text (chart, cr, layout, label, x0 + w * 0.80 + 14, ly, 0.0, FALSE);
+      g_free (label);
+    }
+}
+
 static void
 draw_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartData *d,
           double x0, double y0, double w, double h)
@@ -1867,6 +2078,11 @@ draw_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartDa
 
   if (d->n_points == 0 || d->n_series == 0)
     return;
+  if (chart->kind == O42_CHART_PIE && chart->of_pie != 0 && d->n_points >= 3)
+    {
+      draw_of_pie (chart, cr, layout, d, x0, y0, w, h);
+      return;
+    }
 
   /* A pie shows the first series; the categories are its slices. */
   for (int p = 0; p < d->n_points; p++)
@@ -1895,7 +2111,7 @@ draw_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartDa
           double thickness = MAX (radius * 0.20, 6);
           int steps = MAX (2, (int) (sweep * 16));
 
-          set_rgb (cr, shaded (SERIES_COLOURS[p % G_N_ELEMENTS (SERIES_COLOURS)], 0.6));
+          set_rgb (cr, shaded (o42_chart_series_colour (chart, p), 0.6));
           cairo_new_path (cr);
           for (int i = 0; i <= steps; i++)
             {
@@ -1915,7 +2131,7 @@ draw_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartDa
           cairo_fill (cr);
         }
 
-      set_rgb (cr, SERIES_COLOURS[p % G_N_ELEMENTS (SERIES_COLOURS)]);
+      set_rgb (cr, o42_chart_series_colour (chart, p));
       cairo_new_path (cr);
       cairo_move_to (cr, cx, cy);
       if (chart->three_d)
@@ -1951,7 +2167,7 @@ draw_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartDa
         {
           char *text = g_strdup_printf ("%.0f%%", 100 * v / total);
           double mid = angle + sweep / 2;
-          cairo_set_source_rgb (cr, 1, 1, 1);
+          set_text_over (cr, o42_chart_series_colour (chart, p));
           show_text (chart, cr, layout, text, cx + cos (mid) * radius * 0.65,
                      cy + sin (mid) * radius * (chart->three_d ? 0.36 : 0.65) - 7, 0.5, FALSE);
           g_free (text);
@@ -1968,7 +2184,7 @@ draw_pie (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartDa
 
       if (isnan (v) || v <= 0)
         continue;
-      set_rgb (cr, SERIES_COLOURS[p % G_N_ELEMENTS (SERIES_COLOURS)]);
+      set_rgb (cr, o42_chart_series_colour (chart, p));
       cairo_rectangle (cr, x0 + w * 0.76, ly + 2, 10, 10);
       cairo_fill (cr);
       cairo_set_source_rgb (cr, 0, 0, 0);
@@ -1988,7 +2204,7 @@ draw_legend (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Char
     {
       int tw, th;
 
-      set_rgb (cr, SERIES_COLOURS[(s - first) % G_N_ELEMENTS (SERIES_COLOURS)]);
+      set_rgb (cr, o42_chart_series_colour (chart, (s - first)));
       cairo_rectangle (cr, x, y0 + 3, 10, 10);
       cairo_fill (cr);
       cairo_set_source_rgb (cr, 0, 0, 0);
@@ -2128,7 +2344,7 @@ draw_box_plot (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
     {
       double centre = x0 + slot * (s + 0.5);
       double half = MIN (slot * 0.3, 30);
-      guint32 colour = SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)];
+      guint32 colour = o42_chart_series_colour (chart, s);
 
       if (!boxes[s].any)
         continue;
@@ -2237,7 +2453,7 @@ draw_histogram_plot (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
 
       if (bh <= 0)
         continue;
-      set_rgb (cr, SERIES_COLOURS[0]);
+      set_rgb (cr, o42_chart_series_colour (chart, 0));
       cairo_rectangle (cr, bx, plot_bottom - bh, bw - 1, bh);
       cairo_fill_preserve (cr);
       cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
@@ -2295,7 +2511,7 @@ draw_polar_plot (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
     {
       gboolean started = FALSE;
 
-      set_rgb (cr, SERIES_COLOURS[s % G_N_ELEMENTS (SERIES_COLOURS)]);
+      set_rgb (cr, o42_chart_series_colour (chart, s));
       cairo_set_line_width (cr, 2);
       for (int p = 0; p < d->n_points; p++)
         {

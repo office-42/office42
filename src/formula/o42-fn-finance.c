@@ -78,7 +78,10 @@ basis_year (double from, double to, int basis)
    * less and a 29 February falls inside it, and 365 when it does not;
    * only a term longer than a year takes the average of the years it
    * touches. */
-  if (floor (to) - floor (from) <= 365)
+  /* "A year or less" is by the calendar, as Excel counts it: 15
+   * December 2019 to 15 December 2020 is one year exactly, 366 days
+   * though it spans, and takes the 366 of the leap year it ends in. */
+  if (y1 == y2 || (y2 == y1 + 1 && (m2 < m1 || (m2 == m1 && d2 <= d1))))
     {
       /* A term inside one leap year counts 366 whether or not it takes
        * in the leap day itself. */
@@ -319,6 +322,22 @@ fn_fvschedule (O42EvalContext *ctx, O42Operand *args, int n)
   O42ErrorCode err = O42_ERR_VALUE;
 
   ARG_NUMBER (0, principal);
+  if (args[1].is_range)
+    {
+      /* Text among the rates is #VALUE!, where SUM would pass it over. */
+      const O42Range *r = &args[1].range;
+      for (int row = r->row0; row <= r->row1; row++)
+        for (int col = r->col0; col <= r->col1; col++)
+          {
+            O42Value v;
+            gboolean text;
+            ctx->get_cell (ctx, args[1].sheet, row, col, &v);
+            text = v.type == O42_VALUE_TEXT;
+            o42_value_clear (&v);
+            if (text)
+              return o42_value_error (O42_ERR_VALUE);
+          }
+    }
   if (!collect_numbers (ctx, args + 1, n - 1, &rates, &err))
     return o42_value_error (err);
 
@@ -687,16 +706,6 @@ fn_bahttext (O42EvalContext *ctx, O42Operand *args, int n)
  * nothing outside Thai; the first two hand the text back and the
  * third spells a number the Thai way, which is what they are for. */
 static O42Value
-fn_asc (O42EvalContext *ctx, O42Operand *args, int n)
-{
-  char *text = NULL;
-
-  (void) n;
-  ARG_TEXT (0, text);
-  return o42_value_take (text);
-}
-
-static O42Value
 fn_phonetic (O42EvalContext *ctx, O42Operand *args, int n)
 {
   char *text = NULL;
@@ -1010,10 +1019,11 @@ duration_call (O42EvalContext *ctx, O42Operand *args, int n, gboolean modified)
   if (!bond_term (settlement, maturity, (int) frequency, (int) basis, &term))
     return o42_value_error (O42_ERR_NUM);
 
-  /* How much of the first coupon period has already gone, measured
-   * the way the Analysis ToolPak measures it: the whole term in years
-   * against the number of coupons left. */
-  fraction = term.coupons - o42_bond_yearfrac (settlement, maturity, (int) basis) * frequency;
+  /* How much of the first coupon period has already gone, on the
+   * basis given: the days behind the settlement against the period's
+   * length, as PRICE counts them.  On a coupon date it is nothing,
+   * whatever the basis. */
+  fraction = 1 - term.ahead / term.period;
   discount = 1 + yld / frequency;
   for (int k = 1; k <= term.coupons; k++)
     {
@@ -1142,6 +1152,8 @@ fn_datedif (O42EvalContext *ctx, O42Operand *args, int n)
   return result;
 }
 
+static O42Value fn_isoweeknum (O42EvalContext *ctx, O42Operand *args, int n);
+
 static O42Value
 fn_weeknum (O42EvalContext *ctx, O42Operand *args, int n)
 {
@@ -1159,10 +1171,122 @@ fn_weeknum (O42EvalContext *ctx, O42Operand *args, int n)
   jan1 = o42_date_serial (y, 1, 1);
   jan1_wd = o42_date_weekday (jan1);    /* Monday 1 .. Sunday 7 */
 
-  /* Weeks begin on Sunday (type 1) or Monday (type 2), and the week that
-   * holds 1 January is week 1. */
-  offset = ((int) type == 2) ? jan1_wd - 1 : jan1_wd % 7;
+  /* Weeks begin on Sunday (type 1 or 17) or Monday (type 2 or 11) or
+   * any other day (12 to 16), and the week that holds 1 January is
+   * week 1; type 21 is the ISO week. */
+  if ((int) type == 21)
+    return fn_isoweeknum (ctx, args, 1);
+  switch ((int) type)
+    {
+    case 1: case 17: offset = jan1_wd % 7; break;
+    case 2: case 11: offset = jan1_wd - 1; break;
+    case 12: case 13: case 14: case 15: case 16:
+      /* The week starts on Tuesday (12) to Saturday (16): how far 1
+       * January is into its week. */
+      offset = (jan1_wd - ((int) type - 10) + 7) % 7;
+      break;
+    default: return o42_value_error (O42_ERR_NUM);
+    }
   return o42_value_number (floor ((floor (serial) - jan1 + offset) / 7) + 1);
+}
+
+/* EUROCONVERT: the fixed rates at which the euro's members gave up
+ * their currencies, one euro being so many of each; a conversion
+ * between two of them goes through the euro (the "triangulation"),
+ * and the intermediate euro amount may be rounded to a number of
+ * decimals, as the regulation allowed.  The result is rounded to the
+ * target's decimals -- none for the lira, the drachma, the peseta and
+ * the francs of Belgium and Luxembourg, two for the rest -- unless
+ * full precision is asked for. */
+static const struct {
+  const char *code;
+  double      per_euro;
+  int         decimals;
+} EURO_RATES[] = {
+  { "EUR", 1.0,      2 },
+  { "ATS", 13.7603,  2 }, { "BEF", 40.3399,  0 }, { "DEM", 1.95583,  2 },
+  { "ESP", 166.386,  0 }, { "FIM", 5.94573,  2 }, { "FRF", 6.55957,  2 },
+  { "IEP", 0.787564, 2 }, { "ITL", 1936.27,  0 }, { "LUF", 40.3399,  0 },
+  { "NLG", 2.20371,  2 }, { "PTE", 200.482,  0 }, { "GRD", 340.750,  0 },
+  { "SIT", 239.640,  2 }, { "CYP", 0.585274, 2 }, { "MTL", 0.429300, 2 },
+  { "SKK", 30.1260,  2 }, { "EEK", 15.6466,  2 }, { "LVL", 0.702804, 2 },
+  { "LTL", 3.45280,  2 }, { "HRK", 7.53450,  2 },
+};
+
+int
+o42_euro_members (const char ***codes)
+{
+  static const char *names[G_N_ELEMENTS (EURO_RATES) + 1];
+
+  for (guint i = 0; i < G_N_ELEMENTS (EURO_RATES); i++)
+    names[i] = EURO_RATES[i].code;
+  names[G_N_ELEMENTS (EURO_RATES)] = NULL;
+  if (codes != NULL) *codes = names;
+  return (int) G_N_ELEMENTS (EURO_RATES);
+}
+
+int
+o42_euro_decimals (const char *code)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (EURO_RATES); i++)
+    if (g_ascii_strcasecmp (code, EURO_RATES[i].code) == 0)
+      return EURO_RATES[i].decimals;
+  return 2;
+}
+
+static int
+euro_member (const char *code)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (EURO_RATES); i++)
+    if (g_ascii_strcasecmp (code, EURO_RATES[i].code) == 0)
+      return (int) i;
+  return -1;
+}
+
+static double
+round_places (double x, int places)
+{
+  double scale = pow (10, places);
+  return copysign (floor (fabs (x) * scale + 0.5), x) / scale;
+}
+
+static O42Value
+fn_euroconvert (O42EvalContext *ctx, O42Operand *args, int n)
+{
+  double amount, full = 0, precision = 0;
+  char *from = NULL, *to = NULL;
+  int source, target;
+  double euros, result;
+
+  ARG_NUMBER (0, amount);
+  ARG_TEXT (1, from);
+  ARG_TEXT (2, to);
+  source = euro_member (from);
+  target = euro_member (to);
+  g_free (from);
+  g_free (to);
+  if (source < 0 || target < 0)
+    return o42_value_error (O42_ERR_VALUE);
+  if (n >= 4)
+    ARG_NUMBER (3, full);
+  if (n >= 5)
+    {
+      ARG_NUMBER (4, precision);
+      precision = floor (precision);
+      if (precision < 3)
+        return o42_value_error (O42_ERR_VALUE);
+    }
+
+  euros = amount / EURO_RATES[source].per_euro;
+  /* The euro amount between two national currencies is rounded to
+   * the precision asked for; to or from the euro itself there is no
+   * intermediate to round. */
+  if (n >= 5 && source != 0 && target != 0)
+    euros = round_places (euros, (int) precision);
+  result = euros * EURO_RATES[target].per_euro;
+  if (full == 0)
+    result = round_places (result, EURO_RATES[target].decimals);
+  return o42_value_number (result);
 }
 
 static O42Value
@@ -1191,7 +1315,6 @@ const O42Function O42_FUNCS_FINANCE[] = {
   { "ACCRINTM", 3, 5, fn_accrintm },
   { "AMORDEGRC", 6, 7, fn_amordegrc },
   { "AMORLINC", 6, 7, fn_amorlinc },
-  { "ASC", 1, 1, fn_asc },
   { "BAHTTEXT", 1, 1, fn_bahttext },
   { "COUPDAYBS", 3, 4, fn_coupdaybs },
   { "COUPDAYS", 3, 4, fn_coupdays },
@@ -1202,6 +1325,7 @@ const O42Function O42_FUNCS_FINANCE[] = {
   { "DATEDIF", 3, 3, fn_datedif },
   { "DISC", 4, 5, fn_disc },
   { "DURATION", 5, 6, fn_duration },
+  { "EUROCONVERT", 3, 5, fn_euroconvert },
   { "FVSCHEDULE", 2, -1, fn_fvschedule },
   { "INTRATE", 4, 5, fn_intrate },
   { "ISOWEEKNUM", 1, 1, fn_isoweeknum },
@@ -1231,7 +1355,6 @@ const O42FunctionHelp O42_HELP_FINANCE[] = {
   { "ACCRINTM", "ACCRINTM(issue, settlement, rate, par, basis)", "Accrued interest on a security that pays at maturity." },
   { "AMORDEGRC", "AMORDEGRC(cost, purchased, first_period, salvage, period, rate, basis)", "French degressive depreciation for a period." },
   { "AMORLINC", "AMORLINC(cost, purchased, first_period, salvage, period, rate, basis)", "French straight-line depreciation for a period." },
-  { "ASC", "ASC(text)", "Full-width letters as half-width ones; the text itself here." },
   { "BAHTTEXT", "BAHTTEXT(number)", "A number written out in Thai, in baht and satang." },
   { "COUPDAYBS", "COUPDAYBS(settlement, maturity, frequency, basis)", "Days from the start of the coupon period to the settlement." },
   { "COUPDAYS", "COUPDAYS(settlement, maturity, frequency, basis)", "Days in the coupon period the settlement falls in." },
@@ -1242,6 +1365,7 @@ const O42FunctionHelp O42_HELP_FINANCE[] = {
   { "DATEDIF", "DATEDIF(start_date, end_date, unit)", "The time between two dates in years, months or days: \"Y\", \"M\", \"D\", \"YM\", \"YD\", \"MD\"." },
   { "DISC", "DISC(settlement, maturity, pr, redemption, basis)", "The discount rate of a security." },
   { "DURATION", "DURATION(settlement, maturity, coupon, yld, frequency, basis)", "A bond's Macaulay duration in years." },
+  { "EUROCONVERT", "EUROCONVERT(number, source, target, full_precision, triangulation_precision)", "A sum in one of the euro's member currencies (ISO code) as another, at the fixed rates." },
   { "FVSCHEDULE", "FVSCHEDULE(principal, schedule)", "A principal grown by a series of interest rates." },
   { "INTRATE", "INTRATE(settlement, maturity, investment, redemption, basis)", "The interest rate of a fully invested security." },
   { "ISOWEEKNUM", "ISOWEEKNUM(serial)", "The ISO week number of a date." },

@@ -21,10 +21,22 @@ typedef struct {
   double          number;
   O42NumberFormat format;    /* the format the text asks for, or General */
   int             decimals;  /* for Percent, Currency and Comma */
+  const char     *custom;    /* a code no preset says, interned; "[h]:mm:ss" for 25:30 */
 } O42Entry;
 
 /* Reads `text` as a number, a date or a time.  FALSE means it is text. */
 gboolean o42_entry_parse (const char *text, O42Entry *out);
+
+/* Excel's "fixed decimal": with it set to two, typing 1234 means
+ * 12.34.  It is a habit of the person typing rather than of the book,
+ * so it is the program's: -1 for off.  o42_entry_fixed_decimals_apply
+ * gives the text as it should be taken -- a plain number with no point
+ * or exponent in it is moved that many places -- or NULL when the text
+ * is to be taken as typed.  Only what is typed goes through it; a
+ * file's numbers do not. */
+void  o42_entry_set_fixed_decimals   (int places);
+int   o42_entry_fixed_decimals       (void);
+char *o42_entry_fixed_decimals_apply (const char *text);
 
 /* `text` as it has to be typed to stay text: with an apostrophe in front
  * when a cell would otherwise read it as a number, a date, TRUE or a

@@ -3,7 +3,7 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Excel 5's window, top to bottom: a navy title bar, the menu bar, the
+ * Excel 97's window, top to bottom: a navy title bar, the menu bar, the
  * Standard and Formatting toolbars, the name box beside the formula bar,
  * the grid, the sheet tabs, and a status bar.  The chrome is the same
  * Windows 3.1 silver word42 wears, because the two programs shipped side by
@@ -38,8 +38,13 @@
 #include "o42-spell.h"
 
 #include "o42-grid.h"
+#include "o42-cursor.h"
+#include "o42-application.h"
+#include "o42-date.h"
+#include "o42-entry.h"
 #include "o42-image.h"
 #include "o42-pdf.h"
+#include "o42-scan.h"
 #include "o42-sql.h"
 #include "o42-csv.h"
 #include "o42-text-formats.h"
@@ -50,6 +55,7 @@
 #include "o42-ods.h"
 #include "o42-html.h"
 #include "o42-book.h"
+#include "o42-pyquote.h"
 #include "o42-eval.h"
 #include "o42-formula.h"
 #include "o42-python.h"
@@ -72,7 +78,7 @@ o42_window_set_dialogs_modal (gboolean modal)
   dialogs_modal = modal;
 }
 
-/* The sizes Excel 5's Formatting toolbar offered. */
+/* The sizes Excel 97's Formatting toolbar offered. */
 static const int FONT_SIZES[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 22,
                                   24, 26, 28, 36, 48, 72 };
 
@@ -80,6 +86,13 @@ static const int FONT_SIZES[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 22,
 G_DEFINE_FINAL_TYPE (O42Window, o42_window, GTK_TYPE_APPLICATION_WINDOW)
 
 static void window_rebuild_tabs (O42Window *self);
+static void window_apply_view (O42Window *self);
+static void window_keep_view (O42Window *self);
+static void window_fill_recent (O42Window *self);
+static void on_recent_changed (GtkRecentManager *manager, gpointer data);
+static void on_application_set (GObject *object, GParamSpec *pspec, gpointer data);
+static int recent_newer_first (gconstpointer a, gconstpointer b, gpointer data);
+static void window_install_python_host (O42Window *self);
 static void action_new_window (GSimpleAction *a, GVariant *p, gpointer data);
 
 /* ---------------------------------------------------------------------- */
@@ -234,11 +247,36 @@ window_undo_redo (O42Window *self, gboolean undo)
   window_sync (self);
 }
 
+/* View > Toolbars, Formula Bar and Status Bar: each a check item that
+ * hides or shows its bar; the grid takes the room. */
+static void
+change_show_bar (GSimpleAction *action, GVariant *state, gpointer data)
+{
+  O42Window *self = data;
+  const char *name = g_action_get_name (G_ACTION (action));
+  gboolean show = g_variant_get_boolean (state);
+  GtkWidget *bar = strcmp (name, "show-standard-bar") == 0 ? self->standard_bar
+                 : strcmp (name, "show-format-bar") == 0 ? self->format_bar
+                 : strcmp (name, "show-formula-bar") == 0 ? self->formula_bar
+                 : self->status_bar;
+
+  if (bar != NULL)
+    gtk_widget_set_visible (bar, show);
+  g_simple_action_set_state (action, state);
+  gtk_widget_grab_focus (GTK_WIDGET (self->grid));
+}
+
 static void action_undo (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; window_undo_redo (d, TRUE); }
 static void action_redo (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; window_undo_redo (d, FALSE); }
 
-static void action_fill_down  (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill (O42_WINDOW (d)->grid, TRUE);  }
-static void action_fill_right (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill (O42_WINDOW (d)->grid, FALSE); }
+static void action_fill_down  (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_direction (O42_WINDOW (d)->grid, O42_FILL_DOWN);  }
+static void action_fill_right (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_direction (O42_WINDOW (d)->grid, O42_FILL_RIGHT); }
+static void action_fill_up    (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_direction (O42_WINDOW (d)->grid, O42_FILL_UP);    }
+static void action_fill_left  (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_direction (O42_WINDOW (d)->grid, O42_FILL_LEFT);  }
+static void action_fill_justify (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_fill_justify (O42_WINDOW (d)->grid); }
+static void action_clear_formats (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_clear_selection (O42_WINDOW (d)->grid, O42_CLEAR_FORMATS); }
+static void action_clear_notes   (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_clear_selection (O42_WINDOW (d)->grid, O42_CLEAR_NOTES); }
+static void action_clear_all     (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_clear_selection (O42_WINDOW (d)->grid, O42_CLEAR_ALL); }
 
 static void
 toggle_fmt (O42Window *self, O42FmtMask mask)
@@ -296,6 +334,7 @@ action_number (GSimpleAction *a, GVariant *param, gpointer data)
   o42_fmt_init_default (&want);
 
   if (g_strcmp0 (which, "currency") == 0)        { want.number = O42_NUM_CURRENCY;   want.decimals = 2; mask |= O42_FMT_DECIMALS; }
+  else if (g_strcmp0 (which, "accounting") == 0) { want.number = O42_NUM_ACCOUNTING; want.decimals = 2; mask |= O42_FMT_DECIMALS; }
   else if (g_strcmp0 (which, "percent") == 0)    { want.number = O42_NUM_PERCENT;    want.decimals = 0; mask |= O42_FMT_DECIMALS; }
   else if (g_strcmp0 (which, "comma") == 0)      { want.number = O42_NUM_COMMA;      want.decimals = 2; mask |= O42_FMT_DECIMALS; }
   else if (g_strcmp0 (which, "fixed") == 0)      { want.number = O42_NUM_FIXED;      want.decimals = 2; mask |= O42_FMT_DECIMALS; }
@@ -444,6 +483,22 @@ on_picture_response (GObject *source, GAsyncResult *result, gpointer data)
         {
           o42_grid_insert_picture (self->grid, bytes, format, width, height);
           g_bytes_unref (bytes);
+          if (o42_book_recording (self->book))
+            {
+              /* The recorder gets the picture by its path, which is all
+               * a macro can be given. */
+              int row, col;
+              char *path = g_file_get_path (file);
+              char *quoted = o42_python_quote (path != NULL ? path : "");
+              char *at, *line;
+
+              o42_grid_get_active (self->grid, &row, &col);
+              at = o42_ref_name (row, col);
+              line = g_strdup_printf ("sheet.add_picture(%s, \"%s\")", quoted, at);
+              o42_book_record_sheet (self->book, o42_sheet_get_name (self->sheet));
+              o42_book_record_line (self->book, line);
+              g_free (line); g_free (at); g_free (quoted); g_free (path);
+            }
         }
       else
         show_error (self, "office42 could not insert that picture.", error);
@@ -479,6 +534,91 @@ action_insert_picture (GSimpleAction *a, GVariant *p, gpointer data)
 
   g_object_unref (filters);
   g_object_unref (dialog);
+}
+
+/* Format > Sheet > Background: a picture file, tiled behind the cells. */
+static void
+on_background_response (GObject *source, GAsyncResult *result, gpointer data)
+{
+  O42Window *self = data;
+  GError *error = NULL;
+  GFile *file = gtk_file_dialog_open_finish (GTK_FILE_DIALOG (source), result, &error);
+
+  if (file != NULL)
+    {
+      int width = 0, height = 0;
+      const char *format = NULL;
+      GBytes *bytes = o42_image_load_file (file, &width, &height, &format, &error);
+
+      if (bytes != NULL)
+        {
+          o42_sheet_set_background (self->sheet, bytes, format);
+          g_bytes_unref (bytes);
+          o42_grid_refresh (self->grid);
+          window_sync (self);
+        }
+      else
+        show_error (self, "office42 could not read that picture.", error);
+      g_object_unref (file);
+    }
+  g_clear_error (&error);
+}
+
+static void
+action_sheet_background (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GtkFileDialog *dialog = gtk_file_dialog_new ();
+  GListStore *filters = g_list_store_new (GTK_TYPE_FILE_FILTER);
+  GtkFileFilter *pictures = gtk_file_filter_new ();
+
+  (void) a; (void) p;
+  gtk_file_filter_set_name (pictures, _("Pictures"));
+  add_picture_patterns (pictures);
+  g_list_store_append (filters, pictures);
+  gtk_file_dialog_set_title (dialog, _("Sheet Background"));
+  gtk_file_dialog_set_filters (dialog, G_LIST_MODEL (filters));
+  gtk_file_dialog_open (dialog, GTK_WINDOW (self), NULL, on_background_response, self);
+  g_object_unref (filters);
+  g_object_unref (dialog);
+}
+
+static void
+action_delete_background (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  o42_sheet_set_background (self->sheet, NULL, NULL);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+}
+
+/* Insert > Picture > From Scanner or Camera: the system's acquire
+ * dialog, and the picture it gives lands like any other. */
+static void
+action_insert_scan (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GError *error = NULL;
+  char *format = NULL;
+  int width = 0, height = 0;
+  GBytes *bytes;
+
+  (void) a; (void) p;
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  bytes = o42_scan_acquire (&format, &width, &height, &error);
+  if (bytes != NULL)
+    {
+      o42_grid_insert_picture (self->grid, bytes, format, width, height);
+      g_bytes_unref (bytes);
+    }
+  else if (error != NULL)
+    show_error (self, "office42 could not get a picture from the scanner or camera.", error);
+  g_clear_error (&error);
+  g_free (format);
+  gtk_widget_grab_focus (GTK_WIDGET (self->grid));
 }
 
 /* ---- PDF -------------------------------------------------------------- */
@@ -609,7 +749,7 @@ action_import_pdf (GSimpleAction *a, GVariant *p, gpointer data)
 /* ---- Small dialogs: the frame they share ------------------------------ */
 
 /* A transient window with a content box and an OK/Cancel row (or whatever
- * buttons the caller adds): the shape every Excel 5 dialog had. */
+ * buttons the caller adds): the shape every Excel 97 dialog had. */
 GtkWidget *
 o42_dialog_frame (O42Window *self, const char *title, gboolean modal,
               GtkWidget **content, GtkWidget **buttons)
@@ -1277,6 +1417,22 @@ o42_window_select_cell (O42Window *self, int row, int col)
   o42_grid_set_active (self->grid, row, col);
 }
 
+void
+o42_window_run_python (O42Window *self, const char *code)
+{
+  char *output = NULL;
+
+  g_return_if_fail (O42_IS_WINDOW (self) && code != NULL);
+  window_install_python_host (self);
+  o42_python_run (self->book, self->sheet, code, "<--py>", &output);
+  if (output != NULL && *output != '\0')
+    g_print ("%s", output);
+  g_free (output);
+  o42_grid_refresh (self->grid);
+  window_rebuild_tabs (self);
+  window_sync (self);
+}
+
 /* ---- View > Zoom ------------------------------------------------------ */
 
 static void
@@ -1287,6 +1443,7 @@ action_zoom (GSimpleAction *a, GVariant *param, gpointer data)
 
   (void) a;
   o42_grid_set_zoom (self->grid, percent / 100.0);
+  window_keep_view (self);
   window_sync (self);
   gtk_widget_grab_focus (GTK_WIDGET (self->grid));
 }
@@ -1296,8 +1453,9 @@ action_zoom (GSimpleAction *a, GVariant *param, gpointer data)
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
-  GtkWidget *gridlines, *zeros;
+  GtkWidget *gridlines, *zeros, *checks;
   GtkWidget *manual, *iterate, *iterations, *tolerance;
+  GtkWidget *currency, *date_1904, *as_displayed, *fixed, *fixed_places;
 } OptionsPrompt;
 
 static void
@@ -1309,13 +1467,40 @@ on_options_ok (GtkWidget *w, gpointer data)
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->gridlines)));
   o42_grid_set_show_zeros (prompt->window->grid,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->zeros)));
+  window_keep_view (prompt->window);
+  o42_grid_set_show_checks (prompt->window->grid,
+    gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->checks)));
 
   o42_book_set_manual (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->manual)));
+  o42_book_set_date_1904 (prompt->window->book,
+    gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->date_1904)));
+  o42_book_set_precision_as_displayed (prompt->window->book,
+    gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->as_displayed)));
+  {
+    /* Fixed decimals is a habit of the typist, kept with the currency. */
+    gboolean fixed = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->fixed));
+    int places = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->fixed_places));
+    char *text = fixed ? g_strdup_printf ("%d", places) : NULL;
+
+    o42_entry_set_fixed_decimals (fixed ? places : -1);
+    o42_prefs_set ("fixed_decimals", text);
+    g_free (text);
+  }
   o42_book_set_iteration (prompt->window->book,
     gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->iterate)),
     (int) gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->iterations)),
     g_ascii_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->tolerance)), NULL));
+
+  {
+    /* The currency symbol is the program's, not the book's: it is
+     * kept in the options file and shown by every Currency and
+     * Accounting cell from now on. */
+    const char *symbol = gtk_editable_get_text (GTK_EDITABLE (prompt->currency));
+
+    o42_numfmt_set_currency (*symbol != '\0' ? symbol : NULL);
+    o42_prefs_set ("currency", *symbol != '\0' ? symbol : NULL);
+  }
 
   /* Turning iteration on, or going back to calculating as you type,
    * only means anything once everything has been worked out again. */
@@ -1348,6 +1533,10 @@ action_options (GSimpleAction *a, GVariant *p, gpointer data)
                                o42_grid_get_show_zeros (self->grid));
   gtk_box_append (GTK_BOX (content), prompt->gridlines);
   gtk_box_append (GTK_BOX (content), prompt->zeros);
+  prompt->checks = gtk_check_button_new_with_mnemonic ( _("Mark cells the _error checking doubts"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->checks),
+                               o42_grid_get_show_checks (self->grid));
+  gtk_box_append (GTK_BOX (content), prompt->checks);
 
   {
     /* How the book calculates: as you type or when you ask, and whether
@@ -1374,11 +1563,29 @@ action_options (GSimpleAction *a, GVariant *p, gpointer data)
     gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->iterate), iterating);
     gtk_box_append (GTK_BOX (content), prompt->iterate);
 
+    prompt->date_1904 = gtk_check_button_new_with_mnemonic ( _("_1904 date system"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->date_1904), o42_book_date_1904 (self->book));
+    gtk_box_append (GTK_BOX (content), prompt->date_1904);
+
+    prompt->as_displayed = gtk_check_button_new_with_mnemonic ( _("_Precision as displayed"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->as_displayed),
+                                 o42_book_precision_as_displayed (self->book));
+    gtk_box_append (GTK_BOX (content), prompt->as_displayed);
+
+    prompt->fixed = gtk_check_button_new_with_mnemonic ( _("Fi_xed decimal places when typing:"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->fixed), o42_entry_fixed_decimals () >= 0);
+    gtk_box_append (GTK_BOX (content), prompt->fixed);
+
     prompt->iterations = labelled (grid, 0, "At most:",
                                    gtk_spin_button_new_with_range (1, 10000, 1));
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->iterations), max);
     prompt->tolerance = labelled (grid, 1, _("Until it moves less than:"), gtk_entry_new ());
     gtk_editable_set_text (GTK_EDITABLE (prompt->tolerance), shown);
+    prompt->fixed_places = labelled (grid, 2, _("Places:"), gtk_spin_button_new_with_range (0, 15, 1));
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->fixed_places), MAX (o42_entry_fixed_decimals (), 2));
+    prompt->currency = labelled (grid, 3, _("Currency symbol:"), gtk_entry_new ());
+    gtk_editable_set_text (GTK_EDITABLE (prompt->currency), o42_numfmt_currency ());
+    gtk_editable_set_width_chars (GTK_EDITABLE (prompt->currency), 6);
     gtk_box_append (GTK_BOX (content), grid);
   }
 
@@ -1437,8 +1644,10 @@ action_help_contents (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* Printing draws the same pages the PDF export does, through
  * GtkPrintOperation, which gives the system's print dialog and printers
- * for free.  The page size and orientation come from Page Setup; landscape
- * is the default because that is how a sheet is usually printed. */
+ * for free.  The paper, orientation and margins are the sheet's own,
+ * from File > Page Setup: the operation is told to use the full page
+ * and the pages lay their margins out themselves, so print, preview
+ * and PDF agree to the point. */
 /* The file's name, for &F in headers and footers. */
 static void
 window_name_pages (O42Window *self, O42Pages *pages)
@@ -1448,15 +1657,68 @@ window_name_pages (O42Window *self, O42Pages *pages)
   g_free (name);
 }
 
+/* A GtkPageSetup saying what a sheet's setup says: its paper, turned
+ * if landscape, with no margins of GTK's own. */
 static GtkPageSetup *
-window_page_setup (O42Window *self)
+page_setup_for (O42Sheet *sheet)
 {
-  if (self->page_setup == NULL)
+  const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+  GtkPageSetup *setup = gtk_page_setup_new ();
+  GtkPaperSize *paper = NULL;
+  double w, h;
+
+  o42_paper_size (ps->paper, &w, &h);
+  /* GTK knows the common papers by name; the rest are given by size. */
+  switch (ps->paper)
     {
-      self->page_setup = gtk_page_setup_new ();
-      gtk_page_setup_set_orientation (self->page_setup, GTK_PAGE_ORIENTATION_LANDSCAPE);
+    case 1:  paper = gtk_paper_size_new (GTK_PAPER_NAME_LETTER); break;
+    case 5:  paper = gtk_paper_size_new (GTK_PAPER_NAME_LEGAL); break;
+    case 7:  paper = gtk_paper_size_new (GTK_PAPER_NAME_EXECUTIVE); break;
+    case 8:  paper = gtk_paper_size_new (GTK_PAPER_NAME_A3); break;
+    case 9:  paper = gtk_paper_size_new (GTK_PAPER_NAME_A4); break;
+    case 11: paper = gtk_paper_size_new (GTK_PAPER_NAME_A5); break;
+    case 13: paper = gtk_paper_size_new (GTK_PAPER_NAME_B5); break;
+    default:
+      paper = gtk_paper_size_new_custom ("office42", o42_paper_name (ps->paper), w, h, GTK_UNIT_POINTS);
+      break;
     }
-  return self->page_setup;
+  gtk_page_setup_set_paper_size (setup, paper);
+  gtk_paper_size_free (paper);
+  gtk_page_setup_set_orientation (setup, ps->landscape ? GTK_PAGE_ORIENTATION_LANDSCAPE
+                                                       : GTK_PAGE_ORIENTATION_PORTRAIT);
+  gtk_page_setup_set_left_margin (setup, 0, GTK_UNIT_POINTS);
+  gtk_page_setup_set_right_margin (setup, 0, GTK_UNIT_POINTS);
+  gtk_page_setup_set_top_margin (setup, 0, GTK_UNIT_POINTS);
+  gtk_page_setup_set_bottom_margin (setup, 0, GTK_UNIT_POINTS);
+  return setup;
+}
+
+/* The pages of a sheet, or of the selection on it when the print
+ * dialog asked for that: the selection stands in for the print area
+ * while the pages are made. */
+static O42Pages *
+window_pages_for (O42Window *self, O42Sheet *sheet, gboolean selection)
+{
+  O42Pages *pages;
+
+  if (selection && sheet == self->sheet)
+    {
+      O42PrintSetup was = *o42_sheet_print_setup (sheet);
+      O42PrintSetup now = was;
+      gboolean modified = o42_sheet_is_modified (sheet);
+
+      o42_grid_get_selection (self->grid, &now.area);
+      now.has_area = TRUE;
+      o42_sheet_set_print_setup (sheet, &now);
+      pages = o42_pages_new (sheet);
+      o42_sheet_set_print_setup (sheet, &was);
+      if (!modified)
+        o42_sheet_set_modified (sheet, FALSE);
+    }
+  else
+    pages = o42_pages_new (sheet);
+  window_name_pages (self, pages);
+  return pages;
 }
 
 static void
@@ -1465,17 +1727,17 @@ on_print_begin (GtkPrintOperation *op, GtkPrintContext *context, gpointer data)
   O42Window *self = data;
   gboolean whole_book = g_object_get_data (G_OBJECT (op), "o42-book") != NULL;
   GPtrArray *all = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_pages_free);
+  GtkPrintSettings *settings = gtk_print_operation_get_print_settings (op);
+  gboolean selection = settings != NULL &&
+                       gtk_print_settings_get_print_pages (settings) == GTK_PRINT_PAGES_SELECTION;
   int total = 0;
 
+  (void) context;
   for (int i = 0; i < o42_book_n_sheets (self->book); i++)
     {
       O42Sheet *sheet = whole_book ? o42_book_sheet (self->book, i) : self->sheet;
-      double margin = o42_sheet_print_setup (sheet)->margin;
-      O42Pages *pages = o42_pages_new (sheet,
-                                       gtk_print_context_get_width (context) - 2 * margin,
-                                       gtk_print_context_get_height (context) - 2 * margin);
+      O42Pages *pages = window_pages_for (self, sheet, selection);
 
-      window_name_pages (self, pages);
       g_ptr_array_add (all, pages);
       total += MAX (1, o42_pages_count (pages));
       if (!whole_book)
@@ -1487,14 +1749,12 @@ on_print_begin (GtkPrintOperation *op, GtkPrintContext *context, gpointer data)
                           (GDestroyNotify) g_ptr_array_unref);
 }
 
-static void
-on_print_draw_page (GtkPrintOperation *op, GtkPrintContext *context,
-                    int page, gpointer data)
+/* The pages of the sheet a page of the job belongs to, and which of
+ * them it is. */
+static O42Pages *
+job_page (GtkPrintOperation *op, int page, int *within)
 {
-  O42Window *self = data;
   GPtrArray *all = g_object_get_data (G_OBJECT (op), "o42-all-pages");
-  cairo_t *cr = gtk_print_context_get_cairo_context (context);
-  double margin = o42_sheet_print_setup (self->sheet)->margin;
 
   for (guint i = 0; all != NULL && i < all->len; i++)
     {
@@ -1506,12 +1766,56 @@ on_print_draw_page (GtkPrintOperation *op, GtkPrintContext *context,
           page -= count;
           continue;
         }
-      cairo_save (cr);
-      cairo_translate (cr, margin, margin);
-      o42_pages_draw (pages, page, cr);
-      cairo_restore (cr);
-      break;
+      *within = page;
+      return pages;
     }
+  return NULL;
+}
+
+/* Each sheet prints on its own paper, its own way up. */
+static void
+on_print_request_page_setup (GtkPrintOperation *op, GtkPrintContext *context,
+                             int page, GtkPageSetup *setup, gpointer data)
+{
+  int within = 0;
+  O42Pages *pages = job_page (op, page, &within);
+  double w, h;
+
+  (void) context; (void) data;
+  if (pages == NULL)
+    return;
+  o42_pages_paper (pages, &w, &h);
+  {
+    GtkPaperSize *paper = gtk_page_setup_get_paper_size (setup);
+    gboolean landscape = w > h;
+    double pw = MIN (w, h), ph = MAX (w, h);
+
+    if (fabs (gtk_paper_size_get_width (paper, GTK_UNIT_POINTS) - pw) > 3 ||
+        fabs (gtk_paper_size_get_height (paper, GTK_UNIT_POINTS) - ph) > 3)
+      {
+        GtkPaperSize *custom = gtk_paper_size_new_custom ("office42", "office42", pw, ph, GTK_UNIT_POINTS);
+        gtk_page_setup_set_paper_size (setup, custom);
+        gtk_paper_size_free (custom);
+      }
+    gtk_page_setup_set_orientation (setup, landscape ? GTK_PAGE_ORIENTATION_LANDSCAPE
+                                                     : GTK_PAGE_ORIENTATION_PORTRAIT);
+  }
+}
+
+static void
+on_print_draw_page (GtkPrintOperation *op, GtkPrintContext *context,
+                    int page, gpointer data)
+{
+  cairo_t *cr = gtk_print_context_get_cairo_context (context);
+  int within = 0;
+  O42Pages *pages = job_page (op, page, &within);
+
+  (void) data;
+  if (pages == NULL)
+    return;
+  cairo_save (cr);
+  o42_pages_draw (pages, within, cr);
+  cairo_restore (cr);
 }
 
 static void
@@ -1538,11 +1842,13 @@ on_print_done (GtkPrintOperation *op, GtkPrintOperationResult result, gpointer d
 }
 
 /* Printing, of this sheet or of every sheet in the book, which is what
- * Excel's print dialog calls the entire workbook. */
+ * Excel's print dialog calls the entire workbook; the dialog offers
+ * the selection too. */
 static void
 print_run (O42Window *self, gboolean whole_book)
 {
   GtkPrintOperation *op = gtk_print_operation_new ();
+  GtkPageSetup *setup;
   char *name;
 
   if (whole_book)
@@ -1555,13 +1861,23 @@ print_run (O42Window *self, gboolean whole_book)
   gtk_print_operation_set_job_name (op, name);
   g_free (name);
 
-  gtk_print_operation_set_default_page_setup (op, window_page_setup (self));
+  setup = page_setup_for (self->sheet);
+  gtk_print_operation_set_default_page_setup (op, setup);
+  g_object_unref (setup);
   if (self->print_settings != NULL)
     gtk_print_operation_set_print_settings (op, self->print_settings);
-  gtk_print_operation_set_embed_page_setup (op, TRUE);
+  gtk_print_operation_set_use_full_page (op, TRUE);
   gtk_print_operation_set_unit (op, GTK_UNIT_POINTS);
+  gtk_print_operation_set_support_selection (op, !whole_book);
+  {
+    O42Range sel;
+    o42_grid_get_selection (self->grid, &sel);
+    gtk_print_operation_set_has_selection (op, !whole_book &&
+                                           (sel.row0 != sel.row1 || sel.col0 != sel.col1));
+  }
 
   g_signal_connect (op, "begin-print", G_CALLBACK (on_print_begin), self);
+  g_signal_connect (op, "request-page-setup", G_CALLBACK (on_print_request_page_setup), self);
   g_signal_connect (op, "draw-page", G_CALLBACK (on_print_draw_page), self);
   g_signal_connect (op, "done", G_CALLBACK (on_print_done), self);
 
@@ -1586,60 +1902,149 @@ action_print_book (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* ---- Print Preview ---------------------------------------------------- */
 
-/* One page at a time, scaled to fit the window, from the same pages the
- * printer gets.  The pages are made afresh each time the preview opens
- * and freed with it. */
+/* One page at a time, from the same pages the printer gets, at the
+ * paper's size scaled to the window or at a zoom of its own; the
+ * whole book when asked, as Excel's preview shows every sheet the print
+ * would.  The pages are made afresh each time the preview opens, and
+ * again after Page Setup is used from it. */
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
   GtkWidget *area;
+  GtkWidget *scroller;
   GtkWidget *label;
-  O42Pages  *pages;
-  int        page;
-  double     paper_w, paper_h;    /* points */
-  double     margin;
+  GtkWidget *margins;      /* a check button: show the margins */
+  GPtrArray *pages;        /* O42Pages, one per sheet */
+  gboolean   whole_book;
+  int        page;         /* across all the sheets' pages */
+  double     zoom;         /* 0 for fit to the window */
+  double     view_scale, view_x, view_y;   /* how the page was last drawn */
+  int        dragging;     /* the margin being dragged: 1 left, 2 right, 3 top,
+                            * 4 bottom, 5 header, 6 footer; 0 none */
 } PreviewPrompt;
+
+static int
+preview_count (PreviewPrompt *prompt)
+{
+  int total = 0;
+  for (guint i = 0; i < prompt->pages->len; i++)
+    total += MAX (1, o42_pages_count (g_ptr_array_index (prompt->pages, i)));
+  return total;
+}
+
+static O42Pages *
+preview_page (PreviewPrompt *prompt, int *within)
+{
+  int page = prompt->page;
+  for (guint i = 0; i < prompt->pages->len; i++)
+    {
+      O42Pages *pages = g_ptr_array_index (prompt->pages, i);
+      int count = MAX (1, o42_pages_count (pages));
+      if (page < count)
+        {
+          *within = page;
+          return pages;
+        }
+      page -= count;
+    }
+  *within = 0;
+  return prompt->pages->len > 0 ? g_ptr_array_index (prompt->pages, 0) : NULL;
+}
 
 static void
 preview_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data)
 {
   PreviewPrompt *prompt = data;
-  double scale = MIN ((width - 20) / prompt->paper_w, (height - 20) / prompt->paper_h);
-  double x = (width - prompt->paper_w * scale) / 2;
-  double y = (height - prompt->paper_h * scale) / 2;
+  int within = 0;
+  O42Pages *pages = preview_page (prompt, &within);
+  double paper_w, paper_h, scale, x, y;
 
   (void) area;
-
   cairo_set_source_rgb (cr, 0.5, 0.5, 0.5);
   cairo_paint (cr);
+  if (pages == NULL)
+    return;
+
+  o42_pages_paper (pages, &paper_w, &paper_h);
+  scale = prompt->zoom > 0 ? prompt->zoom
+                           : MIN ((width - 20) / paper_w, (height - 20) / paper_h);
+  x = MAX (10, (width - paper_w * scale) / 2);
+  y = MAX (10, (height - paper_h * scale) / 2);
+  prompt->view_scale = scale;
+  prompt->view_x = x;
+  prompt->view_y = y;
 
   cairo_save (cr);
   cairo_translate (cr, x, y);
   cairo_scale (cr, scale, scale);
   cairo_set_source_rgb (cr, 1, 1, 1);
-  cairo_rectangle (cr, 0, 0, prompt->paper_w, prompt->paper_h);
+  cairo_rectangle (cr, 0, 0, paper_w, paper_h);
   cairo_fill (cr);
-  cairo_translate (cr, prompt->margin, prompt->margin);
-  cairo_rectangle (cr, 0, 0, prompt->paper_w - 2 * prompt->margin,
-                   prompt->paper_h - 2 * prompt->margin);
+  cairo_rectangle (cr, 0, 0, paper_w, paper_h);
   cairo_clip (cr);
-  o42_pages_draw (prompt->pages, prompt->page, cr);
+  o42_pages_draw (pages, within, cr);
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->margins)))
+    {
+      /* The margins as dotted lines, the way Excel's preview shows
+       * them when asked. */
+      const O42PrintSetup *ps = o42_sheet_print_setup (o42_pages_sheet (pages));
+      static const double dots[] = { 2, 3 };
+
+      cairo_set_source_rgb (cr, 0.3, 0.3, 0.3);
+      cairo_set_line_width (cr, 0.5);
+      cairo_set_dash (cr, dots, 2, 0);
+      cairo_move_to (cr, ps->margin_left, 0); cairo_line_to (cr, ps->margin_left, paper_h);
+      cairo_move_to (cr, paper_w - ps->margin_right, 0); cairo_line_to (cr, paper_w - ps->margin_right, paper_h);
+      cairo_move_to (cr, 0, ps->margin_top); cairo_line_to (cr, paper_w, ps->margin_top);
+      cairo_move_to (cr, 0, paper_h - ps->margin_bottom); cairo_line_to (cr, paper_w, paper_h - ps->margin_bottom);
+      cairo_move_to (cr, 0, ps->margin_header); cairo_line_to (cr, paper_w, ps->margin_header);
+      cairo_move_to (cr, 0, paper_h - ps->margin_footer); cairo_line_to (cr, paper_w, paper_h - ps->margin_footer);
+      cairo_stroke (cr);
+    }
   cairo_restore (cr);
 
   cairo_set_source_rgb (cr, 0, 0, 0);
   cairo_set_line_width (cr, 1);
-  cairo_rectangle (cr, x + 0.5, y + 0.5, prompt->paper_w * scale, prompt->paper_h * scale);
+  cairo_rectangle (cr, x + 0.5, y + 0.5, paper_w * scale, paper_h * scale);
   cairo_stroke (cr);
 }
 
 static void
 preview_update (PreviewPrompt *prompt)
 {
-  char *text = g_strdup_printf ("Page %d of %d", prompt->page + 1,
-                                MAX (1, o42_pages_count (prompt->pages)));
+  char *text = g_strdup_printf ("Page %d of %d", prompt->page + 1, MAX (1, preview_count (prompt)));
+  int within = 0;
+  O42Pages *pages = preview_page (prompt, &within);
+
   gtk_label_set_text (GTK_LABEL (prompt->label), text);
   g_free (text);
+  if (pages != NULL && prompt->zoom > 0)
+    {
+      double w, h;
+      o42_pages_paper (pages, &w, &h);
+      gtk_widget_set_size_request (prompt->area, (int) (w * prompt->zoom) + 20, (int) (h * prompt->zoom) + 20);
+    }
+  else
+    gtk_widget_set_size_request (prompt->area, -1, -1);
   gtk_widget_queue_draw (prompt->area);
+}
+
+/* The pages again, after Page Setup changed them. */
+static void
+preview_remake (PreviewPrompt *prompt)
+{
+  O42Window *self = prompt->window;
+
+  g_ptr_array_set_size (prompt->pages, 0);
+  for (int i = 0; i < o42_book_n_sheets (self->book); i++)
+    {
+      O42Sheet *sheet = prompt->whole_book ? o42_book_sheet (self->book, i) : self->sheet;
+      g_ptr_array_add (prompt->pages, window_pages_for (self, sheet, FALSE));
+      if (!prompt->whole_book)
+        break;
+    }
+  prompt->page = CLAMP (prompt->page, 0, MAX (0, preview_count (prompt) - 1));
+  preview_update (prompt);
 }
 
 static void
@@ -1647,7 +2052,7 @@ on_preview_next (GtkWidget *w, gpointer data)
 {
   PreviewPrompt *prompt = data;
   (void) w;
-  if (prompt->page + 1 < o42_pages_count (prompt->pages))
+  if (prompt->page + 1 < preview_count (prompt))
     prompt->page++;
   preview_update (prompt);
 }
@@ -1663,13 +2068,132 @@ on_preview_prev (GtkWidget *w, gpointer data)
 }
 
 static void
+on_preview_zoom (GtkWidget *w, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+  (void) w;
+  prompt->zoom = prompt->zoom > 0 ? 0 : 1.0;
+  preview_update (prompt);
+}
+
+static void
+on_preview_margins (GtkWidget *w, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+  (void) w;
+  gtk_widget_queue_draw (prompt->area);
+}
+
+/* Dragging a margin line, with the margins shown: the setup's margin
+ * follows the pointer and the pages are made again, as Excel's
+ * preview lets you do. */
+static int
+preview_margin_at (PreviewPrompt *prompt, double px, double py)
+{
+  int within = 0;
+  O42Pages *pages = preview_page (prompt, &within);
+  const O42PrintSetup *ps;
+  double paper_w, paper_h, s = prompt->view_scale;
+  double x, y;
+
+  if (pages == NULL || s <= 0 || !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->margins)))
+    return 0;
+  ps = o42_sheet_print_setup (o42_pages_sheet (pages));
+  o42_pages_paper (pages, &paper_w, &paper_h);
+  x = (px - prompt->view_x) / s;
+  y = (py - prompt->view_y) / s;
+  if (x < 0 || y < 0 || x > paper_w || y > paper_h)
+    return 0;
+#define NEAR_MARGIN(a, b) (fabs ((a) - (b)) * s <= 5)
+  if (NEAR_MARGIN (x, ps->margin_left)) return 1;
+  if (NEAR_MARGIN (x, paper_w - ps->margin_right)) return 2;
+  if (NEAR_MARGIN (y, ps->margin_header)) return 5;
+  if (NEAR_MARGIN (y, paper_h - ps->margin_footer)) return 6;
+  if (NEAR_MARGIN (y, ps->margin_top)) return 3;
+  if (NEAR_MARGIN (y, paper_h - ps->margin_bottom)) return 4;
+#undef NEAR_MARGIN
+  return 0;
+}
+
+static void
+on_preview_drag_begin (GtkGestureDrag *gesture, double px, double py, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+
+  (void) gesture;
+  prompt->dragging = preview_margin_at (prompt, px, py);
+}
+
+static void
+on_preview_drag_update (GtkGestureDrag *gesture, double dx, double dy, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+  int within = 0;
+  O42Pages *pages = preview_page (prompt, &within);
+  O42PrintSetup ps;
+  double sx, sy, paper_w, paper_h, x, y;
+
+  if (prompt->dragging == 0 || pages == NULL)
+    return;
+  gtk_gesture_drag_get_start_point (gesture, &sx, &sy);
+  o42_pages_paper (pages, &paper_w, &paper_h);
+  x = CLAMP ((sx + dx - prompt->view_x) / prompt->view_scale, 0, paper_w);
+  y = CLAMP ((sy + dy - prompt->view_y) / prompt->view_scale, 0, paper_h);
+  ps = *o42_sheet_print_setup (o42_pages_sheet (pages));
+  switch (prompt->dragging)
+    {
+    case 1: ps.margin_left = MIN (x, paper_w - ps.margin_right - 72); break;
+    case 2: ps.margin_right = MIN (paper_w - x, paper_w - ps.margin_left - 72); break;
+    case 3: ps.margin_top = MIN (y, paper_h - ps.margin_bottom - 72); break;
+    case 4: ps.margin_bottom = MIN (paper_h - y, paper_h - ps.margin_top - 72); break;
+    case 5: ps.margin_header = MIN (y, ps.margin_top); break;
+    default: ps.margin_footer = MIN (paper_h - y, ps.margin_bottom); break;
+    }
+  o42_sheet_set_print_setup (o42_pages_sheet (pages), &ps);
+  preview_remake (prompt);
+}
+
+static void
+on_preview_drag_end (GtkGestureDrag *gesture, double dx, double dy, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+
+  (void) gesture; (void) dx; (void) dy;
+  if (prompt->dragging != 0)
+    window_sync (prompt->window);
+  prompt->dragging = 0;
+}
+
+static void
+on_preview_motion (GtkEventControllerMotion *controller, double px, double py, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+  int which = prompt->dragging != 0 ? prompt->dragging : preview_margin_at (prompt, px, py);
+
+  (void) controller;
+  o42_set_cursor_name (prompt->area, which == 0 ? NULL
+                       : (which == 1 || which == 2) ? "col-resize" : "row-resize");
+}
+
+static void
 on_preview_print (GtkWidget *w, gpointer data)
 {
   PreviewPrompt *prompt = data;
   O42Window *self = prompt->window;
+  gboolean whole_book = prompt->whole_book;
   (void) w;
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
-  action_print (NULL, NULL, self);
+  print_run (self, whole_book);
+}
+
+static void action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview);
+
+static void
+on_preview_setup (GtkWidget *w, gpointer data)
+{
+  PreviewPrompt *prompt = data;
+  (void) w;
+  action_page_setup_tab (prompt->window, 0, prompt);
 }
 
 static void
@@ -1677,196 +2201,603 @@ on_preview_destroy (GtkWidget *w, gpointer data)
 {
   PreviewPrompt *prompt = data;
   (void) w;
-  o42_pages_free (prompt->pages);
+  g_ptr_array_unref (prompt->pages);
   gtk_widget_grab_focus (GTK_WIDGET (prompt->window->grid));
   g_free (prompt);
 }
 
 static void
-action_print_preview (GSimpleAction *a, GVariant *p, gpointer data)
+preview_run (O42Window *self, gboolean whole_book)
 {
-  O42Window *self = data;
   PreviewPrompt *prompt = g_new0 (PreviewPrompt, 1);
-  GtkPageSetup *setup = window_page_setup (self);
   GtkWidget *content, *buttons;
-
-  (void) a; (void) p;
 
   if (o42_grid_is_editing (self->grid))
     o42_grid_commit_edit (self->grid);
 
   prompt->window = self;
-  prompt->paper_w = gtk_page_setup_get_paper_width (setup, GTK_UNIT_POINTS);
-  prompt->paper_h = gtk_page_setup_get_paper_height (setup, GTK_UNIT_POINTS);
-  prompt->margin = o42_sheet_print_setup (self->sheet)->margin;
-  prompt->pages = o42_pages_new (self->sheet,
-                                 prompt->paper_w - 2 * prompt->margin,
-                                 prompt->paper_h - 2 * prompt->margin);
-  window_name_pages (self, prompt->pages);
+  prompt->whole_book = whole_book;
+  prompt->pages = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_pages_free);
 
   prompt->dialog = dialog_frame (self, _("Print Preview"), FALSE, &content, &buttons);
   gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
-  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 720, 600);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 720, 640);
 
+  prompt->scroller = gtk_scrolled_window_new ();
+  gtk_widget_set_vexpand (prompt->scroller, TRUE);
+  gtk_widget_set_hexpand (prompt->scroller, TRUE);
   prompt->area = gtk_drawing_area_new ();
   gtk_widget_set_vexpand (prompt->area, TRUE);
   gtk_widget_set_hexpand (prompt->area, TRUE);
   gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (prompt->area), preview_draw, prompt, NULL);
-  gtk_box_append (GTK_BOX (content), prompt->area);
+  {
+    GtkGesture *drag = gtk_gesture_drag_new ();
+    GtkEventController *motion = gtk_event_controller_motion_new ();
 
+    g_signal_connect (drag, "drag-begin", G_CALLBACK (on_preview_drag_begin), prompt);
+    g_signal_connect (drag, "drag-update", G_CALLBACK (on_preview_drag_update), prompt);
+    g_signal_connect (drag, "drag-end", G_CALLBACK (on_preview_drag_end), prompt);
+    g_signal_connect (motion, "motion", G_CALLBACK (on_preview_motion), prompt);
+    gtk_widget_add_controller (prompt->area, GTK_EVENT_CONTROLLER (drag));
+    gtk_widget_add_controller (prompt->area, motion);
+  }
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (prompt->scroller), prompt->area);
+  gtk_box_append (GTK_BOX (content), prompt->scroller);
+
+  prompt->margins = gtk_check_button_new_with_mnemonic (_("_Margins"));
   prompt->label = gtk_label_new ("");
   gtk_widget_set_hexpand (prompt->label, TRUE);
+  gtk_box_prepend (GTK_BOX (buttons), prompt->margins);
   gtk_box_prepend (GTK_BOX (buttons), prompt->label);
+  g_signal_connect (prompt->margins, "toggled", G_CALLBACK (on_preview_margins), prompt);
   gtk_widget_set_halign (buttons, GTK_ALIGN_FILL);
   dialog_button (buttons, _("_Previous"), G_CALLBACK (on_preview_prev), prompt);
   dialog_button (buttons, _("_Next"), G_CALLBACK (on_preview_next), prompt);
+  dialog_button (buttons, _("_Zoom"), G_CALLBACK (on_preview_zoom), prompt);
+  dialog_button (buttons, _("_Setup..."), G_CALLBACK (on_preview_setup), prompt);
   dialog_button (buttons, _("_Print..."), G_CALLBACK (on_preview_print), prompt);
   dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_preview_destroy), prompt);
 
-  preview_update (prompt);
+  preview_remake (prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+action_print_preview (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  (void) a; (void) p;
+  preview_run (data, FALSE);
+}
+
+static void
+action_print_preview_book (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  (void) a; (void) p;
+  preview_run (data, TRUE);
+}
+
+/* ---- File > Page Setup ------------------------------------------------ */
+
+/* Excel's four tabs -- Page, Margins, Header/Footer, Sheet -- over the
+ * sheet's O42PrintSetup, applied whole on OK.  Opened from the menu, or
+ * from the preview, which is remade afterwards. */
+typedef struct _SetupPrompt SetupPrompt;
+struct _SetupPrompt {
+  O42Window *window;
+  GtkWidget *dialog;
+  PreviewPrompt *preview;    /* remade on OK, when there is one */
+  /* Page */
+  GtkWidget *portrait, *landscape, *paper, *scale, *fit_wide, *fit_tall, *first_page;
+  /* Margins */
+  GtkWidget *left, *right, *top, *bottom, *header_m, *footer_m, *hcenter, *vcenter;
+  /* Header/Footer */
+  GtkWidget *header, *footer;
+  /* Sheet */
+  GtkWidget *area, *titles, *title_cols, *gridlines, *headings, *black_white, *draft;
+  GtkWidget *notes, *errors, *down_then_over, *over_then_down;
+};
+
+/* ---- Custom Header / Custom Footer ------------------------------------ */
+
+/* Excel's dialog: the three sections as text boxes, and a row of
+ * buttons that put a code at the caret -- the font, the page number,
+ * the count, the date, the time, the file, the sheet.  OK joins the
+ * sections into the &L&C&R text the entry behind it holds. */
+typedef struct {
+  GtkWidget *dialog;
+  GtkWidget *entry;         /* the Page Setup entry it edits */
+  GtkWidget *views[3];
+  GtkWidget *last;          /* the section the caret was in last */
+} CustomHF;
+
+static void
+hf_insert (CustomHF *hf, const char *code)
+{
+  GtkWidget *view = hf->last != NULL ? hf->last : hf->views[0];
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (view));
+
+  gtk_text_buffer_delete_selection (buffer, TRUE, TRUE);
+  gtk_text_buffer_insert_at_cursor (buffer, code, -1);
+  gtk_widget_grab_focus (view);
+}
+
+static void
+on_hf_code (GtkWidget *button, gpointer data)
+{
+  hf_insert (data, g_object_get_data (G_OBJECT (button), "o42-code"));
+}
+
+static void
+on_hf_font_chosen (GObject *source, GAsyncResult *result, gpointer data)
+{
+  CustomHF *hf = data;
+  PangoFontDescription *desc = gtk_font_dialog_choose_font_finish (GTK_FONT_DIALOG (source), result, NULL);
+
+  if (desc != NULL)
+    {
+      const char *family = pango_font_description_get_family (desc);
+      gboolean bold = pango_font_description_get_weight (desc) >= PANGO_WEIGHT_BOLD;
+      gboolean italic = pango_font_description_get_style (desc) != PANGO_STYLE_NORMAL;
+      int size = pango_font_description_get_size (desc) / PANGO_SCALE;
+      char *code = g_strdup_printf ("&\"%s,%s\"%s%d", family != NULL ? family : "Arial",
+                                    bold && italic ? "Bold Italic" : bold ? "Bold" : italic ? "Italic" : "Regular",
+                                    size > 0 ? "&" : "", size > 0 ? size : 0);
+
+      if (size <= 0)
+        code[strlen (code)] = '\0';
+      hf_insert (hf, code);
+      g_free (code);
+      pango_font_description_free (desc);
+    }
+}
+
+static void
+on_hf_font (GtkWidget *button, gpointer data)
+{
+  CustomHF *hf = data;
+  GtkFontDialog *dialog = gtk_font_dialog_new ();
+
+  (void) button;
+  gtk_font_dialog_set_title (dialog, _("Header Font"));
+  gtk_font_dialog_choose_font (dialog, GTK_WINDOW (hf->dialog), NULL, NULL, on_hf_font_chosen, hf);
+  g_object_unref (dialog);
+}
+
+static void
+on_hf_focus (GtkEventControllerFocus *controller, gpointer data)
+{
+  CustomHF *hf = data;
+  hf->last = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (controller));
+}
+
+static void
+on_hf_ok (GtkWidget *w, gpointer data)
+{
+  CustomHF *hf = data;
+  GString *joined = g_string_new (NULL);
+  static const char *const codes[3] = { "&L", "&C", "&R" };
+
+  (void) w;
+  for (int i = 0; i < 3; i++)
+    {
+      GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (hf->views[i]));
+      GtkTextIter a, b;
+      char *text;
+
+      gtk_text_buffer_get_bounds (buffer, &a, &b);
+      text = gtk_text_buffer_get_text (buffer, &a, &b, FALSE);
+      if (*text != '\0')
+        {
+          g_string_append (joined, codes[i]);
+          g_string_append (joined, text);
+        }
+      g_free (text);
+    }
+  gtk_editable_set_text (GTK_EDITABLE (hf->entry), joined->str);
+  g_string_free (joined, TRUE);
+  gtk_window_destroy (GTK_WINDOW (hf->dialog));
+}
+
+/* Splits the entry's text into the three sections, as the printer does. */
+static void
+hf_split (const char *text, GString *parts[3])
+{
+  int which = 1;
+
+  for (const char *p = text != NULL ? text : ""; *p != '\0'; p++)
+    {
+      if (*p == '&' && (g_ascii_toupper (p[1]) == 'L' || g_ascii_toupper (p[1]) == 'C' || g_ascii_toupper (p[1]) == 'R'))
+        { which = g_ascii_toupper (p[1]) == 'L' ? 0 : g_ascii_toupper (p[1]) == 'C' ? 1 : 2; p++; continue; }
+      if (*p == '&' && p[1] == '&')
+        { g_string_append (parts[which], "&&"); p++; continue; }
+      g_string_append_c (parts[which], *p);
+    }
+}
+
+static void
+on_custom_hf (GtkWidget *button, gpointer entry)
+{
+  CustomHF *hf = g_new0 (CustomHF, 1);
+  GtkWidget *content, *buttons, *ok, *row, *sections;
+  GtkRoot *root = gtk_widget_get_root (button);
+  O42Window *self = O42_IS_WINDOW (root) ? O42_WINDOW (root) : NULL;
+  GString *parts[3] = { g_string_new (NULL), g_string_new (NULL), g_string_new (NULL) };
+  static const struct { const char *label; const char *code; } CODES[] = {
+    { N_("_Page Number"), "&P" }, { N_("_Total Pages"), "&N" }, { N_("_Date"), "&D" },
+    { N_("Ti_me"), "&T" }, { N_("_File Name"), "&F" }, { N_("_Sheet Name"), "&A" },
+  };
+  static const char *const titles[3] = { N_("Left section:"), N_("Center section:"), N_("Right section:") };
+  gboolean is_footer = g_strcmp0 (gtk_widget_get_name (GTK_WIDGET (entry)), "footer") == 0;
+
+  hf->entry = entry;
+  hf->dialog = dialog_frame (self, is_footer ? _("Footer") : _("Header"), TRUE, &content, &buttons);
+  if (GTK_IS_WINDOW (gtk_widget_get_root (GTK_WIDGET (entry))))
+    gtk_window_set_transient_for (GTK_WINDOW (hf->dialog), GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (entry))));
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  {
+    GtkWidget *font = gtk_button_new_with_mnemonic (_("F_ont..."));
+    g_signal_connect (font, "clicked", G_CALLBACK (on_hf_font), hf);
+    gtk_box_append (GTK_BOX (row), font);
+  }
+  for (guint i = 0; i < G_N_ELEMENTS (CODES); i++)
+    {
+      GtkWidget *b = gtk_button_new_with_mnemonic (_(CODES[i].label));
+      g_object_set_data (G_OBJECT (b), "o42-code", (gpointer) CODES[i].code);
+      g_signal_connect (b, "clicked", G_CALLBACK (on_hf_code), hf);
+      gtk_box_append (GTK_BOX (row), b);
+    }
+  gtk_box_append (GTK_BOX (content), row);
+
+  hf_split (gtk_editable_get_text (GTK_EDITABLE (entry)), parts);
+  sections = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_margin_top (sections, 8);
+  for (int i = 0; i < 3; i++)
+    {
+      GtkWidget *column = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+      GtkWidget *label = gtk_label_new (_(titles[i]));
+      GtkWidget *scroller = gtk_scrolled_window_new ();
+      GtkEventController *focus = gtk_event_controller_focus_new ();
+
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      hf->views[i] = gtk_text_view_new ();
+      gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (hf->views[i]), GTK_WRAP_WORD_CHAR);
+      gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (hf->views[i])), parts[i]->str, -1);
+      g_signal_connect (focus, "enter", G_CALLBACK (on_hf_focus), hf);
+      gtk_widget_add_controller (hf->views[i], focus);
+      gtk_widget_set_size_request (scroller, 180, 90);
+      gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), hf->views[i]);
+      gtk_box_append (GTK_BOX (column), label);
+      gtk_box_append (GTK_BOX (column), scroller);
+      gtk_box_append (GTK_BOX (sections), column);
+      g_string_free (parts[i], TRUE);
+    }
+  gtk_box_append (GTK_BOX (content), sections);
+  hf->last = hf->views[0];
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_hf_ok), hf);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), hf->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (hf->dialog), ok);
+  g_signal_connect_swapped (hf->dialog, "destroy", G_CALLBACK (g_free), hf);
+  gtk_window_present (GTK_WINDOW (hf->dialog));
+}
+
+static const char *const NOTES_NAMES[] = { "(None)", "At end of sheet", "As displayed on sheet", NULL };
+static const char *const ERRORS_NAMES[] = { "displayed", "<blank>", "--", "#N/A", NULL };
+
+static void
+on_setup_ok (GtkWidget *w, gpointer data)
+{
+  SetupPrompt *prompt = data;
+  O42Sheet *sheet = prompt->window->sheet;
+  O42PrintSetup ps = *o42_sheet_print_setup (sheet);
+  const char *area = gtk_editable_get_text (GTK_EDITABLE (prompt->area));
+  gsize len = 0;
+  (void) w;
+
+  ps.landscape = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->landscape));
+  ps.paper = o42_paper_nth ((int) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->paper)));
+  ps.scale = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->scale));
+  ps.fit_wide = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->fit_wide));
+  ps.fit_tall = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->fit_tall));
+  ps.first_page = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->first_page));
+
+  /* The margins are shown in centimetres, or inches where the paper
+   * is Letter, and kept in points. */
+  {
+    double unit = ps.paper == 1 || ps.paper == 5 || ps.paper == 7 || ps.paper == 14 || ps.paper == 17
+                  ? 72.0 : 72.0 / 2.54;
+    ps.margin_left = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->left)) * unit;
+    ps.margin_right = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->right)) * unit;
+    ps.margin_top = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->top)) * unit;
+    ps.margin_bottom = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->bottom)) * unit;
+    ps.margin_header = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->header_m)) * unit;
+    ps.margin_footer = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->footer_m)) * unit;
+  }
+  ps.hcenter = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->hcenter));
+  ps.vcenter = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->vcenter));
+
+  ps.header = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->header));
+  ps.footer = (char *) gtk_editable_get_text (GTK_EDITABLE (prompt->footer));
+
+  {
+    O42Range areas[O42_PRINT_AREAS_MAX];
+    int n = 0;
+
+    ps.has_area = FALSE;
+    ps.n_areas = 0;
+    if (o42_print_areas_parse (area, areas, &n) && n > 0)
+      {
+        ps.has_area = TRUE;
+        ps.n_areas = n;
+        for (int i = 0; i < n; i++)
+          ps.areas[i] = areas[i];
+        ps.area = areas[0];
+      }
+  }
+  (void) len;
+  {
+    int first = 0, count = 0;
+
+    if (o42_print_titles_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->titles)), TRUE, &first, &count))
+      { ps.title_row_first = first; ps.title_rows = count; }
+    if (o42_print_titles_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->title_cols)), FALSE, &first, &count))
+      { ps.title_col_first = first; ps.title_cols = count; }
+  }
+  ps.gridlines = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->gridlines));
+  ps.headings = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->headings));
+  ps.black_white = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->black_white));
+  ps.draft = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->draft));
+  ps.notes = (O42PrintNotes) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->notes));
+  ps.errors = (O42PrintErrors) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->errors));
+  ps.down_then_over = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->down_then_over));
+
+  o42_sheet_set_print_setup (sheet, &ps);
+  window_sync (prompt->window);
+  if (prompt->preview != NULL)
+    preview_remake (prompt->preview);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_setup_destroy (GtkWidget *w, gpointer data)
+{
+  SetupPrompt *prompt = data;
+
+  (void) w;
+  if (prompt->window->last_setup == prompt)
+    prompt->window->last_setup = NULL;
+  g_free (prompt);
+}
+
+static GtkWidget *
+check_row (GtkWidget *grid, int row, const char *label, gboolean active)
+{
+  GtkWidget *check = gtk_check_button_new_with_mnemonic (label);
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (check), active);
+  gtk_grid_attach (GTK_GRID (grid), check, 0, row, 2, 1);
+  return check;
+}
+
+static void
+action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
+{
+  SetupPrompt *prompt = g_new0 (SetupPrompt, 1);
+  const O42PrintSetup *setup = o42_sheet_print_setup (self->sheet);
+  GtkWidget *content, *buttons, *ok, *notebook, *grid, *hint, *box;
+  gboolean inches = setup->paper == 1 || setup->paper == 5 || setup->paper == 7 ||
+                    setup->paper == 14 || setup->paper == 17;
+  double unit = inches ? 72.0 : 72.0 / 2.54;
+
+  prompt->window = self;
+  prompt->preview = preview;
+  prompt->dialog = dialog_frame (self, _("Page Setup"), preview == NULL, &content, &buttons);
+  notebook = gtk_notebook_new ();
+  gtk_box_append (GTK_BOX (content), notebook);
+
+  /* Page */
+  grid = page_grid (notebook, _("Page"));
+  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  prompt->portrait = gtk_check_button_new_with_mnemonic (_("P_ortrait"));
+  prompt->landscape = gtk_check_button_new_with_mnemonic (_("_Landscape"));
+  gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->landscape), GTK_CHECK_BUTTON (prompt->portrait));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (setup->landscape ? prompt->landscape : prompt->portrait), TRUE);
+  gtk_box_append (GTK_BOX (box), prompt->portrait);
+  gtk_box_append (GTK_BOX (box), prompt->landscape);
+  labelled (grid, 0, _("Orientation:"), box);
+  {
+    GtkStringList *papers = gtk_string_list_new (NULL);
+    int chosen = 0;
+    for (int i = 0; i < o42_paper_count (); i++)
+      {
+        double w, h;
+        char *label;
+        o42_paper_size (o42_paper_nth (i), &w, &h);
+        label = inches ? g_strdup_printf ("%s (%.1f x %.1f in)", o42_paper_name (o42_paper_nth (i)), w / 72, h / 72)
+                       : g_strdup_printf ("%s (%.0f x %.0f mm)", o42_paper_name (o42_paper_nth (i)), w / 72 * 25.4, h / 72 * 25.4);
+        gtk_string_list_append (papers, label);
+        g_free (label);
+        if (o42_paper_nth (i) == setup->paper)
+          chosen = i;
+      }
+    prompt->paper = gtk_drop_down_new (G_LIST_MODEL (papers), NULL);
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->paper), chosen);
+    labelled (grid, 1, _("Paper size:"), prompt->paper);
+  }
+  prompt->scale = labelled (grid, 2, _("Adjust to (% normal size):"), gtk_spin_button_new_with_range (10, 400, 5));
+  prompt->fit_wide = labelled (grid, 3, _("Fit to pages wide:"), gtk_spin_button_new_with_range (0, 99, 1));
+  prompt->fit_tall = labelled (grid, 4, _("Fit to pages tall:"), gtk_spin_button_new_with_range (0, 99, 1));
+  prompt->first_page = labelled (grid, 5, _("First page number:"), gtk_spin_button_new_with_range (-9999, 99999, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->scale), setup->scale);
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->fit_wide), setup->fit_wide);
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->fit_tall), setup->fit_tall);
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->first_page), setup->first_page);
+  hint = gtk_label_new (_("Pages wide or tall above zero fit the sheet to them and the scale is worked out."));
+  gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
+  gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
+  gtk_widget_add_css_class (hint, "dim-label");
+  gtk_grid_attach (GTK_GRID (grid), hint, 0, 6, 2, 1);
+
+  /* Margins */
+  grid = page_grid (notebook, _("Margins"));
+  {
+    const char *unit_name = inches ? _("in") : _("cm");
+    double step = inches ? 0.1 : 0.25;
+    char *l[6];
+    GtkWidget **fields[6] = { &prompt->top, &prompt->header_m, &prompt->left,
+                              &prompt->right, &prompt->bottom, &prompt->footer_m };
+    double values[6] = { setup->margin_top, setup->margin_header, setup->margin_left,
+                         setup->margin_right, setup->margin_bottom, setup->margin_footer };
+    l[0] = g_strdup_printf (_("Top (%s):"), unit_name);
+    l[1] = g_strdup_printf (_("Header (%s):"), unit_name);
+    l[2] = g_strdup_printf (_("Left (%s):"), unit_name);
+    l[3] = g_strdup_printf (_("Right (%s):"), unit_name);
+    l[4] = g_strdup_printf (_("Bottom (%s):"), unit_name);
+    l[5] = g_strdup_printf (_("Footer (%s):"), unit_name);
+    for (int i = 0; i < 6; i++)
+      {
+        GtkWidget *spin = gtk_spin_button_new_with_range (0, inches ? 5 : 12, step);
+        gtk_spin_button_set_digits (GTK_SPIN_BUTTON (spin), 2);
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (spin), values[i] / unit);
+        *fields[i] = labelled (grid, i, l[i], spin);
+        g_free (l[i]);
+      }
+  }
+  prompt->hcenter = check_row (grid, 6, _("Center on page _horizontally"), setup->hcenter);
+  prompt->vcenter = check_row (grid, 7, _("Center on page _vertically"), setup->vcenter);
+
+  /* Header/Footer */
+  grid = page_grid (notebook, _("Header/Footer"));
+  prompt->header = labelled (grid, 0, _("Header:"), gtk_entry_new ());
+  prompt->footer = labelled (grid, 2, _("Footer:"), gtk_entry_new ());
+  gtk_widget_set_name (prompt->header, "header");
+  gtk_widget_set_name (prompt->footer, "footer");
+  gtk_widget_set_size_request (prompt->header, 360, -1);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->header), setup->header != NULL ? setup->header : "");
+  gtk_editable_set_text (GTK_EDITABLE (prompt->footer), setup->footer != NULL ? setup->footer : "");
+  {
+    GtkWidget *custom_h = gtk_button_new_with_mnemonic (_("_Custom Header..."));
+    GtkWidget *custom_f = gtk_button_new_with_mnemonic (_("C_ustom Footer..."));
+
+    gtk_widget_set_halign (custom_h, GTK_ALIGN_END);
+    gtk_widget_set_halign (custom_f, GTK_ALIGN_END);
+    gtk_grid_attach (GTK_GRID (grid), custom_h, 1, 1, 1, 1);
+    gtk_grid_attach (GTK_GRID (grid), custom_f, 1, 3, 1, 1);
+    g_signal_connect (custom_h, "clicked", G_CALLBACK (on_custom_hf), prompt->header);
+    g_signal_connect (custom_f, "clicked", G_CALLBACK (on_custom_hf), prompt->footer);
+  }
+  hint = gtk_label_new (_("&L, &C, &R start the left, centre and right parts; &P page, &N pages, &D date, "
+                          "&T time, &F file, &A sheet; &B bold, &I italic, &U underline, &12 a size, "
+                          "&\"Arial,Bold\" a font; && an ampersand."));
+  gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
+  gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
+  gtk_label_set_max_width_chars (GTK_LABEL (hint), 50);
+  gtk_widget_add_css_class (hint, "dim-label");
+  gtk_grid_attach (GTK_GRID (grid), hint, 0, 4, 2, 1);
+
+  /* Sheet */
+  grid = page_grid (notebook, _("Sheet"));
+  prompt->area = labelled (grid, 0, _("Print area:"), gtk_entry_new ());
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->area), _("the used range"));
+  {
+    char *areas = o42_print_areas_text (setup);
+    gtk_editable_set_text (GTK_EDITABLE (prompt->area), areas);
+    g_free (areas);
+  }
+  prompt->titles = labelled (grid, 1, _("Rows to repeat at top:"), gtk_entry_new ());
+  prompt->title_cols = labelled (grid, 2, _("Columns to repeat at left:"), gtk_entry_new ());
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->titles), _("$1:$2"));
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->title_cols), _("$A:$B"));
+  {
+    char *tr = o42_print_titles_text (setup->title_row_first, setup->title_rows, TRUE);
+    char *tc = o42_print_titles_text (setup->title_col_first, setup->title_cols, FALSE);
+    gtk_editable_set_text (GTK_EDITABLE (prompt->titles), tr);
+    gtk_editable_set_text (GTK_EDITABLE (prompt->title_cols), tc);
+    g_free (tr); g_free (tc);
+  }
+  prompt->gridlines = check_row (grid, 3, _("_Gridlines"), setup->gridlines);
+  prompt->headings = check_row (grid, 4, _("Row and column h_eadings"), setup->headings);
+  prompt->black_white = check_row (grid, 5, _("_Black and white"), setup->black_white);
+  prompt->draft = check_row (grid, 6, _("Dra_ft quality"), setup->draft);
+  prompt->notes = labelled (grid, 7, _("Comments:"), drop_down_of (NOTES_NAMES));
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->notes), setup->notes);
+  prompt->errors = labelled (grid, 8, _("Cell errors as:"), drop_down_of (ERRORS_NAMES));
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->errors), setup->errors);
+  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  prompt->down_then_over = gtk_check_button_new_with_mnemonic (_("_Down, then over"));
+  prompt->over_then_down = gtk_check_button_new_with_mnemonic (_("O_ver, then down"));
+  gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->over_then_down), GTK_CHECK_BUTTON (prompt->down_then_over));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (setup->down_then_over ? prompt->down_then_over : prompt->over_then_down), TRUE);
+  gtk_box_append (GTK_BOX (box), prompt->down_then_over);
+  gtk_box_append (GTK_BOX (box), prompt->over_then_down);
+  labelled (grid, 9, _("Page order:"), box);
+
+  gtk_notebook_set_current_page (GTK_NOTEBOOK (notebook), tab);
+  self->last_setup = prompt;
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_setup_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  if (preview != NULL)
+    gtk_window_set_transient_for (GTK_WINDOW (prompt->dialog), GTK_WINDOW (preview->dialog));
+  else
+    g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_setup_destroy), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
 static void
 action_page_setup (GSimpleAction *a, GVariant *p, gpointer data)
 {
-  O42Window *self = data;
-  GtkPageSetup *setup;
-
   (void) a; (void) p;
-
-  if (self->print_settings == NULL)
-    self->print_settings = gtk_print_settings_new ();
-
-  setup = gtk_print_run_page_setup_dialog (GTK_WINDOW (self),
-                                           window_page_setup (self),
-                                           self->print_settings);
-  g_clear_object (&self->page_setup);
-  self->page_setup = setup;
+  action_page_setup_tab (data, 0, NULL);
 }
 
-/* ---- File > Page Setup > Sheet: header, footer, print area, options --- */
-
-typedef struct {
-  O42Window *window;
-  GtkWidget *dialog;
-  GtkWidget *header, *footer, *area, *gridlines, *headings, *titles;
-  GtkWidget *scale, *fit_wide, *fit_tall, *margin;
-} SheetSetupPrompt;
-
+/* View > Header and Footer, as Excel has it: Page Setup on that tab. */
 static void
-on_sheet_setup_ok (GtkWidget *w, gpointer data)
+action_header_footer (GSimpleAction *a, GVariant *p, gpointer data)
 {
-  SheetSetupPrompt *prompt = data;
-  O42Sheet *sheet = prompt->window->sheet;
-  const char *area = gtk_editable_get_text (GTK_EDITABLE (prompt->area));
-  O42Range r;
-  gsize len = 0;
-  (void) w;
-
-  o42_sheet_set_header_footer (sheet, gtk_editable_get_text (GTK_EDITABLE (prompt->header)),
-                               gtk_editable_get_text (GTK_EDITABLE (prompt->footer)));
-  if (*area == '\0')
-    o42_sheet_set_print_area (sheet, NULL);
-  else if (o42_ref_parse (area, &r.row0, &r.col0, &len) &&
-           (area[len] == '\0' || (area[len] == ':' && o42_ref_parse (area + len + 1, &r.row1, &r.col1, NULL))))
-    {
-      if (area[len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
-      o42_sheet_set_print_area (sheet, &r);
-    }
-  o42_sheet_set_print_options (sheet,
-                               gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->gridlines)),
-                               gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->headings)),
-                               gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->titles)));
-  o42_sheet_set_print_scale (sheet, gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->scale)),
-                             gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->fit_wide)),
-                             gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->fit_tall)));
-  o42_sheet_set_print_margin (sheet, gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->margin)));
-  window_sync (prompt->window);
-  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+  (void) a; (void) p;
+  action_page_setup_tab (data, 2, NULL);
 }
 
+/* Straight to the Custom Header or Custom Footer dialog. */
 static void
-action_sheet_setup (GSimpleAction *a, GVariant *p, gpointer data)
+action_custom_hf (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
-  SheetSetupPrompt *prompt = g_new0 (SheetSetupPrompt, 1);
-  const O42PrintSetup *setup = o42_sheet_print_setup (self->sheet);
-  GtkWidget *content, *buttons, *ok, *grid, *hint;
+  gboolean footer = g_strcmp0 (g_action_get_name (G_ACTION (a)), "custom-footer") == 0;
 
-  (void) a; (void) p;
-  prompt->window = self;
-  prompt->dialog = dialog_frame (self, _("Page Setup: Sheet"), TRUE, &content, &buttons);
-
-  grid = gtk_grid_new ();
-  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
-  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
-  prompt->header = labelled (grid, 0, _("Header:"), gtk_entry_new ());
-  prompt->footer = labelled (grid, 1, _("Footer:"), gtk_entry_new ());
-  prompt->area = labelled (grid, 2, _("Print area:"), gtk_entry_new ());
-  prompt->titles = labelled (grid, 3, _("Rows to repeat at top:"), gtk_spin_button_new_with_range (0, 50, 1));
-  prompt->scale = labelled (grid, 4, _("Scale (per cent):"), gtk_spin_button_new_with_range (10, 400, 5));
-  prompt->fit_wide = labelled (grid, 5, _("Fit to pages across:"), gtk_spin_button_new_with_range (0, 20, 1));
-  prompt->fit_tall = labelled (grid, 6, _("Fit to pages down:"), gtk_spin_button_new_with_range (0, 20, 1));
-  prompt->margin = labelled (grid, 7, _("Margin (points):"), gtk_spin_button_new_with_range (0, 200, 6));
-  gtk_box_append (GTK_BOX (content), grid);
-  gtk_widget_set_size_request (prompt->header, 320, -1);
-  gtk_editable_set_text (GTK_EDITABLE (prompt->header), setup->header != NULL ? setup->header : "");
-  gtk_editable_set_text (GTK_EDITABLE (prompt->footer), setup->footer != NULL ? setup->footer : "");
-  if (setup->has_area)
-    {
-      char *x = o42_ref_name (setup->area.row0, setup->area.col0);
-      char *y = o42_ref_name (setup->area.row1, setup->area.col1);
-      char *text = g_strdup_printf ("%s:%s", x, y);
-      gtk_editable_set_text (GTK_EDITABLE (prompt->area), text);
-      g_free (text); g_free (x); g_free (y);
-    }
-  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->area), _("the used range"));
-  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->titles), setup->title_rows);
-  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->scale), setup->scale);
-  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->fit_wide), setup->fit_wide);
-  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->fit_tall), setup->fit_tall);
-  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->margin), setup->margin);
-
-  hint = gtk_label_new ("&L, &C, &R start the left, centre and right parts; &P page, &N pages, &D date, "
-                       "&T time, &F file, &A sheet. Pages across or down above zero fit the sheet to them "
-                       "and the scale is worked out; Insert > Page Break starts a page at the active cell.");
-  gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
-  gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
-  gtk_label_set_max_width_chars (GTK_LABEL (hint), 50);
-  gtk_widget_add_css_class (hint, "dim-label");
-  gtk_box_append (GTK_BOX (content), hint);
-
-  prompt->gridlines = gtk_check_button_new_with_mnemonic ( _("Print _gridlines"));
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->gridlines), setup->gridlines);
-  gtk_box_append (GTK_BOX (content), prompt->gridlines);
-  prompt->headings = gtk_check_button_new_with_mnemonic ( _("Print row and column _headings"));
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->headings), setup->headings);
-  gtk_box_append (GTK_BOX (content), prompt->headings);
-
-  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_sheet_setup_ok), prompt);
-  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
-  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
-  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
-  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
-  gtk_window_present (GTK_WINDOW (prompt->dialog));
+  (void) p;
+  action_page_setup_tab (self, 2, NULL);
+  if (self->last_setup != NULL)
+    on_custom_hf (footer ? self->last_setup->footer : self->last_setup->header,
+                  footer ? self->last_setup->footer : self->last_setup->header);
 }
 
 /* Insert > Page Break puts one above the active row and one to the
- * left of its column, or takes them away again. */
+ * left of its column, or takes them away again; with a whole row or
+ * column selected, only the one that fits. */
 static void
 action_page_break (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
+  O42Range sel;
   int row, col;
 
   (void) a; (void) p;
   o42_grid_get_active (self->grid, &row, &col);
-  if (row > 0)
-    o42_sheet_toggle_page_break (self->sheet, TRUE, row);
-  if (col > 0)
-    o42_sheet_toggle_page_break (self->sheet, FALSE, col);
+  o42_grid_get_selection (self->grid, &sel);
+  {
+    gboolean whole_rows = sel.col0 == 0 && sel.col1 >= O42_MAX_COLS - 1;
+    gboolean whole_cols = sel.row0 == 0 && sel.row1 >= O42_MAX_ROWS - 1;
+
+    if (row > 0 && !whole_cols)
+      o42_sheet_toggle_page_break (self->sheet, TRUE, whole_rows ? sel.row0 : row);
+    if (col > 0 && !whole_rows)
+      o42_sheet_toggle_page_break (self->sheet, FALSE, whole_cols ? sel.col0 : col);
+  }
   window_sync (self);
 }
 
@@ -1892,7 +2823,7 @@ action_clear_print_area (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* ---- Function Wizard -------------------------------------------------- */
 
-/* Excel 5's Function Wizard, step one of two: a list of every function
+/* Excel 97's Function Wizard, step one of two: a list of every function
  * with a search box, the signature and a line about the chosen one, and
  * OK putting "=NAME(" into the cell to be finished by hand.  Step two,
  * prompting for each argument, is a refinement for later. */
@@ -2115,7 +3046,7 @@ on_tab_clicked (GtkWidget *button, gpointer data)
   gtk_widget_grab_focus (GTK_WIDGET (self->grid));
 }
 
-/* One tab per sheet, the current one lit, as along the bottom of Excel 5. */
+/* One tab per sheet, the current one lit, as along the bottom of Excel 97. */
 /* ---- Data > What-If Table ---------------------------------------------- */
 
 /* Excel's Data > Table: the selection's edges hold what an input may
@@ -2228,6 +3159,16 @@ action_calculate (GSimpleAction *a, GVariant *p, gpointer data)
 /* A sheet is moved by taking it out of the book and putting it back
  * somewhere else -- which is what undo already does with a deleted
  * sheet, so the book can do it and the history follows. */
+gboolean
+o42_window_structure_locked (O42Window *self)
+{
+  if (!o42_book_protected (self->book))
+    return FALSE;
+  gtk_label_set_text (GTK_LABEL (self->status_label),
+                      _("The workbook is protected: Tools > Protection > Unprotect Workbook first."));
+  return TRUE;
+}
+
 static void
 window_move_sheet (O42Window *self, int by)
 {
@@ -2236,16 +3177,14 @@ window_move_sheet (O42Window *self, int by)
 
   if (at < 0 || to < 0 || to >= o42_book_n_sheets (self->book))
     return;
+  if (o42_window_structure_locked (self))
+    return;
 
-  o42_sheet_begin_group (self->sheet);
-  o42_sheet_undo_capture_sheet (self->sheet, FALSE);
-  if (o42_book_detach_sheet (self->book, at))
-    o42_book_attach_sheet (self->book, self->sheet, to);
-  o42_sheet_end_group (self->sheet);
-
-  o42_book_set_modified (self->book, TRUE);
+  /* The book tells the other windows; this one rebuilds its tabs itself. */
+  self->telling = TRUE;
+  o42_book_move_sheet (self->book, at, to);
+  self->telling = FALSE;
   window_rebuild_tabs (self);
-  window_tell_book (self, "sheets");
   window_sync (self);
 }
 
@@ -2401,6 +3340,8 @@ on_tab_secondary (GtkGestureClick *gesture, int n_press,
   g_menu_append (sheets, _("_Insert Sheet"), "win.insert-sheet");
   g_menu_append (sheets, _("_Delete Sheet"), "win.delete-sheet");
   g_menu_append (sheets, _("_Rename Sheet..."), "win.rename-sheet");
+  g_menu_append (sheets, _("_Hide Sheet"), "win.hide-sheet");
+  g_menu_append (sheets, _("_Unhide Sheet..."), "win.unhide-sheet");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (sheets));
   g_menu_append (move, _("Move _Left"), "win.move-sheet-left");
   g_menu_append (move, _("Move _Right"), "win.move-sheet-right");
@@ -2445,8 +3386,11 @@ window_rebuild_tabs (O42Window *self)
   for (int i = 0; i < o42_book_n_sheets (self->book); i++)
     {
       O42Sheet *sheet = o42_book_sheet (self->book, i);
-      GtkWidget *tab = gtk_button_new_with_label (o42_sheet_get_name (sheet));
+      GtkWidget *tab;
 
+      if (o42_sheet_hidden (sheet) && sheet != self->sheet)
+        continue;
+      tab = gtk_button_new_with_label (o42_sheet_get_name (sheet));
       gtk_widget_add_css_class (tab, "o42-tab");
       if (sheet == self->sheet)
         gtk_widget_add_css_class (tab, "o42-tab-active");
@@ -2487,9 +3431,55 @@ o42_window_show_sheet (O42Window *self, int index)
     o42_grid_commit_edit (self->grid);
 
   self->sheet = sheet;
+  self->applying_view = TRUE;   /* set_sheet moves the cursor; that is not the user */
   o42_grid_set_sheet (self->grid, sheet);
+  window_apply_view (self);
   window_rebuild_tabs (self);
   window_sync (self);
+}
+
+/* The sheet's own view -- zoom, gridlines, zeros, where the cursor was
+ * -- put on the grid, and the sheet marked as the one the book opens
+ * on. */
+static void
+window_apply_view (O42Window *self)
+{
+  const O42SheetView *view = o42_sheet_view (self->sheet);
+  O42SheetView copy;
+
+  self->applying_view = TRUE;
+  o42_grid_set_zoom (self->grid, view->zoom / 100.0);
+  o42_grid_set_show_gridlines (self->grid, view->gridlines);
+  o42_grid_set_show_zeros (self->grid, view->zeros);
+  o42_grid_set_cursor (self->grid, &view->selection, view->active_row, view->active_col);
+  self->applying_view = FALSE;
+  for (int i = 0; i < o42_book_n_sheets (self->book); i++)
+    {
+      O42Sheet *other = o42_book_sheet (self->book, i);
+      if (o42_sheet_view (other)->selected != (other == self->sheet))
+        {
+          copy = *o42_sheet_view (other);
+          copy.selected = other == self->sheet;
+          o42_sheet_set_view (other, &copy);
+        }
+    }
+}
+
+/* What the grid shows now, kept on the sheet. */
+static void
+window_keep_view (O42Window *self)
+{
+  O42SheetView view;
+
+  if (self->sheet == NULL || self->applying_view)
+    return;
+  view = *o42_sheet_view (self->sheet);
+  view.zoom = (int) (o42_grid_get_zoom (self->grid) * 100 + 0.5);
+  view.gridlines = o42_grid_get_show_gridlines (self->grid);
+  view.zeros = o42_grid_get_show_zeros (self->grid);
+  o42_grid_get_active (self->grid, &view.active_row, &view.active_col);
+  o42_grid_get_selection (self->grid, &view.selection);
+  o42_sheet_set_view (self->sheet, &view);
 }
 
 static void
@@ -2498,8 +3488,9 @@ action_next_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   int index = o42_book_sheet_index (self->book, self->sheet);
   (void) a; (void) p;
-  if (index + 1 < o42_book_n_sheets (self->book))
-    window_show_sheet (self, index + 1);
+  for (int i = index + 1; i < o42_book_n_sheets (self->book); i++)
+    if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      { window_show_sheet (self, i); return; }
 }
 
 static void
@@ -2508,8 +3499,115 @@ action_prev_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   int index = o42_book_sheet_index (self->book, self->sheet);
   (void) a; (void) p;
-  if (index > 0)
-    window_show_sheet (self, index - 1);
+  for (int i = index - 1; i >= 0; i--)
+    if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      { window_show_sheet (self, i); return; }
+}
+
+/* Format > Sheet > Hide: the sheet loses its tab and the nearest shown
+ * one takes its place; the last shown sheet cannot be hidden. */
+static void
+action_hide_sheet (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  int index = o42_book_sheet_index (self->book, self->sheet);
+  int other = -1;
+
+  (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    return;
+  for (int i = index + 1; i < o42_book_n_sheets (self->book) && other < 0; i++)
+    if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      other = i;
+  for (int i = index - 1; i >= 0 && other < 0; i--)
+    if (!o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      other = i;
+  if (other < 0)
+    return;
+  o42_sheet_set_hidden (self->sheet, TRUE);
+  window_show_sheet (self, other);
+  window_tell_book (self, "sheets");
+}
+
+/* Format > Sheet > Unhide...: the hidden sheets listed, one chosen. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+  GArray    *indices;
+} UnhidePrompt;
+
+static void
+on_unhide_ok (GtkWidget *w, gpointer data)
+{
+  UnhidePrompt *prompt = data;
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+
+  (void) w;
+  if (row != NULL)
+    {
+      int which = gtk_list_box_row_get_index (row);
+      if (which >= 0 && which < (int) prompt->indices->len)
+        {
+          int index = g_array_index (prompt->indices, int, which);
+          o42_sheet_set_hidden (o42_book_sheet (prompt->window->book, index), FALSE);
+          window_show_sheet (prompt->window, index);
+          window_tell_book (prompt->window, "sheets");
+        }
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_unhide_destroy (GtkWidget *w, gpointer data)
+{
+  UnhidePrompt *prompt = data;
+  (void) w;
+  g_array_unref (prompt->indices);
+  g_free (prompt);
+}
+
+static void
+action_unhide_sheet (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  UnhidePrompt *prompt = g_new0 (UnhidePrompt, 1);
+  GtkWidget *content, *buttons, *ok, *scroller;
+
+  (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    {
+      g_free (prompt);
+      return;
+    }
+  prompt->window = self;
+  prompt->indices = g_array_new (FALSE, FALSE, sizeof (int));
+  prompt->dialog = dialog_frame (self, _("Unhide"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Unhide sheet:")));
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  for (int i = 0; i < o42_book_n_sheets (self->book); i++)
+    if (o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      {
+        GtkWidget *label = gtk_label_new (o42_sheet_get_name (o42_book_sheet (self->book, i)));
+        gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+        gtk_list_box_append (GTK_LIST_BOX (prompt->list), label);
+        g_array_append_val (prompt->indices, i);
+      }
+  if (prompt->indices->len > 0)
+    gtk_list_box_select_row (GTK_LIST_BOX (prompt->list),
+                             gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), 0));
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_widget_set_size_request (scroller, 260, 160);
+  gtk_box_append (GTK_BOX (content), scroller);
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_unhide_ok), prompt);
+  gtk_widget_set_sensitive (ok, prompt->indices->len > 0);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_unhide_destroy), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
 /* Insert > Worksheet puts the new sheet before the current one, as Excel
@@ -2520,6 +3618,8 @@ action_insert_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   int index = o42_book_sheet_index (self->book, self->sheet);
   (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    return;
   o42_book_add_sheet (self->book, NULL, index);
   o42_sheet_set_modified (self->sheet, TRUE);
   window_show_sheet (self, index);
@@ -2551,6 +3651,8 @@ action_delete_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   char *message;
 
   (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    return;
 
   if (o42_book_n_sheets (self->book) < 2)
     return;
@@ -2601,6 +3703,11 @@ action_rename_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   GtkWidget *content, *buttons, *row, *ok;
 
   (void) a; (void) p;
+  if (o42_window_structure_locked (self))
+    {
+      g_free (prompt);
+      return;
+    }
 
   prompt->window = self;
   prompt->dialog = dialog_frame (self, _("Rename Sheet"), TRUE, &content, &buttons);
@@ -2627,7 +3734,7 @@ action_rename_sheet (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* ---- Insert Cells and Delete ------------------------------------------- */
 
-/* Excel 5's two small dialogs, one shape: shift the cells one way or the
+/* Excel 97's two small dialogs, one shape: shift the cells one way or the
  * other, or take the whole rows or columns. */
 typedef struct {
   O42Window *window;
@@ -2821,7 +3928,7 @@ action_insert_chart (GSimpleAction *a, GVariant *p, gpointer data)
   }
 
   /* Which way the series lie.  The same cells make a different chart
-   * either way, so the wizard asks, as Excel 5's second step did. */
+   * either way, so the wizard asks, as Excel 97's second step did. */
   {
     GtkWidget *in_cols = gtk_check_button_new_with_mnemonic ( _("Series in _columns"));
 
@@ -3414,11 +4521,22 @@ action_shape (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   O42ShapeKind kind = O42_SHAPE_RECT;
+  O42ShapeGeom geom = O42_GEOM_RECT;
   const char *name = p != NULL ? g_variant_get_string (p, NULL) : "rectangle";
   const char *caption = "";
 
   (void) a;
-  o42_shape_kind_parse (name, &kind);
+  /* The target names a kind ("oval") or one of the AutoShape outlines
+   * a rectangle can wear ("star5"); a freeform is drawn point by point. */
+  if (strcmp (name, "freeform") == 0)
+    {
+      o42_grid_begin_freeform (self->grid);
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("Click the points of the freeform; double-click the last, or click the first again to close it."));
+      return;
+    }
+  if (!o42_shape_kind_parse (name, &kind))
+    o42_shape_geom_parse (name, &geom);
   /* A new control says what it is until it is given a caption of its
    * own; the ones that show no caption start empty. */
   switch (kind)
@@ -3431,8 +4549,60 @@ action_shape (GSimpleAction *a, GVariant *p, gpointer data)
     case O42_SHAPE_GROUPBOX: caption = "Group Box"; break;
     default:                 break;
     }
-  o42_grid_insert_shape (self->grid, kind, caption);
+  o42_grid_insert_shape (self->grid, kind, geom, caption);
   window_sync (self);
+}
+
+/* Format > Order: the selected object to the front or the back of the
+ * others, or one step either way. */
+static void
+action_order (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  const char *how = p != NULL ? g_variant_get_string (p, NULL) : "front";
+  O42Order order = strcmp (how, "back") == 0 ? O42_ORDER_BACK
+                 : strcmp (how, "forward") == 0 ? O42_ORDER_FORWARD
+                 : strcmp (how, "backward") == 0 ? O42_ORDER_BACKWARD : O42_ORDER_FRONT;
+
+  (void) a;
+  if (o42_grid_selected_shape (self->grid) == NULL &&
+      o42_grid_selected_chart (self->grid) == NULL &&
+      !o42_grid_has_selected_object (self->grid))
+    {
+      show_error (self, "Click a picture, shape or chart first; Format > Order moves the selected one.", NULL);
+      return;
+    }
+  o42_grid_reorder_selected (self->grid, order);
+  window_sync (self);
+}
+
+/* Excel's Properties tab: how an object follows the cells.  Three
+ * check buttons in one group, and the mode they stand for. */
+static GtkWidget *
+anchor_radios (GtkWidget **buttons, O42AnchorMode current)
+{
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+  static const char *const labels[] = { N_("_Move and size with cells"), N_("Move but _don't size with cells"),
+                                        N_("Don't move or si_ze with cells") };
+
+  for (int i = 0; i < 3; i++)
+    {
+      buttons[i] = gtk_check_button_new_with_mnemonic (_(labels[i]));
+      if (i > 0)
+        gtk_check_button_set_group (GTK_CHECK_BUTTON (buttons[i]), GTK_CHECK_BUTTON (buttons[0]));
+      gtk_box_append (GTK_BOX (box), buttons[i]);
+    }
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (buttons[CLAMP ((int) current, 0, 2)]), TRUE);
+  return box;
+}
+
+static O42AnchorMode
+anchor_chosen (GtkWidget **buttons)
+{
+  for (int i = 0; i < 3; i++)
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (buttons[i])))
+      return (O42AnchorMode) i;
+  return O42_ANCHOR_TWO_CELL;
 }
 
 typedef struct {
@@ -3440,6 +4610,13 @@ typedef struct {
   GtkWidget *dialog;
   guint      shape_id;
   GtkWidget *text, *fill, *no_fill, *line, *width;
+  GtkWidget *dash, *head_start, *head_start_size, *head_end, *head_end_size;
+  GtkWidget *rotation, *flip_h, *flip_v;
+  GtkWidget *font, *font_size, *bold, *italic, *text_colour;
+  GtkWidget *halign, *valign, *wrap, *inset;
+  GtkWidget *fill_kind, *fill2, *angle, *pattern;
+  GtkWidget *shadow, *shadow_colour, *shadow_dx, *shadow_dy;
+  GtkWidget *anchor[3];
 } ShapePrompt;
 
 static void
@@ -3452,6 +4629,8 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
   (void) w;
   if (shape != NULL)
     {
+      const char *font = gtk_editable_get_text (GTK_EDITABLE (prompt->font));
+
       o42_sheet_begin_group (prompt->window->sheet);
       o42_sheet_capture_object (prompt->window->sheet, shape->id);
       gtk_text_buffer_get_bounds (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->text)), &a, &b);
@@ -3460,8 +4639,44 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
       shape->fill = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->no_fill))
                     ? O42_FILL_NONE
                     : colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->fill)));
+      shape->fill_kind = (O42ShapeFillKind) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->fill_kind));
+      shape->fill2 = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->fill2)));
+      shape->gradient_angle = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->angle));
+      shape->pattern = (O42Pattern) (gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->pattern)) + O42_PATTERN_GRAY75);
+      shape->shadow = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->shadow));
+      shape->shadow_colour = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->shadow_colour)));
+      shape->shadow_dx = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->shadow_dx));
+      shape->shadow_dy = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->shadow_dy));
       shape->line = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->line)));
       shape->line_width = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->width));
+      shape->dash = (O42Dash) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->dash));
+      shape->rotation = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->rotation));
+      shape->flip_h = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_h));
+      shape->flip_v = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_v));
+      if (prompt->head_start != NULL)
+        {
+          shape->head_start = (O42Head) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_start));
+          shape->head_start_size = (O42HeadSize) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_start_size));
+          shape->head_end = (O42Head) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_end));
+          shape->head_end_size = (O42HeadSize) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->head_end_size));
+        }
+      /* The text's look: the default font is left unsaid, as the files
+       * leave it. */
+      shape->font = (*font != '\0' && g_ascii_strcasecmp (font, "Arial") != 0) ? g_intern_string (font) : NULL;
+      shape->font_size = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->font_size));
+      if (shape->font_size == 10) shape->font_size = 0;
+      shape->bold = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->bold));
+      shape->italic = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->italic));
+      shape->text_colour = colour_from_rgba (gtk_color_dialog_button_get_rgba (GTK_COLOR_DIALOG_BUTTON (prompt->text_colour)));
+      shape->text_halign = (O42HAlign) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->halign));
+      {
+        /* The list runs top, middle, bottom; the enum bottom, middle, top. */
+        guint v = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->valign));
+        shape->text_valign = v == 0 ? O42_VALIGN_TOP : v == 1 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+      }
+      shape->text_nowrap = !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->wrap));
+      shape->text_inset = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->inset));
+      shape->anchor = anchor_chosen (prompt->anchor);
       o42_sheet_end_group (prompt->window->sheet);
       o42_sheet_set_modified (prompt->window->sheet, TRUE);
       o42_grid_refresh (prompt->window->grid);
@@ -3470,13 +4685,16 @@ on_shape_format_ok (GtkWidget *w, gpointer data)
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
 }
 
+/* Excel's Format AutoShape: tabs for the colours and lines, the size and
+ * turn, and the text, over the selected shape. */
 static void
 action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   O42Shape *shape = o42_grid_selected_shape (self->grid);
   ShapePrompt *prompt;
-  GtkWidget *content, *buttons, *grid, *scrolled, *ok;
+  GtkWidget *content, *buttons, *grid, *scrolled, *ok, *notebook;
+  gboolean line_kind;
 
   (void) a; (void) p;
   if (shape == NULL)
@@ -3490,36 +4708,253 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
       show_error (self, "Click a shape first; Format > Shape works on the selected one.", NULL);
       return;
     }
+  line_kind = shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW;
 
   prompt = g_new0 (ShapePrompt, 1);
   prompt->window = self;
   prompt->shape_id = shape->id;
   prompt->dialog = dialog_frame (self, _("Format Shape"), TRUE, &content, &buttons);
+  notebook = gtk_notebook_new ();
+  gtk_box_append (GTK_BOX (content), notebook);
 
-  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Text:")));
+  /* Colors and Lines */
+  grid = page_grid (notebook, _("Colors and Lines"));
+  prompt->fill = labelled (grid, 0, _("Fill:"), colour_button (shape->fill == O42_FILL_NONE ? 0xFFFFFF : shape->fill, _("Shape Fill")));
+  prompt->no_fill = gtk_check_button_new_with_mnemonic ( _("_No fill"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), shape->fill == O42_FILL_NONE);
+  gtk_grid_attach (GTK_GRID (grid), prompt->no_fill, 0, 1, 2, 1);
+  {
+    /* In the order of O42ShapeFillKind, and of O42Pattern from GRAY75. */
+    static const char *const kinds[] = { N_("Solid"), N_("Gradient"), N_("Pattern"), NULL };
+    static const char *const patterns[] = { N_("75% grey"), N_("50% grey"), N_("25% grey"), N_("12.5% grey"), N_("6.25% grey"),
+                                            N_("Horizontal"), N_("Vertical"), N_("Down diagonal"), N_("Up diagonal"),
+                                            N_("Grid"), N_("Trellis"), N_("Thin horizontal"), N_("Thin vertical"),
+                                            N_("Thin down diagonal"), N_("Thin up diagonal"), N_("Thin grid"), N_("Thin trellis"), NULL };
+
+    prompt->fill_kind = labelled (grid, 2, _("Fill style:"), drop_down_of (kinds));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->fill_kind), (guint) shape->fill_kind);
+    prompt->fill2 = labelled (grid, 3, _("Second colour:"), colour_button (shape->fill2, _("Gradient End or Pattern Colour")));
+    prompt->angle = labelled (grid, 4, _("Gradient angle:"), gtk_spin_button_new_with_range (0, 359, 15));
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->angle), shape->gradient_angle);
+    prompt->pattern = labelled (grid, 5, _("Pattern:"), drop_down_of (patterns));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->pattern),
+                                (guint) CLAMP ((int) shape->pattern - (int) O42_PATTERN_GRAY75, 0, 16));
+  }
+  prompt->line = labelled (grid, 6, _("Line:"), colour_button (shape->line, _("Shape Line")));
+  prompt->width = labelled (grid, 7, _("Line width:"), gtk_spin_button_new_with_range (0.5, 12, 0.5));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->width), shape->line_width);
+  {
+    /* In the order of O42Dash, O42Head and O42HeadSize, so the row is
+     * the value. */
+    static const char *const dashes[] = { N_("Solid"), N_("Dash"), N_("Dot"), N_("Dash dot"),
+                                          N_("Long dash"), N_("Short dash"), N_("Short dot"), NULL };
+    static const char *const heads[] = { N_("None"), N_("Triangle"), N_("Stealth"), N_("Diamond"),
+                                         N_("Oval"), N_("Open arrow"), NULL };
+    static const char *const sizes[] = { N_("Small"), N_("Medium"), N_("Large"), NULL };
+
+    prompt->dash = labelled (grid, 8, _("Dash:"), drop_down_of (dashes));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->dash), (guint) shape->dash);
+    if (line_kind)
+      {
+        prompt->head_start = labelled (grid, 9, _("Begin arrow:"), drop_down_of (heads));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start), (guint) shape->head_start);
+        prompt->head_start_size = labelled (grid, 10, _("Begin size:"), drop_down_of (sizes));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_start_size), (guint) shape->head_start_size);
+        prompt->head_end = labelled (grid, 11, _("End arrow:"), drop_down_of (heads));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end), (guint) shape->head_end);
+        prompt->head_end_size = labelled (grid, 12, _("End size:"), drop_down_of (sizes));
+        gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->head_end_size), (guint) shape->head_end_size);
+      }
+  }
+  prompt->shadow = gtk_check_button_new_with_mnemonic (_("_Shadow"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->shadow), shape->shadow);
+  gtk_grid_attach (GTK_GRID (grid), prompt->shadow, 0, 13, 2, 1);
+  prompt->shadow_colour = labelled (grid, 14, _("Shadow colour:"), colour_button (shape->shadow_colour, _("Shadow Colour")));
+  prompt->shadow_dx = labelled (grid, 15, _("Shadow offset across:"), gtk_spin_button_new_with_range (-40, 40, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->shadow_dx), shape->shadow_dx);
+  prompt->shadow_dy = labelled (grid, 16, _("Shadow offset down:"), gtk_spin_button_new_with_range (-40, 40, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->shadow_dy), shape->shadow_dy);
+
+  /* Size */
+  grid = page_grid (notebook, _("Size"));
+  prompt->rotation = labelled (grid, 0, _("Rotation (degrees):"), gtk_spin_button_new_with_range (-360, 360, 5));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->rotation), shape->rotation);
+  prompt->flip_h = gtk_check_button_new_with_mnemonic ( _("Flip _horizontal"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_h), shape->flip_h);
+  gtk_grid_attach (GTK_GRID (grid), prompt->flip_h, 0, 1, 2, 1);
+  prompt->flip_v = gtk_check_button_new_with_mnemonic ( _("Flip _vertical"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_v), shape->flip_v);
+  gtk_grid_attach (GTK_GRID (grid), prompt->flip_v, 0, 2, 2, 1);
+
+  /* Properties */
+  grid = page_grid (notebook, _("Properties"));
+  gtk_grid_attach (GTK_GRID (grid), gtk_label_new (_("Object positioning:")), 0, 0, 2, 1);
+  gtk_grid_attach (GTK_GRID (grid), anchor_radios (prompt->anchor, shape->anchor), 0, 1, 2, 1);
+
+  /* Text */
+  grid = page_grid (notebook, _("Text"));
   prompt->text = gtk_text_view_new ();
   gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (prompt->text), GTK_WRAP_WORD);
   gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->text)),
                             shape->text != NULL ? shape->text : "", -1);
   scrolled = gtk_scrolled_window_new ();
-  gtk_widget_set_size_request (scrolled, 300, 90);
+  gtk_widget_set_size_request (scrolled, 320, 70);
   gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), prompt->text);
   gtk_widget_add_css_class (scrolled, "frame");
-  gtk_box_append (GTK_BOX (content), scrolled);
+  gtk_grid_attach (GTK_GRID (grid), scrolled, 0, 0, 2, 1);
+  prompt->font = labelled (grid, 1, _("Font:"), gtk_entry_new ());
+  gtk_editable_set_text (GTK_EDITABLE (prompt->font), shape->font != NULL ? shape->font : "Arial");
+  prompt->font_size = labelled (grid, 2, _("Size (points):"), gtk_spin_button_new_with_range (4, 144, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->font_size), shape->font_size > 0 ? shape->font_size : 10);
+  {
+    GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+    prompt->bold = gtk_check_button_new_with_mnemonic (_("_Bold"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->bold), shape->bold);
+    prompt->italic = gtk_check_button_new_with_mnemonic (_("_Italic"));
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->italic), shape->italic);
+    gtk_box_append (GTK_BOX (box), prompt->bold);
+    gtk_box_append (GTK_BOX (box), prompt->italic);
+    labelled (grid, 3, _("Style:"), box);
+  }
+  prompt->text_colour = labelled (grid, 4, _("Colour:"), colour_button (shape->text_colour, _("Text Colour")));
+  {
+    static const char *const haligns[] = { N_("As the shape has it"), N_("Left"), N_("Centre"), N_("Right"), NULL };
+    static const char *const valigns[] = { N_("Top"), N_("Middle"), N_("Bottom"), NULL };
+    O42VAlign va = o42_shape_text_valign (shape);
+
+    prompt->halign = labelled (grid, 5, _("Horizontal:"), drop_down_of (haligns));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->halign), (guint) shape->text_halign);
+    prompt->valign = labelled (grid, 6, _("Vertical:"), drop_down_of (valigns));
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->valign), va == O42_VALIGN_TOP ? 0 : va == O42_VALIGN_MIDDLE ? 1 : 2);
+  }
+  prompt->wrap = gtk_check_button_new_with_mnemonic (_("_Wrap text in the shape"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->wrap), !shape->text_nowrap);
+  gtk_grid_attach (GTK_GRID (grid), prompt->wrap, 0, 7, 2, 1);
+  prompt->inset = labelled (grid, 8, _("Internal margin (pixels):"), gtk_spin_button_new_with_range (0, 40, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->inset), shape->text_inset);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_shape_format_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Format > Picture -------------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  guint      picture_id;
+  GtkWidget *width, *height, *rotation, *flip_h, *flip_v;
+  GtkWidget *crop[4], *lock_aspect;     /* left, top, right, bottom, per cent */
+  GtkWidget *anchor[3];
+  GtkWidget *brightness, *contrast;
+} PicturePrompt;
+
+static void
+on_picture_format_ok (GtkWidget *w, gpointer data)
+{
+  PicturePrompt *prompt = data;
+  O42Picture *pic = o42_sheet_find_picture (prompt->window->sheet, prompt->picture_id);
+
+  (void) w;
+  if (pic != NULL)
+    {
+      o42_sheet_begin_group (prompt->window->sheet);
+      o42_sheet_capture_object (prompt->window->sheet, pic->id);
+      pic->width = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->width));
+      pic->height = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->height));
+      pic->rotation = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->rotation));
+      pic->flip_h = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_h));
+      pic->flip_v = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->flip_v));
+      pic->crop_l = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[0])) / 100;
+      pic->crop_t = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[1])) / 100;
+      pic->crop_r = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[2])) / 100;
+      pic->crop_b = gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->crop[3])) / 100;
+      pic->lock_aspect = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->lock_aspect));
+      pic->anchor = anchor_chosen (prompt->anchor);
+      pic->brightness = gtk_range_get_value (GTK_RANGE (prompt->brightness)) / 100;
+      pic->contrast = gtk_range_get_value (GTK_RANGE (prompt->contrast)) / 100;
+      o42_sheet_end_group (prompt->window->sheet);
+      o42_sheet_set_modified (prompt->window->sheet, TRUE);
+      o42_grid_refresh (prompt->window->grid);
+      window_sync (prompt->window);
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+action_format_picture (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  O42Picture *pic = o42_grid_selected_picture (self->grid);
+  PicturePrompt *prompt;
+  GtkWidget *content, *buttons, *grid, *ok;
+
+  (void) a; (void) p;
+  if (pic == NULL)
+    {
+      GPtrArray *pictures = o42_sheet_pictures (self->sheet);
+      if (pictures->len == 1)
+        pic = g_ptr_array_index (pictures, 0);
+    }
+  if (pic == NULL)
+    {
+      show_error (self, "Click a picture first; Format > Picture works on the selected one.", NULL);
+      return;
+    }
+
+  prompt = g_new0 (PicturePrompt, 1);
+  prompt->window = self;
+  prompt->picture_id = pic->id;
+  prompt->dialog = dialog_frame (self, _("Format Picture"), TRUE, &content, &buttons);
 
   grid = gtk_grid_new ();
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
   gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
-  prompt->fill = labelled (grid, 0, _("Fill:"), colour_button (shape->fill == O42_FILL_NONE ? 0xFFFFFF : shape->fill, _("Shape Fill")));
-  prompt->line = labelled (grid, 1, _("Line:"), colour_button (shape->line, _("Shape Line")));
-  prompt->width = labelled (grid, 2, _("Line width:"), gtk_spin_button_new_with_range (0.5, 12, 0.5));
-  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->width), shape->line_width);
-  gtk_box_append (GTK_BOX (content), grid);
-  prompt->no_fill = gtk_check_button_new_with_mnemonic ( _("_No fill"));
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), shape->fill == O42_FILL_NONE);
-  gtk_box_append (GTK_BOX (content), prompt->no_fill);
+  prompt->width = labelled (grid, 0, _("Width (pixels):"), gtk_spin_button_new_with_range (4, 4000, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->width), pic->width);
+  prompt->height = labelled (grid, 1, _("Height (pixels):"), gtk_spin_button_new_with_range (4, 4000, 1));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->height), pic->height);
+  prompt->rotation = labelled (grid, 2, _("Rotation (degrees):"), gtk_spin_button_new_with_range (-360, 360, 5));
+  gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->rotation), pic->rotation);
+  {
+    /* The crop, as Excel's Picture tab has it: how much of each side
+     * is cut away. */
+    static const char *const sides[4] = { N_("Crop left (%):"), N_("Crop top (%):"),
+                                          N_("Crop right (%):"), N_("Crop bottom (%):") };
+    const double crops[4] = { pic->crop_l, pic->crop_t, pic->crop_r, pic->crop_b };
 
-  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_shape_format_ok), prompt);
+    for (int i = 0; i < 4; i++)
+      {
+        prompt->crop[i] = labelled (grid, 3 + i, _(sides[i]), gtk_spin_button_new_with_range (0, 99, 1));
+        gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->crop[i]), crops[i] * 100);
+      }
+    /* Excel's picture toolbar: More and Less Brightness, More and Less
+     * Contrast, as two sliders. */
+    prompt->brightness = labelled (grid, 7, _("Brightness (%):"), gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL, -100, 100, 5));
+    gtk_range_set_value (GTK_RANGE (prompt->brightness), pic->brightness * 100);
+    gtk_widget_set_size_request (prompt->brightness, 180, -1);
+    prompt->contrast = labelled (grid, 8, _("Contrast (%):"), gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL, -100, 100, 5));
+    gtk_range_set_value (GTK_RANGE (prompt->contrast), pic->contrast * 100);
+    gtk_widget_set_size_request (prompt->contrast, 180, -1);
+  }
+  gtk_box_append (GTK_BOX (content), grid);
+  prompt->lock_aspect = gtk_check_button_new_with_mnemonic ( _("_Lock aspect ratio"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->lock_aspect), pic->lock_aspect);
+  gtk_box_append (GTK_BOX (content), prompt->lock_aspect);
+  prompt->flip_h = gtk_check_button_new_with_mnemonic ( _("Flip _horizontal"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_h), pic->flip_h);
+  gtk_box_append (GTK_BOX (content), prompt->flip_h);
+  prompt->flip_v = gtk_check_button_new_with_mnemonic ( _("Flip _vertical"));
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->flip_v), pic->flip_v);
+  gtk_box_append (GTK_BOX (content), prompt->flip_v);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Object positioning:")));
+  gtk_box_append (GTK_BOX (content), anchor_radios (prompt->anchor, pic->anchor));
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_picture_format_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
   gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
@@ -3705,6 +5140,7 @@ typedef struct {
   guint      chart_id;
   GtkWidget *title, *x_title, *y_title, *legend, *gridlines, *labels, *min, *max;
   GtkWidget *trend, *trend_order, *err_bars, *err_value, *font, *font_size, *three_d;
+  GtkWidget *of_pie, *of_pie_count;
   GtkWidget *marker, *marker_size, *marker_picture;
   GtkWidget *y_format, *secondary;
 } ChartFormatPrompt;
@@ -3741,6 +5177,8 @@ on_chart_format_ok (GtkWidget *w, gpointer data)
       chart->marker_picture = (guint) gtk_spin_button_get_value (GTK_SPIN_BUTTON (prompt->marker_picture));
       chart->trend_order = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->trend_order));
       chart->three_d = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->three_d));
+      chart->of_pie = (int) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->of_pie));
+      chart->of_pie_count = gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->of_pie_count));
       chart->err_bars = (O42ErrBarKind) gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->err_bars));
       chart->err_value = g_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->err_value)), NULL);
       g_free (chart->font_family);
@@ -3818,6 +5256,22 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->three_d = gtk_check_button_new_with_mnemonic ( _("Draw in three _dimensions"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->three_d), chart->three_d);
   gtk_box_append (GTK_BOX (content), prompt->three_d);
+  {
+    /* Excel 97's pie-of-pie and bar-of-pie: a pie's last slices shown
+     * again in a second plot. */
+    static const char *const plots[] = { N_("None"), N_("A second pie"), N_("A bar"), NULL };
+    GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+
+    gtk_box_append (GTK_BOX (row), gtk_label_new (_("Second plot for a pie's last slices:")));
+    prompt->of_pie = drop_down_of (plots);
+    gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->of_pie), (guint) CLAMP (chart->of_pie, 0, 2));
+    gtk_box_append (GTK_BOX (row), prompt->of_pie);
+    prompt->of_pie_count = gtk_spin_button_new_with_range (1, 50, 1);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->of_pie_count), chart->of_pie_count > 0 ? chart->of_pie_count : 2);
+    gtk_box_append (GTK_BOX (row), prompt->of_pie_count);
+    gtk_box_append (GTK_BOX (row), gtk_label_new (_("slices")));
+    gtk_box_append (GTK_BOX (content), row);
+  }
   {
     /* In the order of O42TrendKind, so the row is the kind. */
     static const char *const trends[] = { N_("None"), N_("Linear"), N_("Polynomial"), N_("Exponential"),
@@ -3912,7 +5366,261 @@ window_set_file (O42Window *self, GFile *file)
   self->file = file;
   window_update_title (self);
   o42_book_changed (self->book, "file");
+  /* The recent files, and the window list's titles. */
+  if (file != NULL)
+    {
+      char *uri = g_file_get_uri (file);
+      GtkRecentData data = { NULL, NULL, (char *) "application/octet-stream", (char *) "office42",
+                             (char *) "office42 %u", NULL, FALSE };
+
+      gtk_recent_manager_add_full (gtk_recent_manager_get_default (), uri, &data);
+      g_free (uri);
+    }
+  if (gtk_window_get_application (GTK_WINDOW (self)) != NULL)
+    o42_window_refresh_window_lists (gtk_window_get_application (GTK_WINDOW (self)));
 }
+
+/* ---- File's recent files and Window's list ----------------------------- */
+
+static int
+recent_newer_first (gconstpointer a, gconstpointer b, gpointer data)
+{
+  GtkRecentInfo *ia = *(GtkRecentInfo *const *) a, *ib = *(GtkRecentInfo *const *) b;
+  GDateTime *ta = gtk_recent_info_get_modified (ia), *tb = gtk_recent_info_get_modified (ib);
+  (void) data;
+  return g_date_time_compare (tb, ta);
+}
+
+/* Excel 97 listed the last four files above Exit. */
+static void
+window_fill_recent (O42Window *self)
+{
+  GList *items = gtk_recent_manager_get_items (gtk_recent_manager_get_default ());
+  GPtrArray *ours = g_ptr_array_new ();
+  int n = 0;
+
+  g_menu_remove_all (self->recent_menu);
+  /* The ones office42 opened that are still there, newest first, and
+   * four of them, as Excel 97 listed them above Exit. */
+  for (GList *l = items; l != NULL; l = l->next)
+    if (gtk_recent_info_has_application (l->data, "office42") && gtk_recent_info_exists (l->data))
+      g_ptr_array_add (ours, l->data);
+  g_ptr_array_sort_with_data (ours, recent_newer_first, NULL);
+  for (guint i = 0; i < ours->len && n < 4; i++, n++)
+    {
+      GtkRecentInfo *info = g_ptr_array_index (ours, i);
+      char *label = g_strdup_printf ("_%d %s", n + 1, gtk_recent_info_get_display_name (info));
+      GMenuItem *item = g_menu_item_new (label, NULL);
+
+      g_menu_item_set_action_and_target (item, "win.open-recent", "s", gtk_recent_info_get_uri (info));
+      g_menu_append_item (self->recent_menu, item);
+      g_object_unref (item);
+      g_free (label);
+    }
+  g_ptr_array_unref (ours);
+  g_list_free_full (items, (GDestroyNotify) gtk_recent_info_unref);
+}
+
+static void
+on_recent_changed (GtkRecentManager *manager, gpointer data)
+{
+  (void) manager;
+  window_fill_recent (data);
+}
+
+static void
+action_open_recent (GSimpleAction *a, GVariant *param, gpointer data)
+{
+  O42Window *self = data;
+  GFile *file = g_file_new_for_uri (g_variant_get_string (param, NULL));
+
+  (void) a;
+  o42_window_open_file (self, file);
+  g_object_unref (file);
+}
+
+void
+o42_window_refresh_window_lists (GtkApplication *app)
+{
+  GList *windows = gtk_application_get_windows (app);
+  int index = 0;
+
+  for (GList *l = windows; l != NULL; l = l->next)
+    {
+      O42Window *self = O42_IS_WINDOW (l->data) ? O42_WINDOW (l->data) : NULL;
+
+      if (self == NULL || self->window_menu == NULL)
+        continue;
+      g_menu_remove_all (self->window_menu);
+      index = 0;
+      for (GList *m = windows; m != NULL; m = m->next)
+        {
+          GtkWindow *other = m->data;
+          const char *title;
+          char *label;
+          GMenuItem *item;
+
+          if (!O42_IS_WINDOW (other) || !gtk_widget_get_visible (GTK_WIDGET (other)))
+            continue;
+          title = gtk_window_get_title (other);
+          label = g_strdup_printf ("_%d %s", index + 1, title != NULL ? title : "");
+          item = g_menu_item_new (label, NULL);
+          g_menu_item_set_action_and_target (item, "win.raise-window", "s",
+                                             gtk_window_get_title (other) != NULL ? gtk_window_get_title (other) : "");
+          g_menu_append_item (self->window_menu, item);
+          g_object_unref (item);
+          g_free (label);
+          index++;
+        }
+    }
+}
+
+static void
+on_windows_changed (GtkApplication *app, GtkWindow *window, gpointer data)
+{
+  (void) window; (void) data;
+  o42_window_refresh_window_lists (app);
+}
+
+static void
+on_application_set (GObject *object, GParamSpec *pspec, gpointer data)
+{
+  GtkApplication *app = gtk_window_get_application (GTK_WINDOW (object));
+  static GHashTable *hooked = NULL;
+
+  (void) pspec; (void) data;
+  if (app == NULL)
+    return;
+  if (hooked == NULL)
+    hooked = g_hash_table_new (g_direct_hash, g_direct_equal);
+  if (!g_hash_table_contains (hooked, app))
+    {
+      g_hash_table_add (hooked, app);
+      g_signal_connect (app, "window-added", G_CALLBACK (on_windows_changed), NULL);
+      g_signal_connect (app, "window-removed", G_CALLBACK (on_windows_changed), NULL);
+    }
+  o42_window_refresh_window_lists (app);
+}
+
+static void
+action_raise_window (GSimpleAction *a, GVariant *param, gpointer data)
+{
+  O42Window *self = data;
+  GtkApplication *app = gtk_window_get_application (GTK_WINDOW (self));
+  const char *title = g_variant_get_string (param, NULL);
+
+  (void) a;
+  for (GList *l = app != NULL ? gtk_application_get_windows (app) : NULL; l != NULL; l = l->next)
+    if (g_strcmp0 (gtk_window_get_title (l->data), title) == 0)
+      {
+        gtk_window_present (l->data);
+        return;
+      }
+}
+
+/* Window > Hide: the window goes out of sight and off the list, and
+ * Unhide brings it back.  The last window on show stays, since there
+ * would be no menu to bring it back from. */
+static void
+action_hide_window (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GtkApplication *app = gtk_window_get_application (GTK_WINDOW (self));
+  int visible = 0;
+
+  (void) a; (void) p;
+  for (GList *l = app != NULL ? gtk_application_get_windows (app) : NULL; l != NULL; l = l->next)
+    if (O42_IS_WINDOW (l->data) && gtk_widget_get_visible (l->data))
+      visible++;
+  if (visible < 2)
+    {
+      gtk_label_set_text (GTK_LABEL (self->status_label), _("This is the only window on show; open another before hiding it."));
+      return;
+    }
+  gtk_widget_set_visible (GTK_WIDGET (self), FALSE);
+  o42_window_refresh_window_lists (app);
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkDropDown *drop;
+  GPtrArray *hidden;
+} UnhideWindowPrompt;
+
+static void
+on_unhide_window_ok (GtkWidget *w, gpointer data)
+{
+  UnhideWindowPrompt *prompt = data;
+  guint pos = gtk_drop_down_get_selected (prompt->drop);
+
+  (void) w;
+  if (pos != GTK_INVALID_LIST_POSITION && pos < prompt->hidden->len)
+    {
+      GtkWindow *win = g_ptr_array_index (prompt->hidden, pos);
+      gtk_widget_set_visible (GTK_WIDGET (win), TRUE);
+      gtk_window_present (win);
+      o42_window_refresh_window_lists (gtk_window_get_application (GTK_WINDOW (prompt->window)));
+    }
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+unhide_window_prompt_free (gpointer data)
+{
+  UnhideWindowPrompt *prompt = data;
+  g_ptr_array_unref (prompt->hidden);
+  g_free (prompt);
+}
+
+static void
+action_unhide_window (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  GtkApplication *app = gtk_window_get_application (GTK_WINDOW (self));
+  UnhideWindowPrompt *prompt;
+  GtkStringList *names = gtk_string_list_new (NULL);
+  GtkWidget *content, *buttons, *ok;
+
+  (void) a; (void) p;
+  prompt = g_new0 (UnhideWindowPrompt, 1);
+  prompt->window = self;
+  prompt->hidden = g_ptr_array_new ();
+  for (GList *l = app != NULL ? gtk_application_get_windows (app) : NULL; l != NULL; l = l->next)
+    if (O42_IS_WINDOW (l->data) && !gtk_widget_get_visible (l->data))
+      {
+        g_ptr_array_add (prompt->hidden, l->data);
+        gtk_string_list_append (names, gtk_window_get_title (l->data));
+      }
+  if (prompt->hidden->len == 0)
+    {
+      gtk_label_set_text (GTK_LABEL (self->status_label), _("No window is hidden."));
+      unhide_window_prompt_free (prompt);
+      g_object_unref (names);
+      return;
+    }
+  prompt->dialog = dialog_frame (self, _("Unhide"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Unhide window:")));
+  prompt->drop = GTK_DROP_DOWN (gtk_drop_down_new (G_LIST_MODEL (names), NULL));
+  gtk_box_append (GTK_BOX (content), GTK_WIDGET (prompt->drop));
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_unhide_window_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (unhide_window_prompt_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+change_show_notes (GSimpleAction *action, GVariant *state, gpointer data)
+{
+  O42Window *self = data;
+
+  o42_grid_set_show_notes (self->grid, g_variant_get_boolean (state));
+  g_simple_action_set_state (action, state);
+}
+
+static void action_paste_link (GSimpleAction *a, GVariant *p, gpointer d) { (void)a;(void)p; o42_grid_paste_as_link (O42_WINDOW (d)->grid); }
 
 /* Another window on our book changed it. */
 static void
@@ -3924,6 +5632,13 @@ on_book_changed (O42Book *book, const char *what, gpointer data)
 
   if (self->telling)
     return;
+
+  if (g_strcmp0 (what, "scripts") == 0)
+    {
+      o42_window_bind_macro_keys (self);
+      window_sync (self);
+      return;
+    }
 
   if (g_strcmp0 (what, "sheets") == 0 || o42_book_sheet_index (self->book, self->sheet) < 0)
     {
@@ -3968,7 +5683,9 @@ static gboolean
 file_is_csv (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  gboolean csv = name != NULL && g_str_has_suffix (name, ".csv");
+  /* .txt, .tsv and .tab are the same thing with tabs, as Excel has them. */
+  gboolean csv = name != NULL && (g_str_has_suffix (name, ".csv") || g_str_has_suffix (name, ".txt") ||
+                                  g_str_has_suffix (name, ".tsv") || g_str_has_suffix (name, ".tab"));
   g_free (name);
   return csv;
 }
@@ -4017,7 +5734,7 @@ static gboolean
 file_is_xlsx (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  gboolean xlsx = name != NULL && g_str_has_suffix (name, ".xlsx");
+  gboolean xlsx = name != NULL && (g_str_has_suffix (name, ".xlsx") || g_str_has_suffix (name, ".xlsm"));
   g_free (name);
   return xlsx;
 }
@@ -4035,7 +5752,7 @@ static gboolean
 file_is_ods (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  gboolean ods = name != NULL && g_str_has_suffix (name, ".ods");
+  gboolean ods = name != NULL && (g_str_has_suffix (name, ".ods") || g_str_has_suffix (name, ".fods"));
   g_free (name);
   return ods;
 }
@@ -4058,6 +5775,7 @@ o42_window_open_file (O42Window *self, GFile *file)
   g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
+  o42_book_begin_load (self->book);
   if (file_is_csv (file) || file_is_html (file) ||
       file_is_dif (file) || file_is_sylk (file) || file_is_lotus (file))
     {
@@ -4077,6 +5795,7 @@ o42_window_open_file (O42Window *self, GFile *file)
                                : o42_gnumeric_load (self->book, file, &error);
       self->sheet = o42_book_sheet (self->book, 0);
     }
+  o42_book_end_load (self->book);
 
   if (!ok)
     {
@@ -4086,7 +5805,14 @@ o42_window_open_file (O42Window *self, GFile *file)
   else
     window_set_file (self, file);
 
+  /* The sheet the file was saved on, if it says. */
+  for (int i = 0; ok && i < o42_book_n_sheets (self->book); i++)
+    if (o42_sheet_view (o42_book_sheet (self->book, i))->selected &&
+        !o42_sheet_hidden (o42_book_sheet (self->book, i)))
+      { self->sheet = o42_book_sheet (self->book, i); break; }
+  self->applying_view = TRUE;
   o42_grid_set_sheet (self->grid, self->sheet);
+  window_apply_view (self);
   window_rebuild_tabs (self);
   window_sync (self);
   window_tell_book (self, "sheets");
@@ -4094,9 +5820,21 @@ o42_window_open_file (O42Window *self, GFile *file)
    * offers, for scripts in the book and for =PY() in its cells alike. */
   if (ok)
     o42_book_set_scripts_trusted (self->book, FALSE);
-  gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar),
-                                 ok && o42_python_available () &&
-                                 (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY")));
+  {
+    gboolean scripts = ok && o42_python_available () &&
+                       (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY"));
+    gboolean vba = ok && o42_book_has_vba (self->book);
+
+    /* A Visual Basic project is not run -- office42 runs Python -- but
+     * it is kept, and the bar says so. */
+    gtk_label_set_text (GTK_LABEL (self->scripts_bar_label),
+                        scripts ? _("This book has Python scripts in it. They have not been run.")
+                                : _("This book has Visual Basic macros, which office42 does not run; "
+                                    "they are kept for Excel when it is saved as .xlsm."));
+    gtk_widget_set_visible (self->scripts_bar_run, scripts);
+    gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), scripts || vba);
+  }
+  o42_window_bind_macro_keys (self);
   return ok;
 }
 
@@ -4110,6 +5848,16 @@ window_book_calls (O42Window *self, const char *name)
     if (o42_sheet_calls_function (o42_book_sheet (self->book, i), name))
       return TRUE;
   return FALSE;
+}
+
+void
+o42_window_forget_file (O42Window *self)
+{
+  g_return_if_fail (O42_IS_WINDOW (self));
+  window_set_file (self, NULL);
+  for (int i = 0; i < o42_book_n_sheets (self->book); i++)
+    o42_sheet_set_modified (o42_book_sheet (self->book, i), TRUE);
+  window_sync (self);
 }
 
 gboolean
@@ -4132,6 +5880,8 @@ window_save_to (O42Window *self, GFile *file)
 {
   GError *error = NULL;
   gboolean ok;
+
+  o42_window_fire_event (self, "before_save", NULL);
 
   if (file_is_csv (file))
     ok = o42_csv_save (self->sheet, file, &error);
@@ -4165,6 +5915,16 @@ window_save_to (O42Window *self, GFile *file)
   /* Excel 97's grid is 65,536 rows by 256 columns and office42's is
    * Excel 2007's, so a .xls may not be able to hold everything.  It is
    * saved either way, and this says what did not go in. */
+  if ((file_is_xlsx (file) || file_is_ods (file)) && o42_xlsx_dropped_cells > 0)
+    {
+      char *said = g_strdup_printf ("%d cells lie beyond the 1,048,576 rows this "
+                                    "kind of file can hold, and were not written. "
+                                    "Save as .gnumeric to keep them.",
+                                    o42_xlsx_dropped_cells);
+
+      show_error (self, said, NULL);
+      g_free (said);
+    }
   if (file_is_xls (file) && o42_xls_dropped_cells > 0)
     {
       char *said = g_strdup_printf ("%d cells lie outside the 65,536 rows by 256 "
@@ -4192,15 +5952,65 @@ window_save_to (O42Window *self, GFile *file)
   return TRUE;
 }
 
+/* A filter over several endings at once, by suffix rather than by
+ * pattern so that a name written in capitals -- BUDGET.XLS, as it
+ * often comes from Windows -- is shown as well. */
+static GtkFileFilter *
+suffix_filter (const char *name, const char *const *suffixes)
+{
+  GtkFileFilter *filter = gtk_file_filter_new ();
+
+  gtk_file_filter_set_name (filter, name);
+  for (int i = 0; suffixes[i] != NULL; i++)
+    gtk_file_filter_add_suffix (filter, suffixes[i]);
+  return filter;
+}
+
+/* Excel's own formats, which is what the Open dialog starts on: this
+ * is a spreadsheet in Excel's shape, and a workbook is what it is
+ * nearly always asked for. */
+static GtkFileFilter *
+excel_filter (void)
+{
+  static const char *const suffixes[] = { "xlsx", "xlsm", "xls", NULL };
+
+  return suffix_filter ("Excel Files (*.xlsx, *.xlsm, *.xls)", suffixes);
+}
+
+/* Everything the program can read, for the book that is not Excel's. */
+static GtkFileFilter *
+spreadsheet_filter (void)
+{
+  static const char *const suffixes[] = {
+    "xlsx", "xlsm", "xls", "gnumeric", "ods", "fods", "html", "htm",
+    "csv", "txt", "prn", "dif", "slk", "tex", "wk1", "wks", "123", NULL
+  };
+
+  return suffix_filter ("All Spreadsheets", suffixes);
+}
+
+/* The formats a book can be read from or written in, in the order the
+ * dialogs list them.  Both lead with Excel's, which is the format
+ * either dialog starts on; saving keeps each format apart, since the
+ * name's ending is what picks the one written. */
 static GListModel *
-book_filters (void)
+book_filters (gboolean opening)
 {
   GListStore *filters = g_list_store_new (GTK_TYPE_FILE_FILTER);
 
+  if (opening)
+    {
+      g_list_store_append (filters, excel_filter ());
+      g_list_store_append (filters, spreadsheet_filter ());
+    }
+  if (!opening)
+    {
+      g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
+      g_list_store_append (filters, pattern_filter ("Excel Macro-Enabled Workbooks (*.xlsm)", "*.xlsm"));
+      g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
+    }
   g_list_store_append (filters, pattern_filter ("Gnumeric Spreadsheets (*.gnumeric)", "*.gnumeric"));
-  g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
-  g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
-  g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods)", "*.ods"));
+  g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods, *.fods)", "*.ods"));
   g_list_store_append (filters, pattern_filter ("Web Pages (*.html)", "*.html"));
   g_list_store_append (filters, pattern_filter ("Comma-Separated Values (*.csv)", "*.csv"));
   g_list_store_append (filters, pattern_filter ("Data Interchange Format (*.dif)", "*.dif"));
@@ -4210,6 +6020,39 @@ book_filters (void)
   g_list_store_append (filters, pattern_filter ("All Files", "*"));
 
   return G_LIST_MODEL (filters);
+}
+
+/* The filter Save As starts on: the one for the format the book is
+ * already in, and Excel's for a book that has no file yet.  The order
+ * here follows the list book_filters builds for saving. */
+static GtkFileFilter *
+save_filter_for (GListModel *filters, GFile *file)
+{
+  static const char *const SUFFIXES[] = {
+    ".xlsx", ".xlsm", ".xls", ".gnumeric", ".ods", ".html", ".csv",
+    ".dif", ".slk", ".tex", ".wk1"
+  };
+  char *name = file != NULL ? g_file_get_basename (file) : NULL;
+  char *folded = name != NULL ? g_ascii_strdown (name, -1) : NULL;
+  guint pick = 0;
+
+  if (folded != NULL)
+    {
+      /* The two endings that share a line with another. */
+      if (g_str_has_suffix (folded, ".fods")) pick = 4;
+      else if (g_str_has_suffix (folded, ".htm")) pick = 5;
+      else
+        for (guint i = 0; i < G_N_ELEMENTS (SUFFIXES); i++)
+          if (g_str_has_suffix (folded, SUFFIXES[i]))
+            {
+              pick = i;
+              break;
+            }
+    }
+
+  g_free (folded);
+  g_free (name);
+  return g_list_model_get_item (filters, pick);
 }
 
 static void
@@ -4242,20 +6085,26 @@ action_save_as (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   GtkFileDialog *dialog = gtk_file_dialog_new ();
-  GListModel *filters = book_filters ();
+  GListModel *filters = book_filters (FALSE);
+  GtkFileFilter *chosen = save_filter_for (filters, self->file);
 
   (void) a; (void) p;
 
   gtk_file_dialog_set_title (dialog, _("Save As"));
   gtk_file_dialog_set_filters (dialog, filters);
+  gtk_file_dialog_set_default_filter (dialog, chosen);
 
+  /* A book that has never been saved is offered as Excel's, the same
+   * format the Open dialog starts on; one that came from a file keeps
+   * the name and the format it came in. */
   if (self->file != NULL)
     gtk_file_dialog_set_initial_file (dialog, self->file);
   else
-    gtk_file_dialog_set_initial_name (dialog, "Book1.gnumeric");
+    gtk_file_dialog_set_initial_name (dialog, "Book1.xlsx");
 
   gtk_file_dialog_save (dialog, GTK_WINDOW (self), NULL, on_save_as_response, self);
 
+  g_object_unref (chosen);
   g_object_unref (filters);
   g_object_unref (dialog);
 }
@@ -4309,13 +6158,18 @@ action_open (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   GtkFileDialog *dialog = gtk_file_dialog_new ();
-  GListModel *filters = book_filters ();
+  GListModel *filters = book_filters (TRUE);
+  GtkFileFilter *excel = g_list_model_get_item (filters, 0);
 
   (void) a; (void) p;
 
   gtk_file_dialog_set_title (dialog, _("Open"));
   gtk_file_dialog_set_filters (dialog, filters);
+  /* Excel's formats are the ones the dialog opens on.  GTK would take
+   * the first of the list anyway; saying so leaves nothing to chance. */
+  gtk_file_dialog_set_default_filter (dialog, excel);
   gtk_file_dialog_open (dialog, GTK_WINDOW (self), NULL, on_open_response, self);
+  g_object_unref (excel);
 
   g_object_unref (filters);
   g_object_unref (dialog);
@@ -4358,9 +6212,6 @@ o42_window_close_request (GtkWindow *window)
   if (o42_grid_is_editing (self->grid))
     o42_grid_commit_edit (self->grid);
 
-  if (!o42_book_is_modified (self->book))
-    return GDK_EVENT_PROPAGATE;      /* close */
-
   /* Another window still shows the book, so nothing is lost by closing
    * this one. */
   {
@@ -4372,6 +6223,19 @@ o42_window_close_request (GtkWindow *window)
           return GDK_EVENT_PROPAGATE;
       }
   }
+
+  /* The book's Auto_Close, if the user let its scripts run: Excel's
+   * last word before a workbook closes. */
+  if (o42_book_scripts_trusted (self->book) && o42_python_available ())
+    {
+      const char *code = o42_book_script_code (self->book, "Auto_Close");
+      if (code != NULL)
+        o42_window_run_script (self, "Auto_Close", code);
+      o42_window_fire_event (self, "close", NULL);
+    }
+
+  if (!o42_book_is_modified (self->book))
+    return GDK_EVENT_PROPAGATE;      /* close */
 
   name = (self->file != NULL) ? g_file_get_basename (self->file) : g_strdup ("Book1");
   message = g_strdup_printf ("Save changes to %s?", name);
@@ -4526,7 +6390,8 @@ action_about (GSimpleAction *a, GVariant *p, gpointer data)
                          "program-name", "Office42 Spreadsheet",
                          "version", O42_VERSION,
                          "logo", logo,
-                         "comments", "A spreadsheet in the shape of Excel 5 and Gnumeric, "
+                         "comments", "Also known as Numbers42.\n"
+                                     "A spreadsheet in the shape of Excel 97, at parity with its features and Gnumeric's arithmetic, "
                                      "written in C on GTK 4, Pango and Cairo.\n"
                                      "Source: github.com/office-42/office42",
                          "website", "https://office42.net",
@@ -4555,6 +6420,19 @@ static const GActionEntry ACTIONS[] = {
   { "select-all", action_select_all, NULL, NULL, NULL, { 0 } },
   { "fill-down",  action_fill_down,  NULL, NULL, NULL, { 0 } },
   { "fill-right", action_fill_right, NULL, NULL, NULL, { 0 } },
+  { "fill-up",    action_fill_up,    NULL, NULL, NULL, { 0 } },
+  { "fill-left",  action_fill_left,  NULL, NULL, NULL, { 0 } },
+  { "fill-series", action_fill_series, NULL, NULL, NULL, { 0 } },
+  { "fill-across", action_fill_across, NULL, NULL, NULL, { 0 } },
+  { "move-copy-sheet", action_move_copy_sheet, NULL, NULL, NULL, { 0 } },
+  { "paste-name",   action_paste_name,   NULL, NULL, NULL, { 0 } },
+  { "properties",   action_properties,   NULL, NULL, NULL, { 0 } },
+  { "create-names", action_create_names, NULL, NULL, NULL, { 0 } },
+  { "apply-names",  action_apply_names,  NULL, NULL, NULL, { 0 } },
+  { "fill-justify", action_fill_justify, NULL, NULL, NULL, { 0 } },
+  { "clear-formats", action_clear_formats, NULL, NULL, NULL, { 0 } },
+  { "clear-notes",   action_clear_notes,   NULL, NULL, NULL, { 0 } },
+  { "clear-all",     action_clear_all,     NULL, NULL, NULL, { 0 } },
   { "insert-rows",    action_insert_rows,    NULL, NULL, NULL, { 0 } },
   { "insert-columns", action_insert_columns, NULL, NULL, NULL, { 0 } },
   { "delete-rows",    action_delete_rows,    NULL, NULL, NULL, { 0 } },
@@ -4571,6 +6449,14 @@ static const GActionEntry ACTIONS[] = {
   { "column-width",   action_column_width,   NULL, NULL, NULL, { 0 } },
   { "row-height",     action_row_height,     NULL, NULL, NULL, { 0 } },
   { "autofit",        action_autofit,        NULL, NULL, NULL, { 0 } },
+  { "autofit-rows",   action_autofit_rows,   NULL, NULL, NULL, { 0 } },
+  { "standard-width", action_standard_width, NULL, NULL, NULL, { 0 } },
+  { "filter-show-all", action_filter_show_all, NULL, NULL, NULL, { 0 } },
+  { "zoom-dialog",    action_zoom_dialog,    NULL, NULL, NULL, { 0 } },
+  { "show-standard-bar", NULL, NULL, "true", change_show_bar, { 0 } },
+  { "show-format-bar",   NULL, NULL, "true", change_show_bar, { 0 } },
+  { "show-formula-bar",  NULL, NULL, "true", change_show_bar, { 0 } },
+  { "show-status-bar",   NULL, NULL, "true", change_show_bar, { 0 } },
   { "hide-rows",      action_hide_rows,      NULL, NULL, NULL, { 0 } },
   { "merge-cells",    action_merge_cells,    NULL, NULL, NULL, { 0 } },
   { "unmerge-cells",  action_unmerge_cells,  NULL, NULL, NULL, { 0 } },
@@ -4579,6 +6465,7 @@ static const GActionEntry ACTIONS[] = {
   { "unhide-columns", action_unhide_columns, NULL, NULL, NULL, { 0 } },
   { "filter",         action_filter,         NULL, NULL, NULL, { 0 } },
   { "sort",           action_sort,           NULL, NULL, NULL, { 0 } },
+  { "data-form",      action_data_form,      NULL, NULL, NULL, { 0 } },
   { "subtotals",      action_subtotals,      NULL, NULL, NULL, { 0 } },
   { "table",          action_table,          NULL, NULL, NULL, { 0 } },
   { "scenarios",      action_scenarios,      NULL, NULL, NULL, { 0 } },
@@ -4599,6 +6486,9 @@ static const GActionEntry ACTIONS[] = {
   { "trace-precedents", action_trace_precedents, NULL, NULL, NULL, { 0 } },
   { "trace-dependents", action_trace_dependents, NULL, NULL, NULL, { 0 } },
   { "clear-arrows",     action_clear_arrows,     NULL, NULL, NULL, { 0 } },
+  { "evaluate-formula", action_evaluate_formula, NULL, NULL, NULL, { 0 } },
+  { "trace-error",      action_trace_error,      NULL, NULL, NULL, { 0 } },
+  { "watch-window",     action_watch_window,     NULL, NULL, NULL, { 0 } },
   { "tab-colour-none",  action_tab_colour_none,  NULL, NULL, NULL, { 0 } },
   { "move-sheet-right", action_move_sheet_right, NULL, NULL, NULL, { 0 } },
   { "insert-chart",   action_insert_chart,   NULL, NULL, NULL, { 0 } },
@@ -4608,11 +6498,18 @@ static const GActionEntry ACTIONS[] = {
   { "delete-sheet",   action_delete_sheet,   NULL, NULL, NULL, { 0 } },
   { "rename-sheet",   action_rename_sheet,   NULL, NULL, NULL, { 0 } },
   { "next-sheet",     action_next_sheet,     NULL, NULL, NULL, { 0 } },
+  { "hide-sheet",     action_hide_sheet,     NULL, NULL, NULL, { 0 } },
+  { "unhide-sheet",   action_unhide_sheet,   NULL, NULL, NULL, { 0 } },
   { "prev-sheet",     action_prev_sheet,     NULL, NULL, NULL, { 0 } },
   { "print",          action_print,          NULL, NULL, NULL, { 0 } },
   { "print-book",     action_print_book,     NULL, NULL, NULL, { 0 } },
   { "export-book-pdf", action_export_book_pdf, NULL, NULL, NULL, { 0 } },
   { "print-preview",  action_print_preview,  NULL, NULL, NULL, { 0 } },
+  { "print-preview-book", action_print_preview_book, NULL, NULL, NULL, { 0 } },
+  { "insert-scan",    action_insert_scan,    NULL, NULL, NULL, { 0 } },
+  { "header-footer",  action_header_footer,  NULL, NULL, NULL, { 0 } },
+  { "custom-header",  action_custom_hf,      NULL, NULL, NULL, { 0 } },
+  { "custom-footer",  action_custom_hf,      NULL, NULL, NULL, { 0 } },
   { "options",        action_options,        NULL, NULL, NULL, { 0 } },
   { "zoom",           action_zoom,           "i",  NULL, NULL, { 0 } },
   { "freeze-panes",   action_freeze_panes,   NULL, NULL, NULL, { 0 } },
@@ -4622,8 +6519,24 @@ static const GActionEntry ACTIONS[] = {
   { "goal-seek",      action_goal_seek,      NULL, NULL, NULL, { 0 } },
   { "solver",         action_solver,         NULL, NULL, NULL, { 0 } },
   { "protect",        action_protect,        NULL, NULL, NULL, { 0 } },
+  { "protect-book",   action_protect_book,   NULL, NULL, NULL, { 0 } },
+  { "autocorrect",    action_autocorrect,    NULL, NULL, NULL, { 0 } },
+  { "sheet-background", action_sheet_background, NULL, NULL, NULL, { 0 } },
+  { "open-recent",    action_open_recent,    "s",  NULL, NULL, { 0 } },
+  { "raise-window",   action_raise_window,   "s",  NULL, NULL, { 0 } },
+  { "hide-window",    action_hide_window,    NULL, NULL, NULL, { 0 } },
+  { "unhide-window",  action_unhide_window,  NULL, NULL, NULL, { 0 } },
+  { "show-notes",     NULL, NULL, "false", change_show_notes, { 0 } },
+  { "paste-link",     action_paste_link,     NULL, NULL, NULL, { 0 } },
+  { "conditional-sum", action_conditional_sum, NULL, NULL, NULL, { 0 } },
+  { "lookup-wizard",  action_lookup_wizard,  NULL, NULL, NULL, { 0 } },
+  { "delete-background", action_delete_background, NULL, NULL, NULL, { 0 } },
   { "spelling",       action_spelling,       NULL, NULL, NULL, { 0 } },
   { "record-macro",   action_record_macro,   NULL, NULL, NULL, { 0 } },
+  { "stop-recording", action_stop_recording, NULL, NULL, NULL, { 0 } },
+  { "relative-refs",  action_relative_refs,  NULL, "false", NULL, { 0 } },
+  { "macros",         action_macros,         NULL, NULL, NULL, { 0 } },
+  { "run-macro",      action_run_macro,      "s",  NULL, NULL, { 0 } },
   { "analysis",       action_analysis,       NULL, NULL, NULL, { 0 } },
   { "group-objects",  action_group_objects,  NULL, NULL, NULL, { 0 } },
   { "ungroup-objects", action_ungroup_objects, NULL, NULL, NULL, { 0 } },
@@ -4632,22 +6545,36 @@ static const GActionEntry ACTIONS[] = {
   { "python-console", action_python_console, NULL, NULL, NULL, { 0 } },
   { "python-run",     action_python_run,     NULL, NULL, NULL, { 0 } },
   { "scripts",        action_scripts,        NULL, NULL, NULL, { 0 } },
+  { "script-step",    action_script_step,    NULL, NULL, NULL, { 0 } },
+  { "script-continue", action_script_continue, NULL, NULL, NULL, { 0 } },
+  { "script-stop",    action_script_stop,    NULL, NULL, NULL, { 0 } },
   { "scripts-run-all", action_scripts_run_all, NULL, NULL, NULL, { 0 } },
   { "text-to-columns", action_text_to_columns, NULL, NULL, NULL, { 0 } },
   { "conditional",    action_conditional,    NULL, NULL, NULL, { 0 } },
   { "validation",     action_validation,     NULL, NULL, NULL, { 0 } },
+  { "circle-invalid", action_circle_invalid, NULL, NULL, NULL, { 0 } },
+  { "clear-circles",  action_clear_circles,  NULL, NULL, NULL, { 0 } },
+  { "outline-settings", action_outline_settings, NULL, NULL, NULL, { 0 } },
+  { "euro-convert",   action_euro_convert,   NULL, NULL, NULL, { 0 } },
+  { "new-from-template", action_new_from_template, NULL, NULL, NULL, { 0 } },
   { "pivot",          action_pivot,          NULL, NULL, NULL, { 0 } },
   { "refresh-pivot",  action_refresh_pivot,  NULL, NULL, NULL, { 0 } },
   { "group-rows",     action_group_rows,     NULL, NULL, NULL, { 0 } },
   { "group-cols",     action_group_cols,     NULL, NULL, NULL, { 0 } },
   { "ungroup-rows",   action_ungroup_rows,   NULL, NULL, NULL, { 0 } },
   { "ungroup-cols",   action_ungroup_cols,   NULL, NULL, NULL, { 0 } },
+  { "auto-outline",   action_auto_outline,   NULL, NULL, NULL, { 0 } },
+  { "clear-outline",  action_clear_outline,  NULL, NULL, NULL, { 0 } },
+  { "show-detail",    action_show_detail,    NULL, NULL, NULL, { 0 } },
+  { "hide-detail",    action_hide_detail,    NULL, NULL, NULL, { 0 } },
   { "new-window",     action_new_window,     NULL, NULL, NULL, { 0 } },
   { "help-contents",  action_help_contents,  NULL, NULL, NULL, { 0 } },
   { "page-setup",     action_page_setup,     NULL, NULL, NULL, { 0 } },
   { "insert-link",    action_insert_link,    NULL, NULL, NULL, { 0 } },
   { "format-chart",   action_format_chart,   NULL, NULL, NULL, { 0 } },
+  { "format-picture", action_format_picture, NULL, NULL, NULL, { 0 } },
   { "shape",          action_shape,          "s",  NULL, NULL, { 0 } },
+  { "order",          action_order,          "s",  NULL, NULL, { 0 } },
   { "format-shape",   action_format_shape,   NULL, NULL, NULL, { 0 } },
   { "format-control", action_format_control, NULL, NULL, NULL, { 0 } },
   { "db-connect",     action_db_connect,     NULL, NULL, NULL, { 0 } },
@@ -4656,7 +6583,6 @@ static const GActionEntry ACTIONS[] = {
   { "db-refresh",     action_db_refresh,     NULL, NULL, NULL, { 0 } },
   { "db-send",        action_db_send,        NULL, NULL, NULL, { 0 } },
   { "style",          action_style,          NULL, NULL, NULL, { 0 } },
-  { "sheet-setup",    action_sheet_setup,    NULL, NULL, NULL, { 0 } },
   { "set-print-area", action_set_print_area, NULL, NULL, NULL, { 0 } },
   { "page-break",     action_page_break,     NULL, NULL, NULL, { 0 } },
   { "clear-print-area", action_clear_print_area, NULL, NULL, NULL, { 0 } },
@@ -4789,7 +6715,7 @@ build_standard_bar (void)
   gtk_box_append (GTK_BOX (bar), icon_button ("o42-undo",  "Undo",  "win.undo"));
   gtk_box_append (GTK_BOX (bar), icon_button ("o42-redo",  "Redo",  "win.redo"));
   gtk_box_append (GTK_BOX (bar), tool_separator ());
-  /* The sigma and the fx are letters, not pictures; Excel 5 drew them as
+  /* The sigma and the fx are letters, not pictures; Excel 97 drew them as
    * letters too.  They stay set in type. */
   gtk_box_append (GTK_BOX (bar), text_button ("\316\243", _("AutoSum"), "win.autosum", "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), text_button ("fx", _("Function Wizard"), "win.insert-function", "o42-glyph-italic"));
@@ -4926,7 +6852,9 @@ build_format_bar (O42Window *self)
 
   gtk_box_append (GTK_BOX (bar), tool_separator ());
 
-  gtk_box_append (GTK_BOX (bar), target_button ("$", "Currency Style", "win.number", "currency", "o42-glyph"));
+  /* Excel's Currency Style button puts on the Accounting format, with
+   * the symbol at the edge; Ctrl+Shift+4 is the Currency format. */
+  gtk_box_append (GTK_BOX (bar), target_button ("$", "Currency Style", "win.number", "accounting", "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), target_button ("%", "Percent Style",  "win.number", "percent",  "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), target_button (",", "Comma Style",    "win.number", "comma",    "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), icon_int_target_button ("o42-increase-decimal",
@@ -5111,6 +7039,7 @@ o42_window_sync (O42Window *self)
   self->updating = TRUE;
   if (self->scripts_bar != NULL && o42_book_n_scripts (self->book) == 0)
     gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), FALSE);
+  o42_watch_window_refresh (self);
 
   o42_grid_get_active (self->grid, &row, &col);
   o42_grid_get_selection (self->grid, &sel);
@@ -5226,14 +7155,27 @@ o42_window_sync (O42Window *self)
 
   window_update_title (self);
 
-  {
-    double zoom = o42_grid_get_zoom (self->grid);
-    char *text = (zoom == 1.0) ? g_strdup (_("Ready"))
-                               : g_strdup_printf ("%s    %d%%", _("Ready"),
-                                                  (int) (zoom * 100 + 0.5));
-    gtk_label_set_text (GTK_LABEL (self->status_label), text);
-    g_free (text);
-  }
+  if (self->status_text != NULL)
+    gtk_label_set_text (GTK_LABEL (self->status_label), self->status_text);
+  else
+    {
+      double zoom = o42_grid_get_zoom (self->grid);
+      char *text = (zoom == 1.0) ? g_strdup (_("Ready"))
+                                 : g_strdup_printf ("%s    %d%%", _("Ready"),
+                                                    (int) (zoom * 100 + 0.5));
+      /* A doubtful active cell says why, as the smart tag's tip did. */
+      O42ErrorCheck check = o42_grid_get_show_checks (self->grid)
+                            ? o42_sheet_error_check (self->sheet, row, col) : O42_CHECK_NONE;
+
+      if (check != O42_CHECK_NONE)
+        {
+          char *why = g_strdup_printf ("%s    %s", text, _(o42_error_check_text (check)));
+          g_free (text);
+          text = why;
+        }
+      gtk_label_set_text (GTK_LABEL (self->status_label), text);
+      g_free (text);
+    }
 
   {
     GAction *act;
@@ -5242,9 +7184,51 @@ o42_window_sync (O42Window *self)
     if (act) g_simple_action_set_enabled (G_SIMPLE_ACTION (act), o42_sheet_can_undo (self->sheet));
     act = g_action_map_lookup_action (G_ACTION_MAP (self), "redo");
     if (act) g_simple_action_set_enabled (G_SIMPLE_ACTION (act), o42_sheet_can_redo (self->sheet));
+    /* Record Macro and Stop Recording take turns, as Excel's do. */
+    act = g_action_map_lookup_action (G_ACTION_MAP (self), "record-macro");
+    if (act) g_simple_action_set_enabled (G_SIMPLE_ACTION (act), !o42_book_recording (self->book));
+    act = g_action_map_lookup_action (G_ACTION_MAP (self), "stop-recording");
+    if (act) g_simple_action_set_enabled (G_SIMPLE_ACTION (act), o42_book_recording (self->book));
   }
 
   self->updating = FALSE;
+}
+
+/* ---- Ctrl+Shift+letter runs a macro --------------------------------- */
+
+void
+o42_window_bind_macro_keys (O42Window *self)
+{
+  GtkShortcutController *keys;
+
+  g_return_if_fail (O42_IS_WINDOW (self));
+  if (self->macro_keys != NULL)
+    {
+      gtk_widget_remove_controller (GTK_WIDGET (self), self->macro_keys);
+      self->macro_keys = NULL;
+    }
+  keys = GTK_SHORTCUT_CONTROLLER (gtk_shortcut_controller_new ());
+  gtk_shortcut_controller_set_scope (keys, GTK_SHORTCUT_SCOPE_GLOBAL);
+  for (int i = 0; i < o42_book_n_scripts (self->book); i++)
+    {
+      const char *name = o42_book_script_name (self->book, i);
+      char letter = o42_book_script_shortcut (self->book, name);
+      char *accel;
+      GtkShortcutTrigger *trigger;
+
+      /* Save As, Paste Special and Redo keep their keys. */
+      if (letter == 0 || strchr ("SVZsvz", letter) != NULL)
+        continue;
+      accel = g_strdup_printf ("<Control><Shift>%c", g_ascii_tolower (letter));
+      trigger = gtk_shortcut_trigger_parse_string (accel);
+      if (trigger != NULL)
+        gtk_shortcut_controller_add_shortcut (keys,
+          gtk_shortcut_new_with_arguments (trigger, gtk_named_action_new ("win.run-macro"),
+                                           "s", name));
+      g_free (accel);
+    }
+  self->macro_keys = GTK_EVENT_CONTROLLER (keys);
+  gtk_widget_add_controller (GTK_WIDGET (self), self->macro_keys);
 }
 
 static void
@@ -5253,6 +7237,311 @@ on_grid_changed (O42Grid *grid, gpointer data)
   (void) grid;
   window_sync (O42_WINDOW (data));
   window_tell_book (O42_WINDOW (data), "cells");
+}
+
+/* The selection moved: a macro being recorded is told, and writes it
+ * down if something is then done with it. */
+static void
+on_grid_selection_changed (O42Grid *grid, gpointer data)
+{
+  O42Window *self = data;
+
+  window_keep_view (self);
+  if (o42_book_recording (self->book) && self->sheet != NULL)
+    {
+      O42Range sel;
+      int row, col;
+
+      o42_grid_get_selection (grid, &sel);
+      o42_grid_get_active (grid, &row, &col);
+      o42_book_record_selection (self->book, o42_sheet_get_name (self->sheet), &sel, row, col);
+    }
+  on_grid_changed (grid, data);
+  if (self->sheet != NULL)
+    {
+      O42Range sel;
+      o42_grid_get_selection (grid, &sel);
+      o42_window_fire_event (self, "selection", &sel);
+    }
+}
+
+/* Cells the user edited, for a script's on_change. */
+static void
+on_grid_cells_edited (O42Grid *grid, int row0, int col0, int row1, int col1, gpointer data)
+{
+  O42Window *self = data;
+  O42Range range = { row0, col0, row1, col1 };
+
+  (void) grid;
+  if (self->sheet != NULL)
+    o42_window_fire_event (self, "change", &range);
+}
+
+/* ---------------------------------------------------------------------- */
+/* What the window does for a Python script                                */
+/* ---------------------------------------------------------------------- */
+
+/* The script layer never sees GTK; it asks through a table of calls
+ * that the first window fills in.  Each call finds the window showing
+ * the book -- the most recently focused of them, if several do. */
+static O42Window *
+host_window (gpointer user, O42Book *book)
+{
+  GtkApplication *app = user;
+  GList *windows = gtk_application_get_windows (app);
+
+  for (GList *l = windows; l != NULL; l = l->next)
+    if (O42_IS_WINDOW (l->data) && (book == NULL || O42_WINDOW (l->data)->book == book))
+      return O42_WINDOW (l->data);
+  return NULL;
+}
+
+static gboolean
+host_get_selection (gpointer user, O42Book *book, O42Sheet **sheet,
+                    O42Range *range, int *active_row, int *active_col)
+{
+  O42Window *self = host_window (user, book);
+
+  if (self == NULL || self->sheet == NULL)
+    return FALSE;
+  *sheet = self->sheet;
+  o42_grid_get_selection (self->grid, range);
+  o42_grid_get_active (self->grid, active_row, active_col);
+  return TRUE;
+}
+
+static void
+host_set_selection (gpointer user, O42Book *book, O42Sheet *sheet,
+                    const O42Range *range, int active_row, int active_col)
+{
+  O42Window *self = host_window (user, book);
+
+  if (self == NULL)
+    return;
+  if (sheet != NULL && sheet != self->sheet && o42_book_sheet_index (book, sheet) >= 0)
+    {
+      if (o42_grid_is_editing (self->grid))
+        o42_grid_commit_edit (self->grid);
+      self->sheet = sheet;
+      o42_grid_set_sheet (self->grid, sheet);
+      window_rebuild_tabs (self);
+    }
+  {
+    /* The grid keeps an anchor and an active corner; an active cell at
+     * a corner of the range is honoured by anchoring the opposite one,
+     * and one in the middle, which the grid cannot hold, becomes the
+     * far corner. */
+    O42Range span = *range;
+    gboolean at_row = active_row == range->row0 || active_row == range->row1;
+    gboolean at_col = active_col == range->col0 || active_col == range->col1;
+
+    if (at_row && at_col)
+      {
+        span.row0 = active_row == range->row0 ? range->row1 : range->row0;
+        span.col0 = active_col == range->col0 ? range->col1 : range->col0;
+        span.row1 = active_row;
+        span.col1 = active_col;
+      }
+    if (o42_grid_is_editing (self->grid))
+      o42_grid_commit_edit (self->grid);
+    o42_grid_select_range (self->grid, &span);
+  }
+  window_sync (self);
+}
+
+/* A dialog waited for: the script is in the middle of running, so the
+ * answer has to come back before it goes on. */
+static void
+on_host_alert_done (GObject *source, GAsyncResult *result, gpointer data)
+{
+  GMainLoop *loop = data;
+  gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result, NULL);
+  g_main_loop_quit (loop);
+}
+
+static void
+host_message (gpointer user, O42Book *book, const char *text)
+{
+  O42Window *self = host_window (user, book);
+  GtkAlertDialog *dialog = gtk_alert_dialog_new ("%s", text);
+  GMainLoop *loop = g_main_loop_new (NULL, FALSE);
+  const char *buttons[] = { "OK", NULL };
+
+  gtk_alert_dialog_set_buttons (dialog, buttons);
+  gtk_alert_dialog_set_modal (dialog, TRUE);
+  gtk_alert_dialog_choose (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL,
+                           on_host_alert_done, loop);
+  g_main_loop_run (loop);
+  g_main_loop_unref (loop);
+  g_object_unref (dialog);
+}
+
+typedef struct {
+  GtkWidget *dialog;
+  GtkWidget *entry;
+  GMainLoop *loop;
+  char      *answer;
+} HostInput;
+
+static void
+on_host_input_ok (GtkWidget *w, gpointer data)
+{
+  HostInput *prompt = data;
+  (void) w;
+  prompt->answer = g_strdup (gtk_editable_get_text (GTK_EDITABLE (prompt->entry)));
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_host_input_destroy (GtkWidget *w, gpointer data)
+{
+  HostInput *prompt = data;
+  (void) w;
+  g_main_loop_quit (prompt->loop);
+}
+
+static char *
+host_input (gpointer user, O42Book *book, const char *text, const char *initial)
+{
+  O42Window *self = host_window (user, book);
+  HostInput prompt = { NULL, NULL, NULL, NULL };
+  GtkWidget *content, *buttons, *label, *ok;
+
+  if (self == NULL)
+    return NULL;
+  prompt.dialog = o42_dialog_frame (self, _("Office42 Spreadsheet"), TRUE, &content, &buttons);
+  label = gtk_label_new (text);
+  gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+  gtk_box_append (GTK_BOX (content), label);
+  prompt.entry = gtk_entry_new ();
+  gtk_editable_set_text (GTK_EDITABLE (prompt.entry), initial != NULL ? initial : "");
+  gtk_widget_set_size_request (prompt.entry, 320, -1);
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt.entry), TRUE);
+  gtk_box_append (GTK_BOX (content), prompt.entry);
+  ok = o42_dialog_button (buttons, _("_OK"), G_CALLBACK (on_host_input_ok), &prompt);
+  o42_dialog_button (buttons, _("_Cancel"), G_CALLBACK (o42_dialog_close_clicked), prompt.dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt.dialog), ok);
+  g_signal_connect (prompt.dialog, "destroy", G_CALLBACK (on_host_input_destroy), &prompt);
+  prompt.loop = g_main_loop_new (NULL, FALSE);
+  gtk_window_present (GTK_WINDOW (prompt.dialog));
+  gtk_widget_grab_focus (prompt.entry);
+  g_main_loop_run (prompt.loop);
+  g_main_loop_unref (prompt.loop);
+  return prompt.answer;
+}
+
+static void
+host_status (gpointer user, O42Book *book, const char *text)
+{
+  O42Window *self = host_window (user, book);
+
+  if (self == NULL)
+    return;
+  /* Kept until the script sets it back, so that the window's own
+   * syncing does not put "Ready" over it. */
+  g_free (self->status_text);
+  self->status_text = (text != NULL && *text != '\0') ? g_strdup (text) : NULL;
+  window_sync (self);
+}
+
+static char *
+host_path (gpointer user, O42Book *book)
+{
+  O42Window *self = host_window (user, book);
+
+  return self != NULL && self->file != NULL ? g_file_get_path (self->file) : NULL;
+}
+
+static gboolean
+host_save (gpointer user, O42Book *book, const char *path, char **message)
+{
+  O42Window *self = host_window (user, book);
+  GFile *file;
+  gboolean ok;
+
+  if (self == NULL)
+    {
+      *message = g_strdup ("no window shows the book");
+      return FALSE;
+    }
+  if (path == NULL && self->file == NULL)
+    {
+      *message = g_strdup ("the book has no file yet: use save_as(path)");
+      return FALSE;
+    }
+  file = path != NULL ? g_file_new_for_path (path) : g_object_ref (self->file);
+  ok = window_save_to (self, file);
+  if (!ok)
+    *message = g_strdup_printf ("the book could not be saved to %s", path != NULL ? path : "its file");
+  g_object_unref (file);
+  return ok;
+}
+
+static gboolean
+host_open (gpointer user, const char *path, char **message)
+{
+  GtkApplication *app = user;
+  O42Window *self = host_window (user, NULL);
+  O42Window *target;
+  GFile *file;
+  gboolean ok;
+
+  if (!g_file_test (path, G_FILE_TEST_EXISTS))
+    {
+      *message = g_strdup_printf ("there is no file %s", path);
+      return FALSE;
+    }
+  file = g_file_new_for_path (path);
+  target = self != NULL && o42_window_is_blank (self) ? self : O42_WINDOW (o42_window_new (app));
+  gtk_window_present (GTK_WINDOW (target));
+  ok = o42_window_open_file (target, file);
+  if (!ok)
+    *message = g_strdup_printf ("%s could not be opened", path);
+  g_object_unref (file);
+  return ok;
+}
+
+static gboolean
+host_close_later (gpointer data)
+{
+  gtk_window_close (GTK_WINDOW (data));
+  return G_SOURCE_REMOVE;
+}
+
+static void
+host_close (gpointer user, O42Book *book)
+{
+  O42Window *self = host_window (user, book);
+
+  /* After the script has finished, not from inside it. */
+  if (self != NULL)
+    g_idle_add (host_close_later, self);
+}
+
+static int
+host_debug_pause (gpointer user, O42Book *book, const char *filename, int line, const char *variables)
+{
+  O42Window *self = host_window (user, book);
+
+  return self != NULL ? o42_window_debug_pause (self, filename, line, variables) : 0;
+}
+
+static void
+window_install_python_host (O42Window *self)
+{
+  static gboolean installed = FALSE;
+  O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
+                         host_input, host_status, host_path, host_save, host_open,
+                         host_close, host_debug_pause };
+
+  if (installed)
+    return;
+  host.user = gtk_window_get_application (GTK_WINDOW (self));
+  if (host.user == NULL)
+    return;
+  o42_python_set_host (&host);
+  installed = TRUE;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -5265,6 +7554,7 @@ o42_window_dispose (GObject *object)
   O42Window *self = O42_WINDOW (object);
 
   g_clear_pointer (&self->family_index, g_hash_table_destroy);
+  g_clear_pointer (&self->status_text, g_free);
   g_clear_object (&self->families);
 
   if (self->grid != NULL)
@@ -5276,12 +7566,14 @@ o42_window_dispose (GObject *object)
       /* The database first: an embedded one is a temporary file the
        * book deletes as it goes, which it cannot while it is open. */
       g_clear_pointer (&self->db, o42_db_close);
+      /* The last window on the book takes its scripts' functions with it. */
+      if (o42_book_ref_count (self->book) == 1)
+        o42_python_forget_book (self->book);
       o42_book_unref (self->book);
       self->book = NULL;
     }
   g_clear_pointer (&self->db, o42_db_close);
   g_clear_object (&self->file);
-  g_clear_object (&self->page_setup);
   g_clear_object (&self->print_settings);
 
   G_OBJECT_CLASS (o42_window_parent_class)->dispose (object);
@@ -5297,8 +7589,20 @@ o42_window_class_init (O42WindowClass *klass)
 static void
 on_grid_mapped (GtkWidget *widget, gpointer data)
 {
-  (void) data;
+  window_install_python_host (O42_WINDOW (data));
   gtk_widget_grab_focus (widget);
+}
+
+/* The date system is the book's, and the one in use is the front
+ * window's: a window coming to the front says so. */
+static void
+on_window_active (GObject *window, GParamSpec *pspec, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) window; (void) pspec;
+  if (gtk_window_is_active (GTK_WINDOW (self)) && self->book != NULL)
+    o42_date_set_1904 (o42_book_date_1904 (self->book));
 }
 
 static void
@@ -5311,6 +7615,7 @@ o42_window_init (O42Window *self)
   self->book = o42_book_new ();
   self->sheet = o42_book_sheet (self->book, 0);
   o42_book_watch (self->book, on_book_changed, self);
+  g_signal_connect (self, "notify::is-active", G_CALLBACK (on_window_active), self);
 
   g_action_map_add_action_entries (G_ACTION_MAP (self), ACTIONS,
                                    G_N_ELEMENTS (ACTIONS), self);
@@ -5356,13 +7661,24 @@ o42_window_init (O42Window *self)
   menubar = gtk_popover_menu_bar_new_from_model (model);
   gtk_widget_add_css_class (menubar, "o42-menubar");
   gtk_box_append (GTK_BOX (box), menubar);
+  /* The two sections filled at run time: the recent files and the
+   * open windows. */
+  self->recent_menu = g_object_ref (G_MENU (gtk_builder_get_object (builder, "recent-files")));
+  self->window_menu = g_object_ref (G_MENU (gtk_builder_get_object (builder, "window-list")));
+  g_signal_connect_object (gtk_recent_manager_get_default (), "changed",
+                           G_CALLBACK (on_recent_changed), self, 0);
+  g_signal_connect (self, "notify::application", G_CALLBACK (on_application_set), NULL);
+  window_fill_recent (self);
   g_object_unref (builder);
 
   self->grid = O42_GRID (o42_grid_new ());
 
-  gtk_box_append (GTK_BOX (box), build_standard_bar ());
-  gtk_box_append (GTK_BOX (box), build_format_bar (self));
-  gtk_box_append (GTK_BOX (box), build_formula_bar (self));
+  self->standard_bar = build_standard_bar ();
+  self->format_bar = build_format_bar (self);
+  self->formula_bar = build_formula_bar (self);
+  gtk_box_append (GTK_BOX (box), self->standard_bar);
+  gtk_box_append (GTK_BOX (box), self->format_bar);
+  gtk_box_append (GTK_BOX (box), self->formula_bar);
 
   scrolled = gtk_scrolled_window_new ();
   gtk_widget_set_vexpand (scrolled, TRUE);
@@ -5377,6 +7693,10 @@ o42_window_init (O42Window *self)
     GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
     GtkWidget *label = gtk_label_new (_("This book has Python scripts in it. They have not been run."));
     GtkWidget *run = gtk_button_new_with_mnemonic (_("_Run Scripts"));
+
+    self->scripts_bar_label = label;
+    self->scripts_bar_run = run;
+    gtk_label_set_wrap (GTK_LABEL (label), TRUE);
     GtkWidget *show = gtk_button_new_with_mnemonic (_("_Scripts..."));
     GtkWidget *hide = gtk_button_new_with_mnemonic (_("_Hide"));
 
@@ -5402,12 +7722,14 @@ o42_window_init (O42Window *self)
   gtk_box_append (GTK_BOX (box), scrolled);
 
   gtk_box_append (GTK_BOX (box), build_tabs (self));
-  gtk_box_append (GTK_BOX (box), build_status_bar (self));
+  self->status_bar = build_status_bar (self);
+  gtk_box_append (GTK_BOX (box), self->status_bar);
 
   /* The formula bar is the same edit as the cell, seen from up here. */
   o42_grid_set_mirror (self->grid, self->formula_entry);
 
-  g_signal_connect (self->grid, "selection-changed", G_CALLBACK (on_grid_changed), self);
+  g_signal_connect (self->grid, "selection-changed", G_CALLBACK (on_grid_selection_changed), self);
+  g_signal_connect (self->grid, "cells-edited",      G_CALLBACK (on_grid_cells_edited), self);
   g_signal_connect (self->grid, "sheet-changed",     G_CALLBACK (on_grid_changed), self);
   g_signal_connect (self->grid, "run-script",        G_CALLBACK (on_grid_run_script), self);
   g_signal_connect (self->grid, "map", G_CALLBACK (on_grid_mapped), self);

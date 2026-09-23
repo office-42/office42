@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Excel 5's menu bar.  Items whose actions are disabled are features
+<!-- Excel 97's menu bar.  Items whose actions are disabled are features
      office42 intends to have and does not have yet; they show greyed out
      rather than hidden, so the menus say what the program is aiming at. -->
 <interface>
@@ -9,6 +9,7 @@
       <attribute name="label" translatable="yes">_File</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_New</attribute><attribute name="action">win.new</attribute></item>
+        <item><attribute name="label" translatable="yes">New from _Template...</attribute><attribute name="action">win.new-from-template</attribute></item>
         <item><attribute name="label" translatable="yes">_Open...</attribute><attribute name="action">win.open</attribute></item>
         <item><attribute name="label" translatable="yes">_Close</attribute><attribute name="action">win.close</attribute></item>
       </section>
@@ -18,13 +19,13 @@
       </section>
       <section>
         <item><attribute name="label" translatable="yes">Page Set_up...</attribute><attribute name="action">win.page-setup</attribute></item>
-        <item><attribute name="label" translatable="yes">Page Setup: S_heet...</attribute><attribute name="action">win.sheet-setup</attribute></item>
         <submenu>
           <attribute name="label" translatable="yes">Print _Area</attribute>
           <item><attribute name="label" translatable="yes">_Set Print Area</attribute><attribute name="action">win.set-print-area</attribute></item>
           <item><attribute name="label" translatable="yes">_Clear Print Area</attribute><attribute name="action">win.clear-print-area</attribute></item>
         </submenu>
         <item><attribute name="label" translatable="yes">Print Pre_view</attribute><attribute name="action">win.print-preview</attribute></item>
+        <item><attribute name="label" translatable="yes">Print Preview: Boo_k</attribute><attribute name="action">win.print-preview-book</attribute></item>
         <item><attribute name="label" translatable="yes">_Print...</attribute><attribute name="action">win.print</attribute></item>
         <item><attribute name="label" translatable="yes">Print _Book...</attribute><attribute name="action">win.print-book</attribute></item>
       </section>
@@ -32,6 +33,11 @@
         <item><attribute name="label" translatable="yes">Export as P_DF...</attribute><attribute name="action">win.export-pdf</attribute></item>
         <item><attribute name="label" translatable="yes">Export _Book as PDF...</attribute><attribute name="action">win.export-book-pdf</attribute></item>
         <item><attribute name="label" translatable="yes">I_mport from PDF...</attribute><attribute name="action">win.import-pdf</attribute></item>
+      </section>
+      <section>
+        <item><attribute name="label" translatable="yes">Propert_ies...</attribute><attribute name="action">win.properties</attribute></item>
+      </section>
+      <section id="recent-files">
       </section>
       <section>
         <item><attribute name="label" translatable="yes">E_xit</attribute><attribute name="action">app.quit</attribute></item>
@@ -49,18 +55,31 @@
         <item><attribute name="label" translatable="yes">_Copy</attribute><attribute name="action">win.copy</attribute></item>
         <item><attribute name="label" translatable="yes">_Paste</attribute><attribute name="action">win.paste</attribute></item>
         <item><attribute name="label" translatable="yes">Paste _Special...</attribute><attribute name="action">win.paste-special</attribute></item>
+        <item><attribute name="label" translatable="yes">Paste as _Hyperlink</attribute><attribute name="action">win.paste-link</attribute></item>
       </section>
       <section>
         <submenu>
           <attribute name="label" translatable="yes">F_ill</attribute>
           <item><attribute name="label" translatable="yes">_Down</attribute><attribute name="action">win.fill-down</attribute></item>
           <item><attribute name="label" translatable="yes">_Right</attribute><attribute name="action">win.fill-right</attribute></item>
+          <item><attribute name="label" translatable="yes">_Up</attribute><attribute name="action">win.fill-up</attribute></item>
+          <item><attribute name="label" translatable="yes">_Left</attribute><attribute name="action">win.fill-left</attribute></item>
+          <item><attribute name="label" translatable="yes">_Across Worksheets...</attribute><attribute name="action">win.fill-across</attribute></item>
+          <item><attribute name="label" translatable="yes">_Series...</attribute><attribute name="action">win.fill-series</attribute></item>
+          <item><attribute name="label" translatable="yes">_Justify</attribute><attribute name="action">win.fill-justify</attribute></item>
         </submenu>
-        <item><attribute name="label" translatable="yes">Cle_ar</attribute><attribute name="action">win.clear</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">Cle_ar</attribute>
+          <item><attribute name="label" translatable="yes">_All</attribute><attribute name="action">win.clear-all</attribute></item>
+          <item><attribute name="label" translatable="yes">_Formats</attribute><attribute name="action">win.clear-formats</attribute></item>
+          <item><attribute name="label" translatable="yes">_Contents</attribute><attribute name="action">win.clear</attribute></item>
+          <item><attribute name="label" translatable="yes">_Notes</attribute><attribute name="action">win.clear-notes</attribute></item>
+        </submenu>
         <item><attribute name="label" translatable="yes">_Delete...</attribute><attribute name="action">win.delete-cells</attribute></item>
         <item><attribute name="label" translatable="yes">Delete Ro_ws</attribute><attribute name="action">win.delete-rows</attribute></item>
         <item><attribute name="label" translatable="yes">Delete Colu_mns</attribute><attribute name="action">win.delete-columns</attribute></item>
         <item><attribute name="label" translatable="yes">Delete _Sheet</attribute><attribute name="action">win.delete-sheet</attribute></item>
+        <item><attribute name="label" translatable="yes">Mo_ve or Copy Sheet...</attribute><attribute name="action">win.move-copy-sheet</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">Select A_ll</attribute><attribute name="action">win.select-all</attribute></item>
@@ -81,13 +100,25 @@
           <item><attribute name="label" translatable="yes">_75%</attribute><attribute name="action">win.zoom</attribute><attribute name="target" type="i">75</attribute></item>
           <item><attribute name="label" translatable="yes">_50%</attribute><attribute name="action">win.zoom</attribute><attribute name="target" type="i">50</attribute></item>
           <item><attribute name="label" translatable="yes">2_5%</attribute><attribute name="action">win.zoom</attribute><attribute name="target" type="i">25</attribute></item>
+          <item><attribute name="label" translatable="yes">_Zoom...</attribute><attribute name="action">win.zoom-dialog</attribute></item>
         </submenu>
         <item><attribute name="label" translatable="yes">_Full Screen</attribute><attribute name="action">win.full-screen</attribute></item>
+      </section>
+      <section>
+        <submenu>
+          <attribute name="label" translatable="yes">_Toolbars</attribute>
+          <item><attribute name="label" translatable="yes">_Standard</attribute><attribute name="action">win.show-standard-bar</attribute></item>
+          <item><attribute name="label" translatable="yes">_Formatting</attribute><attribute name="action">win.show-format-bar</attribute></item>
+        </submenu>
+        <item><attribute name="label" translatable="yes">Formula _Bar</attribute><attribute name="action">win.show-formula-bar</attribute></item>
+        <item><attribute name="label" translatable="yes">_Status Bar</attribute><attribute name="action">win.show-status-bar</attribute></item>
+        <item><attribute name="label" translatable="yes">_Comments</attribute><attribute name="action">win.show-notes</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">_Freeze Panes</attribute><attribute name="action">win.freeze-panes</attribute></item>
         <item><attribute name="label" translatable="yes">C_ustom Views...</attribute><attribute name="action">win.custom-views</attribute></item>
         <item><attribute name="label" translatable="yes">_Page Breaks</attribute><attribute name="action">win.page-breaks</attribute></item>
+        <item><attribute name="label" translatable="yes">_Header and Footer...</attribute><attribute name="action">win.header-footer</attribute></item>
         <item><attribute name="label" translatable="yes">Spli_t</attribute><attribute name="action">win.split-panes</attribute></item>
       </section>
       <section>
@@ -117,6 +148,34 @@
           <item><attribute name="label" translatable="yes">_Line</attribute><attribute name="action">win.shape</attribute><attribute name="target">line</attribute></item>
           <item><attribute name="label" translatable="yes">_Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">arrow</attribute></item>
           <item><attribute name="label" translatable="yes">_Text Box</attribute><attribute name="action">win.shape</attribute><attribute name="target">textbox</attribute></item>
+          <item><attribute name="label" translatable="yes">_Freeform</attribute><attribute name="action">win.shape</attribute><attribute name="target">freeform</attribute></item>
+          <section>
+            <item><attribute name="label" translatable="yes">Rounded Rectan_gle</attribute><attribute name="action">win.shape</attribute><attribute name="target">roundrect</attribute></item>
+            <item><attribute name="label" translatable="yes">Tr_iangle</attribute><attribute name="action">win.shape</attribute><attribute name="target">triangle</attribute></item>
+            <item><attribute name="label" translatable="yes">Right Triangle</attribute><attribute name="action">win.shape</attribute><attribute name="target">rttriangle</attribute></item>
+            <item><attribute name="label" translatable="yes">_Diamond</attribute><attribute name="action">win.shape</attribute><attribute name="target">diamond</attribute></item>
+            <item><attribute name="label" translatable="yes">_Pentagon</attribute><attribute name="action">win.shape</attribute><attribute name="target">pentagon</attribute></item>
+            <item><attribute name="label" translatable="yes">_Hexagon</attribute><attribute name="action">win.shape</attribute><attribute name="target">hexagon</attribute></item>
+            <item><attribute name="label" translatable="yes">Octagon</attribute><attribute name="action">win.shape</attribute><attribute name="target">octagon</attribute></item>
+            <item><attribute name="label" translatable="yes">Cross</attribute><attribute name="action">win.shape</attribute><attribute name="target">plus</attribute></item>
+            <item><attribute name="label" translatable="yes">_4-Point Star</attribute><attribute name="action">win.shape</attribute><attribute name="target">star4</attribute></item>
+            <item><attribute name="label" translatable="yes">_5-Point Star</attribute><attribute name="action">win.shape</attribute><attribute name="target">star5</attribute></item>
+            <item><attribute name="label" translatable="yes">_8-Point Star</attribute><attribute name="action">win.shape</attribute><attribute name="target">star8</attribute></item>
+          </section>
+          <section>
+            <item><attribute name="label" translatable="yes">Right Arro_w</attribute><attribute name="action">win.shape</attribute><attribute name="target">rightarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">Le_ft Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">leftarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">_Up Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">uparrow</attribute></item>
+            <item><attribute name="label" translatable="yes">Down Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">downarrow</attribute></item>
+            <item><attribute name="label" translatable="yes">Left-Right Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">leftrightarrow</attribute></item>
+          </section>
+          <section>
+            <item><attribute name="label" translatable="yes">Rectangular _Callout</attribute><attribute name="action">win.shape</attribute><attribute name="target">rectcallout</attribute></item>
+            <item><attribute name="label" translatable="yes">Oval Callout</attribute><attribute name="action">win.shape</attribute><attribute name="target">ellipsecallout</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: Proc_ess</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowprocess</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: Decisio_n</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowdecision</attribute></item>
+            <item><attribute name="label" translatable="yes">Flowchart: Ter_minator</attribute><attribute name="action">win.shape</attribute><attribute name="target">flowterminator</attribute></item>
+          </section>
         </submenu>
         <submenu>
           <attribute name="label" translatable="yes">Co_ntrol</attribute>
@@ -133,10 +192,17 @@
         <submenu>
           <attribute name="label" translatable="yes">_Name</attribute>
           <item><attribute name="label" translatable="yes">_Define...</attribute><attribute name="action">win.define-name</attribute></item>
+          <item><attribute name="label" translatable="yes">_Paste...</attribute><attribute name="action">win.paste-name</attribute></item>
+          <item><attribute name="label" translatable="yes">_Create...</attribute><attribute name="action">win.create-names</attribute></item>
+          <item><attribute name="label" translatable="yes">_Apply...</attribute><attribute name="action">win.apply-names</attribute></item>
         </submenu>
       </section>
       <section>
-        <item><attribute name="label" translatable="yes">_Picture...</attribute><attribute name="action">win.insert-picture</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Picture</attribute>
+          <item><attribute name="label" translatable="yes">_From File...</attribute><attribute name="action">win.insert-picture</attribute></item>
+          <item><attribute name="label" translatable="yes">From _Scanner or Camera...</attribute><attribute name="action">win.insert-scan</attribute></item>
+        </submenu>
       </section>
     </submenu>
 
@@ -153,23 +219,40 @@
         <item><attribute name="label" translatable="yes">Conditional _Formatting...</attribute><attribute name="action">win.conditional</attribute></item>
         <item><attribute name="label" translatable="yes">C_hart...</attribute><attribute name="action">win.format-chart</attribute></item>
         <item><attribute name="label" translatable="yes">Sha_pe...</attribute><attribute name="action">win.format-shape</attribute></item>
+        <item><attribute name="label" translatable="yes">P_icture...</attribute><attribute name="action">win.format-picture</attribute></item>
         <item><attribute name="label" translatable="yes">Contro_l...</attribute><attribute name="action">win.format-control</attribute></item>
         <item><attribute name="label" translatable="yes">_Group Objects</attribute><attribute name="action">win.group-objects</attribute></item>
         <item><attribute name="label" translatable="yes">U_ngroup Objects</attribute><attribute name="action">win.ungroup-objects</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">O_rder</attribute>
+          <item><attribute name="label" translatable="yes">Bring to _Front</attribute><attribute name="action">win.order</attribute><attribute name="target">front</attribute></item>
+          <item><attribute name="label" translatable="yes">Send to _Back</attribute><attribute name="action">win.order</attribute><attribute name="target">back</attribute></item>
+          <item><attribute name="label" translatable="yes">Bring F_orward</attribute><attribute name="action">win.order</attribute><attribute name="target">forward</attribute></item>
+          <item><attribute name="label" translatable="yes">Send Back_ward</attribute><attribute name="action">win.order</attribute><attribute name="target">backward</attribute></item>
+        </submenu>
         <item><attribute name="label" translatable="yes">_Merge Cells</attribute><attribute name="action">win.merge-cells</attribute></item>
         <item><attribute name="label" translatable="yes">Unmer_ge Cells</attribute><attribute name="action">win.unmerge-cells</attribute></item>
-        <item><attribute name="label" translatable="yes">Rename _Sheet...</attribute><attribute name="action">win.rename-sheet</attribute></item>
-        <item><attribute name="label" translatable="yes">Move Sheet _Left</attribute><attribute name="action">win.move-sheet-left</attribute></item>
-        <item><attribute name="label" translatable="yes">Move Sheet _Right</attribute><attribute name="action">win.move-sheet-right</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">S_heet</attribute>
+          <item><attribute name="label" translatable="yes">_Rename...</attribute><attribute name="action">win.rename-sheet</attribute></item>
+          <item><attribute name="label" translatable="yes">Move _Left</attribute><attribute name="action">win.move-sheet-left</attribute></item>
+          <item><attribute name="label" translatable="yes">Move R_ight</attribute><attribute name="action">win.move-sheet-right</attribute></item>
+          <item><attribute name="label" translatable="yes">_Hide</attribute><attribute name="action">win.hide-sheet</attribute></item>
+          <item><attribute name="label" translatable="yes">_Unhide...</attribute><attribute name="action">win.unhide-sheet</attribute></item>
+          <item><attribute name="label" translatable="yes">_Background...</attribute><attribute name="action">win.sheet-background</attribute></item>
+          <item><attribute name="label" translatable="yes">_Delete Background</attribute><attribute name="action">win.delete-background</attribute></item>
+        </submenu>
       </section>
       <section>
         <submenu>
           <attribute name="label" translatable="yes">R_ow</attribute>
+          <item><attribute name="label" translatable="yes">_AutoFit</attribute><attribute name="action">win.autofit-rows</attribute></item>
           <item><attribute name="label" translatable="yes">_Hide</attribute><attribute name="action">win.hide-rows</attribute></item>
           <item><attribute name="label" translatable="yes">_Unhide</attribute><attribute name="action">win.unhide-rows</attribute></item>
         </submenu>
         <submenu>
           <attribute name="label" translatable="yes">Colu_mn</attribute>
+          <item><attribute name="label" translatable="yes">_Standard Width...</attribute><attribute name="action">win.standard-width</attribute></item>
           <item><attribute name="label" translatable="yes">_Hide</attribute><attribute name="action">win.hide-columns</attribute></item>
           <item><attribute name="label" translatable="yes">_Unhide</attribute><attribute name="action">win.unhide-columns</attribute></item>
         </submenu>
@@ -206,26 +289,51 @@
       <attribute name="label" translatable="yes">_Tools</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_Goal Seek...</attribute><attribute name="action">win.goal-seek</attribute></item>
+        <item><attribute name="label" translatable="yes">_Euro Conversion...</attribute><attribute name="action">win.euro-convert</attribute></item>
         <item><attribute name="label" translatable="yes">Sol_ver...</attribute><attribute name="action">win.solver</attribute></item>
-        <item><attribute name="label" translatable="yes">_Protect Sheet</attribute><attribute name="action">win.protect</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Protection</attribute>
+          <item><attribute name="label" translatable="yes">Protect _Sheet...</attribute><attribute name="action">win.protect</attribute></item>
+          <item><attribute name="label" translatable="yes">Protect _Workbook...</attribute><attribute name="action">win.protect-book</attribute></item>
+        </submenu>
       </section>
       <section>
         <submenu>
           <attribute name="label" translatable="yes">_Auditing</attribute>
           <item><attribute name="label" translatable="yes">Trace _Precedents</attribute><attribute name="action">win.trace-precedents</attribute></item>
           <item><attribute name="label" translatable="yes">Trace _Dependents</attribute><attribute name="action">win.trace-dependents</attribute></item>
+          <item><attribute name="label" translatable="yes">Trace _Error</attribute><attribute name="action">win.trace-error</attribute></item>
           <item><attribute name="label" translatable="yes">_Remove All Arrows</attribute><attribute name="action">win.clear-arrows</attribute></item>
+          <item><attribute name="label" translatable="yes">_Evaluate Formula...</attribute><attribute name="action">win.evaluate-formula</attribute></item>
+          <item><attribute name="label" translatable="yes">Show _Watch Window</attribute><attribute name="action">win.watch-window</attribute></item>
         </submenu>
       </section>
       <section>
-        <item><attribute name="label" translatable="yes">_Python Console...</attribute><attribute name="action">win.python-console</attribute></item>
-        <item><attribute name="label" translatable="yes">_Run Python Script...</attribute><attribute name="action">win.python-run</attribute></item>
-        <item><attribute name="label" translatable="yes">_Scripts in this Book...</attribute><attribute name="action">win.scripts</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Macro</attribute>
+          <section>
+            <item><attribute name="label" translatable="yes">_Macros...</attribute><attribute name="action">win.macros</attribute></item>
+            <item><attribute name="label" translatable="yes">_Record Macro</attribute><attribute name="action">win.record-macro</attribute></item>
+            <item><attribute name="label" translatable="yes">S_top Recording</attribute><attribute name="action">win.stop-recording</attribute></item>
+            <item><attribute name="label" translatable="yes">Use Re_lative References</attribute><attribute name="action">win.relative-refs</attribute></item>
+          </section>
+          <section>
+            <item><attribute name="label" translatable="yes">_Scripts in this Book...</attribute><attribute name="action">win.scripts</attribute></item>
+            <item><attribute name="label" translatable="yes">S_tep Into Script</attribute><attribute name="action">win.script-step</attribute></item>
+            <item><attribute name="label" translatable="yes">_Python Console...</attribute><attribute name="action">win.python-console</attribute></item>
+            <item><attribute name="label" translatable="yes">Run Python Script _File...</attribute><attribute name="action">win.python-run</attribute></item>
+          </section>
+        </submenu>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">Statistical _Analysis...</attribute><attribute name="action">win.analysis</attribute></item>
         <item><attribute name="label" translatable="yes">_Spelling...</attribute><attribute name="action">win.spelling</attribute></item>
-        <item><attribute name="label" translatable="yes">_Record Macro</attribute><attribute name="action">win.record-macro</attribute></item>
+        <item><attribute name="label" translatable="yes">_AutoCorrect...</attribute><attribute name="action">win.autocorrect</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Wizards</attribute>
+          <item><attribute name="label" translatable="yes">_Conditional Sum...</attribute><attribute name="action">win.conditional-sum</attribute></item>
+          <item><attribute name="label" translatable="yes">_Lookup...</attribute><attribute name="action">win.lookup-wizard</attribute></item>
+        </submenu>
         <item><attribute name="label" translatable="yes">Custom _Lists...</attribute><attribute name="action">win.custom-lists</attribute></item>
         <item><attribute name="label" translatable="yes">_Options...</attribute><attribute name="action">win.options</attribute></item>
       </section>
@@ -235,10 +343,17 @@
       <attribute name="label" translatable="yes">_Data</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_Sort...</attribute><attribute name="action">win.sort</attribute></item>
-        <item><attribute name="label" translatable="yes">Auto_Filter</attribute><attribute name="action">win.filter</attribute></item>
-        <item><attribute name="label" translatable="yes">Ad_vanced Filter...</attribute><attribute name="action">win.advanced-filter</attribute></item>
+        <item><attribute name="label" translatable="yes">F_orm...</attribute><attribute name="action">win.data-form</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">_Filter</attribute>
+          <item><attribute name="label" translatable="yes">Auto_Filter</attribute><attribute name="action">win.filter</attribute></item>
+          <item><attribute name="label" translatable="yes">_Show All</attribute><attribute name="action">win.filter-show-all</attribute></item>
+          <item><attribute name="label" translatable="yes">Ad_vanced Filter...</attribute><attribute name="action">win.advanced-filter</attribute></item>
+        </submenu>
         <item><attribute name="label" translatable="yes">Te_xt to Columns...</attribute><attribute name="action">win.text-to-columns</attribute></item>
         <item><attribute name="label" translatable="yes">_Validation...</attribute><attribute name="action">win.validation</attribute></item>
+        <item><attribute name="label" translatable="yes">Circle _Invalid Data</attribute><attribute name="action">win.circle-invalid</attribute></item>
+        <item><attribute name="label" translatable="yes">Clear Validation Circles</attribute><attribute name="action">win.clear-circles</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">_Table...</attribute><attribute name="action">win.table</attribute></item>
@@ -269,6 +384,11 @@
           <item><attribute name="label" translatable="yes">Group _Columns</attribute><attribute name="action">win.group-cols</attribute></item>
           <item><attribute name="label" translatable="yes">Ungroup R_ows</attribute><attribute name="action">win.ungroup-rows</attribute></item>
           <item><attribute name="label" translatable="yes">Ungroup Co_lumns</attribute><attribute name="action">win.ungroup-cols</attribute></item>
+          <item><attribute name="label" translatable="yes">_Show Detail</attribute><attribute name="action">win.show-detail</attribute></item>
+          <item><attribute name="label" translatable="yes">_Hide Detail</attribute><attribute name="action">win.hide-detail</attribute></item>
+          <item><attribute name="label" translatable="yes">_Auto Outline</attribute><attribute name="action">win.auto-outline</attribute></item>
+          <item><attribute name="label" translatable="yes">Cl_ear Outline</attribute><attribute name="action">win.clear-outline</attribute></item>
+          <item><attribute name="label" translatable="yes">_Settings...</attribute><attribute name="action">win.outline-settings</attribute></item>
         </submenu>
       </section>
     </submenu>
@@ -277,6 +397,10 @@
       <attribute name="label" translatable="yes">_Window</attribute>
       <section>
         <item><attribute name="label" translatable="yes">_New Window</attribute><attribute name="action">win.new-window</attribute></item>
+        <item><attribute name="label" translatable="yes">_Hide</attribute><attribute name="action">win.hide-window</attribute></item>
+        <item><attribute name="label" translatable="yes">_Unhide...</attribute><attribute name="action">win.unhide-window</attribute></item>
+      </section>
+      <section id="window-list">
       </section>
     </submenu>
 

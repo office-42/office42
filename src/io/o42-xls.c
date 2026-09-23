@@ -47,6 +47,25 @@ xls_border_style (guint code)
     default: return O42_BORDER_THIN;
     }
 }
+
+/* Fill patterns as BIFF numbers them (fls): 1 is solid, and 2 to 18
+ * the shadings in Excel's order. */
+static const O42Pattern FLS_PATTERNS[19] = {
+  O42_PATTERN_NONE, O42_PATTERN_SOLID, O42_PATTERN_GRAY50, O42_PATTERN_GRAY75,
+  O42_PATTERN_GRAY25, O42_PATTERN_HORIZONTAL, O42_PATTERN_VERTICAL, O42_PATTERN_DOWN,
+  O42_PATTERN_UP, O42_PATTERN_GRID, O42_PATTERN_TRELLIS, O42_PATTERN_THIN_HORIZONTAL,
+  O42_PATTERN_THIN_VERTICAL, O42_PATTERN_THIN_DOWN, O42_PATTERN_THIN_UP,
+  O42_PATTERN_THIN_GRID, O42_PATTERN_THIN_TRELLIS, O42_PATTERN_GRAY125, O42_PATTERN_GRAY0625
+};
+
+static guint
+xls_fls_code (O42Pattern pattern)
+{
+  for (guint i = 2; i < G_N_ELEMENTS (FLS_PATTERNS); i++)
+    if (FLS_PATTERNS[i] == pattern)
+      return i;
+  return 1;
+}
 #include <stdlib.h>
 #include <math.h>
 
@@ -65,6 +84,9 @@ enum {
   R_EXTERNNAME = 0x0023, R_CONTINUE = 0x003C, R_CODEPAGE = 0x0042, R_PANE = 0x0041,
   R_FONT = 0x0031, R_WINDOW1 = 0x003D, R_DEFCOLWIDTH = 0x0055, R_COLINFO = 0x007D,
   R_BOUNDSHEET = 0x0085, R_PALETTE = 0x0092, R_AUTOFILTERINFO = 0x009D,
+  R_AUTOFILTER = 0x009E, R_FILTERMODE = 0x009B, R_FILEPASS = 0x002F,
+  R_DATEMODE = 0x0022, R_SHEETEXT = 0x0862, R_GUTS = 0x0080,
+  R_SCL = 0x00A0, R_SELECTION = 0x001D, R_STANDARDWIDTH = 0x0099,
   R_MULRK = 0x00BD, R_MULBLANK = 0x00BE, R_RSTRING = 0x00D6, R_XF = 0x00E0,
   R_MERGECELLS = 0x00E5, R_SST = 0x00FC, R_LABELSST = 0x00FD, R_EXTSST = 0x00FF,
   R_DIMENSIONS = 0x0200, R_BLANK = 0x0201, R_NUMBER = 0x0203, R_LABEL = 0x0204,
@@ -78,6 +100,10 @@ enum {
   R_HEADER = 0x0014, R_FOOTER = 0x0015, R_HCENTER = 0x0083, R_VCENTER = 0x0084,
   R_SETUP = 0x00A1, R_PRINTSIZE = 0x0033, R_PROTECT = 0x0012,
   R_PASSWORD = 0x0013,
+  R_LEFTMARGIN = 0x0026, R_RIGHTMARGIN = 0x0027, R_TOPMARGIN = 0x0028, R_BOTTOMMARGIN = 0x0029,
+  R_PRINTHEADERS = 0x002A, R_PRINTGRIDLINES = 0x002B, R_WSBOOL = 0x0081,
+  R_HORIZONTALPAGEBREAKS = 0x001B, R_VERTICALPAGEBREAKS = 0x001A,
+  R_HLINK = 0x01B8,
   C_UNITS = 0x1001, C_CHART = 0x1002, C_SERIES = 0x1003, C_DATAFORMAT = 0x1006,
   C_LINEFORMAT = 0x1007, C_AREAFORMAT = 0x100A, C_SERIESTEXT = 0x100D, C_CHARTFORMAT = 0x1014,
   C_LEGEND = 0x1015, C_BAR = 0x1017, C_LINE = 0x1018, C_PIE = 0x1019, C_AREA = 0x101A,
@@ -85,7 +111,9 @@ enum {
   C_CATSERRANGE = 0x1020, C_AXISLINEFORMAT = 0x1021, C_CHARTFORMATLINK = 0x1022,
   C_TEXT = 0x1025, C_FONTX = 0x1026, C_OBJECTLINK = 0x1027, C_FRAME = 0x1032,
   C_BEGIN = 0x1033, C_END = 0x1034, C_AXISPARENT = 0x1041, C_SHTPROPS = 0x1044,
-  C_SERTOCRT = 0x1045, C_AXESUSED = 0x1046, C_AI = 0x1051, C_POS = 0x104F
+  C_SERTOCRT = 0x1045, C_AXESUSED = 0x1046, C_AI = 0x1051, C_POS = 0x104F,
+  C_ATTACHEDLABEL = 0x100C, C_CHART3D = 0x103A, C_RADAR = 0x103E, C_RADARAREA = 0x1040,
+  C_IFMT = 0x104E, C_AXCEXT = 0x1062, C_SURF = 0x103F
 };
 
 /* Excel's numbers for its functions, with the argument counts that
@@ -221,6 +249,47 @@ error_to_biff (O42ErrorCode code)
 static guint16 rd16 (const guchar *p) { return p[0] | (p[1] << 8); }
 static guint32 rd32 (const guchar *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((guint32) p[3] << 24); }
 
+/* Excel keeps its text as UTF-16, and everything outside the basic
+ * plane -- an emoji, the rarer CJK, the musical symbols -- arrives as a
+ * pair of surrogates.  Appending each half as a character of its own
+ * makes a string that is not UTF-8 at all, which nothing further on can
+ * show or write out, so the pair is put back together here.  `pending`
+ * holds a high surrogate until its low one arrives; a surrogate left on
+ * its own means nothing and becomes U+FFFD. */
+static void
+append_utf16 (GString *s, guint unit, guint *pending)
+{
+  if (*pending != 0)
+    {
+      guint high = *pending;
+
+      *pending = 0;
+      if (unit >= 0xDC00 && unit <= 0xDFFF)
+        {
+          g_string_append_unichar (s, 0x10000 + ((high - 0xD800) << 10) + (unit - 0xDC00));
+          return;
+        }
+      g_string_append_unichar (s, 0xFFFD);
+    }
+  if (unit >= 0xD800 && unit <= 0xDBFF)
+    *pending = unit;
+  else if (unit >= 0xDC00 && unit <= 0xDFFF)
+    g_string_append_unichar (s, 0xFFFD);
+  else
+    g_string_append_unichar (s, unit);
+}
+
+/* A high surrogate still waiting when the string ends. */
+static void
+flush_utf16 (GString *s, guint *pending)
+{
+  if (*pending != 0)
+    {
+      *pending = 0;
+      g_string_append_unichar (s, 0xFFFD);
+    }
+}
+
 static double
 rd_double (const guchar *p)
 {
@@ -292,6 +361,19 @@ put_ustr8 (GByteArray *a, const char *text)
   put_ustr_body (a, text);
 }
 
+/* A hyperlink's counted string: the count of UTF-16 units with the
+ * NUL, then the units. */
+static void
+put_hlink_string (GByteArray *a, const char *text)
+{
+  glong n = 0;
+  gunichar2 *u = g_utf8_to_utf16 (text, -1, NULL, &n, NULL);
+  put32 (a, n + 1);
+  for (glong i = 0; i < n; i++) put16 (a, u[i]);
+  put16 (a, 0);
+  g_free (u);
+}
+
 static void
 put_ustr16 (GByteArray *a, const char *text)
 {
@@ -312,6 +394,10 @@ typedef struct {
   char    *link;
   char    *source;
   char    *text;          /* the caption, from the TXO that follows */
+  int      text_halign;   /* TXO's alignment: 1 left 2 centre 3 right, 0 unsaid */
+  int      text_valign;   /* 1 top 2 middle 3 bottom, 0 unsaid */
+  gboolean have_font;     /* the first run named a font */
+  O42Fmt   font;
   double   value, min, max, step, page;
   int      selected;
   gboolean checked;
@@ -334,6 +420,7 @@ typedef struct
   gsize       len;
 
   GPtrArray  *sst;           /* shared strings */
+  GPtrArray  *sst_runs;      /* alongside: GArray of guint16 pairs (ich, ifnt), or NULL */
   GHashTable *formats;       /* id -> code */
   GArray     *fonts;         /* O42Fmt with the font fields */
   GArray     *xfs;           /* O42Fmt */
@@ -346,6 +433,7 @@ typedef struct
   guint32     palette[64];
   GPtrArray  *sheet_names;
   GArray     *sheet_offsets; /* guint32 */
+  GArray     *sheet_hidden;  /* guint: the BOUNDSHEET state, 0 shown */
   GArray     *xti;           /* guint16 triples: supbook, first, last */
   GPtrArray  *supbook_names; /* GPtrArray* of char* per supbook, add-in names */
   GPtrArray  *supbook_self;  /* GINT: 1 if the supbook is this workbook */
@@ -353,6 +441,10 @@ typedef struct
   GPtrArray  *name_ranges;   /* char* "Sheet!A1:B2" or NULL per name */
   GArray     *filter_sheets; /* int: sheet index whose _FilterDatabase was seen */
   GPtrArray  *filter_ranges; /* char* range text */
+  GArray     *print_names;   /* PrintName: Print_Area and Print_Titles, per sheet */
+  gboolean    fit_to_page;   /* WSBOOL said so, for the SETUP that follows */
+  gboolean    saw_standard_width;   /* the sheet's STANDARDWIDTH was read */
+  GHashTable *filter_criteria;   /* sheet index -> GPtrArray of "entry\tcriterion" */
   int         n_format5;     /* BIFF5 FORMAT records are numbered in order */
 
   /* Current sheet */
@@ -367,11 +459,15 @@ typedef struct
   guint       obj_id;
   gboolean    obj_is_note;
   int         txo_chars;        /* characters still to read for the note */
+  guint       txo_pending;      /* a high surrogate waiting for its low one */
   GString    *txo_text;
+  gboolean    txo_runs_next;    /* the text is in; the CONTINUE to come holds its runs */
   GHashTable *note_texts;       /* obj id -> char* */
 
   /* Conditional formats: a CONDFMT's range, then its CF rules. */
   O42Range    cf_range;
+  GArray     *cf_rects;         /* O42Range: the rectangles a CONDFMT covers */
+  int         dv_anchor_row, dv_anchor_col;   /* a DV's first range's corner */
   gboolean    cf_have_range;
 
   /* Drawings: the group's images, and the sheet's Escher bytes. */
@@ -388,6 +484,9 @@ typedef struct
   GArray     *objs;             /* ObjInfo: what each OBJ said, in order */
   gboolean    in_series;
   int         chart_depth;
+  gboolean    chart_sheet;      /* the substream being read is a chart sheet's */
+  gboolean    frozen;           /* WINDOW2 said the panes are frozen, not split */
+  gboolean    dates_1904;       /* DATEMODE: serial dates count from 1904 */
 } Reader;
 
 typedef struct {
@@ -396,7 +495,157 @@ typedef struct {
   O42Range     box;
   gboolean     have_box, have_title_ref, have_cats;
   char        *title;
+  const char  *data_sheet;   /* interned: the sheet the series are on, or NULL */
+  /* The rest of what the substream says: the legend, the axis titles,
+   * depth, labels, gridlines, the value axis' format and bounds. */
+  gboolean     legend, three_d, data_labels, gridlines;
+  char        *x_title, *y_title;
+  char        *pending_text;   /* a SERIESTEXT waiting for its OBJECTLINK */
+  int          axis;           /* the AXIS group being read: 0 category, 1 value, -1 none */
+  char        *y_format;
+  gboolean     has_min, has_max;
+  double       min, max;
 } ChartDef;
+
+/* A built-in name's area, kept until the sheet it belongs to exists:
+ * Print_Area (6) or one part of Print_Titles (7). */
+typedef struct {
+  int  sheet;
+  int  kind;
+  int  row0, row1, col0, col1;
+} PrintName;
+/* HLINK: a hyperlink on a range of cells, as the Hyperlink Object of
+ * MS-OSHARED has it: a stream version, flags, then whichever of a
+ * display name, a frame name, a moniker (a URL or a file path), and a
+ * place in the book the flags announce.  Returns the target in the
+ * form the sheet keeps -- a URL, or "#Sheet!A1" -- or NULL. */
+#define HL_HAS_MONIKER     0x0001
+#define HL_HAS_LOCATION    0x0008
+#define HL_HAS_DISPLAY     0x0010
+#define HL_HAS_GUID        0x0020
+#define HL_HAS_TIME        0x0040
+#define HL_HAS_FRAME       0x0080
+#define HL_MONIKER_STRING  0x0100
+
+static const guchar HL_STD_GUID[16]  = { 0xD0, 0xC9, 0xEA, 0x79, 0xF9, 0xBA, 0xCE, 0x11,
+                                         0x8C, 0x82, 0x00, 0xAA, 0x00, 0x4B, 0xA9, 0x0B };
+static const guchar HL_URL_GUID[16]  = { 0xE0, 0xC9, 0xEA, 0x79, 0xF9, 0xBA, 0xCE, 0x11,
+                                         0x8C, 0x82, 0x00, 0xAA, 0x00, 0x4B, 0xA9, 0x0B };
+static const guchar HL_FILE_GUID[16] = { 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                         0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 };
+
+/* A counted UTF-16 string: u32 count of units (the NUL included), then
+ * the units.  Returns it without the NUL and advances *pp. */
+static char *
+hlink_string (const guchar **pp, const guchar *end)
+{
+  const guchar *p = *pp;
+  guint32 n;
+  gunichar2 *u;
+  char *text;
+
+  if (p + 4 > end)
+    return NULL;
+  n = rd32 (p);
+  p += 4;
+  if (n > (guint32) (end - p) / 2)
+    n = (end - p) / 2;
+  u = g_new (gunichar2, n + 1);
+  for (guint32 i = 0; i < n; i++)
+    u[i] = rd16 (p + 2 * i);
+  u[n] = 0;
+  text = g_utf16_to_utf8 (u, -1, NULL, NULL, NULL);
+  g_free (u);
+  *pp = p + 2 * n;
+  return text;
+}
+
+static char *
+read_hlink_target (const guchar *p, const guchar *end)
+{
+  guint32 flags;
+  char *url = NULL, *location = NULL, *target = NULL;
+
+  if (p + 24 > end || memcmp (p, HL_STD_GUID, 16) != 0)
+    return NULL;
+  flags = rd32 (p + 20);
+  p += 24;
+  if (flags & HL_HAS_DISPLAY)
+    g_free (hlink_string (&p, end));
+  if (flags & HL_HAS_FRAME)
+    g_free (hlink_string (&p, end));
+  if (flags & HL_HAS_MONIKER)
+    {
+      if (flags & HL_MONIKER_STRING)
+        url = hlink_string (&p, end);
+      else if (p + 16 <= end)
+        {
+          if (memcmp (p, HL_URL_GUID, 16) == 0 && p + 20 <= end)
+            {
+              /* The size in bytes of the URL and what may follow it
+               * (a GUID, a version, flags), then the URL, NUL ended. */
+              guint32 size = rd32 (p + 16);
+              const guchar *q = p + 20;
+              GString *u = g_string_new (NULL);
+              guint pending = 0;
+              for (guint32 i = 0; i + 1 < size && q + 2 * i + 2 <= end; i++)
+                {
+                  guint c = rd16 (q + 2 * i);
+                  if (c == 0) break;
+                  append_utf16 (u, c, &pending);
+                }
+              flush_utf16 (u, &pending);
+              url = g_string_free (u, FALSE);
+              p = q + MIN (size, (guint32) (end - q));
+            }
+          else if (memcmp (p, HL_FILE_GUID, 16) == 0 && p + 22 <= end)
+            {
+              /* A file: the ANSI path, then perhaps a unicode one. */
+              guint32 n = rd32 (p + 18);
+              const guchar *q = p + 22;
+              if (n > (guint32) (end - q)) n = end - q;
+              url = g_strndup ((const char *) q, n);
+              {
+                char *nul = strchr (url, '\0');
+                (void) nul;
+              }
+              q += n + 24;
+              if (q + 4 <= end && rd32 (q) > 0 && q + 14 <= end)
+                {
+                  guint32 bytes = rd32 (q + 4);
+                  const guchar *u = q + 10;
+                  gunichar2 *w;
+                  if (bytes > (guint32) (end - u)) bytes = end - u;
+                  w = g_new (gunichar2, bytes / 2 + 1);
+                  for (guint32 i = 0; i < bytes / 2; i++) w[i] = rd16 (u + 2 * i);
+                  w[bytes / 2] = 0;
+                  g_free (url);
+                  url = g_utf16_to_utf8 (w, -1, NULL, NULL, NULL);
+                  g_free (w);
+                  q = u + bytes;
+                }
+              p = q;
+            }
+          else
+            p = end;
+        }
+    }
+  if (flags & HL_HAS_LOCATION)
+    location = hlink_string (&p, end);
+
+  if (url != NULL && *url != '\0')
+    {
+      if (location != NULL && *location != '\0')
+        target = g_strdup_printf ("%s#%s", url, location);
+      else
+        target = g_strdup (url);
+    }
+  else if (location != NULL && *location != '\0')
+    target = g_strdup_printf ("#%s", location);
+  g_free (url);
+  g_free (location);
+  return target;
+}
 
 /* A string in the encoding the record uses: BIFF8 unicode with flags,
  * BIFF5 bytes.  `wide_len` says whether the length is 16 bits.  Returns
@@ -418,6 +667,7 @@ read_str (Reader *r, const guchar **pp, const guchar *end, gboolean wide_len)
       guint flags;
       guint runs = 0;
       guint32 ext = 0;
+      guint pending = 0;
       if (p >= end) { *pp = end; return g_string_free (s, FALSE); }
       flags = *p++;
       if (flags & 0x08) { runs = p + 2 <= end ? rd16 (p) : 0; p += 2; }
@@ -428,9 +678,10 @@ read_str (Reader *r, const guchar **pp, const guchar *end, gboolean wide_len)
            * is what office42 separates them with. */
           for (guint i = 0; i < n && p + 2 <= end; i++, p += 2)
             {
-              if (rd16 (p) != 0) g_string_append_unichar (s, rd16 (p));
-              else if (n > 1) g_string_append_c (s, ',');
+              if (rd16 (p) != 0) append_utf16 (s, rd16 (p), &pending);
+              else if (n > 1) { flush_utf16 (s, &pending); g_string_append_c (s, ','); }
             }
+          flush_utf16 (s, &pending);
         }
       else
         {
@@ -479,6 +730,7 @@ read_sst (Reader *r, GPtrArray *segs)
     {
       guint n, flags, runs = 0;
       guint32 ext = 0;
+      guint pending = 0;
       GString *s;
 
       /* A string's header is never split across a CONTINUE, so a
@@ -500,13 +752,29 @@ read_sst (Reader *r, GPtrArray *segs)
               flags = (*p++ & 0x01) | (flags & ~0x01u);
             }
           if (flags & 0x01)
-            { if (p + 2 > end) break; g_string_append_unichar (s, rd16 (p)); p += 2; }
+            { if (p + 2 > end) break; append_utf16 (s, rd16 (p), &pending); p += 2; }
           else
             g_string_append_unichar (s, *p++);
         }
+      flush_utf16 (s, &pending);
       g_ptr_array_add (r->sst, g_string_free (s, FALSE));
       {
-        gsize skip = (gsize) runs * 4 + ext;
+        /* The formatting runs, four bytes each -- a character index and
+         * a font -- which may go on into the next record whole. */
+        GArray *list = runs > 0 ? g_array_new (FALSE, FALSE, sizeof (guint16)) : NULL;
+        for (guint i = 0; i < runs; i++)
+          {
+            guint16 ich, ifnt;
+            if (p >= end) NEXT_SEG ();
+            if (end - p < 4) break;
+            ich = rd16 (p); ifnt = rd16 (p + 2); p += 4;
+            g_array_append_val (list, ich);
+            g_array_append_val (list, ifnt);
+          }
+        g_ptr_array_add (r->sst_runs, list);
+      }
+      {
+        gsize skip = ext;
         while (skip > 0)
           {
             gsize here = MIN (skip, (gsize) (end - p));
@@ -749,10 +1017,38 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             push (&d, n);
           }
           break;
-        case 0x0F: case 0x10: case 0x11:   /* intersection, union, range: keep the first */
+        case 0x0F: case 0x10:   /* intersection, union: the model has both operators */
           {
             O42Node *b = pop (&d);
-            o42_node_free (b);
+            O42Node *a = pop (&d);
+            O42Node *n = node_new (O42_NODE_BINARY);
+            n->as.op.op = base == 0x0F ? O42_OP_ISECT : O42_OP_UNION;
+            n->as.op.a = a;
+            n->as.op.b = b;
+            push (&d, n);
+          }
+          break;
+        case 0x11:   /* range: two cells into the rectangle between them */
+          {
+            O42Node *b = pop (&d);
+            O42Node *a = pop (&d);
+            if (a != NULL && b != NULL && a->type == O42_NODE_REF && b->type == O42_NODE_REF &&
+                g_strcmp0 (a->sheet, b->sheet) == 0)
+              {
+                O42Node *n = node_new (O42_NODE_RANGE);
+                n->sheet = a->sheet;
+                n->as.range = o42_range_normalise (a->as.ref.row, a->as.ref.col, b->as.ref.row, b->as.ref.col);
+                n->abs = (a->abs & (O42_ABS_ROW0 | O42_ABS_COL0)) |
+                         ((b->abs & O42_ABS_ROW0) ? O42_ABS_ROW1 : 0) | ((b->abs & O42_ABS_COL0) ? O42_ABS_COL1 : 0);
+                o42_node_free (a);
+                o42_node_free (b);
+                push (&d, n);
+              }
+            else
+              {
+                o42_node_free (b);
+                push (&d, a);
+              }
           }
           break;
         case 0x12: case 0x13: case 0x14:
@@ -1070,12 +1366,29 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
   return result;
 }
 
+static void
+unref_array_or_null (gpointer array)
+{
+  if (array != NULL)
+    g_array_unref (array);
+}
+
 /* ---- records ---- */
 
 static void
 apply_xf (Reader *r, int row, int col, guint xf)
 {
-  if (xf < r->xfs->len && xf != 15)
+  /* XF 15 is Excel's default cell format, and most cells wear it;
+   * applying it to each would be work for nothing.  A file from
+   * elsewhere may have put something else there, and then it counts. */
+  if (xf == 15 && xf < r->xfs->len)
+    {
+      O42Fmt plain;
+      o42_fmt_init_default (&plain);
+      if (memcmp (&plain, &g_array_index (r->xfs, O42Fmt, xf), sizeof plain) == 0)
+        return;
+    }
+  if (xf < r->xfs->len)
     {
       O42Range one = { row, col, row, col };
       o42_sheet_apply_fmt (r->sheet, &one, O42_FMT_ALL, &g_array_index (r->xfs, O42Fmt, xf));
@@ -1090,6 +1403,54 @@ set_cell (Reader *r, int row, int col, guint xf, const char *input)
   if (input != NULL && input[0] != '\0')
     o42_sheet_set_input (r->sheet, row, col, input);
   apply_xf (r, row, col, xf);
+}
+
+/* A rich string's runs onto the cell: each run starts at a character
+ * index and wears one of the file's fonts over the cell's own format,
+ * as the model has it. */
+static void
+apply_runs (Reader *r, int row, int col, const char *text, GArray *pairs)
+{
+  const O42Fmt *cell;
+  GArray *runs;
+
+  if (r->sheet == NULL || row < 0 || row >= O42_MAX_ROWS || col < 0 || col >= O42_MAX_COLS)
+    return;
+  cell = o42_sheet_get_fmt (r->sheet, row, col);
+  runs = g_array_new (FALSE, FALSE, sizeof (O42TextRun));
+  for (guint i = 0; i + 1 < pairs->len; i += 2)
+    {
+      guint ich = g_array_index (pairs, guint16, i);
+      guint ifnt = g_array_index (pairs, guint16, i + 1);
+      O42TextRun run;
+      const char *q = text;
+      guint units = 0;
+
+      /* The index counts UTF-16 units; the run's start is a byte offset. */
+      while (*q != '\0' && units < ich)
+        {
+          units += g_utf8_get_char (q) > 0xFFFF ? 2 : 1;
+          q = g_utf8_next_char (q);
+        }
+      run.start = q - text;
+      run.fmt = *cell;
+      if (ifnt > 4) ifnt--;
+      if (ifnt < r->fonts->len)
+        {
+          const O42Fmt *font = &g_array_index (r->fonts, O42Fmt, ifnt);
+          run.fmt.family = font->family;
+          run.fmt.size = font->size;
+          run.fmt.bold = font->bold;
+          run.fmt.italic = font->italic;
+          run.fmt.underline = font->underline;
+          run.fmt.strikeout = font->strikeout;
+          run.fmt.colour = font->colour;
+        }
+      g_array_append_val (runs, run);
+    }
+  if (runs->len > 0)
+    o42_sheet_set_runs (r->sheet, row, col, (const O42TextRun *) runs->data, runs->len);
+  g_array_unref (runs);
 }
 
 static double
@@ -1108,10 +1469,40 @@ rk_value (guint32 rk)
   return v;
 }
 
+/* A number in a 1904-dated book that its format shows as a date is
+ * 1462 days short of the same day counted from 1900. */
+static double
+dated_1904 (Reader *r, guint xf, double v)
+{
+  if (r->dates_1904 && xf < r->xfs->len)
+    {
+      const O42Fmt *f = &g_array_index (r->xfs, O42Fmt, xf);
+      gboolean date = f->number == O42_NUM_DATE || f->number == O42_NUM_DATETIME;
+      if (f->custom != NULL)
+        {
+          /* A custom code with a day, month or year in it, outside
+           * quotes and brackets. */
+          gboolean quoted = FALSE, bracket = FALSE;
+          for (const char *q = f->custom; *q != 0 && !date; q++)
+            {
+              if (*q == '"') quoted = !quoted;
+              else if (!quoted && *q == '[') bracket = TRUE;
+              else if (!quoted && *q == ']') bracket = FALSE;
+              else if (!quoted && !bracket && (*q == 'd' || *q == 'D' || *q == 'y' || *q == 'Y'))
+                date = TRUE;
+            }
+        }
+      if (date)
+        return v + 1462;
+    }
+  return v;
+}
+
 static void
 set_number (Reader *r, int row, int col, guint xf, double v)
 {
   char buf[G_ASCII_DTOSTR_BUF_SIZE];
+  v = dated_1904 (r, xf, v);
   g_ascii_formatd (buf, sizeof buf, "%.15g", v);
   if (g_ascii_strtod (buf, NULL) != v)
     g_ascii_formatd (buf, sizeof buf, "%.17g", v);
@@ -1167,6 +1558,28 @@ read_font (Reader *r, const guchar *p, gsize len)
   g_array_append_val (r->fonts, f);
 }
 
+/* A cell's shading from the XF's pattern and two colours: a solid
+ * fill is the foreground colour; any other pattern is drawn in the
+ * foreground colour over the background.  Colours 0x40 and 0x41 are
+ * the system's, which is no shading. */
+static void
+xls_apply_fill (Reader *r, O42Fmt *f, guint fls, guint fg, guint bg)
+{
+  gboolean fg_set = fg >= 8 && fg < 64, bg_set = bg >= 8 && bg < 64;
+
+  if (fls == 1)
+    {
+      if (fg_set)
+        f->fill = palette_colour (r, fg);
+    }
+  else if (fls >= 2 && fls < G_N_ELEMENTS (FLS_PATTERNS))
+    {
+      f->pattern = FLS_PATTERNS[fls];
+      f->pattern_colour = fg_set ? palette_colour (r, fg) : 0x000000;
+      f->fill = bg_set ? palette_colour (r, bg) : O42_FILL_NONE;
+    }
+}
+
 static void
 read_xf (Reader *r, const guchar *p, gsize len)
 {
@@ -1182,10 +1595,12 @@ read_xf (Reader *r, const guchar *p, gsize len)
   else
     o42_fmt_init_default (&f);
 
+  /* Fill and justify read as left, centre across selection and
+   * distributed as centre: the nearest of the alignments here. */
   switch (align & 0x07)
     {
-    case 1: f.halign = O42_HALIGN_LEFT; break;
-    case 2: f.halign = O42_HALIGN_CENTRE; break;
+    case 1: case 4: case 5: f.halign = O42_HALIGN_LEFT; break;
+    case 2: case 6: case 7: f.halign = O42_HALIGN_CENTRE; break;
     case 3: f.halign = O42_HALIGN_RIGHT; break;
     default: break;
     }
@@ -1193,8 +1608,13 @@ read_xf (Reader *r, const guchar *p, gsize len)
   switch ((align >> 4) & 0x07)
     {
     case 0: f.valign = O42_VALIGN_TOP; break;
-    case 1: f.valign = O42_VALIGN_MIDDLE; break;
+    case 1: case 4: f.valign = O42_VALIGN_MIDDLE; break;
     default: break;
+    }
+  if (len >= 6)
+    {
+      f.locked = (p[4] & 0x01) != 0;
+      f.hidden = (p[4] & 0x02) != 0;
     }
 
   if (r->biff >= 8 && len >= 20)
@@ -1215,24 +1635,27 @@ read_xf (Reader *r, const guchar *p, gsize len)
         guint rot = p[7], ind = p[8] & 0x0F;
         f.rotation = rot <= 90 ? (gint16) rot : rot <= 180 ? (gint16) (90 - (int) rot) : 0;
         f.indent = (guint8) ind;
+        f.shrink = (p[8] & 0x10) != 0;
       }
-      if (pattern != 0)
-        {
-          guint fg = fill & 0x7F;
-          if (fg >= 8 && fg < 64)
-            f.fill = palette_colour (r, fg);
-        }
+      xls_apply_fill (r, &f, pattern, fill & 0x7F, (fill >> 7) & 0x7F);
     }
   else if (len >= 16)
     {
+      /* BIFF5: the colours, the pattern with the bottom border, then
+       * the other three borders in a longword. */
       guint fill = rd16 (p + 8);
-      guint pattern = rd16 (p + 10) & 0x3F;
-      if (pattern != 0)
-        {
-          guint fg = fill & 0x7F;
-          if (fg >= 8 && fg < 64)
-            f.fill = palette_colour (r, fg);
-        }
+      guint b1 = rd16 (p + 10);
+      guint32 b2 = rd32 (p + 12);
+      xls_apply_fill (r, &f, b1 & 0x3F, fill & 0x7F, (fill >> 7) & 0x7F);
+      f.border_style[O42_SIDE_BOTTOM] = xls_border_style ((b1 >> 6) & 0x07);
+      f.border_colour[O42_SIDE_BOTTOM] = xls_border_palette (r, (b1 >> 9) & 0x7F);
+      f.border_style[O42_SIDE_TOP] = xls_border_style (b2 & 0x07);
+      f.border_style[O42_SIDE_LEFT] = xls_border_style ((b2 >> 3) & 0x07);
+      f.border_style[O42_SIDE_RIGHT] = xls_border_style ((b2 >> 6) & 0x07);
+      f.border_colour[O42_SIDE_TOP] = xls_border_palette (r, (b2 >> 9) & 0x7F);
+      f.border_colour[O42_SIDE_LEFT] = xls_border_palette (r, (b2 >> 16) & 0x7F);
+      f.border_colour[O42_SIDE_RIGHT] = xls_border_palette (r, (b2 >> 23) & 0x7F);
+      o42_fmt_sync_borders (&f);
     }
 
   code = g_hash_table_lookup (r->formats, GINT_TO_POINTER ((int) format));
@@ -1294,8 +1717,10 @@ read_name (Reader *r, const guchar *p, gsize len)
       else if (sflags & 0x01)
         {
           GString *s = g_string_new (NULL);
+          guint pending = 0;
           for (guint i = 0; i < cch && p + 2 <= end; i++, p += 2)
-            g_string_append_unichar (s, rd16 (p));
+            append_utf16 (s, rd16 (p), &pending);
+          flush_utf16 (s, &pending);
           name = g_string_free (s, FALSE);
         }
       else
@@ -1329,7 +1754,65 @@ read_name (Reader *r, const guchar *p, gsize len)
       o42_node_free (tree);
     }
 
-  if (strcmp (name, "_builtin_13") == 0)
+  /* LibreOffice writes the built-in names a second time, spelt out as
+   * Excel's files spell them; those are the same names. */
+  if (g_str_has_prefix (name, "_xlnm."))
+    {
+      const char *spelt = name + 6;
+      char *as_builtin = strcmp (spelt, "Print_Area") == 0 ? g_strdup ("_builtin_6")
+                       : strcmp (spelt, "Print_Titles") == 0 ? g_strdup ("_builtin_7")
+                       : strcmp (spelt, "_FilterDatabase") == 0 ? g_strdup ("_builtin_13")
+                       : g_strdup ("_builtin_0");
+      g_free (name);
+      name = as_builtin;
+    }
+
+  if ((strcmp (name, "_builtin_6") == 0 || strcmp (name, "_builtin_7") == 0) && itab >= 1)
+    {
+      /* Print_Area or Print_Titles: ptgArea3d tokens, a ptgUnion between
+       * the titles' rows and columns, and the ptgMemFunc and ptgParen a
+       * writer may wrap them in.  The sheet is the name's own. */
+      const guchar *q = p;
+      int kind = name[9] - '0';
+
+      while (q < end && q < p + cce)
+        {
+          guint ptg = *q >= 0x20 ? (0x20 | (*q & 0x1F)) : *q;   /* any class */
+
+          if (ptg == 0x3B && q + 11 <= end)
+            {
+              PrintName pn = { (int) itab - 1, kind, rd16 (q + 3), rd16 (q + 5),
+                               rd16 (q + 7) & 0x3FFF, rd16 (q + 9) & 0x3FFF };
+              g_array_append_val (r->print_names, pn);
+              q += 11;
+            }
+          else if (ptg == 0x3A && q + 7 <= end)
+            {
+              PrintName pn = { (int) itab - 1, kind, rd16 (q + 3), rd16 (q + 3),
+                               rd16 (q + 5) & 0x3FFF, rd16 (q + 5) & 0x3FFF };
+              g_array_append_val (r->print_names, pn);
+              q += 7;
+            }
+          else if (*q == 0x10 || *q == 0x0F || *q == 0x15)
+            q++;
+          else if (ptg == 0x29 || ptg == 0x28)
+            q += 3;                     /* ptgMemFunc, ptgMemNoMem: a length */
+          else if (ptg == 0x26 || ptg == 0x27)
+            q += 7;                     /* ptgMemArea, ptgMemErr: a length and a count */
+          else
+            break;
+        }
+      g_ptr_array_add (r->names, g_strdup (""));
+      g_ptr_array_add (r->name_ranges, NULL);
+    }
+  else if (g_str_has_prefix (name, "_builtin_") && strcmp (name, "_builtin_13") != 0)
+    {
+      /* Criteria, Extract, Consolidate_Area and the rest: nothing the
+       * sheet keeps, and not a name of the user's. */
+      g_ptr_array_add (r->names, g_strdup (""));
+      g_ptr_array_add (r->name_ranges, NULL);
+    }
+  else if (strcmp (name, "_builtin_13") == 0)
     {
       if (range_text != NULL && itab >= 1)
         {
@@ -1338,6 +1821,15 @@ read_name (Reader *r, const guchar *p, gsize len)
           g_ptr_array_add (r->filter_ranges, range_text);
           range_text = NULL;
         }
+      g_ptr_array_add (r->names, g_strdup (""));
+      g_ptr_array_add (r->name_ranges, NULL);
+    }
+  else if (g_str_has_prefix (name, "_builtin_") &&
+           strcmp (name, "_builtin_6") != 0 && strcmp (name, "_builtin_7") != 0)
+    {
+      /* Criteria, Extract, Consolidate_Area, Database and the rest of
+       * Excel's own: not names the user made, so not shown as such.
+       * The print area and titles (6 and 7) are taken up elsewhere. */
       g_ptr_array_add (r->names, g_strdup (""));
       g_ptr_array_add (r->name_ranges, NULL);
     }
@@ -1467,20 +1959,60 @@ read_cf (Reader *r, const guchar *p, gsize len)
   O42Condition c;
   double v1 = 0, v2 = 0;
 
-  if (type != 1 || op < 1 || op > 8)
+  if ((type != 1 && type != 2) || (type == 1 && (op < 1 || op > 8)))
     return;
   memset (&c, 0, sizeof c);
   o42_fmt_init_default (&c.fmt);
   c.range = r->cf_range;
+  c.is_formula = type == 2;
   {
     static const O42CondOp ops[] = { O42_COND_BETWEEN, O42_COND_NOT_BETWEEN, O42_COND_EQUAL, O42_COND_NOT_EQUAL,
                                      O42_COND_GREATER, O42_COND_LESS, O42_COND_GREATER_EQUAL, O42_COND_LESS_EQUAL };
-    c.op = ops[op - 1];
+    c.op = type == 1 ? ops[op - 1] : O42_COND_EQUAL;
   }
-  p += 12;   /* the header, then two reserved bytes */
+  {
+    /* The number format block, when there is one, is a format index
+     * in two bytes, or a counted string when the flags' second word
+     * says the format is the user's. */
+    guint flags2 = rd16 (p + 10);
+    p += 12;   /* the header, and the second flags word */
+    if (flags & (1u << 25))
+      {
+        if (flags2 & 0x0001)
+          {
+            /* A format code of the user's: the block's byte count,
+             * then a counted unicode string. */
+            const guchar *q = p + 1;
+            char *code;
 
-  if (flags & (1u << 25))   /* number format block */
-    p += 2;
+            if (p + 4 > end) return;
+            code = read_str (r, &q, MIN (end, p + MAX (p[0], 1)), TRUE);
+            if (code != NULL && *code != '\0')
+              {
+                c.fmt.custom = g_intern_string (code);
+                c.fmt.number = O42_NUM_GENERAL;
+                c.mask |= O42_FMT_NUMBER;
+              }
+            g_free (code);
+            p += MAX (p[0], 1);
+          }
+        else
+          {
+            const char *code = p + 2 <= end ? g_hash_table_lookup (r->formats, GINT_TO_POINTER ((int) rd16 (p))) : NULL;
+            if (code == NULL && p + 2 <= end)
+              code = o42_xlsx_builtin_number_format (rd16 (p));
+            if (code != NULL)
+              {
+                O42Fmt f;
+                o42_fmt_init_default (&f);
+                o42_xlsx_apply_format_code (&f, code);
+                c.fmt.number = f.number; c.fmt.decimals = f.decimals; c.fmt.custom = f.custom;
+                c.mask |= O42_FMT_NUMBER;
+              }
+            p += 2;
+          }
+      }
+  }
   if (flags & (1u << 26))   /* font block, 118 bytes */
     {
       if (p + 118 > end) return;
@@ -1528,13 +2060,33 @@ read_cf (Reader *r, const guchar *p, gsize len)
 
   if (p + cce1 + cce2 > end)
     return;
-  if (!cf_number (p, cce1, &v1))
-    return;
+  /* The operands: a number, or any formula, read as if it stood in
+   * the range's top-left cell. */
+  if (cce1 > 0 && !cf_number (p, cce1, &v1))
+    {
+      O42Node *tree = decode_formula (r, p, cce1, r->cf_range.row0, r->cf_range.col0, TRUE, p + cce1, end);
+      char *text = tree != NULL ? o42_node_to_string (tree) : NULL;
+      if (text != NULL) { char *eq = g_strconcat ("=", text, NULL); c.expr1 = g_intern_string (eq); g_free (eq); }
+      o42_node_free (tree);
+      g_free (text);
+    }
   if (cce2 > 0 && !cf_number (p + cce1, cce2, &v2))
-    return;
+    {
+      O42Node *tree = decode_formula (r, p + cce1, cce2, r->cf_range.row0, r->cf_range.col0, TRUE, p + cce1 + cce2, end);
+      char *text = tree != NULL ? o42_node_to_string (tree) : NULL;
+      if (text != NULL) { char *eq = g_strconcat ("=", text, NULL); c.expr2 = g_intern_string (eq); g_free (eq); }
+      o42_node_free (tree);
+      g_free (text);
+    }
   c.value = v1;
   c.value2 = cce2 > 0 ? v2 : v1;
-  o42_sheet_add_condition (r->sheet, &c);
+  /* The rule applies to every rectangle the CONDFMT listed; a rule per
+   * rectangle keeps the formulas' relative reading right. */
+  for (guint k = 0; k < r->cf_rects->len; k++)
+    {
+      c.range = g_array_index (r->cf_rects, O42Range, k);
+      o42_sheet_add_condition (r->sheet, &c);
+    }
 }
 
 /* A DV record: one validation rule and the ranges it covers. */
@@ -1547,17 +2099,34 @@ read_dv (Reader *r, const guchar *p, gsize len)
   char *texts[2] = { NULL, NULL };
 
   memset (&v, 0, sizeof v);
-  v.kind = (O42ValidKind) MIN (flags & 0x0F, 6);
+  v.kind = (O42ValidKind) MIN (flags & 0x0F, 7);
   v.op = (O42CondOp) MIN ((flags >> 20) & 0x0F, 7);
   v.allow_blank = (flags & 0x100) != 0;
+  v.style = (O42ValidStyle) MIN ((flags >> 4) & 0x07, 2);
   p += 4;
   {
-    char *s;
-    s = read_str (r, &p, end, TRUE); g_free (s);          /* prompt title */
-    s = read_str (r, &p, end, TRUE); g_free (s);          /* prompt text */
-    s = read_str (r, &p, end, TRUE); g_free (s);          /* error title */
+    /* The four texts: the input message's title and text, the error's
+     * title and text.  Excel writes a single NUL for an empty one. */
+    gboolean show_prompt = (flags & 0x40000) != 0, show_error = (flags & 0x80000) != 0;
+    v.prompt_title = read_str (r, &p, end, TRUE);
+    v.title = read_str (r, &p, end, TRUE);
+    v.prompt = read_str (r, &p, end, TRUE);
     v.message = read_str (r, &p, end, TRUE);
-    if (v.message[0] == '\0') { g_free (v.message); v.message = g_strdup (""); }
+    if (v.prompt_title[0] == '\0' || !show_prompt) v.prompt_title[0] = '\0';
+    if (v.prompt[0] == '\0' || !show_prompt) v.prompt[0] = '\0';
+    if (v.title[0] == '\0' || !show_error) v.title[0] = '\0';
+    if (v.message[0] == '\0' || !show_error) v.message[0] = '\0';
+  }
+  /* The formulas' relative references are offsets from the first
+   * range's top-left cell, so the ranges are looked at first. */
+  {
+    const guchar *q = p;
+    for (int k = 0; k < 2 && q + 4 <= end; k++)
+      { guint cce = rd16 (q); q += 4 + cce; }
+    if (q + 10 <= end && rd16 (q) >= 1)
+      { r->dv_anchor_row = rd16 (q + 2); r->dv_anchor_col = rd16 (q + 6); }
+    else
+      r->dv_anchor_row = r->dv_anchor_col = 0;
   }
   for (int k = 0; k < 2; k++)
     {
@@ -1567,7 +2136,7 @@ read_dv (Reader *r, const guchar *p, gsize len)
       p += 4;
       if (cce > 0 && p + cce <= end)
         {
-          O42Node *tree = decode_formula (r, p, cce, 0, 0, FALSE, NULL, NULL);
+          O42Node *tree = decode_formula (r, p, cce, r->dv_anchor_row, r->dv_anchor_col, TRUE, NULL, NULL);
           if (tree->type == O42_NODE_STRING)
             texts[k] = g_strdup (tree->as.string);
           else
@@ -1594,6 +2163,9 @@ read_dv (Reader *r, const guchar *p, gsize len)
   g_free (v.value);
   g_free (v.value2);
   g_free (v.message);
+  g_free (v.prompt_title);
+  g_free (v.prompt);
+  g_free (v.title);
 }
 
 /* A chart substream's records: the series' ranges, the kind, the title. */
@@ -1613,6 +2185,55 @@ read_chart_record (Reader *r, guint id, const guchar *p, gsize len)
       if (r->chart_depth <= 1) r->in_series = FALSE;
       break;
     case C_SERIES: r->in_series = TRUE; break;
+    case C_LEGEND: def->legend = TRUE; break;
+    case C_CHART3D: def->three_d = TRUE; break;
+    case C_RADAR: case C_RADARAREA: def->kind = O42_CHART_RADAR; def->kind_known = TRUE; break;
+    case C_SURF: def->kind = O42_CHART_SURFACE; def->kind_known = TRUE; break;
+    case C_ATTACHEDLABEL:
+      /* fShowValue, on a series' data format: the points are labelled. */
+      if (len >= 2 && (rd16 (p) & 0x0001))
+        def->data_labels = TRUE;
+      break;
+    case C_AXIS:
+      if (len >= 2) def->axis = rd16 (p) == 1 ? 1 : rd16 (p) == 0 ? 0 : -1;
+      break;
+    case C_AXISLINEFORMAT:
+      /* Id 1 is the major gridlines, drawn when the axis has this. */
+      if (len >= 2 && rd16 (p) == 1 && def->axis == 1)
+        def->gridlines = TRUE;
+      break;
+    case C_VALUERANGE:
+      if (len >= 42 && def->axis == 1)
+        {
+          guint flags = rd16 (p + 40);
+          if (!(flags & 0x0001)) { def->has_min = TRUE; def->min = rd_double (p); }
+          if (!(flags & 0x0002)) { def->has_max = TRUE; def->max = rd_double (p + 8); }
+        }
+      break;
+    case C_IFMT:
+      if (len >= 2 && def->axis == 1 && rd16 (p) != 0)
+        {
+          const char *code = g_hash_table_lookup (r->formats, GINT_TO_POINTER ((int) rd16 (p)));
+          if (code == NULL) code = o42_xlsx_builtin_number_format (rd16 (p));
+          if (code != NULL) { g_free (def->y_format); def->y_format = g_strdup (code); }
+        }
+      break;
+    case C_OBJECTLINK:
+      /* Which text the SERIESTEXT just read belongs to: 1 the chart's
+       * title, 2 the value axis, 3 the category axis. */
+      if (len >= 2 && def->pending_text != NULL)
+        {
+          guint link = rd16 (p);
+          char **slot = link == 1 ? &def->title : link == 2 ? &def->y_title : link == 3 ? &def->x_title : NULL;
+          if (slot != NULL)
+            {
+              g_free (*slot);
+              *slot = def->pending_text;
+              def->pending_text = NULL;
+            }
+        }
+      g_clear_pointer (&def->pending_text, g_free);
+      break;
     case C_AI:
       if (len >= 8 && r->in_series)
         {
@@ -1632,7 +2253,7 @@ read_chart_record (Reader *r, guint id, const guchar *p, gsize len)
                 }
               if (usable)
                 {
-                  if (!def->have_box) { def->box = range; def->have_box = TRUE; }
+                  if (!def->have_box) { def->box = range; def->have_box = TRUE; def->data_sheet = tree->sheet; }
                   else
                     {
                       def->box.row0 = MIN (def->box.row0, range.row0);
@@ -1657,20 +2278,56 @@ read_chart_record (Reader *r, guint id, const guchar *p, gsize len)
         }
       break;
     case C_LINE: def->kind = O42_CHART_LINE; def->kind_known = TRUE; break;
-    case C_PIE: def->kind = O42_CHART_PIE; def->kind_known = TRUE; break;
+    case C_PIE:
+      /* A pie with a hole is a doughnut. */
+      def->kind = len >= 4 && rd16 (p + 2) > 0 ? O42_CHART_DOUGHNUT : O42_CHART_PIE;
+      def->kind_known = TRUE;
+      break;
     case C_AREA: def->kind = O42_CHART_AREA; def->kind_known = TRUE; break;
-    case C_SCATTER: def->kind = O42_CHART_SCATTER; def->kind_known = TRUE; break;
+    case C_SCATTER:
+      def->kind = len >= 6 && (rd16 (p + 4) & 0x0001) ? O42_CHART_BUBBLE : O42_CHART_SCATTER;
+      def->kind_known = TRUE;
+      break;
     case C_SERIESTEXT:
-      if (!r->in_series && len >= 3 && def->title == NULL)
+      if (!r->in_series && len >= 3)
         {
-          /* id u16, then a byte-counted unicode string. */
+          /* id u16, then a byte-counted unicode string; the OBJECTLINK
+           * that follows says whose it is.  Without one it is the title. */
           const guchar *q = p + 2;
-          def->title = read_str (r, &q, p + len, FALSE);
+          g_free (def->pending_text);
+          def->pending_text = read_str (r, &q, p + len, FALSE);
+          if (def->title == NULL)
+            def->title = g_strdup (def->pending_text);
         }
       break;
     default:
       break;
     }
+}
+
+/* The rest of what a chart substream said, onto the chart. */
+static void
+chart_take_def (O42Chart *chart, const ChartDef *def)
+{
+  chart->legend = def->legend;
+  chart->three_d = def->three_d;
+  chart->data_labels = def->data_labels;
+  chart->gridlines = def->gridlines;
+  if (def->x_title != NULL) { g_free (chart->x_title); chart->x_title = g_strdup (def->x_title); }
+  if (def->y_title != NULL) { g_free (chart->y_title); chart->y_title = g_strdup (def->y_title); }
+  if (def->y_format != NULL) { g_free (chart->y_format); chart->y_format = g_strdup (def->y_format); }
+  chart->has_min = def->has_min; chart->min = def->min;
+  chart->has_max = def->has_max; chart->max = def->max;
+}
+
+static void
+chart_def_clear (ChartDef *def)
+{
+  g_free (def->title);
+  g_free (def->x_title);
+  g_free (def->y_title);
+  g_free (def->pending_text);
+  g_free (def->y_format);
 }
 
 static double
@@ -1691,13 +2348,38 @@ sheet_row_y (O42Sheet *sheet, int row)
 
 /* ---- Reading a form control's OBJ record ------------------------------- */
 
-/* Whether the OBJ record last read was a form control, and so whether
- * the TXO that follows is its caption. */
+static gboolean is_drawing_ot (guint16 ot);
+
+/* Whether the OBJ record last read was a form control or a drawn
+ * shape, and so whether the TXO that follows is its text. */
 static gboolean
 last_obj_is_control (Reader *r)
 {
   return r->objs->len > 0 &&
-    g_array_index (r->objs, ObjInfo, r->objs->len - 1).kind >= 0;
+    (g_array_index (r->objs, ObjInfo, r->objs->len - 1).kind >= 0 ||
+     is_drawing_ot (g_array_index (r->objs, ObjInfo, r->objs->len - 1).ot));
+}
+
+/* The OBJ type of a drawn shape: line, rectangle, oval, text, or
+ * Excel's "Office drawing" for the AutoShapes. */
+static guint16
+drawing_ot (const O42Shape *shape)
+{
+  switch (shape->kind)
+    {
+    case O42_SHAPE_LINE:
+    case O42_SHAPE_ARROW: return 0x01;
+    case O42_SHAPE_OVAL:  return 0x03;
+    case O42_SHAPE_TEXT:  return shape->geom == O42_GEOM_RECT ? 0x06 : 0x1E;
+    default:              return shape->geom == O42_GEOM_RECT ? 0x02 : 0x1E;
+    }
+}
+
+/* Whether an OBJ type is a drawn shape, whose text comes in a TXO. */
+static gboolean
+is_drawing_ot (guint16 ot)
+{
+  return ot == 0x01 || ot == 0x02 || ot == 0x03 || ot == 0x04 || ot == 0x06 || ot == 0x09 || ot == 0x1E;
 }
 
 /* The kind an ot names, or -1 for an OBJ that is not a form control. */
@@ -1912,10 +2594,119 @@ read_drawing (Reader *r)
                       chart->first_col_labels = def->have_cats || def->kind == O42_CHART_SCATTER;
                       g_free (chart->title);
                       chart->title = g_strdup (def->title ? def->title : "");
+                      chart_take_def (chart, def);
                       chart->dx = f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
                       chart->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
                       chart->width = MAX (cx1 - cx0, 40);
                       chart->height = MAX (cy1 - cy0, 30);
+                      if (def->data_sheet != NULL)
+                        {
+                          g_free (chart->data_sheet);
+                          chart->data_sheet = g_strdup (def->data_sheet);
+                        }
+                    }
+                }
+            }
+          continue;
+        }
+      /* A drawn shape: its Sp names the outline, its Opt the fill and
+       * line, the TXO after its OBJ the text. */
+      if (!f->is_picture && (f->spt != 0 || f->path != NULL) && f->spt != 201 &&
+          f->col1 < O42_MAX_COLS && f->row1 < O42_MAX_ROWS &&
+          (info == NULL || info->ot != 0x19))
+        {
+          O42Shape *shape = o42_sheet_add_shape (r->sheet, O42_SHAPE_RECT, f->row1, f->col1);
+
+          /* A freeform -- and LibreOffice writes every AutoShape as one,
+           * type 4095 -- comes in with its outline; an outline office42
+           * has no drawing for and no path comes in as a rectangle with
+           * the shape's fill, line and text, which is more of it than
+           * nothing. */
+          if (shape != NULL)
+            {
+              if (f->path != NULL)
+                {
+                  /* Raw numbers are EMU of the box the anchor gives. */
+                  double sx = sheet_col_x (r->sheet, MIN (f->col2, O42_MAX_COLS - 1)) + f->dx2 * o42_sheet_col_width (r->sheet, MIN (f->col2, O42_MAX_COLS - 1))
+                              - (sheet_col_x (r->sheet, f->col1) + f->dx1 * o42_sheet_col_width (r->sheet, f->col1));
+                  double sy = sheet_row_y (r->sheet, MIN (f->row2, O42_MAX_ROWS - 1)) + f->dy2 * o42_sheet_row_height (r->sheet, MIN (f->row2, O42_MAX_ROWS - 1))
+                              - (sheet_row_y (r->sheet, f->row1) + f->dy1 * o42_sheet_row_height (r->sheet, f->row1));
+                  double kx = f->path_raw ? 1.0 / (MAX (sx, 1) * 9525) : 1, ky = f->path_raw ? 1.0 / (MAX (sy, 1) * 9525) : 1;
+
+                  shape->kind = O42_SHAPE_FREEFORM;
+                  for (guint k = 0; k < f->path->len; k++)
+                    {
+                      const O42PathPoint *pp = &g_array_index (f->path, O42PathPoint, k);
+                      o42_shape_path_add (shape, pp->op, pp->x * kx, pp->y * ky, pp->x1 * kx, pp->y1 * ky, pp->x2 * kx, pp->y2 * ky);
+                    }
+                  shape->closed = f->closed;
+                }
+              else if (!o42_shape_apply_spt (shape, f->spt))
+                shape->kind = O42_SHAPE_RECT;
+              double sx0 = sheet_col_x (r->sheet, f->col1) + f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
+              double sy0 = sheet_row_y (r->sheet, f->row1) + f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
+              int c2 = MIN (f->col2, O42_MAX_COLS - 1), r2 = MIN (f->row2, O42_MAX_ROWS - 1);
+              double sx1 = sheet_col_x (r->sheet, c2) + f->dx2 * o42_sheet_col_width (r->sheet, c2);
+              double sy1 = sheet_row_y (r->sheet, r2) + f->dy2 * o42_sheet_row_height (r->sheet, r2);
+              gboolean line_kind = shape->kind == O42_SHAPE_LINE;
+
+              shape->dx = f->dx1 * o42_sheet_col_width (r->sheet, f->col1);
+              shape->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
+              shape->anchor = f->anchor_mode;
+              shape->width = line_kind ? sx1 - sx0 : MAX (sx1 - sx0, 4);
+              shape->height = line_kind ? sy1 - sy0 : MAX (sy1 - sy0, 4);
+              shape->fill = (!line_kind && f->filled && (f->path == NULL || f->closed)) ? f->fill : O42_FILL_NONE;
+              if (shape->fill != O42_FILL_NONE && f->fill_type >= 4 && f->fill_type <= 7)
+                {
+                  shape->fill_kind = O42_SHAPE_FILL_GRADIENT;
+                  shape->fill2 = f->fill_back;
+                  shape->gradient_angle = f->fill_angle;
+                }
+              if (f->shadow)
+                {
+                  shape->shadow = TRUE;
+                  shape->shadow_colour = f->shadow_colour;
+                  shape->shadow_dx = f->shadow_dx;
+                  shape->shadow_dy = f->shadow_dy;
+                }
+              shape->line = f->line;
+              shape->line_width = f->lined ? MAX (f->line_width, 0.5) : 0.5;
+              shape->dash = f->dash;
+              shape->rotation = f->rotation;
+              shape->flip_h = f->flip_h;
+              shape->flip_v = f->flip_v;
+              if (line_kind)
+                {
+                  shape->head_start = f->head_start;
+                  shape->head_end = f->head_end;
+                  shape->head_start_size = f->head_start_size;
+                  shape->head_end_size = f->head_end_size;
+                  if (f->head_end != O42_HEAD_NONE)
+                    shape->kind = O42_SHAPE_ARROW;
+                }
+              if (f->text_inset >= 0)
+                shape->text_inset = f->text_inset;
+              if (f->text_wrap >= 0)
+                shape->text_nowrap = f->text_wrap == 2;
+              if (info != NULL && info->text != NULL)
+                { g_free (shape->text); shape->text = g_strdup (info->text); }
+              if (info != NULL)
+                {
+                  if (info->text_halign >= 1 && info->text_halign <= 3)
+                    shape->text_halign = info->text_halign == 1 ? O42_HALIGN_LEFT
+                                       : info->text_halign == 2 ? O42_HALIGN_CENTRE : O42_HALIGN_RIGHT;
+                  if (info->text_valign >= 1 && info->text_valign <= 3)
+                    shape->text_valign = info->text_valign == 1 ? O42_VALIGN_TOP
+                                       : info->text_valign == 2 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+                  if (info->have_font)
+                    {
+                      if (info->font.family != NULL && g_ascii_strcasecmp (info->font.family, "Arial") != 0)
+                        shape->font = info->font.family;
+                      if (info->font.size > 0 && info->font.size != 20)
+                        shape->font_size = info->font.size / 2.0;
+                      shape->bold = info->font.bold;
+                      shape->italic = info->font.italic;
+                      shape->text_colour = info->font.colour;
                     }
                 }
             }
@@ -1939,8 +2730,15 @@ read_drawing (Reader *r)
           pic->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
           pic->width = MAX (x1 - x0, 8);
           pic->height = MAX (y1 - y0, 8);
+          pic->rotation = f->rotation;
+          pic->anchor = f->anchor_mode;
+          pic->flip_h = f->flip_h;
+          pic->flip_v = f->flip_v;
         }
     }
+  for (guint i = 0; i < found->len; i++)
+    if (g_array_index (found, O42EscherFound, i).path != NULL)
+      g_array_unref (g_array_index (found, O42EscherFound, i).path);
   g_array_unref (found);
 }
 
@@ -1972,6 +2770,9 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
               char *text = o42_entry_quote_text (g_ptr_array_index (r->sst, idx));
               set_cell (r, rd16 (p), rd16 (p + 2), rd16 (p + 4), text);
               g_free (text);
+              if (idx < r->sst_runs->len && g_ptr_array_index (r->sst_runs, idx) != NULL)
+                apply_runs (r, rd16 (p), rd16 (p + 2), g_ptr_array_index (r->sst, idx),
+                            g_ptr_array_index (r->sst_runs, idx));
             }
         }
       break;
@@ -2068,8 +2869,18 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         {
           r->txo_chars = rd16 (p + 10);
           g_string_truncate (r->txo_text, 0);
+          r->txo_runs_next = FALSE;
           if (r->txo_chars == 0)
             r->obj_is_note = FALSE;
+          else if (!r->obj_is_note && r->objs->len > 0)
+            {
+              /* The alignment bits: how the words sit in a drawn shape. */
+              ObjInfo *info = &g_array_index (r->objs, ObjInfo, r->objs->len - 1);
+              guint grbit = rd16 (p);
+
+              info->text_halign = (grbit >> 1) & 7;
+              info->text_valign = (grbit >> 4) & 7;
+            }
         }
       break;
     case R_NOTE:
@@ -2088,8 +2899,21 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
     case R_CONDFMT:
       if (len >= 12)
         {
+          guint n = rd16 (p + 12);
+
           r->cf_range = o42_range_normalise (rd16 (p + 4), rd16 (p + 8), rd16 (p + 6), rd16 (p + 10));
           r->cf_have_range = r->cf_range.row1 < O42_MAX_ROWS && r->cf_range.col1 < O42_MAX_COLS;
+          /* The rectangles the rules cover, after the bounding one. */
+          g_array_set_size (r->cf_rects, 0);
+          for (guint i = 0; i < n && 14 + (i + 1) * 8 <= len; i++)
+            {
+              const guchar *q = p + 14 + i * 8;
+              O42Range rect = o42_range_normalise (rd16 (q), rd16 (q + 4), rd16 (q + 2), rd16 (q + 6));
+              if (rect.row1 < O42_MAX_ROWS && rect.col1 < O42_MAX_COLS)
+                g_array_append_val (r->cf_rects, rect);
+            }
+          if (r->cf_rects->len == 0 && r->cf_have_range)
+            g_array_append_val (r->cf_rects, r->cf_range);
         }
       break;
     case R_CF:
@@ -2130,13 +2954,102 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         }
       break;
     case R_DEFCOLWIDTH:
-      if (len >= 2 && r->sheet)
+      if (len >= 2 && r->sheet && !r->saw_standard_width)
         {
           /* In characters of the default font; every column takes it,
            * and COLINFO records after it override. */
           r->default_width = (int) (rd16 (p) * 7.0 + 5.0 + 0.5);
-          for (int c = 0; c < O42_MAX_COLS; c++)
-            o42_sheet_set_col_width (r->sheet, c, r->default_width);
+          o42_sheet_set_default_col_width (r->sheet, r->default_width);
+        }
+      break;
+    case R_STANDARDWIDTH:
+      if (len >= 2 && r->sheet)
+        {
+          /* The default width in 1/256ths of a character, which is finer
+           * than DEFCOLWIDTH's whole characters; it wins where both are
+           * given, whichever came first. */
+          r->default_width = (int) (rd16 (p) / 256.0 * 7.0 + 5.0 + 0.5);
+          r->saw_standard_width = TRUE;
+          o42_sheet_set_default_col_width (r->sheet, r->default_width);
+        }
+      break;
+    case R_AUTOFILTER:
+      if (len >= 24 && r->sheet)
+        {
+          /* A column's criterion: two DOPERs, of which the first is
+           * taken -- its comparison and a number, a string (whose
+           * characters follow the DOPERs), a blank or a non-blank. */
+          guint entry = rd16 (p);
+          guint vt = p[4], sign = p[5];
+          static const char *signs[] = { "", "<", "", "<=", ">", "<>", ">=" };
+          const char *prefix = sign < G_N_ELEMENTS (signs) ? signs[sign] : "";
+          char *value = NULL;
+
+          if (vt == 2)
+            {
+              double d = rk_value (rd32 (p + 6));
+              char buf[G_ASCII_DTOSTR_BUF_SIZE];
+              value = g_strdup (g_ascii_dtostr (buf, sizeof buf, d));
+            }
+          else if (vt == 4)
+            {
+              char buf[G_ASCII_DTOSTR_BUF_SIZE];
+              value = g_strdup (g_ascii_dtostr (buf, sizeof buf, rd_double (p + 6)));
+            }
+          else if (vt == 6)
+            {
+              guint cch = p[10];
+              const guchar *q = p + 24;
+              if (q < p + len)
+                {
+                  guint flags = *q++;
+                  GString *str = g_string_new (NULL);
+                  guint pending = 0;
+                  for (guint i = 0; i < cch; i++)
+                    {
+                      guint c;
+                      if (flags & 1) { if (q + 2 > p + len) break; c = rd16 (q); q += 2; }
+                      else { if (q + 1 > p + len) break; c = *q++; }
+                      append_utf16 (str, c, &pending);
+                    }
+                  flush_utf16 (str, &pending);
+                  value = g_string_free (str, FALSE);
+                  /* LibreOffice writes a number's condition as an empty
+                   * string, which would match nothing: left out. */
+                  if (*value == 0)
+                    g_clear_pointer (&value, g_free);
+                }
+            }
+          else if (vt == 0x0C)
+            { value = g_strdup (""); prefix = "="; }
+          else if (vt == 0x0E)
+            { value = g_strdup (""); prefix = "<>"; }
+          if (value != NULL)
+            {
+              GPtrArray *list = g_hash_table_lookup (r->filter_criteria, GINT_TO_POINTER (r->sheet_index));
+              char *criterion = (*prefix != '\0' && strcmp (prefix, "=") != 0) || (*prefix == '=' && *value == '\0')
+                                ? g_strconcat (prefix, value, NULL) : g_strdup (value);
+              if (list == NULL)
+                {
+                  list = g_ptr_array_new_with_free_func (g_free);
+                  g_hash_table_insert (r->filter_criteria, GINT_TO_POINTER (r->sheet_index), list);
+                }
+              g_ptr_array_add (list, g_strdup_printf ("%u\t%s", entry, criterion));
+              g_free (criterion);
+              g_free (value);
+            }
+        }
+      break;
+    case R_HLINK:
+      if (len >= 8 && r->sheet)
+        {
+          O42Range at = o42_range_normalise (rd16 (p), rd16 (p + 4), rd16 (p + 2), rd16 (p + 6));
+          char *target = read_hlink_target (p + 8, p + len);
+          if (target != NULL)
+            for (int row = at.row0; row <= at.row1 && row < O42_MAX_ROWS; row++)
+              for (int col = at.col0; col <= at.col1 && col < O42_MAX_COLS; col++)
+                o42_sheet_set_link (r->sheet, row, col, target);
+          g_free (target);
         }
       break;
     case R_MERGECELLS:
@@ -2157,6 +3070,105 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         o42_sheet_set_protected (r->sheet, TRUE);
       break;
 
+    /* Page Setup, a record apiece. */
+    case R_HEADER:
+    case R_FOOTER:
+      if (r->sheet != NULL)
+        {
+          const guchar *q = p;
+          char *text = len > 0 ? read_str (r, &q, p + len, r->biff >= 8) : g_strdup ("");
+          o42_sheet_set_header_footer (r->sheet, id == R_HEADER ? text : NULL, id == R_FOOTER ? text : NULL);
+          g_free (text);
+        }
+      break;
+    case R_HCENTER:
+    case R_VCENTER:
+      if (len >= 2 && r->sheet != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          if (id == R_HCENTER) ps.hcenter = rd16 (p) != 0;
+          else ps.vcenter = rd16 (p) != 0;
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      break;
+    case R_LEFTMARGIN:
+    case R_RIGHTMARGIN:
+    case R_TOPMARGIN:
+    case R_BOTTOMMARGIN:
+      if (len >= 8 && r->sheet != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          double points = rd_double (p) * 72.0;
+          if (id == R_LEFTMARGIN) ps.margin_left = points;
+          else if (id == R_RIGHTMARGIN) ps.margin_right = points;
+          else if (id == R_TOPMARGIN) ps.margin_top = points;
+          else ps.margin_bottom = points;
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      break;
+    case R_PRINTHEADERS:
+    case R_PRINTGRIDLINES:
+      if (len >= 2 && r->sheet != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          if (id == R_PRINTHEADERS) ps.headings = rd16 (p) != 0;
+          else ps.gridlines = rd16 (p) != 0;
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      break;
+    case R_WSBOOL:
+      if (len >= 2 && r->sheet != NULL)
+        r->fit_to_page = (rd16 (p) & 0x0100) != 0;
+      break;
+    case R_SETUP:
+      if (len >= 34 && r->sheet != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          guint paper = rd16 (p), scale = rd16 (p + 2), start = rd16 (p + 4);
+          guint fit_w = rd16 (p + 6), fit_h = rd16 (p + 8), opts = rd16 (p + 10);
+          gboolean no_pls = (opts & 0x0004) != 0;
+
+          if (!no_pls)
+            {
+              if (paper > 0) ps.paper = paper;
+              ps.landscape = (opts & 0x0002) == 0;
+            }
+          ps.scale = CLAMP (scale, 10, 400);
+          ps.fit_wide = r->fit_to_page ? fit_w : 0;
+          ps.fit_tall = r->fit_to_page ? fit_h : 0;
+          ps.down_then_over = (opts & 0x0001) == 0;
+          ps.black_white = (opts & 0x0008) != 0;
+          ps.draft = (opts & 0x0010) != 0;
+          ps.notes = (opts & 0x0020) == 0 ? O42_PRINT_NOTES_NONE
+                   : (opts & 0x0200) != 0 ? O42_PRINT_NOTES_AT_END : O42_PRINT_NOTES_IN_PLACE;
+          switch ((opts >> 10) & 0x03)
+            {
+            case 1: ps.errors = O42_PRINT_ERRORS_BLANK; break;
+            case 2: ps.errors = O42_PRINT_ERRORS_DASHES; break;
+            case 3: ps.errors = O42_PRINT_ERRORS_NA; break;
+            default: ps.errors = O42_PRINT_ERRORS_SHOWN; break;
+            }
+          ps.first_page = (opts & 0x0080) != 0 ? (int) (gint16) start : 1;
+          ps.margin_header = rd_double (p + 16) * 72.0;
+          ps.margin_footer = rd_double (p + 24) * 72.0;
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      break;
+    case R_HORIZONTALPAGEBREAKS:
+    case R_VERTICALPAGEBREAKS:
+      if (len >= 2 && r->sheet != NULL)
+        {
+          guint n = rd16 (p);
+          gsize each = r->biff >= 8 ? 6 : 2;
+          for (guint i = 0; i < n && 2 + (i + 1) * each <= len; i++)
+            {
+              int at = rd16 (p + 2 + i * each);
+              if (at > 0 && !o42_sheet_page_break (r->sheet, id == R_HORIZONTALPAGEBREAKS, at))
+                o42_sheet_toggle_page_break (r->sheet, id == R_HORIZONTALPAGEBREAKS, at);
+            }
+        }
+      break;
+
     case R_PASSWORD:
       if (len >= 2 && r->sheet != NULL)
         o42_sheet_set_password_hash (r->sheet, rd16 (p));
@@ -2164,16 +3176,69 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
 
     case R_WINDOW2:
       if (len >= 2 && r->sheet)
-        r->pending = FALSE;
+        {
+          guint flags = rd16 (p);
+          O42SheetView view = *o42_sheet_view (r->sheet);
+
+          r->pending = FALSE;
+          r->frozen = (flags & 0x0008) != 0;
+          view.gridlines = (flags & 0x0002) != 0;
+          view.zeros = (flags & 0x0010) != 0;
+          view.right_to_left = (flags & 0x0040) != 0;
+          view.outline_symbols = (flags & 0x0080) != 0;
+          view.selected = (flags & 0x0200) != 0;
+          /* BIFF8 carries the zoom here too, when no SCL follows. */
+          if (len >= 14 && rd16 (p + 12) >= 10 && rd16 (p + 12) <= 400)
+            view.zoom = rd16 (p + 12);
+          o42_sheet_set_view (r->sheet, &view);
+        }
+      break;
+    case R_SCL:
+      if (len >= 4 && r->sheet && rd16 (p + 2) != 0)
+        {
+          O42SheetView view = *o42_sheet_view (r->sheet);
+          view.zoom = (int) (rd16 (p) * 100.0 / rd16 (p + 2) + 0.5);
+          o42_sheet_set_view (r->sheet, &view);
+        }
+      break;
+    case R_SELECTION:
+      /* The pane's active cell and its first selected range; the pane
+       * that holds the active cell is the one that counts, which the
+       * frozen bottom-right (0) or the whole sheet (3) is. */
+      if (len >= 15 && r->sheet && (p[0] == 3 || p[0] == 0 || !r->frozen))
+        {
+          O42SheetView view = *o42_sheet_view (r->sheet);
+          guint cref = rd16 (p + 7);
+
+          view.active_row = rd16 (p + 1);
+          view.active_col = rd16 (p + 3);
+          if (cref >= 1)
+            view.selection = o42_range_normalise (rd16 (p + 9), p[13], rd16 (p + 11), p[14]);
+          else
+            view.selection = o42_range_normalise (view.active_row, view.active_col, view.active_row, view.active_col);
+          o42_sheet_set_view (r->sheet, &view);
+        }
       break;
     case R_PANE:
       if (len >= 9 && r->sheet)
         {
-          /* Only frozen panes are kept; WINDOW2's frozen flag is
-           * assumed when the split is at whole rows and columns. */
+          /* Frozen panes are kept.  A window merely split has its
+           * positions in twips and character widths, which are not
+           * rows and columns; the sheet has no such split, so it is
+           * left alone. */
           guint x = rd16 (p), y = rd16 (p + 2);
-          if (x < O42_MAX_COLS && y < O42_MAX_ROWS)
+          if (r->frozen && x < O42_MAX_COLS && y < O42_MAX_ROWS)
             o42_sheet_set_frozen (r->sheet, y, x);
+        }
+      break;
+    case R_SHEETEXT:
+      /* The tab's colour, in the record's second part: after the 12-byte
+       * FRT header and the size, the colour index in the low byte. */
+      if (len >= 20 && r->sheet)
+        {
+          guint icv = p[16] & 0x7F;
+          if (icv >= 8 && icv < 64)
+            o42_sheet_set_tab_colour (r->sheet, palette_colour (r, icv));
         }
       break;
     default:
@@ -2232,6 +3297,7 @@ read_workbook (Reader *r, GError **error)
                   {
                     ChartDef def;
                     memset (&def, 0, sizeof def);
+                    def.axis = -1;
                     g_array_append_val (r->chart_defs, def);
                     r->in_series = FALSE;
                     r->chart_depth = 0;
@@ -2247,9 +3313,12 @@ read_workbook (Reader *r, GError **error)
               }
             if (type == 0x0005)
               in_globals = TRUE;
-            else if (type == 0x0010)
+            else if (type == 0x0010 || type == 0x0020)
               {
-                /* A worksheet: the next bound sheet, in order. */
+                /* A worksheet, or a chart sheet: the next bound sheet,
+                 * in order.  A chart sheet's records are a chart's, so
+                 * it is read as an embedded chart would be and given
+                 * the whole sheet at the end. */
                 in_globals = FALSE;
                 flush_styles (r);
                 if (next_sheet < (int) r->sheet_names->len)
@@ -2262,6 +3331,9 @@ read_workbook (Reader *r, GError **error)
                       }
                     else
                       r->sheet = o42_book_add_sheet (r->book, name, -1);
+                    if ((guint) next_sheet < r->sheet_hidden->len &&
+                        g_array_index (r->sheet_hidden, guint, next_sheet) != 0)
+                      o42_sheet_set_hidden (r->sheet, TRUE);
                     r->sheet_index = next_sheet;
                   }
                 else
@@ -2274,17 +3346,34 @@ read_workbook (Reader *r, GError **error)
                   obj_info_clear (&g_array_index (r->objs, ObjInfo, k));
                 g_array_set_size (r->objs, 0);
                 for (guint k = 0; k < r->chart_defs->len; k++)
-                  g_free (g_array_index (r->chart_defs, ChartDef, k).title);
+                  chart_def_clear (&g_array_index (r->chart_defs, ChartDef, k));
                 g_array_set_size (r->chart_defs, 0);
                 r->pending = FALSE;
                 r->obj_is_note = FALSE;
                 r->cf_have_range = FALSE;
+                r->saw_standard_width = FALSE;
+                r->chart_sheet = type == 0x0020;
+                if (r->chart_sheet)
+                  {
+                    ChartDef def;
+                    memset (&def, 0, sizeof def);
+                    def.axis = -1;
+                    g_array_append_val (r->chart_defs, def);
+                    r->in_series = FALSE;
+                    r->chart_depth = 0;
+                    r->embedded = 1;
+                    if (r->sheet != NULL)
+                      o42_sheet_set_chart_sheet (r->sheet, TRUE);
+                  }
               }
             else
               {
+                /* A macro sheet, or something newer: it is a bound
+                 * sheet all the same, so its name is used up. */
                 in_globals = FALSE;
                 flush_styles (r);
-                r->sheet = NULL;   /* a chart or macro sheet */
+                r->sheet = NULL;
+                next_sheet++;
               }
           }
           break;
@@ -2292,6 +3381,31 @@ read_workbook (Reader *r, GError **error)
           if (r->embedded > 0)
             {
               r->embedded--;
+              if (!r->chart_sheet || r->embedded > 0)
+                break;
+              /* The chart sheet's one chart, over the whole of it. */
+              if (r->sheet != NULL && r->chart_defs->len > 0)
+                {
+                  ChartDef *def = &g_array_index (r->chart_defs, ChartDef, 0);
+                  O42Range box = def->have_box ? def->box : o42_range_normalise (0, 0, 0, 0);
+                  O42Chart *chart = o42_sheet_add_chart (r->sheet, def->kind_known ? def->kind : O42_CHART_COLUMN,
+                                                         &box, 0, 0);
+                  if (chart != NULL)
+                    {
+                      chart->first_row_labels = def->have_title_ref;
+                      chart->first_col_labels = def->have_cats || def->kind == O42_CHART_SCATTER;
+                      g_free (chart->title);
+                      chart->title = g_strdup (def->title ? def->title : "");
+                      chart_take_def (chart, def);
+                      if (def->data_sheet != NULL)
+                        {
+                          g_free (chart->data_sheet);
+                          chart->data_sheet = g_strdup (def->data_sheet);
+                        }
+                    }
+                }
+              r->chart_sheet = FALSE;
+              r->sheet = NULL;
               break;
             }
           if (r->sheet != NULL)
@@ -2301,6 +3415,14 @@ read_workbook (Reader *r, GError **error)
             }
           r->sheet = NULL;
           break;
+        case R_FILEPASS:
+          g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                       "This file is encrypted with a password, which office42 cannot open.");
+          return FALSE;
+        case R_DATEMODE:
+          if (in_globals && len >= 2)
+            r->dates_1904 = rd16 (body) == 1;
+          break;
         case R_BOUNDSHEET:
           if (in_globals && len >= 8)
             {
@@ -2308,7 +3430,9 @@ read_workbook (Reader *r, GError **error)
               const guchar *q = body + 6;
               char *name = read_str (r, &q, body + len, FALSE);
               guint type = body[5];
+              guint state = body[4] & 0x03;   /* 1 hidden, 2 very hidden */
               g_array_append_val (r->sheet_offsets, offset);
+              g_array_append_val (r->sheet_hidden, state);
               (void) type;
               g_ptr_array_add (r->sheet_names, name);
             }
@@ -2363,10 +3487,12 @@ read_workbook (Reader *r, GError **error)
               gboolean wide = (body[0] & 0x01) != 0;
               while (r->txo_chars > 0 && q < qend)
                 {
-                  if (wide) { if (q + 2 > qend) break; g_string_append_unichar (r->txo_text, rd16 (q)); q += 2; }
+                  if (wide) { if (q + 2 > qend) break; append_utf16 (r->txo_text, rd16 (q), &r->txo_pending); q += 2; }
                   else g_string_append_unichar (r->txo_text, *q++);
                   r->txo_chars--;
                 }
+              if (r->txo_chars == 0)
+                flush_utf16 (r->txo_text, &r->txo_pending);
               if (r->txo_chars == 0)
                 {
                   if (r->obj_is_note)
@@ -2377,9 +3503,24 @@ read_workbook (Reader *r, GError **error)
 
                       g_free (info->text);
                       info->text = g_strdup (r->txo_text->str);
+                      r->txo_runs_next = TRUE;
                     }
                   r->obj_is_note = FALSE;
                 }
+            }
+          else if (r->txo_runs_next && len >= 8 && r->objs->len > 0)
+            {
+              /* The runs: the first one's font is the shape's. */
+              ObjInfo *info = &g_array_index (r->objs, ObjInfo, r->objs->len - 1);
+              guint ifnt = rd16 (body + 2);
+
+              if (ifnt > 4) ifnt--;
+              if (ifnt < r->fonts->len)
+                {
+                  info->font = g_array_index (r->fonts, O42Fmt, ifnt);
+                  info->have_font = TRUE;
+                }
+              r->txo_runs_next = FALSE;
             }
           break;
         case R_MSODRAWINGGROUP:
@@ -2432,10 +3573,180 @@ read_workbook (Reader *r, GError **error)
   return TRUE;
 }
 
+
+/* ---- The properties: OLE property sets ---------------------------------- */
+
+/* File > Properties in an .xls live in two streams of their own,
+ * outside the BIFF: SummaryInformation for the title, subject, author,
+ * keywords and comments, DocumentSummaryInformation for the category,
+ * manager and company.  Each is a property set: a header, one section
+ * named by a format id, and in it a table of property ids and offsets
+ * followed by the values, a code page first and the strings as
+ * VT_LPSTR in that code page -- UTF-8 here, 65001, which every Excel
+ * since 2000 and LibreOffice read. */
+
+static const guint8 FMTID_SUMMARY[16] = {
+  0xE0, 0x85, 0x9F, 0xF2, 0xF9, 0x4F, 0x68, 0x10, 0xAB, 0x91, 0x08, 0x00, 0x2B, 0x27, 0xB3, 0xD9
+};
+static const guint8 FMTID_DOC_SUMMARY[16] = {
+  0x02, 0xD5, 0xCD, 0xD5, 0x9C, 0x2E, 0x1B, 0x10, 0x93, 0x97, 0x08, 0x00, 0x2B, 0x2C, 0xF9, 0xAE
+};
+
+/* Property ids in each set, by O42Property; 0 for not in this set. */
+static const guint32 SUMMARY_PIDS[O42_N_PROPS]     = { 2, 3, 4, 0, 0, 0, 5, 6 };
+static const guint32 DOC_SUMMARY_PIDS[O42_N_PROPS] = { 0, 0, 0, 14, 15, 2, 0, 0 };
+
+static void
+put32_at (GByteArray *out, gsize at, guint32 v)
+{
+  out->data[at] = v & 0xff;
+  out->data[at + 1] = (v >> 8) & 0xff;
+  out->data[at + 2] = (v >> 16) & 0xff;
+  out->data[at + 3] = (v >> 24) & 0xff;
+}
+
+static void
+append32 (GByteArray *out, guint32 v)
+{
+  guint8 b[4] = { v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff };
+  g_byte_array_append (out, b, 4);
+}
+
+static GBytes *
+write_summary_information (O42Book *book, gboolean document)
+{
+  const guint32 *pids = document ? DOC_SUMMARY_PIDS : SUMMARY_PIDS;
+  GByteArray *out = g_byte_array_new ();
+  GArray *have = g_array_new (FALSE, FALSE, sizeof (int));
+  gsize section, table;
+  guint32 count;
+
+  for (int i = 0; i < O42_N_PROPS; i++)
+    if (pids[i] != 0 && *o42_book_property (book, (O42Property) i) != '\0')
+      g_array_append_val (have, i);
+  count = 1 + have->len;   /* the code page and the strings */
+
+  /* The header: byte order, version, the system it came from, no
+   * class id, one section. */
+  {
+    static const guint8 head[] = { 0xFE, 0xFF, 0x00, 0x00, 0x06, 0x00, 0x02, 0x00 };
+    guint8 zero[16] = { 0 };
+    g_byte_array_append (out, head, sizeof head);
+    g_byte_array_append (out, zero, 16);
+    append32 (out, 1);
+    g_byte_array_append (out, document ? FMTID_DOC_SUMMARY : FMTID_SUMMARY, 16);
+    append32 (out, 48);   /* the section starts right after this */
+  }
+
+  section = out->len;
+  append32 (out, 0);       /* size, filled in below */
+  append32 (out, count);
+  table = out->len;
+  for (guint32 i = 0; i < count; i++)
+    {
+      append32 (out, 0);   /* pid */
+      append32 (out, 0);   /* offset */
+    }
+
+  /* The code page, VT_I2. */
+  put32_at (out, table, 1);
+  put32_at (out, table + 4, (guint32) (out->len - section));
+  append32 (out, 2);
+  append32 (out, 65001);
+
+  for (guint k = 0; k < have->len; k++)
+    {
+      int i = g_array_index (have, int, k);
+      const char *value = o42_book_property (book, (O42Property) i);
+      gsize len = strlen (value) + 1;
+
+      put32_at (out, table + 8 * (k + 1), pids[i]);
+      put32_at (out, table + 8 * (k + 1) + 4, (guint32) (out->len - section));
+      append32 (out, 30);   /* VT_LPSTR */
+      append32 (out, (guint32) len);
+      g_byte_array_append (out, (const guint8 *) value, (guint) len);
+      while ((out->len - section) % 4 != 0)
+        g_byte_array_append (out, (const guint8 *) "", 1);
+    }
+  put32_at (out, section, (guint32) (out->len - section));
+  g_array_unref (have);
+  return g_byte_array_free_to_bytes (out);
+}
+
+static void
+read_summary_information (O42Book *book, GBytes *stream, gboolean document)
+{
+  const guint32 *pids = document ? DOC_SUMMARY_PIDS : SUMMARY_PIDS;
+  const guint8 *p;
+  gsize len, section;
+  guint32 count, codepage = 1252;
+
+  if (stream == NULL)
+    return;
+  p = g_bytes_get_data (stream, &len);
+  if (len < 48 + 8 || rd16 (p) != 0xFFFE || rd32 (p + 24) < 1)
+    return;
+  section = rd32 (p + 44);
+  if (section + 8 > len)
+    return;
+  count = rd32 (p + section + 4);
+  if (section + 8 + (gsize) count * 8 > len)
+    return;
+
+  /* The code page first, since the strings are in it. */
+  for (guint32 i = 0; i < count; i++)
+    {
+      guint32 pid = rd32 (p + section + 8 + i * 8), off = rd32 (p + section + 12 + i * 8);
+
+      if (pid == 1 && section + off + 8 <= len && rd32 (p + section + off) == 2)
+        codepage = rd16 (p + section + off + 4);
+    }
+
+  for (guint32 i = 0; i < count; i++)
+    {
+      guint32 pid = rd32 (p + section + 8 + i * 8), off = rd32 (p + section + 12 + i * 8);
+      guint32 type, n;
+      const guint8 *v;
+      char *text = NULL;
+      int which = -1;
+
+      for (int k = 0; k < O42_N_PROPS; k++)
+        if (pids[k] == pid)
+          which = k;
+      if (which < 0 || section + off + 8 > len)
+        continue;
+      type = rd32 (p + section + off);
+      n = rd32 (p + section + off + 4);
+      v = p + section + off + 8;
+      if (type == 30 && section + off + 8 + n <= len)          /* VT_LPSTR, in the code page */
+        {
+          gsize used = strnlen ((const char *) v, n);
+
+          if (codepage == 65001 || codepage == 1200)
+            text = g_strndup ((const char *) v, used);
+          else
+            {
+              char *charset = g_strdup_printf ("CP%u", codepage);
+              text = g_convert ((const char *) v, (gssize) used, "UTF-8", charset, NULL, NULL, NULL);
+              g_free (charset);
+              if (text == NULL)
+                text = g_convert ((const char *) v, (gssize) used, "UTF-8", "ISO-8859-1", NULL, NULL, NULL);
+            }
+        }
+      else if (type == 31 && section + off + 8 + (gsize) n * 2 <= len)   /* VT_LPWSTR, UTF-16 */
+        text = g_utf16_to_utf8 ((const gunichar2 *) v, n, NULL, NULL, NULL);
+      if (text != NULL)
+        {
+          o42_book_set_property (book, (O42Property) which, g_strstrip (text));
+          g_free (text);
+        }
+    }
+}
+
 gboolean
 o42_xls_load (O42Book *book, GFile *file, GError **error)
 {
-  GBytes *whole, *stream;
+  GBytes *whole, *stream, *summary = NULL, *doc_summary = NULL;
   Reader r;
   gboolean ok;
 
@@ -2451,15 +3762,23 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   stream = o42_ole2_read_stream (whole, "Workbook", NULL);
   if (stream == NULL)
     stream = o42_ole2_read_stream (whole, "Book", error);
-  g_bytes_unref (whole);
   if (stream == NULL)
-    return FALSE;
+    {
+      g_bytes_unref (whole);
+      return FALSE;
+    }
+  /* The properties live in streams of their own; they are read once
+   * the book is cleared for loading, below. */
+  summary = o42_ole2_read_stream (whole, "\005SummaryInformation", NULL);
+  doc_summary = o42_ole2_read_stream (whole, "\005DocumentSummaryInformation", NULL);
+  g_bytes_unref (whole);
 
   memset (&r, 0, sizeof r);
   r.book = book;
   r.biff = 8;
   r.data = g_bytes_get_data (stream, &r.len);
   r.sst = g_ptr_array_new_with_free_func (g_free);
+  r.sst_runs = g_ptr_array_new_with_free_func ((GDestroyNotify) unref_array_or_null);
   r.formats = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
   r.fonts = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
   r.pending_fonts = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
@@ -2467,6 +3786,8 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.xfs = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
   r.sheet_names = g_ptr_array_new_with_free_func (g_free);
   r.sheet_offsets = g_array_new (FALSE, FALSE, sizeof (guint32));
+  r.sheet_hidden = g_array_new (FALSE, FALSE, sizeof (guint));
+  r.cf_rects = g_array_new (FALSE, FALSE, sizeof (O42Range));
   r.xti = g_array_new (FALSE, FALSE, sizeof (guint16));
   r.supbook_names = g_ptr_array_new_with_free_func ((GDestroyNotify) g_ptr_array_unref);
   r.supbook_self = g_ptr_array_new ();
@@ -2474,6 +3795,8 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.name_ranges = g_ptr_array_new_with_free_func (g_free);
   r.filter_sheets = g_array_new (FALSE, FALSE, sizeof (int));
   r.filter_ranges = g_ptr_array_new_with_free_func (g_free);
+  r.print_names = g_array_new (FALSE, FALSE, sizeof (PrintName));
+  r.filter_criteria = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, (GDestroyNotify) g_ptr_array_unref);
   r.shared = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, (GDestroyNotify) g_bytes_unref);
   r.txo_text = g_string_new (NULL);
   r.note_texts = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
@@ -2485,6 +3808,10 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.objs = g_array_new (FALSE, FALSE, sizeof (ObjInfo));
 
   o42_book_clear (book);
+  read_summary_information (book, summary, FALSE);
+  read_summary_information (book, doc_summary, TRUE);
+  g_clear_pointer (&summary, g_bytes_unref);
+  g_clear_pointer (&doc_summary, g_bytes_unref);
   ok = read_workbook (&r, error);
 
   if (ok)
@@ -2524,10 +3851,64 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
           O42Node *tree = o42_formula_parse (g_ptr_array_index (r.filter_ranges, i));
           if (idx < o42_book_n_sheets (book) && tree->type == O42_NODE_RANGE)
             {
-              o42_sheet_set_autofilter (o42_book_sheet (book, idx), &tree->as.range);
-              o42_sheet_autofilter_refresh (o42_book_sheet (book, idx));
+              O42Sheet *fs = o42_book_sheet (book, idx);
+              GPtrArray *criteria = g_hash_table_lookup (r.filter_criteria, GINT_TO_POINTER (idx));
+
+              o42_sheet_set_autofilter (fs, &tree->as.range);
+              if (criteria != NULL)
+                {
+                  /* The rows the file hid inside the range were hidden
+                   * by the filter, which does it again from the
+                   * criteria; so they are shown first. */
+                  for (int row = tree->as.range.row0 + 1; row <= tree->as.range.row1 && row < O42_MAX_ROWS; row++)
+                    if (o42_sheet_row_hidden_by_hand (fs, row))
+                      o42_sheet_set_row_hidden (fs, row, FALSE);
+                  for (guint k = 0; k < criteria->len; k++)
+                    {
+                      const char *entry = g_ptr_array_index (criteria, k);
+                      const char *tab = strchr (entry, '\t');
+                      int col = tree->as.range.col0 + atoi (entry);
+                      if (tab != NULL && col <= tree->as.range.col1 && o42_sheet_autofilter_choice (fs, col) == NULL)
+                        o42_sheet_autofilter_choose (fs, col, tab + 1);
+                    }
+                }
+              o42_sheet_autofilter_refresh (fs);
             }
           o42_node_free (tree);
+        }
+      for (guint i = 0; i < r.print_names->len; i++)
+        {
+          const PrintName *pn = &g_array_index (r.print_names, PrintName, i);
+          O42Sheet *target = pn->sheet >= 0 && pn->sheet < o42_book_n_sheets (book)
+                             ? o42_book_sheet (book, pn->sheet) : NULL;
+
+          if (target == NULL)
+            continue;
+          if (pn->kind == 6)
+            {
+              /* Each area of the name, one after another. */
+              const O42PrintSetup *ps = o42_sheet_print_setup (target);
+              O42Range areas[O42_PRINT_AREAS_MAX];
+              int n = ps->has_area ? MIN (ps->n_areas, O42_PRINT_AREAS_MAX - 1) : 0;
+
+              for (int k = 0; k < n; k++)
+                areas[k] = ps->areas[k];
+              areas[n++] = o42_range_normalise (pn->row0, pn->col0, pn->row1, pn->col1);
+              o42_sheet_set_print_areas (target, areas, n);
+            }
+          else
+            {
+              const O42PrintSetup *ps = o42_sheet_print_setup (target);
+              int row0 = ps->title_row_first, row1 = ps->title_row_first + ps->title_rows - 1;
+              int col0 = ps->title_col_first, col1 = ps->title_col_first + ps->title_cols - 1;
+
+              /* Whole rows repeat at the top, whole columns at the left. */
+              if (pn->col0 == 0 && pn->col1 >= 255)
+                { row0 = pn->row0; row1 = pn->row1; }
+              else if (pn->row0 == 0 && pn->row1 >= 65535)
+                { col0 = pn->col0; col1 = pn->col1; }
+              o42_sheet_set_print_title_ranges (target, row0, row1, col0, col1);
+            }
         }
       for (int i = 0; i < o42_book_n_sheets (book); i++)
         {
@@ -2537,6 +3918,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
     }
 
   g_ptr_array_unref (r.sst);
+  g_ptr_array_unref (r.sst_runs);
   g_hash_table_unref (r.formats);
   g_array_unref (r.fonts);
   g_ptr_array_unref (r.pending_fonts);
@@ -2544,13 +3926,17 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   g_array_unref (r.xfs);
   g_ptr_array_unref (r.sheet_names);
   g_array_unref (r.sheet_offsets);
+  g_array_unref (r.sheet_hidden);
+  g_array_unref (r.cf_rects);
   g_array_unref (r.xti);
   g_ptr_array_unref (r.supbook_names);
   g_ptr_array_unref (r.supbook_self);
   g_ptr_array_unref (r.names);
   g_ptr_array_unref (r.name_ranges);
   g_array_unref (r.filter_sheets);
+  g_hash_table_unref (r.filter_criteria);
   g_ptr_array_unref (r.filter_ranges);
+  g_array_unref (r.print_names);
   g_hash_table_unref (r.shared);
   g_string_free (r.txo_text, TRUE);
   g_hash_table_unref (r.note_texts);
@@ -2559,7 +3945,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   g_byte_array_unref (r.group);
   g_byte_array_unref (r.drawing);
   for (guint k = 0; k < r.chart_defs->len; k++)
-    g_free (g_array_index (r.chart_defs, ChartDef, k).title);
+    chart_def_clear (&g_array_index (r.chart_defs, ChartDef, k));
   g_array_unref (r.chart_defs);
   for (guint k = 0; k < r.objs->len; k++)
     obj_info_clear (&g_array_index (r.objs, ObjInfo, k));
@@ -2584,7 +3970,8 @@ typedef struct
   GHashTable *xf_index;       /* FmtKey -> xf index + 1 */
   GPtrArray  *formats;        /* custom format codes, id 164 + i */
   GPtrArray  *sst;
-  GHashTable *sst_idx;
+  GHashTable *sst_idx;        /* the text, and its runs if any, -> index */
+  GPtrArray  *sst_runs;       /* alongside sst: GArray of guint16 pairs, or NULL */
   GArray     *sst_offsets;    /* gsize pairs: stream offset of every string and
                                * of the record it sits in, for EXTSST */
   GArray     *palette;        /* guint32 colours at index 8 + i */
@@ -2594,6 +3981,10 @@ typedef struct
   GPtrArray  *images;         /* GBytes: the pictures of every sheet, in store order */
   GPtrArray  *image_formats;
   GArray     *shapes_per_sheet;   /* int */
+  int         anchor_row, anchor_col;   /* while compiling a CF or DV formula: the
+                                         * range's top-left, relative parts of a
+                                         * reference being offsets from it (ptgRefN);
+                                         * -1 otherwise */
 } Writer;
 
 static void
@@ -2610,6 +4001,59 @@ end_record (Writer *w)
   gsize len = w->out->len - w->record_start - 4;
   w->out->data[w->record_start + 2] = len & 0xff;
   w->out->data[w->record_start + 3] = (len >> 8) & 0xff;
+}
+
+/* A record can hold 8224 bytes.  A string that needs more goes on into
+ * CONTINUE records, each of which begins with its own flags byte saying
+ * whether the characters that follow are bytes or UTF-16 units; that
+ * is the rule for the SST and for a TXO's text alike.  The caller has
+ * written the length; `n_chars` is how many characters to send. */
+#define RECORD_MAX 8224
+
+static gsize
+record_len (Writer *w)
+{
+  return w->out->len - w->record_start - 4;
+}
+
+static void
+put_ustr_body_continued_rich (Writer *w, const char *text, glong n_chars, guint n_runs, gsize *flags_at)
+{
+  gboolean latin1 = is_latin1 (text);
+  glong n = 0;
+  gunichar2 *u = latin1 ? NULL : g_utf8_to_utf16 (text, -1, NULL, &n, NULL);
+  const char *p = text;
+
+  if (flags_at != NULL)
+    *flags_at = w->out->len;
+  put8 (w->out, (latin1 ? 0 : 1) | (n_runs > 0 ? 0x08 : 0));
+  if (n_runs > 0)
+    put16 (w->out, n_runs);
+  for (glong i = 0; i < n_chars; i++)
+    {
+      if (latin1 ? *p == '\0' : i >= n)
+        break;
+      if (record_len (w) + (latin1 ? 1 : 2) > RECORD_MAX)
+        {
+          end_record (w);
+          begin_record (w, R_CONTINUE);
+          put8 (w->out, latin1 ? 0 : 1);
+        }
+      if (latin1)
+        {
+          put8 (w->out, g_utf8_get_char (p));
+          p = g_utf8_next_char (p);
+        }
+      else
+        put16 (w->out, u[i]);
+    }
+  g_free (u);
+}
+
+static void
+put_ustr_body_continued (Writer *w, const char *text, glong n_chars)
+{
+  put_ustr_body_continued_rich (w, text, n_chars, 0, NULL);
 }
 
 static guint palette_index (Writer *w, guint32 colour);
@@ -2685,6 +4129,19 @@ fmt_table_add (GHashTable *table, const O42Fmt *fmt, guint index)
   g_hash_table_insert (table, key, GUINT_TO_POINTER (index + 1));
 }
 
+/* A shape's text font as a cell format, which is what the font table
+ * is made of. */
+static void
+shape_text_font (const O42Shape *shape, O42Fmt *font)
+{
+  o42_fmt_init_default (font);
+  font->family = g_intern_string (shape->font != NULL ? shape->font : "Arial");
+  font->size = (int) ((shape->font_size > 0 ? shape->font_size : 10) * 2 + 0.5);
+  font->bold = shape->bold ? 1 : 0;
+  font->italic = shape->italic ? 1 : 0;
+  font->colour = shape->text_colour;
+}
+
 static guint
 font_index (Writer *w, const O42Fmt *fmt)
 {
@@ -2754,18 +4211,47 @@ format_id (Writer *w, const O42Fmt *fmt)
   return id;
 }
 
+/* The shared string for a text and its runs: the same text in other
+ * fonts is another string.  A run becomes a character index (in
+ * UTF-16 units) and a font. */
 static guint
-sst_index (Writer *w, const char *text)
+sst_index (Writer *w, const char *text, const O42TextRun *runs, int n_runs)
 {
   gpointer found;
-  if (g_hash_table_lookup_extended (w->sst_idx, text, NULL, &found))
-    return GPOINTER_TO_UINT (found);
-  {
-    char *copy = g_strdup (text);
-    g_ptr_array_add (w->sst, copy);
-    g_hash_table_insert (w->sst_idx, copy, GUINT_TO_POINTER (w->sst->len - 1));
-    return w->sst->len - 1;
-  }
+  GString *key = g_string_new (text);
+  GArray *pairs = NULL;
+
+  if (runs != NULL && n_runs > 0)
+    {
+      pairs = g_array_new (FALSE, FALSE, sizeof (guint16));
+      for (int i = 0; i < n_runs; i++)
+        {
+          guint16 ich = 0, ifnt;
+          const char *q = text;
+          while (*q != '\0' && q - text < runs[i].start)
+            {
+              ich += g_utf8_get_char (q) > 0xFFFF ? 2 : 1;
+              q = g_utf8_next_char (q);
+            }
+          {
+            guint font = font_index (w, &runs[i].fmt);
+            ifnt = font == 0 ? 0 : font + 4;
+          }
+          g_array_append_val (pairs, ich);
+          g_array_append_val (pairs, ifnt);
+          g_string_append_printf (key, "\001%u:%u", ich, ifnt);
+        }
+    }
+  if (g_hash_table_lookup_extended (w->sst_idx, key->str, NULL, &found))
+    {
+      g_string_free (key, TRUE);
+      if (pairs != NULL) g_array_unref (pairs);
+      return GPOINTER_TO_UINT (found);
+    }
+  g_ptr_array_add (w->sst, g_strdup (text));
+  g_ptr_array_add (w->sst_runs, pairs);
+  g_hash_table_insert (w->sst_idx, g_string_free (key, FALSE), GUINT_TO_POINTER (w->sst->len - 1));
+  return w->sst->len - 1;
 }
 
 /* ---- compiling formulas ---- */
@@ -2894,12 +4380,22 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
       {
         int xti = node->sheet_last != NULL ? sheet_xti_span (w, node->sheet, node->sheet_last)
                                            : sheet_xti (w, node->sheet);
+        gboolean row_abs = (node->abs & O42_ABS_ROW0) != 0, col_abs = (node->abs & O42_ABS_COL0) != 0;
+        gboolean anchored = w->anchor_row >= 0 && xti < 0 && !(row_abs && col_abs);
+        int row = node->as.ref.row, col = node->as.ref.col;
+
         if (xti >= 0 && (xti != own_sheet || node->sheet_last != NULL))
           { put8 (a, 0x3A | cls); put16 (a, xti); }
+        else if (anchored)
+          {
+            /* ptgRefN: a relative part is its distance from the anchor. */
+            put8 (a, 0x2C | cls);
+            if (!row_abs) row = (row - w->anchor_row) & 0xFFFF;
+            if (!col_abs) col = (col - w->anchor_col) & 0xFF;
+          }
         else
           put8 (a, 0x24 | cls);
-        put_ref8 (a, node->as.ref.row, node->as.ref.col,
-                  (node->abs & O42_ABS_ROW0) != 0, (node->abs & O42_ABS_COL0) != 0);
+        put_ref8 (a, row, col, row_abs, col_abs);
       }
       break;
     case O42_NODE_RANGE:
@@ -2907,14 +4403,27 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
         int xti = node->sheet_last != NULL ? sheet_xti_span (w, node->sheet, node->sheet_last)
                                            : sheet_xti (w, node->sheet);
         const O42Range *r = &node->as.range;
+        gboolean all_abs = (node->abs & (O42_ABS_ROW0 | O42_ABS_COL0 | O42_ABS_ROW1 | O42_ABS_COL1))
+                           == (O42_ABS_ROW0 | O42_ABS_COL0 | O42_ABS_ROW1 | O42_ABS_COL1);
+        gboolean anchored = w->anchor_row >= 0 && xti < 0 && !all_abs;
+        int row0 = r->row0, row1 = r->row1, col0 = r->col0, col1 = r->col1;
+
         if (xti >= 0 && (xti != own_sheet || node->sheet_last != NULL))
           { put8 (a, 0x3B | cls); put16 (a, xti); }
+        else if (anchored)
+          {
+            put8 (a, 0x2D | cls);   /* ptgAreaN */
+            if (!(node->abs & O42_ABS_ROW0)) row0 = (row0 - w->anchor_row) & 0xFFFF;
+            if (!(node->abs & O42_ABS_ROW1)) row1 = (row1 - w->anchor_row) & 0xFFFF;
+            if (!(node->abs & O42_ABS_COL0)) col0 = (col0 - w->anchor_col) & 0xFF;
+            if (!(node->abs & O42_ABS_COL1)) col1 = (col1 - w->anchor_col) & 0xFF;
+          }
         else
           put8 (a, 0x25 | cls);
-        put16 (a, r->row0);
-        put16 (a, r->row1);
-        put16 (a, (r->col0 & 0xFF) | ((node->abs & O42_ABS_ROW0) ? 0 : 0x8000) | ((node->abs & O42_ABS_COL0) ? 0 : 0x4000));
-        put16 (a, (r->col1 & 0xFF) | ((node->abs & O42_ABS_ROW1) ? 0 : 0x8000) | ((node->abs & O42_ABS_COL1) ? 0 : 0x4000));
+        put16 (a, row0);
+        put16 (a, row1);
+        put16 (a, (col0 & 0xFF) | ((node->abs & O42_ABS_ROW0) ? 0 : 0x8000) | ((node->abs & O42_ABS_COL0) ? 0 : 0x4000));
+        put16 (a, (col1 & 0xFF) | ((node->abs & O42_ABS_ROW1) ? 0 : 0x8000) | ((node->abs & O42_ABS_COL1) ? 0 : 0x4000));
       }
       break;
     case O42_NODE_UNARY:
@@ -2924,9 +4433,23 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
     case O42_NODE_BINARY:
       {
         static const guint8 ptg[] = { 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x0B, 0x0E, 0x09, 0x0D, 0x0A, 0x0C };
-        compile (w, node->as.op.a, a, FALSE, own_sheet, cb);
-        compile (w, node->as.op.b, a, FALSE, own_sheet, cb);
-        put8 (a, ptg[node->as.op.op]);
+        if (node->as.op.op == O42_OP_IMPLICIT)
+          {
+            /* @A1:A3: Excel 97 had no such operator; the range itself
+             * is read that way by a cell formula. */
+            compile (w, node->as.op.a, a, TRUE, own_sheet, cb);
+            break;
+          }
+        /* The parts of a union or an intersection are references, so
+         * they keep the reference class. */
+        compile (w, node->as.op.a, a, node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT, own_sheet, cb);
+        compile (w, node->as.op.b, a, node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT, own_sheet, cb);
+        if (node->as.op.op == O42_OP_UNION)
+          put8 (a, 0x10);
+        else if (node->as.op.op == O42_OP_ISECT)
+          put8 (a, 0x0F);
+        else
+          put8 (a, ptg[node->as.op.op]);
       }
       break;
     case O42_NODE_NAME:
@@ -3020,6 +4543,7 @@ typedef struct
   GBytes  *array;    /* the head of an array block: tokens for its ARRAY record */
   gsize    array_cce;   /* how many of them are tokens, before array-constant data */
   O42Range block;
+  guint    sst;      /* the shared string, for a text */
 } CellOut;
 
 typedef struct
@@ -3093,7 +4617,11 @@ gather_cell (O42Sheet *sheet, int row, int col, gpointer user)
       o42_node_free (tree);
     }
   else if (c.value.type == O42_VALUE_TEXT)
-    sst_index (g->w, c.value.as.text);
+    {
+      int n_runs = 0;
+      const O42TextRun *runs = o42_sheet_runs (sheet, row, col, &n_runs);
+      c.sst = sst_index (g->w, c.value.as.text, runs, n_runs);
+    }
   g_free (input);
   g_array_append_val (g->cells, c);
 }
@@ -3165,7 +4693,7 @@ write_cell (Writer *w, const CellOut *c)
     case O42_VALUE_TEXT:
       begin_record (w, R_LABELSST);
       put16 (w->out, c->row); put16 (w->out, c->col); put16 (w->out, xf);
-      put32 (w->out, sst_index (w, c->value.as.text));
+      put32 (w->out, c->sst);
       end_record (w);
       break;
     case O42_VALUE_BOOL:
@@ -3244,8 +4772,10 @@ chart_line_area (Writer *w, guint32 colour, gboolean frame)
   end_record (w);
 }
 
+static guint chart_format_id (Writer *w, const char *code);
+
 static void
-chart_axis (Writer *w, int which)
+chart_axis (Writer *w, int which, const O42Chart *chart)
 {
   begin_record (w, C_AXIS);
   put16 (w->out, which); for (int k = 0; k < 16; k++) put8 (w->out, 0);
@@ -3256,19 +4786,25 @@ chart_axis (Writer *w, int which)
       begin_record (w, C_CATSERRANGE);
       put16 (w->out, 1); put16 (w->out, 1); put16 (w->out, 1); put16 (w->out, 1);
       end_record (w);
-      begin_record (w, 0x1062);   /* AXCEXT: everything automatic */
+      begin_record (w, C_AXCEXT);   /* everything automatic */
       for (int k = 0; k < 8; k++) put16 (w->out, 0);
       put16 (w->out, 0x00FF);
       end_record (w);
     }
   else
     {
+      /* The value axis' bounds, automatic unless the chart says. */
+      guint flags = 0x011F;
       begin_record (w, C_VALUERANGE);
-      for (int k = 0; k < 40; k++) put8 (w->out, 0);
-      put16 (w->out, 0x011F);   /* everything automatic */
+      put_double (w->out, chart->has_min ? chart->min : 0);
+      put_double (w->out, chart->has_max ? chart->max : 0);
+      for (int k = 0; k < 24; k++) put8 (w->out, 0);
+      if (chart->has_min) flags &= ~0x0001u;
+      if (chart->has_max) flags &= ~0x0002u;
+      put16 (w->out, flags);
       end_record (w);
-      begin_record (w, 0x104E);   /* IFMT: General */
-      put16 (w->out, 0);
+      begin_record (w, C_IFMT);
+      put16 (w->out, chart->y_format != NULL && *chart->y_format != '\0' ? chart_format_id (w, chart->y_format) : 0);
       end_record (w);
     }
   begin_record (w, C_TICK);
@@ -3282,6 +4818,50 @@ chart_axis (Writer *w, int which)
   begin_record (w, C_LINEFORMAT);
   put32 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0xFFFF); put16 (w->out, 0x0004); put16 (w->out, 0x004D);   /* fAxisOn */
   end_record (w);
+  if (which == 1 && chart->gridlines)
+    {
+      /* The major gridlines: an axis line format of id 1 and its line. */
+      begin_record (w, C_AXISLINEFORMAT); put16 (w->out, 1); end_record (w);
+      begin_record (w, C_LINEFORMAT);
+      put32 (w->out, 0x00C0C0C0); put16 (w->out, 0); put16 (w->out, 0xFFFF); put16 (w->out, 0x0000); put16 (w->out, 0x0017);
+      end_record (w);
+    }
+  begin_record (w, C_END); end_record (w);
+}
+
+/* A number format's id for a chart's IFMT: one of Excel's built-in
+ * codes, or a FORMAT record of the workbook's. */
+static guint
+chart_format_id (Writer *w, const char *code)
+{
+  O42Fmt f;
+
+  o42_fmt_init_default (&f);
+  o42_xlsx_apply_format_code (&f, code);
+  return format_id (w, &f);
+}
+
+/* A text group of the chart: its title, or an axis'.  `link` is 1 for
+ * the chart's, 2 for the value axis, 3 for the category axis. */
+static void
+chart_text (Writer *w, const char *text, guint link)
+{
+  begin_record (w, C_TEXT);
+  put8 (w->out, 2); put8 (w->out, 2); put16 (w->out, 1);
+  put32 (w->out, 0xFFFFFF); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0);
+  put16 (w->out, link == 2 ? 0x00B1 : 0x00B1); put16 (w->out, 0x004D); put16 (w->out, link == 2 ? 0x00FF : 0); put16 (w->out, 0);
+  end_record (w);
+  begin_record (w, C_BEGIN); end_record (w);
+  begin_record (w, C_POS);
+  put16 (w->out, 2); put16 (w->out, 2); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0);
+  end_record (w);
+  begin_record (w, C_FONTX); put16 (w->out, 0); end_record (w);
+  begin_record (w, C_AI); put8 (w->out, 0); put8 (w->out, 1); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
+  begin_record (w, C_SERIESTEXT);
+  put16 (w->out, 0);
+  put_ustr8 (w->out, text);
+  end_record (w);
+  begin_record (w, C_OBJECTLINK); put16 (w->out, link); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
   begin_record (w, C_END); end_record (w);
 }
 
@@ -3469,7 +5049,7 @@ write_control_text (Writer *w, const O42Shape *shape)
   put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
   end_record (w);
   begin_record (w, R_CONTINUE);
-  put_ustr_body (w->out, shape->text);
+  put_ustr_body_continued (w, shape->text, n);
   end_record (w);
   begin_record (w, R_CONTINUE);
   put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
@@ -3486,9 +5066,21 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
   static const guint32 COLOURS[] = { 0x000080, 0x800000, 0x008000, 0x008080, 0x800080, 0x808000, 0x808080, 0x0000FF };
   const O42Range *d = &chart->data;
   int first_row = d->row0 + (chart->first_row_labels ? 1 : 0);
+  O42Book *book = o42_sheet_get_book (sheet);
   int first_col = d->col0 + (chart->first_col_labels ? 1 : 0);
-  gboolean scatter = chart->kind == O42_CHART_SCATTER, pie = chart->kind == O42_CHART_PIE;
+  gboolean scatter = chart->kind == O42_CHART_SCATTER || chart->kind == O42_CHART_BUBBLE;
+  gboolean pie = chart->kind == O42_CHART_PIE || chart->kind == O42_CHART_DOUGHNUT;
+  gboolean no_axes = pie || chart->kind == O42_CHART_RADAR;
   int n_series = 0;
+
+  /* The series' references name the sheet the cells are on, which for
+   * a chart sheet is always another; the XTIs run one per sheet. */
+  if (chart->data_sheet != NULL && *chart->data_sheet != '\0' && book != NULL)
+    {
+      O42Sheet *data_sheet = o42_book_find_sheet (book, chart->data_sheet);
+      if (data_sheet != NULL)
+        sheet_index = o42_book_sheet_index (book, data_sheet);
+    }
 
   begin_record (w, R_BOF);
   put16 (w->out, 0x0600); put16 (w->out, 0x0020); put16 (w->out, 0x0DBB); put16 (w->out, 0x07CC);
@@ -3518,7 +5110,7 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
     int start_col = scatter ? d->col0 + 1 : first_col;
     int n_points = d->row1 - first_row + 1;
 
-    for (int col = start_col; col <= d->col1 && (!pie || n_series == 0); col++)
+    for (int col = start_col; col <= d->col1 && (chart->kind != O42_CHART_PIE || n_series == 0); col++)
       {
         O42Range title = { d->row0, col, d->row0, col };
         O42Range values = { first_row, col, d->row1, col };
@@ -3541,6 +5133,11 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
         end_record (w);
         begin_record (w, C_BEGIN); end_record (w);
         chart_line_area (w, COLOURS[n_series % G_N_ELEMENTS (COLOURS)], FALSE);
+        if (chart->data_labels)
+          {
+            /* fShowValue: each point's value beside it. */
+            begin_record (w, C_ATTACHEDLABEL); put16 (w->out, 0x0001); end_record (w);
+          }
         begin_record (w, C_END); end_record (w);
         begin_record (w, C_SERTOCRT); put16 (w->out, 0); end_record (w);
         begin_record (w, C_END); end_record (w);
@@ -3557,10 +5154,10 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
   begin_record (w, C_POS);
   put16 (w->out, 2); put16 (w->out, 2); put32 (w->out, 0); put32 (w->out, 0x0390); put32 (w->out, 0x0F67); put32 (w->out, 0x0BB8);
   end_record (w);
-  if (!pie)
+  if (!no_axes)
     {
-      chart_axis (w, 0);
-      chart_axis (w, 1);
+      chart_axis (w, 0, chart);
+      chart_axis (w, 1, chart);
     }
   begin_record (w, C_CHARTFORMAT);
   for (int k = 0; k < 16; k++) put8 (w->out, 0);
@@ -3575,11 +5172,21 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
     case O42_CHART_PIE:
       begin_record (w, C_PIE); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
       break;
+    case O42_CHART_DOUGHNUT:
+      /* A pie with a hole half its width. */
+      begin_record (w, C_PIE); put16 (w->out, 0); put16 (w->out, 50); put16 (w->out, 0); end_record (w);
+      break;
     case O42_CHART_AREA:
       begin_record (w, C_AREA); put16 (w->out, 0); end_record (w);
       break;
     case O42_CHART_SCATTER:
       begin_record (w, C_SCATTER); put16 (w->out, 100); put16 (w->out, 1); put16 (w->out, 0); end_record (w);
+      break;
+    case O42_CHART_BUBBLE:
+      begin_record (w, C_SCATTER); put16 (w->out, 100); put16 (w->out, 1); put16 (w->out, 0x0001); end_record (w);
+      break;
+    case O42_CHART_RADAR:
+      begin_record (w, C_RADAR); put16 (w->out, 0x0001); put16 (w->out, 0); end_record (w);
       break;
     default:
       begin_record (w, C_BAR);
@@ -3592,6 +5199,13 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
       break;
     }
   begin_record (w, C_CHARTFORMATLINK); end_record (w);
+  if (chart->three_d)
+    {
+      /* Chart3d: the default 15/20 degree view, with perspective. */
+      begin_record (w, C_CHART3D);
+      put16 (w->out, 15); put16 (w->out, 20); put16 (w->out, 30); put16 (w->out, 100); put16 (w->out, 150); put16 (w->out, 0x0002);
+      end_record (w);
+    }
   if ((n_series > 1 || pie) && chart->legend)
     {
       begin_record (w, C_LEGEND);
@@ -3605,36 +5219,45 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
       begin_record (w, C_END); end_record (w);
     }
   begin_record (w, C_END); end_record (w);   /* CHARTFORMAT */
+  /* The axis titles belong to the axes' group, where Excel and
+   * LibreOffice look for them; the chart's own title comes after. */
+  if (!no_axes && chart->x_title != NULL && chart->x_title[0] != '\0')
+    chart_text (w, chart->x_title, 3);
+  if (!no_axes && chart->y_title != NULL && chart->y_title[0] != '\0')
+    chart_text (w, chart->y_title, 2);
   begin_record (w, C_END); end_record (w);   /* AXISPARENT */
 
   if (chart->title != NULL && chart->title[0] != '\0')
-    {
-      begin_record (w, C_TEXT);
-      put8 (w->out, 2); put8 (w->out, 2); put16 (w->out, 1);
-      put32 (w->out, 0xFFFFFF); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0);
-      put16 (w->out, 0x00B1); put16 (w->out, 0x004D); put16 (w->out, 0); put16 (w->out, 0);
-      end_record (w);
-      begin_record (w, C_BEGIN); end_record (w);
-      begin_record (w, C_POS);
-      put16 (w->out, 2); put16 (w->out, 2); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0); put32 (w->out, 0);
-      end_record (w);
-      begin_record (w, C_FONTX); put16 (w->out, 0); end_record (w);
-      begin_record (w, C_AI); put8 (w->out, 0); put8 (w->out, 1); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
-      begin_record (w, C_SERIESTEXT);
-      put16 (w->out, 0);
-      put_ustr8 (w->out, chart->title);
-      end_record (w);
-      begin_record (w, C_OBJECTLINK); put16 (w->out, 1); put16 (w->out, 0); put16 (w->out, 0); end_record (w);
-      begin_record (w, C_END); end_record (w);
-    }
+    chart_text (w, chart->title, 1);
   begin_record (w, C_END); end_record (w);   /* CHART */
   begin_record (w, R_EOF); end_record (w);
+}
+
+/* Anchors an object's box to the cells it covers, in Escher's
+ * fractions of a cell. */
+static void
+anchor_object (O42Sheet *sheet, int row, int col, double dx, double dy,
+               double width, double height, O42EscherShape *s)
+{
+  double x1 = sheet_col_x (sheet, col) + dx + width;
+  double y1 = sheet_row_y (sheet, row) + dy + height;
+  int c = col, rr = row;
+  double x = sheet_col_x (sheet, c), y = sheet_row_y (sheet, rr);
+
+  s->col1 = col; s->row1 = row;
+  s->dx1 = dx / MAX (o42_sheet_col_width (sheet, col), 1);
+  s->dy1 = dy / MAX (o42_sheet_row_height (sheet, row), 1);
+  while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
+  while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
+  s->col2 = c; s->row2 = rr;
+  s->dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
+  s->dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
 }
 
 static void
 write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
 {
-  int default_width = o42_sheet_col_width (sheet, O42_MAX_COLS - 1);
+  int default_width = o42_sheet_default_col_width (sheet);
   int default_height = o42_sheet_row_height (sheet, O42_MAX_ROWS - 1);
   O42Range used;
   int frozen_rows, frozen_cols;
@@ -3646,11 +5269,96 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
   put32 (w->out, 0x00000041); put32 (w->out, 0x00000006);
   end_record (w);
 
+  {
+    /* GUTS: how much room the outline symbols take, from the deepest
+     * row and column level; Excel sizes the gutter by it. */
+    int row_levels = 0, col_levels = 0;
+    for (int col = 0; col < O42_XLS_MAX_COLS; col++)
+      col_levels = MAX (col_levels, o42_sheet_col_level (sheet, col));
+    for (int row = 0; row <= used.row1 && row < O42_XLS_MAX_ROWS; row++)
+      row_levels = MAX (row_levels, o42_sheet_row_level (sheet, row));
+    begin_record (w, R_GUTS);
+    put16 (w->out, row_levels > 0 ? 12 * row_levels + 17 : 0);
+    put16 (w->out, col_levels > 0 ? 12 * col_levels + 17 : 0);
+    put16 (w->out, row_levels > 0 ? row_levels + 1 : 0);
+    put16 (w->out, col_levels > 0 ? col_levels + 1 : 0);
+    end_record (w);
+  }
+
+  /* Page Setup, in the order Excel writes the records. */
+  {
+    const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+    GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
+    GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
+    guint opts = 0;
+
+    begin_record (w, R_PRINTHEADERS); put16 (w->out, ps->headings ? 1 : 0); end_record (w);
+    begin_record (w, R_PRINTGRIDLINES); put16 (w->out, ps->gridlines ? 1 : 0); end_record (w);
+    begin_record (w, R_WSBOOL);
+    put16 (w->out, 0x04C1 | ((ps->fit_wide > 0 || ps->fit_tall > 0) ? 0x0100 : 0));
+    end_record (w);
+    if (rb->len > 0)
+      {
+        begin_record (w, R_HORIZONTALPAGEBREAKS);
+        put16 (w->out, MIN (rb->len, 1026));
+        for (guint i = 0; i < rb->len && i < 1026; i++)
+          { put16 (w->out, g_array_index (rb, int, i)); put16 (w->out, 0); put16 (w->out, 255); }
+        end_record (w);
+      }
+    if (cb->len > 0)
+      {
+        begin_record (w, R_VERTICALPAGEBREAKS);
+        put16 (w->out, MIN (cb->len, 1026));
+        for (guint i = 0; i < cb->len && i < 1026; i++)
+          { put16 (w->out, g_array_index (cb, int, i)); put16 (w->out, 0); put16 (w->out, 65535); }
+        end_record (w);
+      }
+    begin_record (w, R_HEADER);
+    if (ps->header != NULL && *ps->header != '\0') put_ustr16 (w->out, ps->header);
+    end_record (w);
+    begin_record (w, R_FOOTER);
+    if (ps->footer != NULL && *ps->footer != '\0') put_ustr16 (w->out, ps->footer);
+    end_record (w);
+    begin_record (w, R_HCENTER); put16 (w->out, ps->hcenter ? 1 : 0); end_record (w);
+    begin_record (w, R_VCENTER); put16 (w->out, ps->vcenter ? 1 : 0); end_record (w);
+    begin_record (w, R_LEFTMARGIN); put_double (w->out, ps->margin_left / 72.0); end_record (w);
+    begin_record (w, R_RIGHTMARGIN); put_double (w->out, ps->margin_right / 72.0); end_record (w);
+    begin_record (w, R_TOPMARGIN); put_double (w->out, ps->margin_top / 72.0); end_record (w);
+    begin_record (w, R_BOTTOMMARGIN); put_double (w->out, ps->margin_bottom / 72.0); end_record (w);
+
+    if (!ps->down_then_over) opts |= 0x0001;
+    if (!ps->landscape) opts |= 0x0002;
+    if (ps->black_white) opts |= 0x0008;
+    if (ps->draft) opts |= 0x0010;
+    if (ps->notes != O42_PRINT_NOTES_NONE) opts |= 0x0020;
+    if (ps->first_page != 1) opts |= 0x0080;
+    if (ps->notes == O42_PRINT_NOTES_AT_END) opts |= 0x0200;
+    opts |= (ps->errors == O42_PRINT_ERRORS_BLANK ? 1 : ps->errors == O42_PRINT_ERRORS_DASHES ? 2
+             : ps->errors == O42_PRINT_ERRORS_NA ? 3 : 0) << 10;
+    begin_record (w, R_SETUP);
+    put16 (w->out, ps->paper > 0 ? ps->paper : 9);
+    put16 (w->out, CLAMP (ps->scale, 10, 400));
+    put16 (w->out, (guint) (gint16) ps->first_page);
+    put16 (w->out, MAX (ps->fit_wide, 1));
+    put16 (w->out, MAX (ps->fit_tall, 1));
+    put16 (w->out, opts);
+    put16 (w->out, 600); put16 (w->out, 600);
+    put_double (w->out, ps->margin_header / 72.0);
+    put_double (w->out, ps->margin_footer / 72.0);
+    put16 (w->out, 1);
+    end_record (w);
+  }
+
   begin_record (w, R_DEFCOLWIDTH);
   put16 (w->out, (guint) ((default_width - 5) / 7.0 + 0.5));
   end_record (w);
+  /* STANDARDWIDTH carries the same to the 1/256th of a character, so
+   * the default width comes back in pixels as it went. */
+  begin_record (w, R_STANDARDWIDTH);
+  put16 (w->out, (guint) MAX (default_width - 5, 0) * 256 / 7);
+  end_record (w);
 
-  for (int col = 0; col < O42_MAX_COLS - 1; col++)
+  for (int col = 0; col < O42_XLS_MAX_COLS; col++)
     {
       int width = o42_sheet_col_width (sheet, col);
       gboolean hidden = o42_sheet_col_hidden (sheet, col);
@@ -3667,8 +5375,8 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     }
 
   begin_record (w, R_DIMENSIONS);
-  put32 (w->out, used.row0); put32 (w->out, used.row1 + 1);
-  put16 (w->out, used.col0); put16 (w->out, used.col1 + 1); put16 (w->out, 0);
+  put32 (w->out, MIN (used.row0, O42_XLS_MAX_ROWS - 1)); put32 (w->out, MIN (used.row1 + 1, O42_XLS_MAX_ROWS));
+  put16 (w->out, MIN (used.col0, O42_XLS_MAX_COLS - 1)); put16 (w->out, MIN (used.col1 + 1, O42_XLS_MAX_COLS)); put16 (w->out, 0);
   end_record (w);
 
   {
@@ -3677,7 +5385,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     for (int row = 0; row < O42_MAX_ROWS; row++)
       {
         int height = o42_sheet_row_height (sheet, row);
-        gboolean hidden = o42_sheet_row_hidden_by_hand (sheet, row);
+        gboolean hidden = o42_sheet_row_hidden (sheet, row);   /* by hand or by the filter */
         int level = o42_sheet_row_level (sheet, row);
         gboolean has_cells = i < cells->len && g_array_index (cells, CellOut, i).row == row;
         if (!has_cells && height == default_height && !hidden && level == 0)
@@ -3724,86 +5432,63 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         before += o42_sheet_pictures (o42_book_sheet (w->book, i))->len;
       first_blip = before;
     }
-    for (guint i = 0; i < pictures->len; i++)
-      {
-        const O42Picture *pic = g_ptr_array_index (pictures, i);
-        O42EscherShape s;
-        double x1 = sheet_col_x (sheet, pic->col) + pic->dx + pic->width;
-        double y1 = sheet_row_y (sheet, pic->row) + pic->dy + pic->height;
-        int c = pic->col, rr = pic->row;
-        double x = sheet_col_x (sheet, c), y = sheet_row_y (sheet, rr);
-
-        memset (&s, 0, sizeof s);
-        s.blip = first_blip + (int) i + 1;
-        s.col1 = pic->col; s.row1 = pic->row;
-        s.dx1 = pic->dx / MAX (o42_sheet_col_width (sheet, pic->col), 1);
-        s.dy1 = pic->dy / MAX (o42_sheet_row_height (sheet, pic->row), 1);
-        while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
-        while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
-        s.col2 = c; s.row2 = rr;
-        s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
-        s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
-        g_array_append_val (shapes, s);
-        g_ptr_array_add (controls, NULL);
-      }
+    /* Every object in its painting order, so that Excel, which paints
+     * a drawing in file order, shows them as office42 does. */
     {
-      GPtrArray *charts = o42_sheet_charts (sheet);
-      for (guint i = 0; i < charts->len; i++)
+      GArray *objects = o42_sheet_objects (sheet);
+
+      for (guint k = 0; k < objects->len; k++)
         {
-          const O42Chart *chart = g_ptr_array_index (charts, i);
+          const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, k);
           O42EscherShape s;
-          double x1 = sheet_col_x (sheet, chart->col) + chart->dx + chart->width;
-          double y1 = sheet_row_y (sheet, chart->row) + chart->dy + chart->height;
-          int c = chart->col, rr = chart->row;
-          double x = sheet_col_x (sheet, c), y = sheet_row_y (sheet, rr);
 
           memset (&s, 0, sizeof s);
-          s.is_chart = TRUE;
-          s.blip = (int) i;   /* which chart, for the substream */
-          s.col1 = chart->col; s.row1 = chart->row;
-          s.dx1 = chart->dx / MAX (o42_sheet_col_width (sheet, chart->col), 1);
-          s.dy1 = chart->dy / MAX (o42_sheet_row_height (sheet, chart->row), 1);
-          while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
-          while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
-          s.col2 = c; s.row2 = rr;
-          s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
-          s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
+          if (ref->type == O42_OBJECT_PICTURE)
+            {
+              const O42Picture *pic = ref->object;
+              guint i = 0;
+
+              while (i < pictures->len && g_ptr_array_index (pictures, i) != pic)
+                i++;
+              s.blip = first_blip + (int) i + 1;
+              s.rotation = pic->rotation;
+              s.flip_h = pic->flip_h;
+              s.flip_v = pic->flip_v;
+              anchor_object (sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, &s);
+              s.anchor_mode = pic->anchor;
+              g_ptr_array_add (controls, NULL);
+            }
+          else if (ref->type == O42_OBJECT_CHART)
+            {
+              const O42Chart *chart = ref->object;
+              GPtrArray *charts = o42_sheet_charts (sheet);
+              guint i = 0;
+
+              while (i < charts->len && g_ptr_array_index (charts, i) != chart)
+                i++;
+              s.is_chart = TRUE;
+              s.blip = (int) i;   /* which chart, for the substream */
+              anchor_object (sheet, chart->row, chart->col, chart->dx, chart->dy, chart->width, chart->height, &s);
+              s.anchor_mode = chart->anchor;
+              g_ptr_array_add (controls, NULL);
+            }
+          else
+            {
+              /* A form control's OBJ says what it is; a drawn shape's
+               * Escher records carry its outline, fill and line. */
+              const O42Shape *shape = ref->object;
+
+              if (o42_shape_is_control (shape->kind))
+                s.is_control = TRUE;
+              else
+                s.drawing = shape;
+              anchor_object (sheet, shape->row, shape->col, shape->dx, shape->dy, shape->width, shape->height, &s);
+              s.anchor_mode = shape->anchor;
+              g_ptr_array_add (controls, s.is_control ? (gpointer) shape : NULL);
+            }
           g_array_append_val (shapes, s);
-          g_ptr_array_add (controls, NULL);
         }
-    }
-
-    /* The form controls, anchored the way a picture is. */
-    {
-      GPtrArray *sheet_shapes = o42_sheet_shapes (sheet);
-
-      for (guint i = 0; i < sheet_shapes->len; i++)
-        {
-          const O42Shape *shape = g_ptr_array_index (sheet_shapes, i);
-          O42EscherShape s;
-          double x1, y1, x, y;
-          int c, rr;
-
-          if (!o42_shape_is_control (shape->kind))
-            continue;
-          x1 = sheet_col_x (sheet, shape->col) + shape->dx + shape->width;
-          y1 = sheet_row_y (sheet, shape->row) + shape->dy + shape->height;
-          c = shape->col; rr = shape->row;
-          x = sheet_col_x (sheet, c); y = sheet_row_y (sheet, rr);
-
-          memset (&s, 0, sizeof s);
-          s.is_control = TRUE;
-          s.col1 = shape->col; s.row1 = shape->row;
-          s.dx1 = shape->dx / MAX (o42_sheet_col_width (sheet, shape->col), 1);
-          s.dy1 = shape->dy / MAX (o42_sheet_row_height (sheet, shape->row), 1);
-          while (c < O42_MAX_COLS - 1 && x + o42_sheet_col_width (sheet, c) <= x1) { x += o42_sheet_col_width (sheet, c); c++; }
-          while (rr < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (sheet, rr) <= y1) { y += o42_sheet_row_height (sheet, rr); rr++; }
-          s.col2 = c; s.row2 = rr;
-          s.dx2 = (x1 - x) / MAX (o42_sheet_col_width (sheet, c), 1);
-          s.dy2 = (y1 - y) / MAX (o42_sheet_row_height (sheet, rr), 1);
-          g_array_append_val (shapes, s);
-          g_ptr_array_add (controls, (gpointer) shape);
-        }
+      g_array_free (objects, TRUE);
     }
 
     g_hash_table_iter_init (&iter, notes);
@@ -3841,9 +5526,10 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             begin_record (w, R_OBJ);
             put16 (w->out, 0x15); put16 (w->out, 0x12);
             put16 (w->out, ctl != NULL ? control_ot (ctl->kind)
+                           : s->drawing != NULL ? drawing_ot (s->drawing)
                            : s->is_note ? 0x19 : s->is_chart ? 0x05 : 0x08);
             put16 (w->out, i + 1);
-            put16 (w->out, ctl != NULL ? 0x0011 : s->is_note ? 0x4011 : 0x6011);
+            put16 (w->out, ctl != NULL || s->drawing != NULL ? 0x0011 : s->is_note ? 0x4011 : 0x6011);
             for (int k = 0; k < 12; k++) put8 (w->out, 0);
             if (ctl != NULL)
               put_control_records (w, sheet, ctl);
@@ -3860,22 +5546,49 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               write_control_text (w, ctl);
             if (s->is_chart)
               write_chart_substream (w, sheet, index, g_ptr_array_index (o42_sheet_charts (sheet), s->blip));
-            if (s->is_note)
-              {
-                glong n = MIN (char_count (s->note), 32000);
-                begin_record (w, R_TXO);
-                put16 (w->out, 0x0212); put16 (w->out, 0);
-                for (int k = 0; k < 6; k++) put8 (w->out, 0);
-                put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
-                end_record (w);
-                begin_record (w, R_CONTINUE);
-                put_ustr_body (w->out, s->note);
-                end_record (w);
-                begin_record (w, R_CONTINUE);
-                put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
-                put16 (w->out, n); put16 (w->out, 0); put32 (w->out, 0);
-                end_record (w);
-              }
+            {
+              /* A note's text, or what is written in a drawn shape,
+               * centred: a TXO and two CONTINUEs, the text and the
+               * one run. */
+              const char *text = s->is_note ? s->note
+                               : (s->drawing != NULL && s->drawing->kind != O42_SHAPE_LINE &&
+                                  s->drawing->kind != O42_SHAPE_ARROW) ? s->drawing->text : NULL;
+
+              if (text != NULL && *text != '\0')
+                {
+                  glong n = MIN (char_count (text), 32000);
+                  guint grbit = 0x0212, ifnt = 0;
+
+                  if (!s->is_note)
+                    {
+                      /* Bits 1-3 the horizontal alignment, 4-6 the vertical,
+                       * as Excel numbers them; the run's font is the
+                       * shape's, registered in the pre-pass. */
+                      O42HAlign ha = o42_shape_text_halign (s->drawing);
+                      O42VAlign va = o42_shape_text_valign (s->drawing);
+                      O42Fmt font;
+                      guint idx;
+
+                      grbit = ((ha == O42_HALIGN_LEFT ? 1 : ha == O42_HALIGN_RIGHT ? 3 : 2) << 1) |
+                              ((va == O42_VALIGN_TOP ? 1 : va == O42_VALIGN_MIDDLE ? 2 : 3) << 4) | 0x0200;
+                      shape_text_font (s->drawing, &font);
+                      idx = font_index (w, &font);
+                      ifnt = idx == 0 ? 0 : idx + 4;
+                    }
+                  begin_record (w, R_TXO);
+                  put16 (w->out, grbit); put16 (w->out, 0);
+                  for (int k = 0; k < 6; k++) put8 (w->out, 0);
+                  put16 (w->out, n); put16 (w->out, 16); put16 (w->out, 0); put32 (w->out, 0);
+                  end_record (w);
+                  begin_record (w, R_CONTINUE);
+                  put_ustr_body_continued (w, text, n);
+                  end_record (w);
+                  begin_record (w, R_CONTINUE);
+                  put16 (w->out, 0); put16 (w->out, ifnt); put32 (w->out, 0);
+                  put16 (w->out, n); put16 (w->out, 0); put32 (w->out, 0);
+                  end_record (w);
+                }
+            }
           }
         for (guint i = 0; i < shapes->len; i++)
           {
@@ -3907,11 +5620,56 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     }
 
   o42_sheet_get_frozen (sheet, &frozen_rows, &frozen_cols);
-  begin_record (w, R_WINDOW2);
-  put16 (w->out, 0x06B6 | (frozen_rows > 0 || frozen_cols > 0 ? 0x0108 : 0) | (index == 0 ? 0x0600 : 0));
-  put16 (w->out, 0); put16 (w->out, 0);
-  put32 (w->out, 0x40); put16 (w->out, 0); put16 (w->out, 0); put16 (w->out, 0); put32 (w->out, 0);
-  end_record (w);
+  {
+    const O42SheetView *view = o42_sheet_view (sheet);
+    guint flags = 0x0004 | 0x0020;   /* headers, the default grid colour */
+
+    if (view->gridlines) flags |= 0x0002;
+    if (view->zeros) flags |= 0x0010;
+    if (view->right_to_left) flags |= 0x0040;
+    if (view->outline_symbols) flags |= 0x0080;
+    if (frozen_rows > 0 || frozen_cols > 0) flags |= 0x0108;
+    if (view->selected) flags |= 0x0600;
+    begin_record (w, R_WINDOW2);
+    put16 (w->out, flags);
+    put16 (w->out, 0); put16 (w->out, 0);
+    put32 (w->out, 0x40); put16 (w->out, 0); put16 (w->out, view->zoom); put32 (w->out, 0);
+    end_record (w);
+    if (view->zoom != 100)
+      {
+        begin_record (w, R_SCL);
+        put16 (w->out, view->zoom); put16 (w->out, 100);
+        end_record (w);
+      }
+  }
+  if (o42_sheet_tab_colour (sheet) != O42_TAB_NO_COLOUR)
+    {
+      /* SHEETEXT: the tab's colour as a palette index, after the FRT
+       * header that names the record again. */
+      begin_record (w, R_SHEETEXT);
+      put16 (w->out, R_SHEETEXT); put16 (w->out, 0);
+      put32 (w->out, 0); put32 (w->out, 0);
+      put32 (w->out, 0x28);
+      put32 (w->out, palette_index (w, o42_sheet_tab_colour (sheet)) & 0x7F);
+      for (int k = 0; k < 20; k++) put8 (w->out, 0);
+      end_record (w);
+    }
+  {
+    /* SELECTION: the active cell and the selected range, in the pane
+     * the active cell lies in (3 when nothing is frozen). */
+    const O42SheetView *view = o42_sheet_view (sheet);
+    O42Range sel = view->selection;
+
+    begin_record (w, R_SELECTION);
+    put8 (w->out, frozen_rows > 0 || frozen_cols > 0 ? 0 : 3);
+    put16 (w->out, MIN (view->active_row, O42_XLS_MAX_ROWS - 1));
+    put16 (w->out, MIN (view->active_col, O42_XLS_MAX_COLS - 1));
+    put16 (w->out, 0);
+    put16 (w->out, 1);
+    put16 (w->out, MIN (sel.row0, O42_XLS_MAX_ROWS - 1)); put16 (w->out, MIN (sel.row1, O42_XLS_MAX_ROWS - 1));
+    put8 (w->out, MIN (sel.col0, O42_XLS_MAX_COLS - 1)); put8 (w->out, MIN (sel.col1, O42_XLS_MAX_COLS - 1));
+    end_record (w);
+  }
   if (frozen_rows > 0 || frozen_cols > 0)
     {
       begin_record (w, R_PANE);
@@ -3923,20 +5681,80 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     }
 
   {
+    /* A MERGECELLS holds 1027 ranges; the rest go in another.  A merge
+     * past the .xls grid is left out, as its cells are. */
     GArray *merges = o42_sheet_merges (sheet);
-    if (merges->len > 0)
+    guint in_record = 0;
+    gsize count_at = 0;
+
+    for (guint i = 0; i < merges->len; i++)
       {
-        begin_record (w, R_MERGECELLS);
-        put16 (w->out, merges->len);
-        for (guint i = 0; i < merges->len; i++)
+        const O42Range *m = &g_array_index (merges, O42Range, i);
+
+        if (m->row1 >= O42_XLS_MAX_ROWS || m->col1 >= O42_XLS_MAX_COLS)
+          continue;
+        if (in_record == 0)
           {
-            const O42Range *m = &g_array_index (merges, O42Range, i);
-            put16 (w->out, m->row0); put16 (w->out, m->row1);
-            put16 (w->out, m->col0); put16 (w->out, m->col1);
+            begin_record (w, R_MERGECELLS);
+            count_at = w->out->len;
+            put16 (w->out, 0);
+          }
+        put16 (w->out, m->row0); put16 (w->out, m->row1);
+        put16 (w->out, m->col0); put16 (w->out, m->col1);
+        in_record++;
+        if (in_record == 1027 || i + 1 == merges->len)
+          {
+            w->out->data[count_at] = in_record & 0xff;
+            w->out->data[count_at + 1] = (in_record >> 8) & 0xff;
+            end_record (w);
+            in_record = 0;
+          }
+      }
+    if (in_record > 0)
+      {
+        w->out->data[count_at] = in_record & 0xff;
+        w->out->data[count_at + 1] = (in_record >> 8) & 0xff;
+        end_record (w);
+      }
+  }
+  /* Hyperlinks: an HLINK a cell, a URL as a URL moniker and a place
+   * in the book as a location string. */
+  {
+    GHashTableIter it;
+    gpointer k, v;
+
+    g_hash_table_iter_init (&it, o42_sheet_links (sheet));
+    while (g_hash_table_iter_next (&it, &k, &v))
+      {
+        guint64 key = *(guint64 *) k;
+        const char *target = v;
+        int row = o42_key_row (key), col = o42_key_col (key);
+        gboolean internal = target[0] == '#';
+
+        if (row >= O42_XLS_MAX_ROWS || col >= O42_XLS_MAX_COLS || target[1] == '\0')
+          continue;
+        begin_record (w, R_HLINK);
+        put16 (w->out, row); put16 (w->out, row);
+        put16 (w->out, col); put16 (w->out, col);
+        g_byte_array_append (w->out, HL_STD_GUID, 16);
+        put32 (w->out, 2);
+        put32 (w->out, internal ? HL_HAS_LOCATION : HL_HAS_MONIKER | 0x0002);
+        if (internal)
+          put_hlink_string (w->out, target + 1);
+        else
+          {
+            glong n = 0;
+            gunichar2 *u = g_utf8_to_utf16 (target, -1, NULL, &n, NULL);
+            g_byte_array_append (w->out, HL_URL_GUID, 16);
+            put32 (w->out, (n + 1) * 2);
+            for (glong i = 0; i < n; i++) put16 (w->out, u[i]);
+            put16 (w->out, 0);
+            g_free (u);
           }
         end_record (w);
       }
   }
+
   /* Conditional formats: a CONDFMT per rule, each with one CF whose
    * differential format carries only the masked fields. */
   {
@@ -3951,16 +5769,48 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         gboolean pattern = (c->mask & O42_FMT_FILL) != 0 && c->fmt.fill != O42_FILL_NONE;
         guint32 flags = 0x003FFFFFu;   /* everything "not changed" to start */
         GByteArray *f1 = g_byte_array_new (), *f2 = g_byte_array_new ();
+        gboolean numfmt = (c->mask & O42_FMT_NUMBER) != 0;
+        const char *numcode = NULL;
         O42Node num;
 
         memset (&num, 0, sizeof num);
         num.type = O42_NODE_NUMBER;
-        num.as.number = c->value;
-        compile (w, &num, f1, FALSE, index, NULL);
-        if (two)
+        /* The operands: a formula as the cell in the range's top-left
+         * corner reads it, or a number; relative references go out as
+         * offsets from that corner, as Excel keeps them. */
+        w->anchor_row = c->range.row0;
+        w->anchor_col = c->range.col0;
+        if (c->expr1 != NULL)
+          {
+            O42Node *tree = o42_formula_parse (c->expr1 + (c->expr1[0] == '=' ? 1 : 0));
+            if (tree != NULL) compile (w, tree, f1, FALSE, index, NULL);
+            o42_node_free (tree);
+          }
+        else if (!c->is_formula)
+          {
+            num.as.number = c->value;
+            compile (w, &num, f1, FALSE, index, NULL);
+          }
+        if (two && c->expr2 != NULL)
+          {
+            O42Node *tree = o42_formula_parse (c->expr2 + (c->expr2[0] == '=' ? 1 : 0));
+            if (tree != NULL) compile (w, tree, f2, FALSE, index, NULL);
+            o42_node_free (tree);
+          }
+        else if (two)
           {
             num.as.number = c->value2;
             compile (w, &num, f2, FALSE, index, NULL);
+          }
+        char *numcode_owned = NULL;
+        w->anchor_row = w->anchor_col = -1;
+        if (numfmt)
+          {
+            /* The rule's number format as its code, which is what the
+             * DXF's user-format block carries. */
+            numcode_owned = o42_fmt_format_string (&c->fmt);
+            numcode = numcode_owned;
+            if (numcode == NULL || *numcode == '\0') numfmt = FALSE;
           }
 
         begin_record (w, R_CONDFMT);
@@ -3987,13 +5837,24 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             flags &= ~((1u << 16) | (1u << 17) | (1u << 18));
           }
 
+        if (numfmt) flags |= 1u << 25;
         begin_record (w, R_CF);
-        put8 (w->out, 1);
-        put8 (w->out, ops[c->op]);
+        put8 (w->out, c->is_formula ? 2 : 1);
+        put8 (w->out, c->is_formula ? 0 : ops[c->op]);
         put16 (w->out, f1->len);
-        put16 (w->out, two ? f2->len : 0);
+        put16 (w->out, two && !c->is_formula ? f2->len : 0);
         put32 (w->out, flags);
-        put16 (w->out, 0);
+        put16 (w->out, numfmt ? 0x0001 : 0);   /* the number format is given as its code */
+        if (numfmt)
+          {
+            /* The user-format block: its byte count, then the code as a
+             * counted unicode string. */
+            GByteArray *code = g_byte_array_new ();
+            put_ustr16 (code, numcode);
+            put8 (w->out, MIN (code->len + 1, 255));
+            g_byte_array_append (w->out, code->data, MIN (code->len, 254));
+            g_byte_array_unref (code);
+          }
         if (font)
           {
             gsize start = w->out->len;
@@ -4029,11 +5890,12 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             put16 (w->out, palette_index (w, c->fmt.fill) | (0x41 << 7));
           }
         g_byte_array_append (w->out, f1->data, f1->len);
-        if (two)
+        if (two && !c->is_formula)
           g_byte_array_append (w->out, f2->data, f2->len);
         end_record (w);
         g_byte_array_unref (f1);
         g_byte_array_unref (f2);
+        g_free (numcode_owned);
       }
   }
 
@@ -4049,12 +5911,30 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
         for (guint i = 0; i < rules->len; i++)
           {
             const O42Validation *v = &g_array_index (rules, O42Validation, i);
+            gboolean has_prompt = (v->prompt != NULL && *v->prompt != '\0') ||
+                                  (v->prompt_title != NULL && *v->prompt_title != '\0');
             guint32 flags = ((guint) v->kind & 0x0F) | (((guint) v->op & 0x0F) << 20) |
-                            (v->allow_blank ? 0x100 : 0) | 0x200 | 0x80000;
+                            (((guint) v->style & 0x07) << 4) |
+                            (v->allow_blank ? 0x100 : 0) | 0x200 | 0x80000 | (has_prompt ? 0x40000 : 0);
             GByteArray *f1 = g_byte_array_new (), *f2 = g_byte_array_new ();
             O42Node *tree;
+            O42Range list_range;
+            gsize list_used = 0;
+            gboolean list_is_range = v->kind == O42_VALID_LIST && v->value != NULL &&
+                                     o42_ref_parse (v->value + (v->value[0] == '='), &list_range.row0, &list_range.col0, &list_used) &&
+                                     v->value[(v->value[0] == '=') + list_used] == ':';
 
-            if (v->kind == O42_VALID_LIST)
+            w->anchor_row = v->range.row0;
+            w->anchor_col = v->range.col0;
+
+            if (v->kind == O42_VALID_LIST && list_is_range)
+              {
+                /* A list read from cells: the range as a formula. */
+                tree = o42_formula_parse (v->value + (v->value[0] == '='));
+                if (tree != NULL) compile (w, tree, f1, FALSE, index, NULL);
+                o42_node_free (tree);
+              }
+            else if (v->kind == O42_VALID_LIST)
               {
                 /* The list is one string with a NUL between entries. */
                 const char *list = v->value ? v->value : "";
@@ -4080,25 +5960,34 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               }
             else
               {
-                tree = o42_formula_parse (v->value && v->value[0] ? v->value : "0");
-                compile (w, tree, f1, FALSE, index, NULL);
+                const char *f = v->value && v->value[0] ? v->value : "0";
+                tree = o42_formula_parse (f[0] == '=' ? f + 1 : f);
+                if (tree != NULL) compile (w, tree, f1, FALSE, index, NULL);
                 o42_node_free (tree);
               }
             if (v->value2 != NULL && v->value2[0] != '\0')
               {
-                tree = o42_formula_parse (v->value2);
-                compile (w, tree, f2, FALSE, index, NULL);
+                tree = o42_formula_parse (v->value2[0] == '=' ? v->value2 + 1 : v->value2);
+                if (tree != NULL) compile (w, tree, f2, FALSE, index, NULL);
                 o42_node_free (tree);
               }
 
+            w->anchor_row = w->anchor_col = -1;
             begin_record (w, R_DV);
             put32 (w->out, flags);
-            for (int k = 0; k < 3; k++)
-              { put16 (w->out, 1); put8 (w->out, 0); put8 (w->out, 0); }   /* empty strings, as Excel writes them */
-            if (v->message != NULL && v->message[0] != '\0')
-              put_ustr16 (w->out, v->message);
-            else
-              { put16 (w->out, 1); put8 (w->out, 0); put8 (w->out, 0); }
+            {
+              /* The four texts, in the record's order -- the prompt's
+               * title, the error's title, the prompt, the error; an
+               * empty one is a single NUL, as Excel writes them. */
+              const char *texts[4] = { v->prompt_title, v->title, v->prompt, v->message };
+              for (int k = 0; k < 4; k++)
+                {
+                  if (texts[k] != NULL && texts[k][0] != '\0')
+                    put_ustr16 (w->out, texts[k]);
+                  else
+                    { put16 (w->out, 1); put8 (w->out, 0); put8 (w->out, 0); }
+                }
+            }
             put16 (w->out, f1->len); put16 (w->out, 0);
             g_byte_array_append (w->out, f1->data, f1->len);
             put16 (w->out, f2->len); put16 (w->out, 0);
@@ -4117,9 +6006,68 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
     O42Range filter;
     if (o42_sheet_get_autofilter (sheet, &filter))
       {
+        gboolean any = FALSE;
+
+        for (int col = filter.col0; col <= filter.col1; col++)
+          if (o42_sheet_autofilter_choice (sheet, col) != NULL)
+            any = TRUE;
+        if (any)
+          {
+            begin_record (w, R_FILTERMODE);
+            end_record (w);
+          }
         begin_record (w, R_AUTOFILTERINFO);
         put16 (w->out, filter.col1 - filter.col0 + 1);
         end_record (w);
+        /* Each column's criterion: a comparison and a number or a
+         * string in the first DOPER, the second left empty. */
+        for (int col = filter.col0; col <= filter.col1; col++)
+          {
+            const char *choice = o42_sheet_autofilter_choice (sheet, col);
+            static const char *prefixes[] = { "<>", ">=", "<=", "=", ">", "<" };
+            static const guint8 signs[] = { 5, 6, 3, 2, 4, 1 };
+            guint sign = 2;
+            const char *value;
+            char *tail = NULL;
+            double number;
+
+            if (choice == NULL)
+              continue;
+            value = choice;
+            for (guint k = 0; k < G_N_ELEMENTS (prefixes); k++)
+              if (g_str_has_prefix (choice, prefixes[k]))
+                { sign = signs[k]; value = choice + strlen (prefixes[k]); break; }
+            number = g_ascii_strtod (value, &tail);
+            begin_record (w, R_AUTOFILTER);
+            put16 (w->out, col - filter.col0);
+            put16 (w->out, 0);
+            if (*value == '\0')
+              {
+                /* Blanks, or everything but. */
+                put8 (w->out, sign == 5 ? 0x0E : 0x0C); put8 (w->out, sign);
+                for (int k = 0; k < 8; k++) put8 (w->out, 0);
+              }
+            else if (tail != NULL && *tail == '\0' && tail != value)
+              {
+                put8 (w->out, 4); put8 (w->out, sign);
+                put_double (w->out, number);
+              }
+            else
+              {
+                put8 (w->out, 6); put8 (w->out, sign);
+                put32 (w->out, 0);
+                put8 (w->out, MIN (char_count (value), 255));
+                put8 (w->out, 0); put16 (w->out, 0);
+              }
+            for (int k = 0; k < 10; k++) put8 (w->out, 0);   /* the second DOPER: none */
+            if (*value != '\0' && !(tail != NULL && *tail == '\0' && tail != value))
+              {
+                char *cut = g_utf8_substring (value, 0, MIN (char_count (value), 255));
+                put_ustr_body (w->out, cut);
+                g_free (cut);
+              }
+            end_record (w);
+          }
       }
   }
 
@@ -4165,10 +6113,10 @@ write_xf (Writer *w, const O42Fmt *f, gboolean style)
     put16 (w->out, font == 0 ? 0 : font + 4);
   }
   put16 (w->out, format_id (w, f));
-  put16 (w->out, style ? 0xFFF5 : 0x0001);
+  put16 (w->out, style ? 0xFFF5 : (f->locked ? 0x0001 : 0) | (f->hidden ? 0x0002 : 0));
   put8 (w->out, style ? 0x20 : align);
   put8 (w->out, style ? 0 : (f->rotation >= 0 ? f->rotation : 90 - f->rotation));
-  put8 (w->out, style ? 0 : (f->indent & 0x0F));
+  put8 (w->out, style ? 0 : ((f->indent & 0x0F) | (f->shrink ? 0x10 : 0)));
   put8 (w->out, style ? 0x00 : 0xF8);
   {
     guint32 b1 = xls_border_code (f->border_style[O42_SIDE_LEFT]) | (xls_border_code (f->border_style[O42_SIDE_RIGHT]) << 4) |
@@ -4181,10 +6129,15 @@ write_xf (Writer *w, const O42Fmt *f, gboolean style)
     guint32 b2 = 0;
     if (f->border_top) b2 |= xls_border_colour (w, f->border_colour[O42_SIDE_TOP]);
     if (f->border_bottom) b2 |= (guint32) xls_border_colour (w, f->border_colour[O42_SIDE_BOTTOM]) << 7;
-    if (f->fill != O42_FILL_NONE) b2 |= 1u << 26;   /* solid */
+    if (f->pattern != O42_PATTERN_NONE) b2 |= xls_fls_code ((O42Pattern) f->pattern) << 26;
+    else if (f->fill != O42_FILL_NONE) b2 |= 1u << 26;   /* solid */
     put32 (w->out, b2);
   }
-  put16 (w->out, f->fill != O42_FILL_NONE ? (palette_index (w, f->fill) | (0x41 << 7)) : (0x40 | (0x41 << 7)));
+  if (f->pattern != O42_PATTERN_NONE)
+    put16 (w->out, palette_index (w, f->pattern_colour) |
+                   ((f->fill != O42_FILL_NONE ? palette_index (w, f->fill) : 0x41) << 7));
+  else
+    put16 (w->out, f->fill != O42_FILL_NONE ? (palette_index (w, f->fill) | (0x41 << 7)) : (0x40 | (0x41 << 7)));
   end_record (w);
 }
 
@@ -4201,13 +6154,15 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   O42Fmt plain;
 
   memset (&w, 0, sizeof w);
+  w.anchor_row = w.anchor_col = -1;
   w.book = book;
   w.out = g_byte_array_new ();
   w.fonts = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
   w.xfs = g_array_new (FALSE, FALSE, sizeof (O42Fmt));
   w.formats = g_ptr_array_new_with_free_func (g_free);
   w.sst = g_ptr_array_new_with_free_func (g_free);
-  w.sst_idx = g_hash_table_new (g_str_hash, g_str_equal);
+  w.sst_idx = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  w.sst_runs = g_ptr_array_new_with_free_func ((GDestroyNotify) unref_array_or_null);
   w.sst_offsets = g_array_new (FALSE, FALSE, sizeof (gsize));
   w.palette = g_array_new (FALSE, FALSE, sizeof (guint32));
   w.addin_names = g_ptr_array_new_with_free_func (g_free);
@@ -4235,6 +6190,22 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
       g_array_sort (g.cells, compare_cells);
       g_ptr_array_add (sheet_cells, g.cells);
     }
+  /* A drawn shape's text has a font of its own, which must be on record
+   * before the FONT records go out. */
+  for (int i = 0; i < n_sheets; i++)
+    {
+      GPtrArray *shapes = o42_sheet_shapes (o42_book_sheet (book, i));
+      for (guint k = 0; k < shapes->len; k++)
+        {
+          const O42Shape *sh = g_ptr_array_index (shapes, k);
+          O42Fmt font;
+
+          if (o42_shape_is_control (sh->kind) || sh->text == NULL || *sh->text == '\0')
+            continue;
+          shape_text_font (sh, &font);
+          font_index (&w, &font);
+        }
+    }
   /* Custom number formats must be on record before the XFs name them. */
   for (guint i = 0; i < w.xfs->len; i++)
     format_id (&w, &g_array_index (w.xfs, O42Fmt, i));
@@ -4260,11 +6231,23 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   begin_record (&w, R_INTERFACEHDR); put16 (w.out, 0x04B0); end_record (&w);
   begin_record (&w, R_INTERFACEEND); end_record (&w);
   begin_record (&w, R_CODEPAGE); put16 (w.out, 0x04B0); end_record (&w);
+  /* A 1904 book's serials are 1904's; the record says so, and a reader
+   * that converts them (as ours does) starts from the right day. */
+  if (o42_book_date_1904 (book))
+    { begin_record (&w, R_DATEMODE); put16 (w.out, 1); end_record (&w); }
 
-  begin_record (&w, R_WINDOW1);
-  put16 (w.out, 0x0168); put16 (w.out, 0x001E); put16 (w.out, 0x3A5C); put16 (w.out, 0x1C8F);
-  put16 (w.out, 0x0038); put16 (w.out, 0); put16 (w.out, 0); put16 (w.out, 1); put16 (w.out, 0x0258);
-  end_record (&w);
+  {
+    /* WINDOW1: the tab the book opens on, and the first tab shown. */
+    int active_tab = 0;
+
+    for (int i = 0; i < n_sheets; i++)
+      if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+        { active_tab = i; break; }
+    begin_record (&w, R_WINDOW1);
+    put16 (w.out, 0x0168); put16 (w.out, 0x001E); put16 (w.out, 0x3A5C); put16 (w.out, 0x1C8F);
+    put16 (w.out, 0x0038); put16 (w.out, active_tab); put16 (w.out, 0); put16 (w.out, 1); put16 (w.out, 0x0258);
+    end_record (&w);
+  }
 
   /* Fonts: the default four times (index 4 is skipped by Excel), then
    * the rest. */
@@ -4293,6 +6276,12 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   put16 (w.out, 0x8000); put8 (w.out, 0); put8 (w.out, 0xFF);
   end_record (&w);
 
+  /* The tabs' colours are palette entries too, and the palette goes
+   * out before the sheets do. */
+  for (int i = 0; i < n_sheets; i++)
+    if (o42_sheet_tab_colour (o42_book_sheet (book, i)) != O42_TAB_NO_COLOUR)
+      palette_index (&w, o42_sheet_tab_colour (o42_book_sheet (book, i)));
+
   if (w.palette->len > 0)
     {
       begin_record (&w, R_PALETTE);
@@ -4313,7 +6302,8 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         g_array_append_val (boundsheet_at, at);
       }
       put32 (w.out, 0);
-      put8 (w.out, 0); put8 (w.out, 0);
+      put8 (w.out, o42_sheet_hidden (o42_book_sheet (book, i)) ? 0x01 : 0);          /* hidden */
+      put8 (w.out, o42_sheet_is_chart_sheet (o42_book_sheet (book, i)) ? 0x02 : 0);   /* the sheet's type */
       put_ustr8 (w.out, o42_sheet_get_name (o42_book_sheet (book, i)));
       end_record (&w);
     }
@@ -4392,6 +6382,66 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         put16 (w.out, filter.col0); put16 (w.out, filter.col1);
         end_record (&w);
       }
+    /* Print_Area (6) and Print_Titles (7), built-in and sheet-scoped. */
+    for (int i = 0; i < n_sheets; i++)
+      {
+        const O42PrintSetup *ps = o42_sheet_print_setup (o42_book_sheet (book, i));
+        int parts = (ps->title_rows > 0 ? 1 : 0) + (ps->title_cols > 0 ? 1 : 0);
+
+        if (ps->has_area)
+          {
+            int n = MAX (ps->n_areas, 1);
+
+            begin_record (&w, R_NAME);
+            put16 (w.out, 0x0020); put8 (w.out, 0);
+            put8 (w.out, 1);
+            put16 (w.out, 11 * n + (n - 1));     /* the areas, a ptgUnion between */
+            put16 (w.out, i + 1); put16 (w.out, i + 1);
+            put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0);
+            put8 (w.out, 0); put8 (w.out, 0x06);
+            for (int k = 0; k < n; k++)
+              {
+                const O42Range *area = ps->n_areas > 0 ? &ps->areas[k] : &ps->area;
+
+                put8 (w.out, 0x3B);
+                put16 (w.out, i);
+                put16 (w.out, MIN (area->row0, 65535)); put16 (w.out, MIN (area->row1, 65535));
+                put16 (w.out, MIN (area->col0, 255)); put16 (w.out, MIN (area->col1, 255));
+                if (k > 0)
+                  put8 (w.out, 0x10);
+              }
+            end_record (&w);
+          }
+        if (parts > 0)
+          {
+            begin_record (&w, R_NAME);
+            put16 (w.out, 0x0020); put8 (w.out, 0);
+            put8 (w.out, 1);
+            put16 (w.out, parts == 2 ? 23 : 11);
+            put16 (w.out, i + 1); put16 (w.out, i + 1);
+            put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0);
+            put8 (w.out, 0); put8 (w.out, 0x07);
+            if (ps->title_cols > 0)
+              {
+                put8 (w.out, 0x3B);
+                put16 (w.out, i);
+                put16 (w.out, 0); put16 (w.out, 65535);
+                put16 (w.out, MIN (ps->title_col_first, 255));
+                put16 (w.out, MIN (ps->title_col_first + ps->title_cols - 1, 255));
+              }
+            if (ps->title_rows > 0)
+              {
+                put8 (w.out, 0x3B);
+                put16 (w.out, i);
+                put16 (w.out, MIN (ps->title_row_first, 65535));
+                put16 (w.out, MIN (ps->title_row_first + ps->title_rows - 1, 65535));
+                put16 (w.out, 0); put16 (w.out, 255);
+              }
+            if (parts == 2)
+              put8 (w.out, 0x10);
+            end_record (&w);
+          }
+      }
   }
 
   /* The drawing group: every sheet's pictures in one store, and the
@@ -4406,9 +6456,27 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
                      + (int) o42_sheet_charts (sheet)->len;
         for (guint k = 0; k < pictures->len; k++)
           {
+            /* The store holds PNG, JPEG and the two Windows metafiles;
+             * anything else (a GIF, a BMP, a TIFF) is re-encoded as
+             * PNG, since a PNG label on other bytes shows Excel
+             * nothing. */
             const O42Picture *pic = g_ptr_array_index (pictures, k);
-            g_ptr_array_add (w.images, g_bytes_ref (pic->data));
-            g_ptr_array_add (w.image_formats, (gpointer) (pic->format ? pic->format : "png"));
+            const char *fmt = pic->format ? pic->format : "png";
+            GBytes *bytes = g_bytes_ref (pic->data);
+
+            if (strcmp (fmt, "png") != 0 && strcmp (fmt, "jpeg") != 0 && strcmp (fmt, "jpg") != 0 &&
+                strcmp (fmt, "emf") != 0 && strcmp (fmt, "wmf") != 0)
+              {
+                GBytes *png = o42_image_as_png (bytes);
+                if (png != NULL)
+                  {
+                    g_bytes_unref (bytes);
+                    bytes = png;
+                    fmt = "png";
+                  }
+              }
+            g_ptr_array_add (w.images, bytes);
+            g_ptr_array_add (w.image_formats, (gpointer) g_intern_string (fmt));
           }
         g_array_append_val (w.shapes_per_sheet, shapes);
         if (shapes > 0) any = TRUE;
@@ -4432,17 +6500,18 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   }
 
   /* The shared strings, continued into fresh records when one fills.
-   * A string longer than a record is cut, which loses text past 8000
-   * characters -- rare enough in a spreadsheet. */
+   * A string's length and flags stay together with at least one of its
+   * characters; the rest may go on into the next record, which begins
+   * with the flags again.  Excel holds a cell to 32767 characters. */
   begin_record (&w, R_SST);
   put32 (w.out, w.sst->len);
   put32 (w.out, w.sst->len);
   for (guint i = 0; i < w.sst->len; i++)
     {
       const char *text = g_ptr_array_index (w.sst, i);
-      glong n = MIN (char_count (text), 8000);
-      gsize need = 3 + (is_latin1 (text) ? n : n * 2);
-      if (w.out->len - w.record_start - 4 + need > 8224)
+      GArray *pairs = g_ptr_array_index (w.sst_runs, i);
+      glong n = MIN (char_count (text), 32767);
+      if (record_len (&w) + 7 > RECORD_MAX)
         {
           end_record (&w);
           begin_record (&w, R_CONTINUE);
@@ -4453,13 +6522,25 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         g_array_append_val (w.sst_offsets, rec);
       }
       put16 (w.out, n);
-      if (n == char_count (text))
-        put_ustr_body (w.out, text);
+      if (pairs == NULL)
+        put_ustr_body_continued (&w, text, n);
       else
         {
-          char *cut = g_utf8_substring (text, 0, n);
-          put_ustr_body (w.out, cut);
-          g_free (cut);
+          /* A rich string: the run count goes between the flags and
+           * the characters, and the runs after them, four bytes each,
+           * never split across records. */
+          gsize flags_at;
+          put_ustr_body_continued_rich (&w, text, n, pairs->len / 2, &flags_at);
+          for (guint k = 0; k + 1 < pairs->len; k += 2)
+            {
+              if (record_len (&w) + 4 > RECORD_MAX)
+                {
+                  end_record (&w);
+                  begin_record (&w, R_CONTINUE);
+                }
+              put16 (w.out, g_array_index (pairs, guint16, k));
+              put16 (w.out, g_array_index (pairs, guint16, k + 1));
+            }
         }
     }
   end_record (&w);
@@ -4487,14 +6568,21 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
       w.out->data[at + 1] = (pos >> 8) & 0xff;
       w.out->data[at + 2] = (pos >> 16) & 0xff;
       w.out->data[at + 3] = (pos >> 24) & 0xff;
-      write_sheet (&w, o42_book_sheet (book, i), i, g_ptr_array_index (sheet_cells, i));
+      if (o42_sheet_is_chart_sheet (o42_book_sheet (book, i)) &&
+          o42_sheet_the_chart (o42_book_sheet (book, i)) != NULL)
+        write_chart_substream (&w, o42_book_sheet (book, i), i, o42_sheet_the_chart (o42_book_sheet (book, i)));
+      else
+        write_sheet (&w, o42_book_sheet (book, i), i, g_ptr_array_index (sheet_cells, i));
     }
 
   stream = g_byte_array_free_to_bytes (w.out);
   {
-    const char *names[1] = { "Workbook" };
-    GBytes *contents[1] = { stream };
-    whole = o42_ole2_build (names, contents, 1);
+    const char *names[3] = { "Workbook", "\005SummaryInformation", "\005DocumentSummaryInformation" };
+    GBytes *contents[3] = { stream, write_summary_information (book, FALSE),
+                            write_summary_information (book, TRUE) };
+    whole = o42_ole2_build (names, contents, 3);
+    g_bytes_unref (contents[1]);
+    g_bytes_unref (contents[2]);
   }
   ok = g_file_replace_contents (file, g_bytes_get_data (whole, NULL), g_bytes_get_size (whole),
                                 NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);
@@ -4522,6 +6610,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   g_clear_pointer (&w.xf_index, g_hash_table_unref);
   g_ptr_array_unref (w.formats);
   g_hash_table_unref (w.sst_idx);
+  g_ptr_array_unref (w.sst_runs);
   g_ptr_array_unref (w.sst);
   g_array_unref (w.sst_offsets);
   g_array_unref (w.palette);

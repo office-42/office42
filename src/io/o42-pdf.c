@@ -21,10 +21,6 @@
 /* Export                                                                  */
 /* ====================================================================== */
 
-/* Landscape US Letter with half-inch margins, in points. */
-#define PAGE_W   792.0
-#define PAGE_H   612.0
-#define MARGIN    36.0
 #define PX_TO_PT   0.75      /* the grid lays out at 96 dpi; PDF is 72 */
 
 typedef struct {
@@ -42,6 +38,12 @@ make_bands (O42Sheet *sheet, int from, int to, gboolean columns, double limit_px
   Band band = { from, from, 0.0 };
   double used = 0.0;
   double pos = 0.0;
+
+  /* The offset is from the sheet's edge, so that an object placed by
+   * its column and row lands right on a band that starts at column E. */
+  for (int i = 0; i < from; i++)
+    pos += columns ? o42_sheet_col_width (sheet, i) : o42_sheet_row_height (sheet, i);
+  band.offset = pos;
 
   for (int i = from; i <= to; i++)
     {
@@ -67,24 +69,42 @@ make_bands (O42Sheet *sheet, int from, int to, gboolean columns, double limit_px
   return bands;
 }
 
+/* A note printed at the end of the sheet: where it was, and what it
+ * said, as Excel lists them. */
+typedef struct {
+  int    row, col;
+  char  *text;
+  double height;     /* points, laid out at the body's width */
+} NoteLine;
+
+/* One print area's pages: its column bands by its row bands. */
+typedef struct {
+  GArray *col_bands;
+  GArray *row_bands;
+} Region;
+
 struct _O42Pages {
   O42Sheet *sheet;
-  GArray   *col_bands;
-  GArray   *row_bands;
+  const O42PrintSetup *setup;
+  GArray   *regions;      /* Region: one per print area, one when there is none */
   char     *document;     /* for &F */
-  double    header_h;     /* pixels reserved above the cells, 0 for none */
-  double    footer_h;
-  double    headings_w;   /* row numbers down the left, 0 for none */
+  double    paper_w, paper_h;         /* points, as printed */
+  double    body_x, body_y;           /* the margins' corner, points */
+  double    body_w, body_h;           /* inside the margins, points */
+  double    headings_w;   /* row numbers down the left, pixels, 0 for none */
   double    headings_h;   /* column letters across the top */
   double    titles_h;     /* the repeated rows */
-  int       title_rows;
-  double    page_w_px, page_h_px;
+  double    titles_w;     /* the repeated columns */
+  int       title_row0, title_row1;   /* the repeated rows, row1 < row0 for none */
+  int       title_col0, title_col1;
   double    scale;        /* 1.0 for life size */
+  GArray   *notes;        /* NoteLine, in row order, for notes at the end */
+  GArray   *note_pages;   /* int: the first note of each page after the cells */
 };
 
-#define HF_H        22.0     /* a header or footer line, in pixels */
 #define HEADING_W   40.0
 #define HEADING_H   20.0
+#define NOTE_W     160.0     /* a note shown beside its cell, in pixels */
 
 static cairo_status_t
 write_to_stream (void *closure, const unsigned char *data, unsigned int length)
@@ -106,27 +126,77 @@ set_rgb (cairo_t *cr, guint32 colour)
                         (colour & 0xff) / 255.0);
 }
 
+/* How far a label may run on past its cell over empty neighbours,
+ * within the band: to the right, or to the left. */
+static double
+spill_extent (O42Sheet *sheet, const Band *cols, int row, int col, gboolean rightwards)
+{
+  double extra = 0.0;
+
+  if (rightwards)
+    for (int cc = col + 1; cc <= cols->last; cc++)
+      {
+        if (!o42_sheet_is_empty (sheet, row, cc))
+          break;
+        extra += o42_sheet_col_width (sheet, cc);
+      }
+  else
+    for (int cc = col - 1; cc >= cols->first; cc--)
+      {
+        if (!o42_sheet_is_empty (sheet, row, cc))
+          break;
+        extra += o42_sheet_col_width (sheet, cc);
+      }
+  return extra;
+}
+
+static void
+note_box (cairo_t *cr, PangoLayout *layout, const char *text, double x, double y)
+{
+  PangoFontDescription *desc = pango_font_description_from_string ("Tahoma 8");
+  int tw, th;
+
+  pango_layout_set_font_description (layout, desc);
+  pango_layout_set_width (layout, (int) (NOTE_W - 8) * PANGO_SCALE);
+  pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
+  pango_layout_set_text (layout, text, -1);
+  pango_layout_get_pixel_size (layout, &tw, &th);
+  cairo_set_source_rgb (cr, 1.0, 1.0, 0.88);
+  cairo_rectangle (cr, x, y, NOTE_W, th + 8);
+  cairo_fill_preserve (cr);
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  cairo_set_line_width (cr, 0.75);
+  cairo_stroke (cr);
+  cairo_move_to (cr, x + 4, y + 4);
+  pango_cairo_show_layout (cr, layout);
+  pango_layout_set_width (layout, -1);
+  pango_font_description_free (desc);
+}
+
 /* One page: the cells of a column band by a row band, in sheet pixels with
  * the band's corner at the origin. */
 static void
 draw_page (cairo_t      *cr,
            O42Sheet     *sheet,
+           const O42PrintSetup *setup,
            const Band   *cols,
            const Band   *rows,
-           PangoLayout  *layout,
-           gboolean      gridlines)
+           PangoLayout  *layout)
 {
   double x, y;
   double band_w = 0.0, band_h = 0.0;
+  gboolean plain = setup->black_white;
+  gboolean draft = setup->draft;
 
   for (int c = cols->first; c <= cols->last; c++)
     band_w += o42_sheet_col_width (sheet, c);
   for (int r = rows->first; r <= rows->last; r++)
     band_h += o42_sheet_row_height (sheet, r);
 
-  /* Fills. */
+  /* Fills: none in black and white, which is what Excel means by it,
+   * and none in draft. */
   y = 0.0;
-  for (int r = rows->first; r <= rows->last; r++)
+  for (int r = rows->first; !plain && !draft && r <= rows->last; r++)
     {
       double h = o42_sheet_row_height (sheet, r);
 
@@ -147,7 +217,7 @@ draw_page (cairo_t      *cr,
     }
 
   /* Gridlines, light, the way Excel prints them when asked to. */
-  if (gridlines)
+  if (setup->gridlines && !draft)
     {
       cairo_set_source_rgb (cr, 0.75, 0.75, 0.75);
       cairo_set_line_width (cr, 0.5);
@@ -186,6 +256,11 @@ draw_page (cairo_t      *cr,
           PangoFontDescription *desc;
           int tw, th;
           double tx, ty;
+          O42HAlign halign;
+          gboolean is_text;
+          O42FormatLayout flayout;
+          double fill_left = 0, fill_right = 0, fill_gap = 0;
+          gboolean filled = FALSE;
 
           o42_sheet_get_value (sheet, r, c, &value);
           if (value.type == O42_VALUE_EMPTY)
@@ -193,6 +268,19 @@ draw_page (cairo_t      *cr,
               o42_value_clear (&value);
               x += w;
               continue;
+            }
+
+          /* Errors as the setup asks: blank, dashes, #N/A, or as shown. */
+          if (value.type == O42_VALUE_ERROR && setup->errors != O42_PRINT_ERRORS_SHOWN)
+            {
+              o42_value_clear (&value);
+              if (setup->errors == O42_PRINT_ERRORS_BLANK)
+                {
+                  x += w;
+                  continue;
+                }
+              value = setup->errors == O42_PRINT_ERRORS_DASHES ? o42_value_text ("--")
+                                                                : o42_value_error (O42_ERR_NA);
             }
 
           /* A merged range prints as one cell, from its top-left corner;
@@ -223,7 +311,9 @@ draw_page (cairo_t      *cr,
             if (o42_sheet_conditional_fmt (sheet, r, c, &conditional))
               fmt = &conditional;
           }
-          text = o42_fmt_display (fmt, &value);
+          text = o42_fmt_display_layout (fmt, &value, &flayout);
+          is_text = value.type == O42_VALUE_TEXT;
+          halign = o42_fmt_effective_halign (fmt, &value);
 
           desc = pango_font_description_new ();
           pango_font_description_set_family (desc, fmt->family ? fmt->family : "Sans");
@@ -240,19 +330,67 @@ draw_page (cairo_t      *cr,
             {
               pango_layout_set_width (layout, (int) MAX (w - 6, 1) * PANGO_SCALE);
               pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
+              pango_layout_set_alignment (layout, halign == O42_HALIGN_CENTRE ? PANGO_ALIGN_CENTER
+                                                  : halign == O42_HALIGN_RIGHT ? PANGO_ALIGN_RIGHT
+                                                  : PANGO_ALIGN_LEFT);
             }
           else
-            pango_layout_set_width (layout, -1);
+            {
+              pango_layout_set_width (layout, -1);
+              pango_layout_set_alignment (layout, PANGO_ALIGN_LEFT);
+            }
+
+          /* One attribute list for the cell: the runs of text set in
+           * their own fonts, and the underline or strikeout the whole
+           * cell wears, as the grid draws it. */
+          {
+            int n_runs = 0;
+            const O42TextRun *runs = is_text ? o42_sheet_runs (sheet, r, c, &n_runs) : NULL;
+            PangoAttrList *attrs = o42_runs_attributes (runs, n_runs, fmt, text);
+            gboolean linked = o42_sheet_get_link (sheet, r, c) != NULL;
+
+            if (flayout.n_pads > 0)
+              {
+                /* The format's "_x" gaps, as wide as x in this font. */
+                o42_format_pad_attributes (layout, &flayout, &attrs);
+                pango_layout_set_text (layout, text, -1);
+              }
+            if (fmt->underline || fmt->strikeout || linked)
+              {
+                if (attrs == NULL)
+                  attrs = pango_attr_list_new ();
+                if (fmt->underline || linked)
+                  pango_attr_list_insert (attrs, pango_attr_underline_new (PANGO_UNDERLINE_SINGLE));
+                if (fmt->strikeout)
+                  pango_attr_list_insert (attrs, pango_attr_strikethrough_new (TRUE));
+              }
+            pango_layout_set_attributes (layout, attrs);
+            if (attrs != NULL)
+              pango_attr_list_unref (attrs);
+          }
           pango_layout_get_pixel_size (layout, &tw, &th);
+
+          /* Shrink to fit, as the grid does it. */
+          if (fmt->shrink && !fmt->wrap && tw + 6 > w && tw > 0)
+            {
+              double scale = MAX (w - 6, 1.0) / tw;
+              int points = MAX ((int) floor (fmt->size / 2 * scale), 1);
+              PangoFontDescription *smaller = pango_font_description_copy (pango_layout_get_font_description (layout));
+
+              pango_font_description_set_size (smaller, points * PANGO_SCALE);
+              pango_layout_set_font_description (layout, smaller);
+              pango_font_description_free (smaller);
+              pango_layout_get_pixel_size (layout, &tw, &th);
+            }
 
           /* The grid's rules for what does not fit: a General number is
            * shown with fewer digits, any other number as hashes, and a
-           * label runs on over the empty cells to its right. */
-          if (value.type == O42_VALUE_NUMBER && tw + 6 > w)
+           * label runs on over the empty cells beside it. */
+          if (!is_text && tw + 6 > w)
             {
               gboolean fits = FALSE;
 
-              if (fmt->number == O42_NUM_GENERAL && fmt->custom == NULL)
+              if (value.type == O42_VALUE_NUMBER && fmt->number == O42_NUM_GENERAL && fmt->custom == NULL)
                 for (int digits = 9; digits >= 1 && !fits; digits--)
                   {
                     char spec[8], buffer[G_ASCII_DTOSTR_BUF_SIZE];
@@ -282,52 +420,83 @@ draw_page (cairo_t      *cr,
                   pango_layout_set_text (layout, text, -1);
                   pango_layout_get_pixel_size (layout, &tw, &th);
                 }
+              flayout.fill_at = -1;
+              flayout.n_pads = 0;
+            }
+          filled = !fmt->wrap && o42_format_fill_split (layout, &flayout, w, 3,
+                                                        &fill_left, &fill_right, &fill_gap);
+
+          if (fmt->wrap)
+            tx = x + 3;
+          else
+            switch (halign)
+              {
+              case O42_HALIGN_RIGHT:  tx = x + w - 3 - tw - fmt->indent * 9; break;
+              case O42_HALIGN_CENTRE: tx = x + (w - tw) / 2.0;              break;
+              default:                tx = x + 3 + fmt->indent * 9;         break;
+              }
+          switch (fmt->valign)
+            {
+            case O42_VALIGN_TOP:    ty = y + 1;              break;
+            case O42_VALIGN_MIDDLE: ty = y + (h - th) / 2.0; break;
+            default:                ty = y + h - th - 1;     break;
             }
 
           {
-            double clip_w = w;
-            int n_runs = 0;
-            const O42TextRun *runs = (value.type == O42_VALUE_TEXT)
-                                     ? o42_sheet_runs (sheet, r, c, &n_runs) : NULL;
-            PangoAttrList *attrs = o42_runs_attributes (runs, n_runs, fmt, text);
+            double clip_x = x, clip_w = w;
 
-            if (attrs != NULL)
+            if (is_text && !fmt->wrap && tw + 6 > w)
               {
-                pango_layout_set_attributes (layout, attrs);
-                pango_attr_list_unref (attrs);
-                pango_layout_get_pixel_size (layout, &tw, &th);
+                if (halign == O42_HALIGN_RIGHT)
+                  {
+                    double extra = spill_extent (sheet, cols, r, c, FALSE);
+                    clip_x -= extra;
+                    clip_w += extra;
+                  }
+                else if (halign == O42_HALIGN_CENTRE)
+                  {
+                    double left = spill_extent (sheet, cols, r, c, FALSE);
+                    double right = spill_extent (sheet, cols, r, c, TRUE);
+                    clip_x -= left;
+                    clip_w += left + right;
+                  }
+                else
+                  clip_w += spill_extent (sheet, cols, r, c, TRUE);
               }
-
-            if (value.type == O42_VALUE_TEXT && tw + 6 > w &&
-                o42_fmt_effective_halign (fmt, &value) == O42_HALIGN_LEFT)
-              for (int cc = c + 1; cc <= cols->last; cc++)
-                {
-                  if (!o42_sheet_is_empty (sheet, r, cc))
-                    break;
-                  clip_w += o42_sheet_col_width (sheet, cc);
-                }
-
-            switch (o42_fmt_effective_halign (fmt, &value))
-              {
-              case O42_HALIGN_RIGHT:  tx = x + w - 3 - tw;      break;
-              case O42_HALIGN_CENTRE: tx = x + (w - tw) / 2.0;  break;
-              default:                tx = x + 3;               break;
-              }
-            ty = y + h - th - 1;
 
             cairo_save (cr);
-            cairo_rectangle (cr, x, y, clip_w, h);
+            cairo_rectangle (cr, clip_x, y, clip_w, h);
             cairo_clip (cr);
           }
           {
             guint32 colour = fmt->colour;
             o42_fmt_display_colour (fmt, &value, &colour);
-            set_rgb (cr, colour);
+            set_rgb (cr, plain ? 0 : colour);
           }
-          cairo_move_to (cr, tx, ty);
-          pango_cairo_show_layout (cr, layout);
+          if (filled)
+            {
+              /* A filled format, as the grid draws it: the left half at
+               * the left edge, the right half flush right, the fill
+               * character across the gap. */
+              (void) fill_left;
+              o42_format_draw_filled (cr, layout, text, &flayout, fmt->underline, fmt->strikeout,
+                                      x + 3, x + w - 3 - fill_right, fill_gap, ty);
+            }
+          else
+            {
+              if (fmt->rotation != 0)
+                {
+                  /* Turned about the cell's centre, as on screen. */
+                  cairo_translate (cr, x + w / 2.0, y + h / 2.0);
+                  cairo_rotate (cr, -fmt->rotation * G_PI / 180.0);
+                  cairo_move_to (cr, -tw / 2.0, -th / 2.0);
+                }
+              else
+                cairo_move_to (cr, tx, ty);
+              pango_cairo_show_layout (cr, layout);
+            }
           cairo_restore (cr);
-            pango_layout_set_attributes (layout, NULL);
+          pango_layout_set_attributes (layout, NULL);
 
           g_free (text);
           o42_value_clear (&value);
@@ -349,221 +518,275 @@ draw_page (cairo_t      *cr,
         {
           double w = o42_sheet_col_width (sheet, c);
           const O42Fmt *fmt = o42_sheet_get_fmt (sheet, r, c);
+          O42Fmt conditional;
+          O42Range merged;
+          gboolean top = TRUE, bottom = TRUE, left = TRUE, right = TRUE;
+          guint32 black = 0;
 
-          if (fmt->border_top)    o42_draw_border_line (cr, fmt->border_style[O42_SIDE_TOP], fmt->border_colour[O42_SIDE_TOP], x, y, x + w, y);
-          if (fmt->border_bottom) o42_draw_border_line (cr, fmt->border_style[O42_SIDE_BOTTOM], fmt->border_colour[O42_SIDE_BOTTOM], x, y + h, x + w, y + h);
-          if (fmt->border_left)   o42_draw_border_line (cr, fmt->border_style[O42_SIDE_LEFT], fmt->border_colour[O42_SIDE_LEFT], x, y, x, y + h);
-          if (fmt->border_right)  o42_draw_border_line (cr, fmt->border_style[O42_SIDE_RIGHT], fmt->border_colour[O42_SIDE_RIGHT], x + w, y, x + w, y + h);
+          /* A conditional format brings borders of its own, as it does
+           * on screen. */
+          if (o42_sheet_conditional_fmt (sheet, r, c, &conditional))
+            fmt = &conditional;
+
+          /* A merged range is bordered round the whole of it: the
+           * sides that fall inside it are not drawn, which is what the
+           * grid shows. */
+          if (o42_sheet_merged_at (sheet, r, c, &merged))
+            {
+              top = r == merged.row0;
+              bottom = r == merged.row1;
+              left = c == merged.col0;
+              right = c == merged.col1;
+            }
+
+          if (top && fmt->border_top)    o42_draw_border_line (cr, fmt->border_style[O42_SIDE_TOP], plain ? black : fmt->border_colour[O42_SIDE_TOP], x, y, x + w, y);
+          if (bottom && fmt->border_bottom) o42_draw_border_line (cr, fmt->border_style[O42_SIDE_BOTTOM], plain ? black : fmt->border_colour[O42_SIDE_BOTTOM], x, y + h, x + w, y + h);
+          if (left && fmt->border_left)   o42_draw_border_line (cr, fmt->border_style[O42_SIDE_LEFT], plain ? black : fmt->border_colour[O42_SIDE_LEFT], x, y, x, y + h);
+          if (right && fmt->border_right)  o42_draw_border_line (cr, fmt->border_style[O42_SIDE_RIGHT], plain ? black : fmt->border_colour[O42_SIDE_RIGHT], x + w, y, x + w, y + h);
           x += w;
         }
       y += h;
     }
   cairo_stroke (cr);
 
-  /* Pictures, clipped to the band they overlap. */
-  {
-    GPtrArray *pictures = o42_sheet_pictures (sheet);
+  /* Draft quality leaves the graphics out, as Excel's does. */
+  if (draft)
+    return;
 
-    for (guint i = 0; i < pictures->len; i++)
+  /* The objects, back to front as the grid paints them, each clipped
+   * to the band it overlaps. */
+  {
+    GArray *objects = o42_sheet_objects (sheet);
+
+    for (guint i = 0; i < objects->len; i++)
       {
-        O42Picture *pic = g_ptr_array_index (pictures, i);
-        cairo_surface_t *surface;
+        const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i);
+        int col, row;
+        double dx, dy, width, height;
         double px = 0.0, py = 0.0;
+
+        switch (ref->type)
+          {
+          case O42_OBJECT_PICTURE:
+            {
+              const O42Picture *pic = ref->object;
+              col = pic->col; row = pic->row; dx = pic->dx; dy = pic->dy;
+              width = pic->width; height = pic->height;
+            }
+            break;
+          case O42_OBJECT_SHAPE:
+            {
+              const O42Shape *shape = ref->object;
+              col = shape->col; row = shape->row; dx = shape->dx; dy = shape->dy;
+              width = shape->width; height = shape->height;
+            }
+            break;
+          default:
+            {
+              const O42Chart *chart = ref->object;
+              col = chart->col; row = chart->row; dx = chart->dx; dy = chart->dy;
+              width = chart->width; height = chart->height;
+            }
+            break;
+          }
 
         /* Its position relative to the band's corner. */
-        for (int c = 0; c < pic->col; c++)
+        for (int c = 0; c < col; c++)
           px += o42_sheet_col_width (sheet, c);
-        for (int r = 0; r < pic->row; r++)
+        for (int r = 0; r < row; r++)
           py += o42_sheet_row_height (sheet, r);
-        px += pic->dx - cols->offset;
-        py += pic->dy - rows->offset;
+        px += dx - cols->offset;
+        py += dy - rows->offset;
 
         if (px > band_w || py > band_h ||
-            px + pic->width < 0 || py + pic->height < 0)
-          continue;
-
-        surface = o42_picture_surface (pic);
-        if (surface == NULL)
+            px + MAX (width, 1) < 0 || py + MAX (height, 1) < 0)
           continue;
 
         cairo_save (cr);
         cairo_rectangle (cr, 0, 0, band_w, band_h);
         cairo_clip (cr);
+        /* Turned and mirrored about its centre, as on screen. */
+        {
+          double rotation = 0;
+          gboolean flip_h = FALSE, flip_v = FALSE;
+
+          if (ref->type == O42_OBJECT_SHAPE)
+            {
+              const O42Shape *shape = ref->object;
+              rotation = shape->rotation; flip_h = shape->flip_h; flip_v = shape->flip_v;
+            }
+          else if (ref->type == O42_OBJECT_PICTURE)
+            {
+              const O42Picture *pic = ref->object;
+              rotation = pic->rotation; flip_h = pic->flip_h; flip_v = pic->flip_v;
+            }
+          if (rotation != 0 || flip_h || flip_v)
+            {
+              cairo_translate (cr, px + width / 2, py + height / 2);
+              cairo_rotate (cr, rotation * G_PI / 180);
+              cairo_scale (cr, flip_h ? -1 : 1, flip_v ? -1 : 1);
+              cairo_translate (cr, -(px + width / 2), -(py + height / 2));
+            }
+        }
         cairo_translate (cr, px, py);
-        cairo_scale (cr, pic->width / cairo_image_surface_get_width (surface),
-                         pic->height / cairo_image_surface_get_height (surface));
-        cairo_set_source_surface (cr, surface, 0, 0);
-        cairo_paint (cr);
+        switch (ref->type)
+          {
+          case O42_OBJECT_PICTURE:
+            o42_picture_paint (ref->object, cr, width, height);
+            break;
+          case O42_OBJECT_SHAPE:
+            o42_sheet_draw_shape (sheet, ref->object, cr, width, height);
+            break;
+          default:
+            o42_sheet_draw_chart (sheet, ref->object, cr, width, height);
+            break;
+          }
         cairo_restore (cr);
       }
+    g_array_free (objects, TRUE);
   }
 
-  /* Shapes, likewise. */
-  {
-    GPtrArray *shapes = o42_sheet_shapes (sheet);
+  /* Notes shown where they are: a yellow box to the right of the cell,
+   * as Excel prints a comment that is displayed on the sheet. */
+  if (setup->notes == O42_PRINT_NOTES_IN_PLACE)
+    {
+      GHashTable *notes = o42_sheet_notes (sheet);
+      GHashTableIter iter;
+      gpointer key, val;
 
-    for (guint i = 0; i < shapes->len; i++)
-      {
-        O42Shape *shape = g_ptr_array_index (shapes, i);
-        double px = 0.0, py = 0.0;
+      cairo_save (cr);
+      cairo_rectangle (cr, 0, 0, band_w, band_h);
+      cairo_clip (cr);
+      g_hash_table_iter_init (&iter, notes);
+      while (g_hash_table_iter_next (&iter, &key, &val))
+        {
+          int r = o42_key_row (*(guint64 *) key), c = o42_key_col (*(guint64 *) key);
+          double nx = 0.0, ny = 0.0;
 
-        for (int c = 0; c < shape->col; c++)
-          px += o42_sheet_col_width (sheet, c);
-        for (int r = 0; r < shape->row; r++)
-          py += o42_sheet_row_height (sheet, r);
-        px += shape->dx - cols->offset;
-        py += shape->dy - rows->offset;
+          if (r < rows->first || r > rows->last || c < cols->first || c > cols->last)
+            continue;
+          for (int cc = cols->first; cc <= c; cc++)
+            nx += o42_sheet_col_width (sheet, cc);
+          for (int rr = rows->first; rr < r; rr++)
+            ny += o42_sheet_row_height (sheet, rr);
+          note_box (cr, layout, val, nx + 6, ny);
+        }
+      cairo_restore (cr);
+    }
+}
 
-        if (px > band_w || py > band_h ||
-            px + MAX (shape->width, 1) < 0 || py + MAX (shape->height, 1) < 0)
-          continue;
-
-        cairo_save (cr);
-        cairo_rectangle (cr, 0, 0, band_w, band_h);
-        cairo_clip (cr);
-        cairo_translate (cr, px, py);
-        o42_sheet_draw_shape (sheet, shape, cr, shape->width, shape->height);
-        cairo_restore (cr);
-      }
-  }
-
-  /* Charts, likewise. */
-
-  {
-    GPtrArray *charts = o42_sheet_charts (sheet);
-
-    for (guint i = 0; i < charts->len; i++)
-      {
-        O42Chart *chart = g_ptr_array_index (charts, i);
-        double px = 0.0, py = 0.0;
-
-        for (int c = 0; c < chart->col; c++)
-          px += o42_sheet_col_width (sheet, c);
-        for (int r = 0; r < chart->row; r++)
-          py += o42_sheet_row_height (sheet, r);
-        px += chart->dx - cols->offset;
-        py += chart->dy - rows->offset;
-
-        if (px > band_w || py > band_h ||
-            px + chart->width < 0 || py + chart->height < 0)
-          continue;
-
-        cairo_save (cr);
-        cairo_rectangle (cr, 0, 0, band_w, band_h);
-        cairo_clip (cr);
-        cairo_translate (cr, px, py);
-        o42_sheet_draw_chart (sheet, chart, cr, chart->width, chart->height);
-        cairo_restore (cr);
-      }
-  }
+static int
+compare_notes (gconstpointer a, gconstpointer b)
+{
+  const NoteLine *na = a, *nb = b;
+  return na->row != nb->row ? na->row - nb->row : na->col - nb->col;
 }
 
 O42Pages *
-o42_pages_new (O42Sheet *sheet, double width_pt, double height_pt)
+o42_pages_new (O42Sheet *sheet)
 {
   O42Pages *pages = g_new0 (O42Pages, 1);
+  const O42PrintSetup *setup;
   O42Range used;
 
   g_return_val_if_fail (sheet != NULL, NULL);
 
   pages->sheet = sheet;
-  pages->page_w_px = width_pt / PX_TO_PT;
-  pages->page_h_px = height_pt / PX_TO_PT;
+  pages->setup = setup = o42_sheet_print_setup (sheet);
   pages->scale = 1;
+  o42_print_setup_paper (setup, &pages->paper_w, &pages->paper_h);
+  pages->body_x = setup->margin_left;
+  pages->body_y = setup->margin_top;
+  pages->body_w = MAX (pages->paper_w - setup->margin_left - setup->margin_right, 72.0);
+  pages->body_h = MAX (pages->paper_h - setup->margin_top - setup->margin_bottom, 72.0);
+  pages->notes = g_array_new (FALSE, FALSE, sizeof (NoteLine));
+  pages->note_pages = g_array_new (FALSE, FALSE, sizeof (int));
+
+  pages->regions = g_array_new (FALSE, FALSE, sizeof (Region));
+  pages->title_row1 = pages->title_col1 = -1;
   if (o42_sheet_is_chart_sheet (sheet))
     {
       /* One page, the chart across the whole of it. */
       Band whole = { 0, 0, 0 };
+      Region region;
 
-      pages->col_bands = g_array_new (FALSE, FALSE, sizeof (Band));
-      pages->row_bands = g_array_new (FALSE, FALSE, sizeof (Band));
-      g_array_append_val (pages->col_bands, whole);
-      g_array_append_val (pages->row_bands, whole);
+      region.col_bands = g_array_new (FALSE, FALSE, sizeof (Band));
+      region.row_bands = g_array_new (FALSE, FALSE, sizeof (Band));
+      g_array_append_val (region.col_bands, whole);
+      g_array_append_val (region.row_bands, whole);
+      g_array_append_val (pages->regions, region);
       return pages;
     }
   o42_sheet_used_range (sheet, &used);
-  {
-    const O42PrintSetup *setup = o42_sheet_print_setup (sheet);
-    if (setup->has_area)
-      used = setup->area;
-    if (setup->header != NULL && *setup->header != '\0') pages->header_h = HF_H;
-    if (setup->footer != NULL && *setup->footer != '\0') pages->footer_h = HF_H;
-    if (setup->headings)
-      {
-        pages->headings_w = HEADING_W;
-        pages->headings_h = HEADING_H;
-      }
-    pages->title_rows = setup->title_rows;
-    for (int r = 0; r < setup->title_rows; r++)
-      pages->titles_h += o42_sheet_row_height (sheet, r);
-  }
+  if (setup->has_area)
+    used = setup->area;
+  if (setup->headings)
+    {
+      pages->headings_w = HEADING_W;
+      pages->headings_h = HEADING_H;
+    }
+  if (setup->title_rows > 0)
+    {
+      pages->title_row0 = setup->title_row_first;
+      pages->title_row1 = setup->title_row_first + setup->title_rows - 1;
+      for (int r = pages->title_row0; r <= pages->title_row1; r++)
+        pages->titles_h += o42_sheet_row_height (sheet, r);
+    }
+  if (setup->title_cols > 0)
+    {
+      pages->title_col0 = setup->title_col_first;
+      pages->title_col1 = setup->title_col_first + setup->title_cols - 1;
+      for (int c = pages->title_col0; c <= pages->title_col1; c++)
+        pages->titles_w += o42_sheet_col_width (sheet, c);
+    }
 
-  /* Pictures extend the printed area past the last cell. */
-  {
-    GPtrArray *pictures = o42_sheet_pictures (sheet);
+  /* Pictures, charts and shapes extend the printed area past the last
+   * cell, unless a print area was set, which is a fence. */
+  if (!setup->has_area && !setup->draft)
+    {
+      GPtrArray *pictures = o42_sheet_pictures (sheet);
+      GPtrArray *charts = o42_sheet_charts (sheet);
+      GPtrArray *shapes = o42_sheet_shapes (sheet);
 
-    for (guint i = 0; i < pictures->len; i++)
-      {
-        O42Picture *pic = g_ptr_array_index (pictures, i);
-        int col = pic->col, row = pic->row;
-        double reach = pic->dx + pic->width, down = pic->dy + pic->height;
+      for (guint i = 0; i < pictures->len + charts->len + shapes->len; i++)
+        {
+          int col, row;
+          double reach, down;
 
-        while (col < O42_MAX_COLS - 1 && reach > o42_sheet_col_width (sheet, col))
-          { reach -= o42_sheet_col_width (sheet, col); col++; }
-        while (row < O42_MAX_ROWS - 1 && down > o42_sheet_row_height (sheet, row))
-          { down -= o42_sheet_row_height (sheet, row); row++; }
+          if (i < pictures->len)
+            {
+              O42Picture *pic = g_ptr_array_index (pictures, i);
+              col = pic->col; row = pic->row;
+              reach = pic->dx + pic->width; down = pic->dy + pic->height;
+            }
+          else if (i < pictures->len + charts->len)
+            {
+              O42Chart *chart = g_ptr_array_index (charts, i - pictures->len);
+              col = chart->col; row = chart->row;
+              reach = chart->dx + chart->width; down = chart->dy + chart->height;
+            }
+          else
+            {
+              O42Shape *shape = g_ptr_array_index (shapes, i - pictures->len - charts->len);
+              col = shape->col; row = shape->row;
+              reach = shape->dx + MAX (shape->width, 1); down = shape->dy + MAX (shape->height, 1);
+            }
 
-        used.col1 = MAX (used.col1, col);
-        used.row1 = MAX (used.row1, row);
-      }
-  }
+          while (col < O42_MAX_COLS - 1 && reach > o42_sheet_col_width (sheet, col))
+            { reach -= o42_sheet_col_width (sheet, col); col++; }
+          while (row < O42_MAX_ROWS - 1 && down > o42_sheet_row_height (sheet, row))
+            { down -= o42_sheet_row_height (sheet, row); row++; }
 
-  {
-    GPtrArray *charts = o42_sheet_charts (sheet);
-
-    for (guint i = 0; i < charts->len; i++)
-      {
-        O42Chart *chart = g_ptr_array_index (charts, i);
-        int col = chart->col, row = chart->row;
-        double reach = chart->dx + chart->width, down = chart->dy + chart->height;
-
-        while (col < O42_MAX_COLS - 1 && reach > o42_sheet_col_width (sheet, col))
-          { reach -= o42_sheet_col_width (sheet, col); col++; }
-        while (row < O42_MAX_ROWS - 1 && down > o42_sheet_row_height (sheet, row))
-          { down -= o42_sheet_row_height (sheet, row); row++; }
-
-        used.col1 = MAX (used.col1, col);
-        used.row1 = MAX (used.row1, row);
-      }
-  }
-
-  {
-    /* A shape reaches past the last cell as a picture does. */
-    GPtrArray *shapes = o42_sheet_shapes (sheet);
-
-    for (guint i = 0; i < shapes->len; i++)
-      {
-        O42Shape *shape = g_ptr_array_index (shapes, i);
-        int col = shape->col, row = shape->row;
-        double reach = shape->dx + MAX (shape->width, 1), down = shape->dy + MAX (shape->height, 1);
-
-        while (col < O42_MAX_COLS - 1 && reach > o42_sheet_col_width (sheet, col))
-          { reach -= o42_sheet_col_width (sheet, col); col++; }
-        while (row < O42_MAX_ROWS - 1 && down > o42_sheet_row_height (sheet, row))
-          { down -= o42_sheet_row_height (sheet, row); row++; }
-
-        used.col1 = MAX (used.col1, col);
-        used.row1 = MAX (used.row1, row);
-      }
-  }
+          used.col1 = MAX (used.col1, col);
+          used.row1 = MAX (used.row1, row);
+        }
+    }
 
   {
     /* The scale the setup asks for, or the one that fits the sheet
      * into the pages it allows. */
-    const O42PrintSetup *setup = o42_sheet_print_setup (sheet);
-    double across = width_pt / PX_TO_PT - pages->headings_w;
-    double down = height_pt / PX_TO_PT - pages->header_h - pages->footer_h
-                  - pages->headings_h - pages->titles_h;
+    double across = pages->body_w / PX_TO_PT - pages->headings_w - pages->titles_w;
+    double down = pages->body_h / PX_TO_PT - pages->headings_h - pages->titles_h;
 
     pages->scale = CLAMP (setup->scale, 10, 400) / 100.0;
     if (setup->fit_wide > 0 || setup->fit_tall > 0)
@@ -581,13 +804,82 @@ o42_pages_new (O42Sheet *sheet, double width_pt, double height_pt)
           fit = MIN (fit, down * setup->fit_tall / total_h);
         pages->scale = CLAMP (fit, 0.1, 1.0);
       }
-    across /= pages->scale;
-    down /= pages->scale;
-    pages->col_bands = make_bands (sheet, used.col0, used.col1, TRUE, across);
-    pages->row_bands = make_bands (sheet, used.row0, used.row1, FALSE, down);
-    pages->page_h_px = height_pt / PX_TO_PT / pages->scale;
-    pages->page_w_px = width_pt / PX_TO_PT / pages->scale;
+    across = MAX (across / pages->scale, 1.0);
+    down = MAX (down / pages->scale, 1.0);
+    /* Each print area is paged on its own; with none, the used range. */
+    for (int i = 0; i < MAX (setup->n_areas, 1); i++)
+      {
+        O42Range r = setup->n_areas > 0 ? setup->areas[i] : used;
+        Region region;
+
+        region.col_bands = make_bands (sheet, r.col0, r.col1, TRUE, across);
+        region.row_bands = make_bands (sheet, r.row0, r.row1, FALSE, down);
+        g_array_append_val (pages->regions, region);
+      }
   }
+
+  /* Notes at the end: listed after the cells, on as many pages as they
+   * take at the body's width, each "A1: what it said". */
+  if (setup->notes == O42_PRINT_NOTES_AT_END)
+    {
+      GHashTable *notes = o42_sheet_notes (sheet);
+      GHashTableIter iter;
+      gpointer key, val;
+
+      g_hash_table_iter_init (&iter, notes);
+      while (g_hash_table_iter_next (&iter, &key, &val))
+        {
+          NoteLine line;
+
+          line.row = o42_key_row (*(guint64 *) key);
+          line.col = o42_key_col (*(guint64 *) key);
+          if (line.row < used.row0 || line.row > used.row1 ||
+              line.col < used.col0 || line.col > used.col1)
+            continue;
+          line.text = g_strdup (val);
+          line.height = 0;
+          g_array_append_val (pages->notes, line);
+        }
+      g_array_sort (pages->notes, compare_notes);
+
+      if (pages->notes->len > 0)
+        {
+          PangoFontMap *map = pango_cairo_font_map_get_default ();
+          PangoContext *context = pango_font_map_create_context (map);
+          PangoLayout *layout = pango_layout_new (context);
+          PangoFontDescription *desc = pango_font_description_from_string ("Arial 10");
+          double filled = 0.0;
+          int first = 0;
+
+          pango_layout_set_font_description (layout, desc);
+          pango_layout_set_width (layout, (int) (pages->body_w * PANGO_SCALE));
+          pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
+          g_array_append_val (pages->note_pages, first);
+          for (guint i = 0; i < pages->notes->len; i++)
+            {
+              NoteLine *line = &g_array_index (pages->notes, NoteLine, i);
+              char *ref = o42_ref_name (line->row, line->col);
+              char *shown = g_strdup_printf ("Cell: %s\nComment: %s", ref, line->text);
+              int tw, th;
+
+              pango_layout_set_text (layout, shown, -1);
+              pango_layout_get_pixel_size (layout, &tw, &th);
+              line->height = th + 10;
+              if (filled > 0 && filled + line->height > pages->body_h)
+                {
+                  int at = (int) i;
+                  g_array_append_val (pages->note_pages, at);
+                  filled = 0;
+                }
+              filled += line->height;
+              g_free (shown);
+              g_free (ref);
+            }
+          pango_font_description_free (desc);
+          g_object_unref (layout);
+          g_object_unref (context);
+        }
+    }
 
   return pages;
 }
@@ -600,11 +892,48 @@ o42_pages_set_document (O42Pages *pages, const char *name)
   pages->document = g_strdup (name);
 }
 
-/* A header or footer part with its codes filled in. */
+O42Sheet *
+o42_pages_sheet (O42Pages *pages)
+{
+  g_return_val_if_fail (pages != NULL, NULL);
+  return pages->sheet;
+}
+
+void
+o42_pages_paper (O42Pages *pages, double *width_pt, double *height_pt)
+{
+  g_return_if_fail (pages != NULL);
+  if (width_pt != NULL) *width_pt = pages->paper_w;
+  if (height_pt != NULL) *height_pt = pages->paper_h;
+}
+
+/* A header or footer part with its codes filled in and its styles
+ * gathered into attributes: &B &I &U &S &X &Y toggle, &12 sets a size,
+ * &"Arial,Bold" a face and a style, &Kff0000 a colour. */
 static char *
-expand_codes (O42Pages *pages, const char *text, int page)
+expand_codes (O42Pages *pages, const char *text, int page, PangoAttrList **attrs_out)
 {
   GString *out = g_string_new (NULL);
+  PangoAttrList *attrs = pango_attr_list_new ();
+  gboolean bold = FALSE, italic = FALSE, underline = FALSE, strike = FALSE;
+  gboolean dbl = FALSE, super = FALSE, sub = FALSE;
+  guint style_from = 0;
+
+  /* The style in force is applied to the text from where it began. */
+#define CLOSE_STYLE() G_STMT_START {                                          \
+    if (out->len > style_from)                                                \
+      {                                                                       \
+        PangoAttribute *sa;                                                    \
+        if (bold)      { sa = pango_attr_weight_new (PANGO_WEIGHT_BOLD); sa->start_index = style_from; sa->end_index = out->len; pango_attr_list_insert (attrs, sa); } \
+        if (italic)    { sa = pango_attr_style_new (PANGO_STYLE_ITALIC); sa->start_index = style_from; sa->end_index = out->len; pango_attr_list_insert (attrs, sa); } \
+        if (underline || dbl) { sa = pango_attr_underline_new (dbl ? PANGO_UNDERLINE_DOUBLE : PANGO_UNDERLINE_SINGLE); sa->start_index = style_from; sa->end_index = out->len; pango_attr_list_insert (attrs, sa); } \
+        if (strike)    { sa = pango_attr_strikethrough_new (TRUE); sa->start_index = style_from; sa->end_index = out->len; pango_attr_list_insert (attrs, sa); } \
+        if (super || sub) { sa = pango_attr_rise_new ((super ? 4 : -3) * PANGO_SCALE); sa->start_index = style_from; sa->end_index = out->len; pango_attr_list_insert (attrs, sa); \
+                            sa = pango_attr_scale_new (0.7); sa->start_index = style_from; sa->end_index = out->len; pango_attr_list_insert (attrs, sa); } \
+      }                                                                       \
+    style_from = out->len;                                                    \
+  } G_STMT_END
+
   for (const char *p = text; *p != '\0'; p++)
     {
       if (*p != '&' || p[1] == '\0')
@@ -612,10 +941,25 @@ expand_codes (O42Pages *pages, const char *text, int page)
       p++;
       switch (g_ascii_toupper (*p))
         {
-        case 'P': g_string_append_printf (out, "%d", page + 1); break;
+        case 'P':
+          {
+            int n = pages->setup->first_page + page;
+            /* &P+3 and &P-3 offset it. */
+            if ((p[1] == '+' || p[1] == '-') && g_ascii_isdigit (p[2]))
+              {
+                int delta = atoi (p + 2);
+                n += p[1] == '+' ? delta : -delta;
+                p += 2;
+                while (g_ascii_isdigit (p[1])) p++;
+              }
+            g_string_append_printf (out, "%d", n);
+            break;
+          }
         case 'N': g_string_append_printf (out, "%d", o42_pages_count (pages)); break;
         case 'A': g_string_append (out, o42_sheet_get_name (pages->sheet)); break;
         case 'F': g_string_append (out, pages->document != NULL ? pages->document : "Book1"); break;
+        case 'Z': break;   /* the path: the document's name stands alone here */
+        case 'G': break;   /* a picture: none */
         case 'D':
           {
             GDateTime *now = g_date_time_new_now_local ();
@@ -635,26 +979,86 @@ expand_codes (O42Pages *pages, const char *text, int page)
             break;
           }
         case '&': g_string_append_c (out, '&'); break;
+        case 'B': CLOSE_STYLE (); bold = !bold; break;
+        case 'I': CLOSE_STYLE (); italic = !italic; break;
+        case 'U': CLOSE_STYLE (); underline = !underline; break;
+        case 'E': CLOSE_STYLE (); dbl = !dbl; break;
+        case 'S': CLOSE_STYLE (); strike = !strike; break;
+        case 'X': CLOSE_STYLE (); super = !super; sub = FALSE; break;
+        case 'Y': CLOSE_STYLE (); sub = !sub; super = FALSE; break;
+        case 'K':
+          /* &K followed by six hex digits: a colour from there on. */
+          if (strlen (p + 1) >= 6)
+            {
+              char hex[7];
+              guint32 rgb;
+
+              memcpy (hex, p + 1, 6);
+              hex[6] = '\0';
+              rgb = (guint32) g_ascii_strtoull (hex, NULL, 16);
+              {
+                PangoAttribute *a = pango_attr_foreground_new (((rgb >> 16) & 0xff) * 257,
+                                                               ((rgb >> 8) & 0xff) * 257,
+                                                               (rgb & 0xff) * 257);
+                a->start_index = out->len;
+                a->end_index = G_MAXUINT;
+                pango_attr_list_insert (attrs, a);
+              }
+              p += 6;
+            }
+          break;
         case '"':
-          /* &"Times New Roman,Normal" names a face and a style: office42
-           * sets headers in one face, so the name is stepped over rather
-           * than printed, which is what it did before. */
+          /* &"Times New Roman,Bold Italic" names a face and a style, in
+           * force from there on; &"-,Bold" keeps the face. */
           {
             const char *close = strchr (p + 1, '"');
+            char *spec = close != NULL ? g_strndup (p + 1, close - p - 1) : g_strdup (p + 1);
+            char *comma = strchr (spec, ',');
+            PangoAttribute *a;
 
+            if (comma != NULL)
+              *comma++ = '\0';
+            if (*spec != '\0' && strcmp (spec, "-") != 0)
+              {
+                a = pango_attr_family_new (spec);
+                a->start_index = out->len;
+                a->end_index = G_MAXUINT;
+                pango_attr_list_insert (attrs, a);
+              }
+            if (comma != NULL)
+              {
+                CLOSE_STYLE ();
+                bold = strstr (comma, "Bold") != NULL || strstr (comma, "bold") != NULL;
+                italic = strstr (comma, "Italic") != NULL || strstr (comma, "italic") != NULL;
+              }
+            g_free (spec);
             p = (close != NULL) ? close : p + strlen (p) - 1;
             break;
           }
         default:
-          /* &12 is a size in points, and &B &I &U &S &X &Y are styles:
-           * all of them are stepped over.  Anything else is dropped, as
-           * &L &C &R already have been. */
           if (g_ascii_isdigit (*p))
-            while (p[1] != 0 && g_ascii_isdigit (p[1]))
-              p++;
+            {
+              /* &12 is a size in points, from there on. */
+              int size = atoi (p);
+              PangoAttribute *a;
+
+              while (p[1] != 0 && g_ascii_isdigit (p[1]))
+                p++;
+              if (size >= 1 && size <= 400)
+                {
+                  a = pango_attr_size_new (size * PANGO_SCALE);
+                  a->start_index = out->len;
+                  a->end_index = G_MAXUINT;
+                  pango_attr_list_insert (attrs, a);
+                }
+            }
+          /* Anything else is dropped, as &L &C &R already have been. */
           break;
         }
     }
+  CLOSE_STYLE ();
+#undef CLOSE_STYLE
+  *attrs_out = attrs;
   return g_string_free (out, FALSE);
 }
 
@@ -682,19 +1086,23 @@ split_parts (const char *text, char **left, char **centre, char **right)
   *right = g_string_free (parts[2], FALSE);
 }
 
+/* The header or footer across the body's width, in points: the header
+ * hangs from `y`, the footer stands on it.  Newlines in a part stack. */
 static void
 draw_header_footer (O42Pages *pages, cairo_t *cr, PangoLayout *layout, const char *text,
-                    double y, double width, int page)
+                    double y, gboolean footer, int page)
 {
   char *l, *c, *r;
-  PangoFontDescription *desc = pango_font_description_from_string ("Arial 9");
+  PangoFontDescription *desc = pango_font_description_from_string ("Arial 10");
   char *parts[3];
+  PangoAttrList *attrs[3];
 
   split_parts (text, &l, &c, &r);
-  parts[0] = expand_codes (pages, l, page);
-  parts[1] = expand_codes (pages, c, page);
-  parts[2] = expand_codes (pages, r, page);
+  parts[0] = expand_codes (pages, l, page, &attrs[0]);
+  parts[1] = expand_codes (pages, c, page, &attrs[1]);
+  parts[2] = expand_codes (pages, r, page, &attrs[2]);
   pango_layout_set_font_description (layout, desc);
+  pango_layout_set_width (layout, -1);
   cairo_set_source_rgb (cr, 0, 0, 0);
   for (int i = 0; i < 3; i++)
     {
@@ -702,19 +1110,27 @@ draw_header_footer (O42Pages *pages, cairo_t *cr, PangoLayout *layout, const cha
       if (*parts[i] != '\0')
         {
           pango_layout_set_text (layout, parts[i], -1);
+          pango_layout_set_attributes (layout, attrs[i]);
+          pango_layout_set_alignment (layout, i == 0 ? PANGO_ALIGN_LEFT : i == 1 ? PANGO_ALIGN_CENTER : PANGO_ALIGN_RIGHT);
           pango_layout_get_pixel_size (layout, &tw, &th);
-          cairo_move_to (cr, i == 0 ? 0 : i == 1 ? (width - tw) / 2 : width - tw, y + (HF_H - th) / 2);
+          cairo_move_to (cr, pages->body_x + (i == 0 ? 0 : i == 1 ? (pages->body_w - tw) / 2 : pages->body_w - tw),
+                         footer ? y - th : y);
           pango_cairo_show_layout (cr, layout);
+          pango_layout_set_attributes (layout, NULL);
         }
+      pango_attr_list_unref (attrs[i]);
       g_free (parts[i]);
     }
+  pango_layout_set_alignment (layout, PANGO_ALIGN_LEFT);
   pango_font_description_free (desc);
   g_free (l); g_free (c); g_free (r);
 }
 
+/* The column letters across the top and row numbers down the left, in
+ * pixels, at the page's corner: the repeated columns and rows first. */
 static void
 draw_headings (O42Pages *pages, cairo_t *cr, PangoLayout *layout, const Band *cols, const Band *rows,
-               double x0, double y0, gboolean with_titles)
+               double x0, double y0, gboolean with_title_rows, gboolean with_title_cols)
 {
   PangoFontDescription *desc = pango_font_description_from_string ("Arial 8");
   double x, y;
@@ -723,33 +1139,38 @@ draw_headings (O42Pages *pages, cairo_t *cr, PangoLayout *layout, const Band *co
   pango_layout_set_font_description (layout, desc);
   cairo_set_line_width (cr, 0.5);
 
-  /* Column letters across the top. */
   x = x0;
-  for (int c = cols->first; c <= cols->last; c++)
+  for (int pass = 0; pass < 2; pass++)
     {
-      double w = o42_sheet_col_width (pages->sheet, c);
-      char name[8];
-      o42_col_name (c, name, sizeof name);
-      cairo_set_source_rgb (cr, 0.92, 0.92, 0.92);
-      cairo_rectangle (cr, x, y0 - HEADING_H, w, HEADING_H);
-      cairo_fill_preserve (cr);
-      cairo_set_source_rgb (cr, 0.6, 0.6, 0.6);
-      cairo_stroke (cr);
-      pango_layout_set_text (layout, name, -1);
-      pango_layout_get_pixel_size (layout, &tw, &th);
-      cairo_set_source_rgb (cr, 0, 0, 0);
-      cairo_move_to (cr, x + (w - tw) / 2, y0 - HEADING_H + (HEADING_H - th) / 2);
-      pango_cairo_show_layout (cr, layout);
-      x += w;
+      int first = pass == 0 ? pages->title_col0 : cols->first;
+      int last = pass == 0 ? pages->title_col1 : cols->last;
+      if (pass == 0 && !with_title_cols)
+        continue;
+      for (int c = first; c <= last; c++)
+        {
+          double w = o42_sheet_col_width (pages->sheet, c);
+          char name[8];
+          o42_col_name (c, name, sizeof name);
+          cairo_set_source_rgb (cr, 0.92, 0.92, 0.92);
+          cairo_rectangle (cr, x, y0 - HEADING_H, w, HEADING_H);
+          cairo_fill_preserve (cr);
+          cairo_set_source_rgb (cr, 0.6, 0.6, 0.6);
+          cairo_stroke (cr);
+          pango_layout_set_text (layout, name, -1);
+          pango_layout_get_pixel_size (layout, &tw, &th);
+          cairo_set_source_rgb (cr, 0, 0, 0);
+          cairo_move_to (cr, x + (w - tw) / 2, y0 - HEADING_H + (HEADING_H - th) / 2);
+          pango_cairo_show_layout (cr, layout);
+          x += w;
+        }
     }
 
-  /* Row numbers down the left: the title rows first, then the band. */
   y = y0;
   for (int pass = 0; pass < 2; pass++)
     {
-      int first = pass == 0 ? 0 : rows->first;
-      int last = pass == 0 ? pages->title_rows - 1 : rows->last;
-      if (pass == 0 && !with_titles)
+      int first = pass == 0 ? pages->title_row0 : rows->first;
+      int last = pass == 0 ? pages->title_row1 : rows->last;
+      if (pass == 0 && !with_title_rows)
         continue;
       for (int r = first; r <= last; r++)
         {
@@ -772,26 +1193,121 @@ draw_headings (O42Pages *pages, cairo_t *cr, PangoLayout *layout, const Band *co
   pango_font_description_free (desc);
 }
 
+static int
+region_pages (const Region *region)
+{
+  return (int) (region->col_bands->len * region->row_bands->len);
+}
+
+static int
+sheet_pages (O42Pages *pages)
+{
+  int total = 0;
+  for (guint i = 0; i < pages->regions->len; i++)
+    total += region_pages (&g_array_index (pages->regions, Region, i));
+  return total;
+}
+
+/* The region a page of the sheet falls in, and its column and row band
+ * there, in the setup's page order. */
+static const Region *
+page_bands (O42Pages *pages, int page, guint *cb, guint *rb)
+{
+  for (guint i = 0; i < pages->regions->len; i++)
+    {
+      const Region *region = &g_array_index (pages->regions, Region, i);
+      int count = region_pages (region);
+
+      if (page >= count)
+        { page -= count; continue; }
+      if (pages->setup->down_then_over)
+        {
+          *rb = (guint) page % region->row_bands->len;
+          *cb = (guint) page / region->row_bands->len;
+        }
+      else
+        {
+          *cb = (guint) page % region->col_bands->len;
+          *rb = (guint) page / region->col_bands->len;
+        }
+      return region;
+    }
+  return NULL;
+}
+
 int
 o42_pages_count (O42Pages *pages)
 {
   g_return_val_if_fail (pages != NULL, 0);
-  return (int) (pages->col_bands->len * pages->row_bands->len);
+  return sheet_pages (pages) + (int) pages->note_pages->len;
 }
 
-/* Across, then down: every column band of the first row band, then the
- * next row band, which is Excel's default and reads like a book. */
+/* The notes listed after the sheet, one page of them. */
+static void
+draw_note_page (O42Pages *pages, cairo_t *cr, PangoLayout *layout, int which)
+{
+  PangoFontDescription *desc = pango_font_description_from_string ("Arial 10");
+  int first = g_array_index (pages->note_pages, int, which);
+  int last = which + 1 < (int) pages->note_pages->len
+             ? g_array_index (pages->note_pages, int, which + 1) : (int) pages->notes->len;
+  double y = pages->body_y;
+
+  pango_layout_set_font_description (layout, desc);
+  pango_layout_set_width (layout, (int) (pages->body_w * PANGO_SCALE));
+  pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  for (int i = first; i < last; i++)
+    {
+      NoteLine *line = &g_array_index (pages->notes, NoteLine, i);
+      char *ref = o42_ref_name (line->row, line->col);
+      char *shown = g_strdup_printf ("Cell: %s\nComment: %s", ref, line->text);
+
+      pango_layout_set_text (layout, shown, -1);
+      cairo_move_to (cr, pages->body_x, y);
+      pango_cairo_show_layout (cr, layout);
+      y += line->height;
+      g_free (shown);
+      g_free (ref);
+    }
+  pango_layout_set_width (layout, -1);
+  pango_font_description_free (desc);
+}
+
+/* Down, then over -- every row band of the first column band, then the
+ * next column band -- which is Excel's default; or over, then down,
+ * which reads like a book.  The origin is the paper's corner, in
+ * points. */
 void
 o42_pages_draw (O42Pages *pages, int page, cairo_t *cr)
 {
   PangoLayout *layout;
-  guint cb, rb;
+  guint cb = 0, rb = 0;
+  const Region *region;
+  const O42PrintSetup *setup;
 
   g_return_if_fail (pages != NULL);
   g_return_if_fail (cr != NULL);
 
   if (page < 0 || page >= o42_pages_count (pages))
     return;
+  setup = pages->setup;
+
+  layout = pango_cairo_create_layout (cr);
+
+  /* The header and footer stand in the margins, the header's top at the
+   * header margin and the footer's foot at the footer margin, across
+   * the body's width. */
+  if (setup->header != NULL && *setup->header != '\0')
+    draw_header_footer (pages, cr, layout, setup->header, setup->margin_header, FALSE, page);
+  if (setup->footer != NULL && *setup->footer != '\0')
+    draw_header_footer (pages, cr, layout, setup->footer, pages->paper_h - setup->margin_footer, TRUE, page);
+
+  if (page >= sheet_pages (pages))
+    {
+      draw_note_page (pages, cr, layout, page - sheet_pages (pages));
+      g_object_unref (layout);
+      return;
+    }
 
   if (o42_sheet_is_chart_sheet (pages->sheet))
     {
@@ -800,49 +1316,96 @@ o42_pages_draw (O42Pages *pages, int page, cairo_t *cr)
       if (chart != NULL)
         {
           cairo_save (cr);
+          cairo_translate (cr, pages->body_x, pages->body_y);
           cairo_scale (cr, PX_TO_PT, PX_TO_PT);
           o42_sheet_draw_chart (pages->sheet, chart, cr,
-                                pages->page_w_px, pages->page_h_px);
+                                pages->body_w / PX_TO_PT, pages->body_h / PX_TO_PT);
           cairo_restore (cr);
         }
+      g_object_unref (layout);
       return;
     }
 
-  cb = (guint) page % pages->col_bands->len;
-  rb = (guint) page / pages->col_bands->len;
-
-  layout = pango_cairo_create_layout (cr);
+  region = page_bands (pages, page, &cb, &rb);
+  if (region == NULL)
+    {
+      g_object_unref (layout);
+      return;
+    }
 
   cairo_save (cr);
+  cairo_translate (cr, pages->body_x, pages->body_y);
+  cairo_rectangle (cr, 0, 0, pages->body_w, pages->body_h);
+  cairo_clip (cr);
   cairo_scale (cr, PX_TO_PT * pages->scale, PX_TO_PT * pages->scale);
   pango_cairo_update_layout (cr, layout);
   {
-    const O42PrintSetup *setup = o42_sheet_print_setup (pages->sheet);
-    const Band *cols = &g_array_index (pages->col_bands, Band, cb);
-    const Band *rows = &g_array_index (pages->row_bands, Band, rb);
-    gboolean with_titles = pages->title_rows > 0 && rows->first > pages->title_rows - 1;
+    const Band *cols = &g_array_index (region->col_bands, Band, cb);
+    const Band *rows = &g_array_index (region->row_bands, Band, rb);
+    gboolean with_title_rows = pages->title_row1 >= pages->title_row0 && rows->first > pages->title_row1;
+    gboolean with_title_cols = pages->title_col1 >= pages->title_col0 && cols->first > pages->title_col1;
     double x0 = pages->headings_w;
-    double y0 = pages->header_h + pages->headings_h;
+    double y0 = pages->headings_h;
+    double body_w_px = pages->body_w / PX_TO_PT / pages->scale;
+    double body_h_px = pages->body_h / PX_TO_PT / pages->scale;
+    double content_w = x0, content_h = y0;
 
-    if (pages->header_h > 0)
-      draw_header_footer (pages, cr, layout, setup->header, 0, pages->page_w_px, page);
-    if (pages->footer_h > 0)
-      draw_header_footer (pages, cr, layout, setup->footer, pages->page_h_px - HF_H, pages->page_w_px, page);
+    for (int c = cols->first; c <= cols->last; c++)
+      content_w += o42_sheet_col_width (pages->sheet, c);
+    for (int r = rows->first; r <= rows->last; r++)
+      content_h += o42_sheet_row_height (pages->sheet, r);
+    if (with_title_cols) content_w += pages->titles_w;
+    if (with_title_rows) content_h += pages->titles_h;
+
+    /* Centred on the page when asked, as Excel's Margins tab offers. */
+    if (setup->hcenter && content_w < body_w_px)
+      cairo_translate (cr, (body_w_px - content_w) / 2, 0);
+    if (setup->vcenter && content_h < body_h_px)
+      cairo_translate (cr, 0, (body_h_px - content_h) / 2);
+
     if (pages->headings_w > 0)
-      draw_headings (pages, cr, layout, cols, rows, x0, y0, with_titles);
+      draw_headings (pages, cr, layout, cols, rows, x0, y0, with_title_rows, with_title_cols);
 
-    if (with_titles)
-      {
-        Band titles = { 0, pages->title_rows - 1, 0.0 };
-        cairo_save (cr);
-        cairo_translate (cr, x0, y0);
-        draw_page (cr, pages->sheet, cols, &titles, layout, setup->gridlines);
-        cairo_restore (cr);
-        y0 += pages->titles_h;
-      }
+    /* Four quarters at most: the repeated corner, the repeated rows
+     * above the band, the repeated columns beside it, and the band. */
+    {
+      Band title_cols = { pages->title_col0, pages->title_col1, 0.0 };
+      Band title_rows = { pages->title_row0, pages->title_row1, 0.0 };
+
+      /* The repeated rows and columns are drawn in bands of their own,
+       * so their offsets are theirs. */
+      for (int c = 0; c < pages->title_col0; c++)
+        title_cols.offset += o42_sheet_col_width (pages->sheet, c);
+      for (int r = 0; r < pages->title_row0; r++)
+        title_rows.offset += o42_sheet_row_height (pages->sheet, r);
+
+      if (with_title_rows && with_title_cols)
+        {
+          cairo_save (cr);
+          cairo_translate (cr, x0, y0);
+          draw_page (cr, pages->sheet, setup, &title_cols, &title_rows, layout);
+          cairo_restore (cr);
+        }
+      if (with_title_rows)
+        {
+          cairo_save (cr);
+          cairo_translate (cr, x0 + (with_title_cols ? pages->titles_w : 0), y0);
+          draw_page (cr, pages->sheet, setup, cols, &title_rows, layout);
+          cairo_restore (cr);
+          y0 += pages->titles_h;
+        }
+      if (with_title_cols)
+        {
+          cairo_save (cr);
+          cairo_translate (cr, x0, y0);
+          draw_page (cr, pages->sheet, setup, &title_cols, rows, layout);
+          cairo_restore (cr);
+          x0 += pages->titles_w;
+        }
+    }
     cairo_save (cr);
     cairo_translate (cr, x0, y0);
-    draw_page (cr, pages->sheet, cols, rows, layout, setup->gridlines);
+    draw_page (cr, pages->sheet, setup, cols, rows, layout);
     cairo_restore (cr);
   }
   cairo_restore (cr);
@@ -850,17 +1413,33 @@ o42_pages_draw (O42Pages *pages, int page, cairo_t *cr)
   g_object_unref (layout);
 }
 
+/* Where the bands of every region divide, in one sorted list. */
 static int
-pages_breaks (GArray *bands, int **out)
+pages_breaks (O42Pages *pages, gboolean rows, int **out)
 {
-  int n = bands != NULL ? (int) bands->len - 1 : 0;
+  GArray *all = g_array_new (FALSE, FALSE, sizeof (int));
+  int n;
 
-  *out = NULL;
-  if (n <= 0)
-    return 0;
-  *out = g_new (int, n);
-  for (int i = 0; i < n; i++)
-    (*out)[i] = g_array_index (bands, Band, i + 1).first;
+  for (guint i = 0; i < pages->regions->len; i++)
+    {
+      const Region *region = &g_array_index (pages->regions, Region, i);
+      GArray *bands = rows ? region->row_bands : region->col_bands;
+
+      for (guint k = 1; k < bands->len; k++)
+        {
+          int at = g_array_index (bands, Band, k).first;
+          gboolean seen = FALSE;
+
+          for (guint j = 0; j < all->len && !seen; j++)
+            seen = g_array_index (all, int, j) == at;
+          if (!seen)
+            g_array_append_val (all, at);
+        }
+    }
+  n = (int) all->len;
+  *out = n > 0 ? (int *) g_array_free (all, FALSE) : NULL;
+  if (n == 0)
+    g_array_free (all, TRUE);
   return n;
 }
 
@@ -868,14 +1447,67 @@ int
 o42_pages_row_breaks (O42Pages *pages, int **rows)
 {
   g_return_val_if_fail (pages != NULL && rows != NULL, 0);
-  return pages_breaks (pages->row_bands, rows);
+  return pages_breaks (pages, TRUE, rows);
 }
 
 int
 o42_pages_col_breaks (O42Pages *pages, int **cols)
 {
   g_return_val_if_fail (pages != NULL && cols != NULL, 0);
-  return pages_breaks (pages->col_bands, cols);
+  return pages_breaks (pages, FALSE, cols);
+}
+
+int
+o42_pages_region_bands (O42Pages *pages, int n, gboolean rows, int **firsts)
+{
+  const Region *region;
+  GArray *bands;
+
+  g_return_val_if_fail (pages != NULL && firsts != NULL, 0);
+  *firsts = NULL;
+  if (n < 0 || n >= (int) pages->regions->len)
+    return 0;
+  region = &g_array_index (pages->regions, Region, n);
+  bands = rows ? region->row_bands : region->col_bands;
+  *firsts = g_new (int, bands->len);
+  for (guint i = 0; i < bands->len; i++)
+    (*firsts)[i] = g_array_index (bands, Band, i).first;
+  return (int) bands->len;
+}
+
+int
+o42_pages_region_page (O42Pages *pages, int n, int cb, int rb)
+{
+  int before = 0;
+  const Region *region;
+
+  g_return_val_if_fail (pages != NULL, 0);
+  if (n < 0 || n >= (int) pages->regions->len)
+    return 0;
+  for (int i = 0; i < n; i++)
+    before += region_pages (&g_array_index (pages->regions, Region, i));
+  region = &g_array_index (pages->regions, Region, n);
+  if (pages->setup->down_then_over)
+    return before + cb * (int) region->row_bands->len + rb + 1;
+  return before + rb * (int) region->col_bands->len + cb + 1;
+}
+
+/* The print areas as paged, for the grid's page-break view: the nth
+ * region's rectangle, FALSE past the last. */
+gboolean
+o42_pages_region (O42Pages *pages, int n, O42Range *out)
+{
+  const Region *region;
+
+  g_return_val_if_fail (pages != NULL && out != NULL, FALSE);
+  if (n < 0 || n >= (int) pages->regions->len)
+    return FALSE;
+  region = &g_array_index (pages->regions, Region, n);
+  out->col0 = g_array_index (region->col_bands, Band, 0).first;
+  out->col1 = g_array_index (region->col_bands, Band, region->col_bands->len - 1).last;
+  out->row0 = g_array_index (region->row_bands, Band, 0).first;
+  out->row1 = g_array_index (region->row_bands, Band, region->row_bands->len - 1).last;
+  return TRUE;
 }
 
 void
@@ -884,36 +1516,46 @@ o42_pages_free (O42Pages *pages)
   if (pages == NULL)
     return;
 
-  g_array_free (pages->col_bands, TRUE);
-  g_array_free (pages->row_bands, TRUE);
+  for (guint i = 0; i < pages->notes->len; i++)
+    g_free (g_array_index (pages->notes, NoteLine, i).text);
+  g_array_free (pages->notes, TRUE);
+  g_array_free (pages->note_pages, TRUE);
+  for (guint i = 0; i < pages->regions->len; i++)
+    {
+      Region *region = &g_array_index (pages->regions, Region, i);
+      g_array_free (region->col_bands, TRUE);
+      g_array_free (region->row_bands, TRUE);
+    }
+  g_array_free (pages->regions, TRUE);
   g_free (pages->document);
   g_free (pages);
 }
 
-/* The pages of one sheet onto a surface already open: what both the
- * one-sheet export and the whole-book one draw. */
-static gboolean
-export_sheet_pages (O42Sheet *sheet, cairo_t *cr, const char *document)
+/* The pages of one sheet onto a PDF surface already open, each at the
+ * sheet's own paper size: what both the one-sheet export and the
+ * whole-book one draw. */
+static void
+export_sheet_pages (O42Sheet *sheet, cairo_surface_t *surface, cairo_t *cr, const char *document)
 {
-  double margin = o42_sheet_print_setup (sheet)->margin;
-  O42Pages *pages = o42_pages_new (sheet, PAGE_W - 2 * margin, PAGE_H - 2 * margin);
+  O42Pages *pages = o42_pages_new (sheet);
+  double w = 595, h = 842;
 
+  o42_pages_paper (pages, &w, &h);
+  cairo_pdf_surface_set_size (surface, w, h);
   if (document != NULL)
     o42_pages_set_document (pages, document);
   for (int page = 0; page < o42_pages_count (pages); page++)
     {
       cairo_save (cr);
-      cairo_translate (cr, margin, margin);
       o42_pages_draw (pages, page, cr);
       cairo_restore (cr);
       cairo_show_page (cr);
     }
   o42_pages_free (pages);
-  return TRUE;
 }
 
-gboolean
-o42_pdf_export_book (O42Book *book, GFile *file, GError **error)
+static gboolean
+export_to (GFile *file, O42Book *book, O42Sheet *sheet, GError **error)
 {
   GFileOutputStream *stream;
   cairo_surface_t *surface;
@@ -921,18 +1563,19 @@ o42_pdf_export_book (O42Book *book, GFile *file, GError **error)
   char *base;
   gboolean ok = TRUE;
 
-  g_return_val_if_fail (book != NULL && G_IS_FILE (file), FALSE);
-
   stream = g_file_replace (file, NULL, FALSE, G_FILE_CREATE_NONE, NULL, error);
   if (stream == NULL)
     return FALSE;
 
   base = g_file_get_basename (file);
-  surface = cairo_pdf_surface_create_for_stream (write_to_stream, stream, PAGE_W, PAGE_H);
+  surface = cairo_pdf_surface_create_for_stream (write_to_stream, stream, 595, 842);
   cr = cairo_create (surface);
 
-  for (int i = 0; i < o42_book_n_sheets (book); i++)
-    export_sheet_pages (o42_book_sheet (book, i), cr, base);
+  if (book != NULL)
+    for (int i = 0; i < o42_book_n_sheets (book); i++)
+      export_sheet_pages (o42_book_sheet (book, i), surface, cr, base);
+  else
+    export_sheet_pages (sheet, surface, cr, base);
 
   if (cairo_status (cr) != CAIRO_STATUS_SUCCESS)
     {
@@ -954,62 +1597,20 @@ o42_pdf_export_book (O42Book *book, GFile *file, GError **error)
 }
 
 gboolean
+o42_pdf_export_book (O42Book *book, GFile *file, GError **error)
+{
+  g_return_val_if_fail (book != NULL && G_IS_FILE (file), FALSE);
+  return export_to (file, book, NULL, error);
+}
+
+gboolean
 o42_pdf_export (O42Sheet *sheet, GFile *file, GError **error)
 {
-  GFileOutputStream *stream;
-  cairo_surface_t *surface;
-  cairo_t *cr;
-  O42Pages *pages;
-  gboolean ok = TRUE;
-  double margin;
-
   g_return_val_if_fail (sheet != NULL, FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
-
-  stream = g_file_replace (file, NULL, FALSE, G_FILE_CREATE_NONE, NULL, error);
-  if (stream == NULL)
-    return FALSE;
-
-  margin = o42_sheet_print_setup (sheet)->margin;
-  pages = o42_pages_new (sheet, PAGE_W - 2 * margin, PAGE_H - 2 * margin);
-  {
-    char *base = g_file_get_basename (file);
-    o42_pages_set_document (pages, base);
-    g_free (base);
-  }
-
-  surface = cairo_pdf_surface_create_for_stream (write_to_stream, stream,
-                                                 PAGE_W, PAGE_H);
-  cr = cairo_create (surface);
-
-  for (int page = 0; page < o42_pages_count (pages); page++)
-    {
-      cairo_save (cr);
-      cairo_translate (cr, margin, margin);
-      o42_pages_draw (pages, page, cr);
-      cairo_restore (cr);
-      cairo_show_page (cr);
-    }
-
-  if (cairo_status (cr) != CAIRO_STATUS_SUCCESS)
-    {
-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                   "office42 could not write the PDF: %s",
-                   cairo_status_to_string (cairo_status (cr)));
-      ok = FALSE;
-    }
-
-  cairo_destroy (cr);
-  cairo_surface_finish (surface);
-  cairo_surface_destroy (surface);
-  o42_pages_free (pages);
-
-  if (!g_output_stream_close (G_OUTPUT_STREAM (stream), NULL, ok ? error : NULL))
-    ok = FALSE;
-
-  g_object_unref (stream);
-  return ok;
+  return export_to (file, NULL, sheet, error);
 }
+
 
 /* ====================================================================== */
 /* Import                                                                  */

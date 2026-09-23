@@ -9,15 +9,25 @@
 #include <glib/gstdio.h>
 
 #include "o42-pyquote.h"
+#include "o42-date.h"
 #include <string.h>
 
 /* o42-types.h for the reference check in name_is_legal comes with
  * o42-sheet.h. */
 
 typedef struct {
-  O42Sheet *sheet;
+  O42Sheet *sheet;       /* NULL for a name that is a formula */
   O42Range  range;
+  char     *formula;     /* the expression, without "=", or NULL */
 } NamedRange;
+
+static void
+named_range_free (gpointer data)
+{
+  NamedRange *nr = data;
+  g_free (nr->formula);
+  g_free (nr);
+}
 
 typedef struct {
   O42BookWatcher watcher;
@@ -25,9 +35,17 @@ typedef struct {
 } Watcher;
 
 struct _O42Book {
+  gboolean   loading;      /* a file is being read in: see o42_book_begin_load */
   GPtrArray *views;        /* O42BookView *, the named window states */
+  GPtrArray *watches;      /* O42Watch *, the Watch Window's cells */
   GString *recording;      /* the macro being recorded, or NULL */
   char    *recorded_sheet; /* the sheet its last line was about */
+  int      record_quiet;   /* inside an operation recorded as one line */
+  char    *pending_sheet;  /* a selection made and not yet written down */
+  O42Range pending_range;
+  int      pending_row, pending_col;
+  gboolean record_relative; /* cells relative to the active cell */
+  int      rel_row, rel_col; /* the active cell the next line is relative to */
   GPtrArray    *sheets;   /* O42Sheet*, owned, in tab order */
   O42UndoStack *stack;    /* shared by every sheet */
   GHashTable   *names;    /* upper-case name -> NamedRange*, owned */
@@ -40,18 +58,69 @@ struct _O42Book {
   int           max_iterations;
   double        tolerance;
   gboolean      manual;       /* nothing is worked out until F9 */
+  gboolean      date_1904;    /* days counted from 1 January 1904 */
+  gboolean      as_displayed; /* numbers kept rounded to their format */
   GPtrArray    *custom_lists; /* GStrv: the runs the fill handle continues */
   char         *db_path;      /* the database beside the book, or NULL */
   gboolean      db_embedded;  /* ...and whether it lives inside it */
   gboolean      scripts_trusted; /* the user has said the book's Python may
                                   * run: a new book's may, a file's may not
                                   * until they run its scripts */
+  GHashTable   *kept_parts;   /* name -> GBytes: an .xlsm's VBA, for Excel */
+  char         *props[O42_N_PROPS];   /* File > Properties; NULL for none */
+  gboolean      protected;    /* Tools > Protection > Protect Workbook */
+  gboolean      autocorrect[O42_N_AUTOCORRECT_OPTIONS];
+  GPtrArray    *corrections;  /* Correction *, in the order added */
+  guint16       password;     /* its hash, 0 for none */
 };
 
 typedef struct {
   char *name;
   char *code;
+  char  shortcut;      /* Ctrl+Shift and this letter runs it; 0 for none */
+  char *description;   /* or NULL */
 } Script;
+
+typedef struct {
+  char *from;
+  char *to;
+} Correction;
+
+static void
+correction_free (gpointer data)
+{
+  Correction *c = data;
+  g_free (c->from);
+  g_free (c->to);
+  g_free (c);
+}
+
+/* What a new book starts with: the signs people type in brackets and
+ * the slips Excel 97 came with. */
+static const char *const DEFAULT_CORRECTIONS[][2] = {
+  { "(c)", "\302\251" }, { "(r)", "\302\256" }, { "(tm)", "\342\204\242" },
+  { "...", "\342\200\246" }, { "-->", "\342\206\222" }, { "<--", "\342\206\220" },
+  { "teh", "the" }, { "adn", "and" }, { "taht", "that" }, { "recieve", "receive" },
+  { "seperate", "separate" }, { "occured", "occurred" }, { "dont", "don't" },
+  { "i", "I" }, { "acheive", "achieve" }, { "definately", "definitely" },
+};
+
+static void
+book_autocorrect_defaults (O42Book *book)
+{
+  for (int i = 0; i < O42_N_AUTOCORRECT_OPTIONS; i++)
+    book->autocorrect[i] = TRUE;
+  if (book->corrections == NULL)
+    book->corrections = g_ptr_array_new_with_free_func (correction_free);
+  g_ptr_array_set_size (book->corrections, 0);
+  for (guint i = 0; i < G_N_ELEMENTS (DEFAULT_CORRECTIONS); i++)
+    {
+      Correction *c = g_new0 (Correction, 1);
+      c->from = g_strdup (DEFAULT_CORRECTIONS[i][0]);
+      c->to = g_strdup (DEFAULT_CORRECTIONS[i][1]);
+      g_ptr_array_add (book->corrections, c);
+    }
+}
 
 typedef struct {
   char      *name;    /* owned */
@@ -59,12 +128,15 @@ typedef struct {
   O42FmtMask mask;
 } Style;
 
+static void record_book_line (O42Book *book, const char *format, ...) G_GNUC_PRINTF (2, 3);
+
 static void
 script_free (gpointer data)
 {
   Script *s = data;
   g_free (s->name);
   g_free (s->code);
+  g_free (s->description);
   g_free (s);
 }
 
@@ -139,6 +211,65 @@ o42_book_remove_script (O42Book *book, const char *name)
   return TRUE;
 }
 
+void
+o42_book_set_script_options (O42Book *book, const char *name, char shortcut, const char *description)
+{
+  Script *s;
+  g_return_if_fail (book != NULL);
+  s = find_script (book, name);
+  if (s == NULL)
+    return;
+  shortcut = (char) g_ascii_toupper (shortcut);
+  if (!g_ascii_isalpha (shortcut))
+    shortcut = 0;
+  /* One macro to a key: the one that had it loses it. */
+  for (guint i = 0; shortcut != 0 && i < book->scripts->len; i++)
+    {
+      Script *other = g_ptr_array_index (book->scripts, i);
+      if (other != s && other->shortcut == shortcut)
+        other->shortcut = 0;
+    }
+  if (s->shortcut == shortcut && g_strcmp0 (s->description, description) == 0)
+    return;
+  s->shortcut = shortcut;
+  g_free (s->description);
+  s->description = description != NULL && *description != '\0' ? g_strdup (description) : NULL;
+  book->scripts_modified = TRUE;
+  o42_book_changed (book, "scripts");
+}
+
+char
+o42_book_script_shortcut (O42Book *book, const char *name)
+{
+  Script *s;
+  g_return_val_if_fail (book != NULL, 0);
+  s = find_script (book, name);
+  return s != NULL ? s->shortcut : 0;
+}
+
+const char *
+o42_book_script_description (O42Book *book, const char *name)
+{
+  Script *s;
+  g_return_val_if_fail (book != NULL, "");
+  s = find_script (book, name);
+  return s != NULL && s->description != NULL ? s->description : "";
+}
+
+const char *
+o42_book_script_for_shortcut (O42Book *book, char shortcut)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  shortcut = (char) g_ascii_toupper (shortcut);
+  for (guint i = 0; shortcut != 0 && i < book->scripts->len; i++)
+    {
+      Script *s = g_ptr_array_index (book->scripts, i);
+      if (s->shortcut == shortcut)
+        return s->name;
+    }
+  return NULL;
+}
+
 /* The styles a new book starts with, as Excel's are named. */
 static void
 add_builtin_styles (O42Book *book)
@@ -164,7 +295,9 @@ add_builtin_styles (O42Book *book)
     { "Neutral",    O42_FMT_COLOUR | O42_FMT_FILL, 0, 0, 0, 0x9C6500, 0xFFEB9C, O42_NUM_GENERAL, 0 },
     { "Note",       O42_FMT_FILL, 0, 0, 0, 0x000000, 0xFFFFCC, O42_NUM_GENERAL, 0 },
     { "Comma",      O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_COMMA, 2 },
-    { "Currency",   O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_CURRENCY, 2 },
+    { "Comma [0]",  O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_COMMA, 0 },
+    { "Currency",   O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_ACCOUNTING, 2 },
+    { "Currency [0]", O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_ACCOUNTING, 0 },
     { "Percent",    O42_FMT_NUMBER | O42_FMT_DECIMALS, 0, 0, 0, 0x000000, O42_FILL_NONE, O42_NUM_PERCENT, 0 },
   };
 
@@ -195,7 +328,8 @@ o42_book_new (void)
 
   book->sheets = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_sheet_free);
   book->stack = o42_undo_stack_new ();
-  book->names = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  book_autocorrect_defaults (book);
+  book->names = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, named_range_free);
   book->refs = 1;
   book->scripts_trusted = TRUE;
   book->watchers = g_array_new (FALSE, FALSE, sizeof (Watcher));
@@ -222,9 +356,12 @@ o42_book_free (O42Book *book)
   g_ptr_array_free (book->scripts, TRUE);
   if (book->views != NULL)
     g_ptr_array_unref (book->views);
+  if (book->watches != NULL)
+    g_ptr_array_unref (book->watches);
   if (book->recording != NULL)
     g_string_free (book->recording, TRUE);
   g_free (book->recorded_sheet);
+  g_free (book->pending_sheet);
   /* An embedded database lives in a temporary file while the book is
    * open; the book going is the end of it. */
   if (book->db_embedded && book->db_path != NULL)
@@ -232,10 +369,378 @@ o42_book_free (O42Book *book)
   g_free (book->db_path);
   if (book->custom_lists != NULL)
     g_ptr_array_unref (book->custom_lists);
+  if (book->kept_parts != NULL)
+    g_hash_table_unref (book->kept_parts);
   for (guint i = 0; i < book->styles->len; i++)
     g_free (g_array_index (book->styles, Style, i).name);
   g_array_free (book->styles, TRUE);
+  for (int i = 0; i < O42_N_PROPS; i++)
+    g_free (book->props[i]);
+  g_ptr_array_unref (book->corrections);
   g_free (book);
+}
+
+/* ---- AutoCorrect ------------------------------------------------------- */
+
+static const char *const AUTOCORRECT_NAMES[O42_N_AUTOCORRECT_OPTIONS] = {
+  "initials", "sentences", "days", "replace"
+};
+
+const char *
+o42_autocorrect_option_name (O42AutocorrectOption which)
+{
+  return (which >= 0 && which < O42_N_AUTOCORRECT_OPTIONS) ? AUTOCORRECT_NAMES[which] : "";
+}
+
+gboolean
+o42_autocorrect_option_parse (const char *name, O42AutocorrectOption *which)
+{
+  for (int i = 0; name != NULL && i < O42_N_AUTOCORRECT_OPTIONS; i++)
+    if (g_ascii_strcasecmp (name, AUTOCORRECT_NAMES[i]) == 0)
+      {
+        *which = (O42AutocorrectOption) i;
+        return TRUE;
+      }
+  return FALSE;
+}
+
+gboolean
+o42_book_autocorrect_option (O42Book *book, O42AutocorrectOption which)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return which >= 0 && which < O42_N_AUTOCORRECT_OPTIONS && book->autocorrect[which];
+}
+
+void
+o42_book_set_autocorrect_option (O42Book *book, O42AutocorrectOption which, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (which < 0 || which >= O42_N_AUTOCORRECT_OPTIONS || book->autocorrect[which] == on)
+    return;
+  book->autocorrect[which] = on;
+  if (o42_book_recording (book))
+    record_book_line (book, "book.autocorrect_option(\"%s\", %s)", AUTOCORRECT_NAMES[which], on ? "True" : "False");
+  o42_book_set_modified (book, TRUE);
+}
+
+int
+o42_book_n_autocorrections (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, 0);
+  return (int) book->corrections->len;
+}
+
+const char *
+o42_book_autocorrection (O42Book *book, int index, const char **to)
+{
+  const Correction *c;
+
+  g_return_val_if_fail (book != NULL, NULL);
+  if (index < 0 || index >= (int) book->corrections->len)
+    return NULL;
+  c = g_ptr_array_index (book->corrections, index);
+  if (to != NULL)
+    *to = c->to;
+  return c->from;
+}
+
+void
+o42_book_add_autocorrection (O42Book *book, const char *from, const char *to)
+{
+  Correction *c = NULL;
+
+  g_return_if_fail (book != NULL && from != NULL && to != NULL);
+  if (*from == '\0')
+    return;
+  for (guint i = 0; i < book->corrections->len && c == NULL; i++)
+    if (strcmp (((Correction *) g_ptr_array_index (book->corrections, i))->from, from) == 0)
+      c = g_ptr_array_index (book->corrections, i);
+  if (c == NULL)
+    {
+      c = g_new0 (Correction, 1);
+      c->from = g_strdup (from);
+      g_ptr_array_add (book->corrections, c);
+    }
+  g_free (c->to);
+  c->to = g_strdup (to);
+  if (o42_book_recording (book))
+    {
+      char *qf = o42_python_quote (from), *qt = o42_python_quote (to);
+      record_book_line (book, "book.add_autocorrection(%s, %s)", qf, qt);
+      g_free (qf); g_free (qt);
+    }
+  o42_book_set_modified (book, TRUE);
+}
+
+gboolean
+o42_book_remove_autocorrection (O42Book *book, const char *from)
+{
+  g_return_val_if_fail (book != NULL && from != NULL, FALSE);
+  for (guint i = 0; i < book->corrections->len; i++)
+    if (strcmp (((Correction *) g_ptr_array_index (book->corrections, i))->from, from) == 0)
+      {
+        g_ptr_array_remove_index (book->corrections, i);
+        if (o42_book_recording (book))
+          {
+            char *qf = o42_python_quote (from);
+            record_book_line (book, "book.remove_autocorrection(%s)", qf);
+            g_free (qf);
+          }
+        o42_book_set_modified (book, TRUE);
+        return TRUE;
+      }
+  return FALSE;
+}
+
+void
+o42_book_clear_autocorrections (O42Book *book)
+{
+  g_return_if_fail (book != NULL);
+  g_ptr_array_set_size (book->corrections, 0);
+}
+
+/* Is the character at `p` (or the one before it, `before`) part of a
+ * word, so that a replacement bounded by it is not a whole word? */
+static gboolean
+is_word_char (gunichar c)
+{
+  return g_unichar_isalnum (c) || c == '_';
+}
+
+static const char *const DAY_NAMES[] = {
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+};
+
+char *
+o42_book_autocorrect (O42Book *book, const char *text)
+{
+  GString *out;
+  gboolean changed = FALSE;
+
+  g_return_val_if_fail (book != NULL && text != NULL, NULL);
+  if (text[0] == '=' || text[0] == '\'' || !g_utf8_validate (text, -1, NULL))
+    return NULL;
+
+  /* The replacement list first, each entry wherever it stands as a
+   * whole word -- bounded by something that is not a letter where its
+   * own ends are letters. */
+  out = g_string_new (text);
+  if (book->autocorrect[O42_AUTOCORRECT_REPLACE])
+    for (guint i = 0; i < book->corrections->len; i++)
+      {
+        const Correction *c = g_ptr_array_index (book->corrections, i);
+        gsize flen = strlen (c->from);
+        gsize at = 0;
+        gboolean from_letters = is_word_char (g_utf8_get_char (c->from)) &&
+                                is_word_char (g_utf8_get_char (g_utf8_prev_char (c->from + flen)));
+
+        while (at + flen <= out->len)
+          {
+            const char *hit = strstr (out->str + at, c->from);
+            gsize pos;
+
+            if (hit == NULL)
+              break;
+            pos = (gsize) (hit - out->str);
+            if (!from_letters ||
+                ((pos == 0 || !is_word_char (g_utf8_get_char (g_utf8_prev_char (out->str + pos)))) &&
+                 (pos + flen >= out->len || !is_word_char (g_utf8_get_char (out->str + pos + flen)))))
+              {
+                g_string_erase (out, (gssize) pos, (gssize) flen);
+                g_string_insert (out, (gssize) pos, c->to);
+                at = pos + strlen (c->to);
+                changed = TRUE;
+              }
+            else
+              at = pos + flen;
+          }
+      }
+
+  /* Then the words: two initial capitals, and the days. */
+  if (book->autocorrect[O42_AUTOCORRECT_INITIALS] || book->autocorrect[O42_AUTOCORRECT_DAYS])
+    {
+      GString *rebuilt = g_string_new (NULL);
+      const char *p = out->str;
+
+      while (*p != '\0')
+        {
+          const char *start = p;
+          gunichar c = g_utf8_get_char (p);
+
+          if (!g_unichar_isalpha (c))
+            {
+              g_string_append_unichar (rebuilt, c);
+              p = g_utf8_next_char (p);
+              continue;
+            }
+          while (*p != '\0' && g_unichar_isalpha (g_utf8_get_char (p)))
+            p = g_utf8_next_char (p);
+          {
+            char *word = g_strndup (start, (gsize) (p - start));
+            glong n = g_utf8_strlen (word, -1);
+            gboolean done = FALSE;
+
+            if (book->autocorrect[O42_AUTOCORRECT_DAYS])
+              for (guint d = 0; d < G_N_ELEMENTS (DAY_NAMES) && !done; d++)
+                if (strcmp (word, DAY_NAMES[d]) == 0)
+                  {
+                    word[0] = (char) g_ascii_toupper (word[0]);
+                    changed = done = TRUE;
+                  }
+            if (!done && book->autocorrect[O42_AUTOCORRECT_INITIALS] && n >= 3)
+              {
+                const char *second = g_utf8_next_char (word);
+                const char *third = g_utf8_next_char (second);
+                gboolean rest_lower = TRUE;
+
+                for (const char *q = third; *q != '\0'; q = g_utf8_next_char (q))
+                  rest_lower = rest_lower && g_unichar_islower (g_utf8_get_char (q));
+                if (g_unichar_isupper (g_utf8_get_char (word)) && g_unichar_isupper (g_utf8_get_char (second)) &&
+                    rest_lower)
+                  {
+                    gunichar lower = g_unichar_tolower (g_utf8_get_char (second));
+                    GString *w = g_string_new (NULL);
+
+                    g_string_append_len (w, word, second - word);
+                    g_string_append_unichar (w, lower);
+                    g_string_append (w, third);
+                    g_free (word);
+                    word = g_string_free (w, FALSE);
+                    changed = TRUE;
+                  }
+              }
+            g_string_append (rebuilt, word);
+            g_free (word);
+          }
+        }
+      g_string_free (out, TRUE);
+      out = rebuilt;
+    }
+
+  /* And the letter after a sentence's end. */
+  if (book->autocorrect[O42_AUTOCORRECT_SENTENCES])
+    {
+      const char *p = out->str;
+
+      while ((p = strpbrk (p, ".!?")) != NULL)
+        {
+          const char *q = p + 1;
+
+          while (*q == ' ')
+            q++;
+          if (q > p + 1 && *q != '\0' && g_unichar_islower (g_utf8_get_char (q)))
+            {
+              gunichar upper = g_unichar_toupper (g_utf8_get_char (q));
+              gsize pos = (gsize) (q - out->str);
+              gsize len = (gsize) (g_utf8_next_char (q) - q);
+              char buf[8];
+              int n = g_unichar_to_utf8 (upper, buf);
+
+              g_string_erase (out, (gssize) pos, (gssize) len);
+              g_string_insert_len (out, (gssize) pos, buf, n);
+              changed = TRUE;
+              p = out->str + pos;
+            }
+          else
+            p = q > p + 1 ? q : p + 1;
+        }
+    }
+
+  if (!changed)
+    {
+      g_string_free (out, TRUE);
+      return NULL;
+    }
+  return g_string_free (out, FALSE);
+}
+
+/* ---- Protecting the structure ---------------------------------------- */
+
+void
+o42_book_set_protected (O42Book *book, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (book->protected == on)
+    return;
+  book->protected = on;
+  if (o42_book_recording (book))
+    record_book_line (book, "book.protected = %s", on ? "True" : "False");
+  o42_book_set_modified (book, TRUE);
+}
+
+gboolean
+o42_book_protected (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->protected;
+}
+
+void
+o42_book_set_password_hash (O42Book *book, guint16 hash)
+{
+  g_return_if_fail (book != NULL);
+  book->password = hash;
+}
+
+guint16
+o42_book_password_hash (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, 0);
+  return book->password;
+}
+
+/* ---- Document properties --------------------------------------------- */
+
+static const char *const PROPERTY_NAMES[O42_N_PROPS] = {
+  "title", "subject", "author", "manager", "company", "category", "keywords", "comments"
+};
+
+const char *
+o42_property_name (O42Property which)
+{
+  return (which >= 0 && which < O42_N_PROPS) ? PROPERTY_NAMES[which] : "";
+}
+
+gboolean
+o42_property_parse (const char *name, O42Property *which)
+{
+  for (int i = 0; name != NULL && i < O42_N_PROPS; i++)
+    if (g_ascii_strcasecmp (name, PROPERTY_NAMES[i]) == 0)
+      {
+        *which = (O42Property) i;
+        return TRUE;
+      }
+  return FALSE;
+}
+
+const char *
+o42_book_property (O42Book *book, O42Property which)
+{
+  g_return_val_if_fail (book != NULL, "");
+  if (which < 0 || which >= O42_N_PROPS || book->props[which] == NULL)
+    return "";
+  return book->props[which];
+}
+
+void
+o42_book_set_property (O42Book *book, O42Property which, const char *value)
+{
+  g_return_if_fail (book != NULL);
+  if (which < 0 || which >= O42_N_PROPS)
+    return;
+  if (value != NULL && *value == '\0')
+    value = NULL;
+  if (g_strcmp0 (book->props[which], value) == 0)
+    return;
+  g_free (book->props[which]);
+  book->props[which] = g_strdup (value);
+  if (o42_book_recording (book))
+    {
+      char *quoted = o42_python_quote (value != NULL ? value : "");
+      record_book_line (book, "book.set_property(\"%s\", %s)", PROPERTY_NAMES[which], quoted);
+      g_free (quoted);
+    }
+  o42_book_set_modified (book, TRUE);
 }
 
 O42Book *
@@ -244,6 +749,12 @@ o42_book_ref (O42Book *book)
   g_return_val_if_fail (book != NULL, NULL);
   book->refs++;
   return book;
+}
+
+int
+o42_book_ref_count (O42Book *book)
+{
+  return book != NULL ? book->refs : 0;
 }
 
 void
@@ -379,8 +890,205 @@ o42_book_add_sheet (O42Book *book, const char *name, int index)
     g_ptr_array_insert (book->sheets, index, sheet);
   o42_sheet_end_group (sheet);
 
+  if (o42_book_recording (book))
+    {
+      char *quoted = o42_python_quote (name);
+      if (index < 0 || index >= (int) book->sheets->len - 1)
+        record_book_line (book, "book.add_sheet(%s)", quoted);
+      else
+        record_book_line (book, "book.add_sheet(%s, %d)", quoted, index);
+      g_free (quoted);
+    }
+
   g_free (fresh);
   return sheet;
+}
+
+void
+o42_book_fill_across (O42Book *book, O42Sheet *source, const O42Range *range,
+                      O42Sheet **targets, int n, O42PasteMode mode)
+{
+  static const char *const MODES[] = { "all", "values", "formats", "formulas" };
+  O42Range used, r;
+
+  g_return_if_fail (book != NULL && source != NULL && range != NULL);
+  if (n <= 0)
+    return;
+
+  /* A selection that is a whole column reaches a million rows; only the
+   * part of it the source has anything in is worth visiting -- and the
+   * same part of each target, which is emptied where the source is. */
+  o42_sheet_used_range (source, &used);
+  r = *range;
+  for (int i = 0; i < n; i++)
+    {
+      O42Range tused;
+      o42_sheet_used_range (targets[i], &tused);
+      used.row1 = MAX (used.row1, tused.row1);
+      used.col1 = MAX (used.col1, tused.col1);
+    }
+  r.row1 = MIN (r.row1, used.row1);
+  r.col1 = MIN (r.col1, used.col1);
+  if (r.row1 < r.row0 || r.col1 < r.col0)
+    return;
+
+  {
+    char *text = o42_book_record_range_text (book, range);
+    GString *line = g_string_new (NULL);
+
+    g_string_append_printf (line, "%s.fill_across([", text);
+    for (int i = 0; i < n; i++)
+      {
+        char *quoted = o42_python_quote (o42_sheet_get_name (targets[i]));
+        g_string_append_printf (line, "%s%s", i > 0 ? ", " : "", quoted);
+        g_free (quoted);
+      }
+    g_string_append_printf (line, "], \"%s\")", MODES[mode]);
+    o42_book_record_op_begin (book, o42_sheet_get_name (source), line->str);
+    g_string_free (line, TRUE);
+    g_free (text);
+  }
+  o42_sheet_begin_group (source);
+  for (int i = 0; i < n; i++)
+    {
+      O42Sheet *target = targets[i];
+
+      if (target == source)
+        continue;
+      for (int row = r.row0; row <= r.row1; row++)
+        for (int col = r.col0; col <= r.col1; col++)
+          {
+            if (mode != O42_PASTE_FORMATS)
+              {
+                char *input = o42_sheet_get_input (source, row, col);
+
+                if (mode == O42_PASTE_VALUES && input != NULL && input[0] == '=')
+                  {
+                    /* The value, not the formula. */
+                    O42Value v;
+                    o42_sheet_get_value (source, row, col, &v);
+                    g_free (input);
+                    input = o42_value_to_text (&v);
+                    o42_value_clear (&v);
+                  }
+                if ((input != NULL && *input != '\0') || !o42_sheet_is_empty (target, row, col))
+                  o42_sheet_set_input (target, row, col, input);
+                g_free (input);
+              }
+            if (mode == O42_PASTE_ALL || mode == O42_PASTE_FORMATS)
+              {
+                const O42Fmt *fmt = o42_sheet_get_fmt (source, row, col);
+                O42Range one = { row, col, row, col };
+
+                o42_sheet_apply_fmt (target, &one, O42_FMT_ALL, fmt);
+              }
+          }
+    }
+  o42_sheet_end_group (source);
+  o42_book_record_op_end (book);
+  o42_book_set_modified (book, TRUE);
+}
+
+O42Sheet *
+o42_book_copy_sheet (O42Book *book, int from, int to, const char *name)
+{
+  O42Sheet *src, *copy;
+  char *fresh = NULL;
+
+  g_return_val_if_fail (book != NULL, NULL);
+  if (from < 0 || from >= (int) book->sheets->len)
+    return NULL;
+  src = g_ptr_array_index (book->sheets, from);
+
+  if (name == NULL || *name == '\0' || o42_book_find_sheet (book, name) != NULL)
+    {
+      for (int n = 2; ; n++)
+        {
+          g_free (fresh);
+          fresh = g_strdup_printf ("%s (%d)", o42_sheet_get_name (src), n);
+          if (o42_book_find_sheet (book, fresh) == NULL)
+            break;
+        }
+      name = fresh;
+    }
+
+  copy = o42_sheet_duplicate (src, name);
+  o42_sheet_rename_references (copy, o42_sheet_get_name (src), name);
+
+  /* A table's name is the book's: the copy's tables get names of their
+   * own, Table1 becoming Table2 or the next free number. */
+  {
+    GArray *tables = o42_sheet_tables (copy);
+
+    for (guint i = 0; i < tables->len; i++)
+      {
+        O42Table *t = &g_array_index (tables, O42Table, i);
+        const char *base = t->name;
+        gsize len = strlen (base);
+
+        while (len > 0 && g_ascii_isdigit (base[len - 1]))
+          len--;
+        for (int n = 2; o42_book_find_table (book, t->name) != NULL; n++)
+          {
+            g_free (t->name);
+            t->name = g_strdup_printf ("%.*s%d", (int) len, base, n);
+          }
+      }
+  }
+
+  o42_sheet_set_book (copy, book);
+  o42_sheet_begin_group (copy);
+  o42_sheet_undo_capture_sheet (copy, FALSE);
+  if (to < 0 || to >= (int) book->sheets->len)
+    g_ptr_array_add (book->sheets, copy);
+  else
+    g_ptr_array_insert (book->sheets, to, copy);
+  o42_sheet_end_group (copy);
+
+  if (o42_book_recording (book))
+    {
+      char *qsrc = o42_python_quote (o42_sheet_get_name (src));
+      char *qname = o42_python_quote (name);
+      record_book_line (book, "book.copy_sheet(%s, %d, %s)", qsrc,
+                        o42_book_sheet_index (book, copy), qname);
+      g_free (qsrc);
+      g_free (qname);
+    }
+  g_free (fresh);
+  o42_book_set_modified (book, TRUE);
+  o42_book_changed (book, "sheets");
+  return copy;
+}
+
+gboolean
+o42_book_move_sheet (O42Book *book, int from, int to)
+{
+  O42Sheet *sheet;
+
+  g_return_val_if_fail (book != NULL, FALSE);
+  if (from < 0 || from >= (int) book->sheets->len || to < 0 || to >= (int) book->sheets->len)
+    return FALSE;
+  if (from == to)
+    return TRUE;
+
+  /* Taken out of the book and put back somewhere else -- which is what
+   * undo does with a deleted sheet, so the history follows. */
+  sheet = g_ptr_array_index (book->sheets, from);
+  o42_sheet_begin_group (sheet);
+  o42_sheet_undo_capture_sheet (sheet, FALSE);
+  if (o42_book_detach_sheet (book, from))
+    o42_book_attach_sheet (book, sheet, to);
+  o42_sheet_end_group (sheet);
+
+  if (o42_book_recording (book))
+    {
+      char *quoted = o42_python_quote (o42_sheet_get_name (sheet));
+      record_book_line (book, "book.move_sheet(%s, %d)", quoted, to);
+      g_free (quoted);
+    }
+  o42_book_set_modified (book, TRUE);
+  o42_book_changed (book, "sheets");
+  return TRUE;
 }
 
 gboolean
@@ -436,6 +1144,16 @@ o42_book_remove_sheet (O42Book *book, int index)
    * everything on it.  Formulas that read it give #REF! while it is
    * away and come right again when it returns, which is why they are
    * not rewritten.  Excel cannot undo this at all. */
+  if (o42_book_recording (book))
+    {
+      char *quoted = o42_python_quote (o42_sheet_get_name (gone));
+      record_book_line (book, "book.remove_sheet(%s)", quoted);
+      g_free (quoted);
+      /* The next cell line names its sheet afresh: the one the last
+       * line was about may be this one. */
+      g_clear_pointer (&book->recorded_sheet, g_free);
+    }
+
   o42_sheet_begin_group (survivor);
   o42_sheet_undo_capture_sheet (gone, FALSE);
   o42_book_detach_sheet (book, index);
@@ -497,6 +1215,20 @@ book_rename (O42Book *book, int index, const char *name, gboolean record)
       for (guint i = 0; i < book->sheets->len; i++)
         o42_sheet_rename_references (g_ptr_array_index (book->sheets, i), old, name);
       o42_sheet_end_group (sheet);
+
+      if (o42_book_recording (book))
+        {
+          char *was = o42_python_quote (old), *now = o42_python_quote (name);
+          record_book_line (book, "book[%s].name = %s", was, now);
+          g_free (was);
+          g_free (now);
+          /* The macro's `sheet`, if it was this one, still is. */
+          if (g_strcmp0 (book->recorded_sheet, old) == 0)
+            {
+              g_free (book->recorded_sheet);
+              book->recorded_sheet = g_strdup (name);
+            }
+        }
     }
   else
     {
@@ -591,6 +1323,61 @@ o42_book_set_manual (O42Book *book, gboolean manual)
   book->manual = manual;
 }
 
+void
+o42_book_set_date_1904 (O42Book *book, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (book->date_1904 != on)
+    {
+      book->date_1904 = on;
+      o42_date_set_1904 (on);
+      /* Every date-bearing formula has a new answer. */
+      for (int i = 0; i < o42_book_n_sheets (book); i++)
+        {
+          o42_sheet_set_modified (o42_book_sheet (book, i), TRUE);
+          o42_sheet_stale_formulas (o42_book_sheet (book, i));
+          o42_sheet_recalculate (o42_book_sheet (book, i));
+        }
+    }
+  o42_date_set_1904 (on);
+}
+
+void
+o42_book_set_precision_as_displayed (O42Book *book, gboolean on)
+{
+  g_return_if_fail (book != NULL);
+  if (book->as_displayed == on)
+    return;
+  book->as_displayed = on;
+  for (int i = 0; i < o42_book_n_sheets (book); i++)
+    {
+      O42Sheet *sheet = o42_book_sheet (book, i);
+
+      o42_sheet_set_modified (sheet, TRUE);
+      if (on)
+        {
+          /* The constants first, then everything that reads them. */
+          o42_sheet_round_to_display (sheet);
+          o42_sheet_stale_formulas (sheet);
+          o42_sheet_recalculate (sheet);
+        }
+    }
+}
+
+gboolean
+o42_book_precision_as_displayed (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->as_displayed;
+}
+
+gboolean
+o42_book_date_1904 (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->date_1904;
+}
+
 gboolean
 o42_book_manual (O42Book *book)
 {
@@ -607,6 +1394,39 @@ o42_book_set_database (O42Book *book, const char *path, gboolean embedded)
   book->db_path = (path != NULL && *path != '\0') ? g_strdup (path) : NULL;
   book->db_embedded = book->db_path != NULL && embedded;
   book->scripts_modified = TRUE;   /* the book, not a sheet, has changed */
+}
+
+void
+o42_book_keep_part (O42Book *book, const char *name, GBytes *bytes)
+{
+  g_return_if_fail (book != NULL && name != NULL);
+  if (book->kept_parts == NULL)
+    book->kept_parts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
+                                              (GDestroyNotify) g_bytes_unref);
+  if (bytes == NULL)
+    g_hash_table_remove (book->kept_parts, name);
+  else
+    g_hash_table_replace (book->kept_parts, g_strdup (name), g_bytes_ref (bytes));
+}
+
+GBytes *
+o42_book_kept_part (O42Book *book, const char *name)
+{
+  g_return_val_if_fail (book != NULL && name != NULL, NULL);
+  return book->kept_parts != NULL ? g_hash_table_lookup (book->kept_parts, name) : NULL;
+}
+
+GList *
+o42_book_kept_parts (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  return book->kept_parts != NULL ? g_hash_table_get_keys (book->kept_parts) : NULL;
+}
+
+gboolean
+o42_book_has_vba (O42Book *book)
+{
+  return o42_book_kept_part (book, "xl/vbaProject.bin") != NULL;
 }
 
 gboolean
@@ -699,6 +1519,138 @@ o42_book_define_name (O42Book *book, const char *name, O42Sheet *sheet,
   return TRUE;
 }
 
+/* A label made into a name: spaces and anything else a name cannot
+ * hold become underscores, and a name that would begin with a digit or
+ * read as a cell gets one in front. */
+static char *
+name_from_label (const char *label)
+{
+  GString *out = g_string_new (NULL);
+  char *stripped = g_strstrip (g_strdup (label));
+  const char *p;
+
+  for (p = stripped; *p != '\0'; p = g_utf8_next_char (p))
+    {
+      gunichar c = g_utf8_get_char (p);
+
+      if (g_unichar_isalnum (c) || c == '_' || c == '.')
+        g_string_append_unichar (out, c);
+      else if (out->len > 0 && out->str[out->len - 1] != '_')
+        g_string_append_c (out, '_');
+    }
+  g_free (stripped);
+  if (out->len == 0)
+    return g_string_free (out, TRUE);
+  if (g_ascii_isdigit (out->str[0]) || !name_is_legal (out->str))
+    g_string_prepend_c (out, '_');
+  return g_string_free (out, FALSE);
+}
+
+int
+o42_book_create_names (O42Book *book, O42Sheet *sheet, const O42Range *range,
+                       gboolean top, gboolean left, gboolean bottom, gboolean right)
+{
+  int made = 0;
+  O42Range inner;
+
+  g_return_val_if_fail (book != NULL && sheet != NULL && range != NULL, 0);
+
+  /* The cells the names stand for: the range less its labelled edges. */
+  inner = *range;
+  if (top)    inner.row0++;
+  if (bottom) inner.row1--;
+  if (left)   inner.col0++;
+  if (right)  inner.col1--;
+  if (inner.row0 > inner.row1 || inner.col0 > inner.col1)
+    return 0;
+
+  for (int edge = 0; edge < 4; edge++)
+    {
+      gboolean rows = (edge == 0 || edge == 2);   /* a row of labels naming columns */
+      int label_line;
+
+      if (edge == 0 && !top)    continue;
+      if (edge == 1 && !left)   continue;
+      if (edge == 2 && !bottom) continue;
+      if (edge == 3 && !right)  continue;
+      label_line = edge == 0 ? range->row0 : edge == 2 ? range->row1
+                 : edge == 1 ? range->col0 : range->col1;
+
+      for (int i = rows ? inner.col0 : inner.row0; i <= (rows ? inner.col1 : inner.row1); i++)
+        {
+          char *label = rows ? o42_sheet_get_display (sheet, label_line, i)
+                             : o42_sheet_get_display (sheet, i, label_line);
+          char *name = label != NULL ? name_from_label (label) : NULL;
+          O42Range named = inner;
+
+          if (rows)
+            named.col0 = named.col1 = i;
+          else
+            named.row0 = named.row1 = i;
+          if (name != NULL && *name != '\0' && o42_book_define_name (book, name, sheet, &named))
+            made++;
+          g_free (name);
+          g_free (label);
+        }
+    }
+
+  if (made > 0 && o42_book_recording (book))
+    {
+      char *text = o42_book_record_range_text (book, range);
+      GString *flags = g_string_new (NULL);
+
+      if (top)    g_string_append (flags, ", top=True");
+      if (left)   g_string_append (flags, ", left=True");
+      if (bottom) g_string_append (flags, ", bottom=True");
+      if (right)  g_string_append (flags, ", right=True");
+      if (o42_book_record_sheet (book, o42_sheet_get_name (sheet)))
+        record_book_line (book, "%s.create_names(%s)", text, flags->len > 2 ? flags->str + 2 : "");
+      g_string_free (flags, TRUE);
+      g_free (text);
+    }
+  return made;
+}
+
+gboolean
+o42_book_define_name_formula (O42Book *book, const char *name, const char *formula)
+{
+  NamedRange *nr;
+  char *upper;
+
+  g_return_val_if_fail (book != NULL, FALSE);
+  g_return_val_if_fail (formula != NULL, FALSE);
+
+  if (!name_is_legal (name))
+    return FALSE;
+  if (*formula == '=')
+    formula++;
+  if (*formula == '\0')
+    return FALSE;
+
+  upper = g_ascii_strup (name, -1);
+  nr = g_new0 (NamedRange, 1);
+  nr->formula = g_strdup (formula);
+  g_hash_table_insert (book->names, upper, nr);
+  stale_users_of_name (book, g_intern_string (upper));
+  o42_book_set_modified (book, TRUE);
+  return TRUE;
+}
+
+const char *
+o42_book_lookup_name_formula (O42Book *book, const char *name)
+{
+  char *upper;
+  NamedRange *nr;
+
+  g_return_val_if_fail (book != NULL, NULL);
+  if (name == NULL)
+    return NULL;
+  upper = g_ascii_strup (name, -1);
+  nr = g_hash_table_lookup (book->names, upper);
+  g_free (upper);
+  return nr != NULL ? nr->formula : NULL;
+}
+
 gboolean
 o42_book_undefine_name (O42Book *book, const char *name)
 {
@@ -734,7 +1686,7 @@ o42_book_lookup_name (O42Book *book, const char *name, O42Sheet **sheet,
   upper = g_ascii_strup (name, -1);
   nr = g_hash_table_lookup (book->names, upper);
   g_free (upper);
-  if (nr == NULL)
+  if (nr == NULL || nr->sheet == NULL)
     return FALSE;
 
   if (sheet) *sheet = nr->sheet;
@@ -760,6 +1712,30 @@ o42_book_undo_stack (O42Book *book)
 }
 
 void
+o42_book_begin_load (O42Book *book)
+{
+  g_return_if_fail (book != NULL);
+  book->loading = TRUE;
+}
+
+void
+o42_book_end_load (O42Book *book)
+{
+  g_return_if_fail (book != NULL);
+  if (!book->loading)
+    return;
+  book->loading = FALSE;
+  for (guint i = 0; i < book->sheets->len; i++)
+    o42_sheet_finish_load (g_ptr_array_index (book->sheets, i));
+}
+
+gboolean
+o42_book_loading (const O42Book *book)
+{
+  return book != NULL && book->loading;
+}
+
+void
 o42_book_cell_changed (O42Book *book, O42Sheet *sheet, int row, int col)
 {
   const char *name;
@@ -773,6 +1749,83 @@ o42_book_cell_changed (O42Book *book, O42Sheet *sheet, int row, int col)
 
       if (other != sheet)
         o42_sheet_invalidate_from (other, name, row, col);
+    }
+}
+
+/* Where one row or column index lands after `count` rows are put in
+ * (or, negative, taken out) at `at`; -1 when it was among the deleted. */
+static int
+shifted_index (int i, int at, int count)
+{
+  if (count > 0)
+    return (i >= at) ? i + count : i;
+  if (i >= at - count)
+    return i + count;
+  if (i >= at)
+    return -1;
+  return i;
+}
+
+/* A defined name follows the rows and columns it stands on, as a
+ * formula's reference does: a name for A1:A3 covers A1:A4 after a row
+ * goes in at 2, B1:B3 after a column goes in at A, and is #REF! when
+ * every row of it is deleted. */
+static void
+shift_names (O42Book *book, O42Sheet *sheet, gboolean rows, int at, int count)
+{
+  GHashTableIter iter;
+  gpointer key, value;
+  const char *sheet_name = o42_sheet_get_name (sheet);
+  int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
+
+  g_hash_table_iter_init (&iter, book->names);
+  while (g_hash_table_iter_next (&iter, &key, &value))
+    {
+      NamedRange *nr = value;
+
+      if (nr->sheet == sheet)
+        {
+          int *lo = rows ? &nr->range.row0 : &nr->range.col0;
+          int *hi = rows ? &nr->range.row1 : &nr->range.col1;
+          int new_lo = shifted_index (*lo, at, count);
+          int new_hi = shifted_index (*hi, at, count);
+
+          if (count < 0)
+            {
+              if (new_lo < 0) new_lo = at;
+              if (new_hi < 0) new_hi = at - 1;
+            }
+          if (new_lo == *lo && new_hi == *hi)
+            continue;
+          if (new_hi < new_lo || new_hi >= limit)
+            {
+              nr->sheet = NULL;
+              g_free (nr->formula);
+              nr->formula = g_strdup ("#REF!");
+            }
+          else
+            {
+              *lo = new_lo;
+              *hi = new_hi;
+            }
+          stale_users_of_name (book, g_intern_string (key));
+        }
+      else if (nr->sheet == NULL && nr->formula != NULL)
+        {
+          /* A formula name: only its references that name the sheet
+           * can be into it, since it lives on no sheet of its own. */
+          O42Node *tree = o42_formula_parse (nr->formula);
+
+          if (tree == NULL)
+            continue;
+          if (o42_node_shift (tree, rows, at, count, NULL, sheet_name))
+            {
+              g_free (nr->formula);
+              nr->formula = o42_node_to_string (tree);
+              stale_users_of_name (book, g_intern_string (key));
+            }
+          o42_node_free (tree);
+        }
     }
 }
 
@@ -792,6 +1845,7 @@ o42_book_sheet_shifted (O42Book *book, O42Sheet *sheet, gboolean rows,
       if (other != sheet)
         o42_sheet_shift_references (other, name, rows, at, count);
     }
+  shift_names (book, sheet, rows, at, count);
 }
 
 void
@@ -810,6 +1864,11 @@ o42_book_clear (O42Book *book)
   g_array_set_size (book->styles, 0);
   add_builtin_styles (book);
   book->scripts_modified = FALSE;
+  for (int i = 0; i < O42_N_PROPS; i++)
+    g_clear_pointer (&book->props[i], g_free);
+  book->protected = FALSE;
+  book->password = 0;
+  book_autocorrect_defaults (book);
 
   first = o42_book_sheet (book, 0);
   pictures = o42_sheet_pictures (first);
@@ -828,10 +1887,10 @@ o42_book_clear (O42Book *book)
     o42_sheet_remove_pivot (first, &g_array_index (o42_sheet_pivots (first), O42Pivot, 0));
   o42_sheet_clear_autofilter (first);
   for (int i = 0; i < O42_MAX_COLS; i++)
-    {
-      o42_sheet_set_col_hidden (first, i, FALSE);
-      o42_sheet_set_col_width (first, i, o42_sheet_col_width (first, O42_MAX_COLS - 1));
-    }
+    o42_sheet_set_col_hidden (first, i, FALSE);
+  /* Back to the standard width, not a width of its own on every column
+   * -- which is what a file's own standard width would then lose to. */
+  o42_sheet_reset_col_widths (first);
   o42_book_rename_sheet (book, 0, "Sheet1");
 
   names = o42_book_names (book);
@@ -948,6 +2007,7 @@ o42_book_record_start (O42Book *book)
   if (book->recording != NULL)
     g_string_free (book->recording, TRUE);
   g_clear_pointer (&book->recorded_sheet, g_free);
+  g_clear_pointer (&book->pending_sheet, g_free);
   book->recording = g_string_new ("# Recorded by office42.\n"
                                   "import office42\n"
                                   "book = office42.book\n");
@@ -956,7 +2016,7 @@ o42_book_record_start (O42Book *book)
 gboolean
 o42_book_recording (O42Book *book)
 {
-  return book != NULL && book->recording != NULL;
+  return book != NULL && book->recording != NULL && book->record_quiet == 0;
 }
 
 char *
@@ -970,6 +2030,7 @@ o42_book_record_stop (O42Book *book)
   text = g_string_free (book->recording, FALSE);
   book->recording = NULL;
   g_clear_pointer (&book->recorded_sheet, g_free);
+  g_clear_pointer (&book->pending_sheet, g_free);
   return text;
 }
 
@@ -985,7 +2046,7 @@ o42_book_record_line (O42Book *book, const char *line)
 gboolean
 o42_book_record_sheet (O42Book *book, const char *sheet_name)
 {
-  if (book == NULL || book->recording == NULL)
+  if (!o42_book_recording (book))
     return FALSE;
   if (sheet_name != NULL && g_strcmp0 (book->recorded_sheet, sheet_name) != 0)
     {
@@ -996,7 +2057,134 @@ o42_book_record_sheet (O42Book *book, const char *sheet_name)
       g_free (book->recorded_sheet);
       book->recorded_sheet = g_strdup (sheet_name);
     }
+  /* A selection made since the last line is written now that something
+   * is done with it, as Excel writes Range("B2:C5").Select before the
+   * line that acts on it; one on another sheet is let go. */
+  if (book->pending_sheet != NULL)
+    {
+      if (g_strcmp0 (book->pending_sheet, sheet_name) == 0)
+        {
+          const O42Range *r = &book->pending_range;
+          char *text = o42_book_record_range_text (book, r);
+          gboolean corner = book->pending_row == r->row0 && book->pending_col == r->col0;
+
+          if (corner)
+            g_string_append_printf (book->recording, "%s.select()\n", text);
+          else if (book->record_relative)
+            g_string_append_printf (book->recording, "%s.select(office42.active_cell.offset(%d, %d))\n",
+                                    text, book->pending_row - book->rel_row, book->pending_col - book->rel_col);
+          else
+            {
+              char *active = o42_ref_name (book->pending_row, book->pending_col);
+              g_string_append_printf (book->recording, "%s.select(\"%s\")\n", text, active);
+              g_free (active);
+            }
+          g_free (text);
+          /* From here on the active cell is the one just selected. */
+          book->rel_row = book->pending_row;
+          book->rel_col = book->pending_col;
+        }
+      g_clear_pointer (&book->pending_sheet, g_free);
+    }
   return TRUE;
+}
+
+void
+o42_book_record_set_relative (O42Book *book, gboolean relative, int row, int col)
+{
+  g_return_if_fail (book != NULL);
+  book->record_relative = relative;
+  book->rel_row = MAX (row, 0);
+  book->rel_col = MAX (col, 0);
+}
+
+gboolean
+o42_book_record_relative (O42Book *book)
+{
+  return book != NULL && book->record_relative;
+}
+
+char *
+o42_book_record_range_text (O42Book *book, const O42Range *range)
+{
+  O42Range r;
+  char *text;
+
+  g_return_val_if_fail (range != NULL, NULL);
+  r = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
+  if (book != NULL && book->record_relative)
+    {
+      int rows = r.row1 - r.row0 + 1, cols = r.col1 - r.col0 + 1;
+      int dr = r.row0 - book->rel_row, dc = r.col0 - book->rel_col;
+      char *base = (dr == 0 && dc == 0) ? g_strdup ("office42.active_cell")
+                                        : g_strdup_printf ("office42.active_cell.offset(%d, %d)", dr, dc);
+      text = (rows == 1 && cols == 1) ? g_strdup (base)
+                                      : g_strdup_printf ("%s.resize(%d, %d)", base, rows, cols);
+      g_free (base);
+    }
+  else
+    {
+      char *a = o42_ref_name (r.row0, r.col0);
+      char *b = o42_ref_name (r.row1, r.col1);
+
+      if (r.row0 == r.row1 && r.col0 == r.col1)
+        text = g_strdup_printf ("sheet[\"%s\"]", a);
+      else
+        text = g_strdup_printf ("sheet[\"%s:%s\"]", a, b);
+      g_free (a);
+      g_free (b);
+    }
+  return text;
+}
+
+void
+o42_book_record_selection (O42Book *book, const char *sheet_name,
+                           const O42Range *range, int active_row, int active_col)
+{
+  if (!o42_book_recording (book) || sheet_name == NULL || range == NULL)
+    return;
+  g_free (book->pending_sheet);
+  book->pending_sheet = g_strdup (sheet_name);
+  book->pending_range = o42_range_normalise (range->row0, range->col0, range->row1, range->col1);
+  book->pending_row = active_row;
+  book->pending_col = active_col;
+}
+
+void
+o42_book_record_op_begin (O42Book *book, const char *sheet_name, const char *line)
+{
+  if (book == NULL)
+    return;
+  if (o42_book_recording (book) && line != NULL)
+    {
+      if (sheet_name != NULL)
+        o42_book_record_sheet (book, sheet_name);
+      o42_book_record_line (book, line);
+    }
+  book->record_quiet++;
+}
+
+void
+o42_book_record_op_end (O42Book *book)
+{
+  if (book != NULL && book->record_quiet > 0)
+    book->record_quiet--;
+}
+
+/* A line about the book rather than a sheet: no "sheet = ..." first. */
+static void
+record_book_line (O42Book *book, const char *format, ...)
+{
+  va_list args;
+  char *line;
+
+  if (!o42_book_recording (book))
+    return;
+  va_start (args, format);
+  line = g_strdup_vprintf (format, args);
+  va_end (args);
+  o42_book_record_line (book, line);
+  g_free (line);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1078,6 +2266,70 @@ o42_book_set_view (O42Book *book, const O42BookView *value)
   view->frozen_cols = value->frozen_cols;
   view->split = value->split;
   o42_book_set_modified (book, TRUE);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Watches                                                                 */
+/* ---------------------------------------------------------------------- */
+
+static void
+book_watch_free (gpointer data)
+{
+  O42Watch *watch = data;
+
+  g_free (watch->sheet);
+  g_free (watch);
+}
+
+int
+o42_book_n_watches (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, 0);
+  return book->watches != NULL ? (int) book->watches->len : 0;
+}
+
+const O42Watch *
+o42_book_watch_at (O42Book *book, int index)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  if (book->watches == NULL || index < 0 || index >= (int) book->watches->len)
+    return NULL;
+  return g_ptr_array_index (book->watches, index);
+}
+
+gboolean
+o42_book_add_watch (O42Book *book, const char *sheet, int row, int col)
+{
+  O42Watch *watch;
+
+  g_return_val_if_fail (book != NULL && sheet != NULL, FALSE);
+  if (book->watches == NULL)
+    book->watches = g_ptr_array_new_with_free_func (book_watch_free);
+  for (guint i = 0; i < book->watches->len; i++)
+    {
+      const O42Watch *w = g_ptr_array_index (book->watches, i);
+
+      if (w->row == row && w->col == col && g_ascii_strcasecmp (w->sheet, sheet) == 0)
+        return FALSE;
+    }
+  watch = g_new0 (O42Watch, 1);
+  watch->sheet = g_strdup (sheet);
+  watch->row = row;
+  watch->col = col;
+  g_ptr_array_add (book->watches, watch);
+  o42_book_set_modified (book, TRUE);
+  return TRUE;
+}
+
+gboolean
+o42_book_remove_watch (O42Book *book, int index)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  if (book->watches == NULL || index < 0 || index >= (int) book->watches->len)
+    return FALSE;
+  g_ptr_array_remove_index (book->watches, index);
+  o42_book_set_modified (book, TRUE);
+  return TRUE;
 }
 
 gboolean

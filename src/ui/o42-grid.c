@@ -16,12 +16,16 @@
  */
 
 #include "o42-grid.h"
+#include "o42-image.h"
+#include "o42-pyquote.h"
+#include "o42-entry.h"
 #include "o42-shape.h"
 #include "o42-pattern.h"
 #include "o42-richtext.h"
 #include "o42-pdf.h"
 #include "o42-formula.h"
 #include "o42-eval.h"
+#include "o42-cursor.h"
 
 #include <glib/gi18n.h>
 #include <math.h>
@@ -53,6 +57,7 @@ static gboolean outline_click (O42Grid *self, double x, double y);
 typedef struct {
   O42Range from;
   int      to_row, to_col;
+  gboolean red;         /* Trace Error's arrow from where the error comes */
 } AuditArrow;
 
 struct _O42Grid {
@@ -76,12 +81,25 @@ struct _O42Grid {
    * puts on the clipboard and so what they read from ours. */
   char          *clip_text;
   O42Range       clip_range;
+  char          *clip_sheet;     /* the sheet the copy came from */
+  gboolean       show_notes;     /* View > Comments */
 
   gboolean       hide_gridlines;
+  gboolean       hide_checks;     /* no green corners on doubtful cells */
+  gboolean       circle_invalid;  /* red rings on cells breaking their validation */
+  GtkWidget     *prompt_popover;  /* a validation's input message under the active cell */
+  GtkWidget     *prompt_title, *prompt_text;
+  GtkWidget     *list_popover;    /* a list validation's entries, from the in-cell arrow */
+  GtkWidget     *list_box;
+  gboolean       prompt_shown;
   gboolean       hide_zeros;
   double         zoom;                     /* 1.0 is 100% */
   int            frozen_rows, frozen_cols; /* View > Freeze Panes */
   gboolean       show_breaks;              /* View > Page Breaks */
+  GArray        *freeform;                 /* double pairs, sheet px: the outline being drawn, or NULL */
+  GArray        *extra_objects;            /* O42ObjectRef (type, id): selected with Shift beside the first */
+  gboolean       rotate_drag;              /* the rotation handle is held */
+  double         rotate_from;              /* the object's angle when it was taken */
   gboolean       split;                    /* Window > Split: the bands
                                             * scroll on their own rather
                                             * than staying pinned */
@@ -92,6 +110,8 @@ struct _O42Grid {
   gboolean       blink_on;
 
   PangoLayout   *layout;                   /* reused across every cell */
+  cairo_surface_t *background;             /* the sheet's background, decoded once */
+  GBytes        *background_source;        /* ...from these bytes */
 
   /* The fill handle being dragged: the source is the selection at the
    * grab, and the target grows from it in one direction. */
@@ -285,7 +305,7 @@ o42_grid_pick_up_format (O42Grid *self)
     return;
   self->paint_fmt = *fmt;
   self->painting = TRUE;
-  gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "copy");
+  o42_set_cursor_name (GTK_WIDGET (self), "copy");
 }
 
 gboolean
@@ -309,7 +329,7 @@ paint_onto (O42Grid *self, int row, int col)
 
   o42_sheet_apply_fmt (self->sheet, &where, O42_FMT_ALL, &self->paint_fmt);
   self->painting = FALSE;
-  gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "cell");
+  o42_set_cursor_name (GTK_WIDGET (self), "cell");
   sheet_changed (self);
 }
 
@@ -467,15 +487,13 @@ thumb_drag_to (O42Grid *self, double x, double y)
 static int
 page_break_at (O42Grid *self, double x, double y, int *at)
 {
-  double margin;
   O42Pages *pages;
   int *rows = NULL, *cols = NULL;
   int n_rows, n_cols, found = 0;
 
   if (!self->show_breaks || self->sheet == NULL)
     return 0;
-  margin = o42_sheet_print_setup (self->sheet)->margin;
-  pages = o42_pages_new (self->sheet, 595 - 2 * margin, 842 - 2 * margin);
+  pages = o42_pages_new (self->sheet);
   n_rows = o42_pages_row_breaks (pages, &rows);
   n_cols = o42_pages_col_breaks (pages, &cols);
 
@@ -517,28 +535,19 @@ split_bar_at (O42Grid *self, double x, double y)
   return 0;
 }
 
-/* The topmost shape under a point, or NULL.  A line has no width to
+/* Whether a shape's box is under a point.  A line has no width to
  * speak of, so its box is grown a little to be clickable. */
-static O42Shape *
-shape_at (O42Grid *self, double x, double y)
+static gboolean
+shape_hit (O42Grid *self, const O42Shape *shape, double x, double y)
 {
-  GPtrArray *shapes;
+  double sx, sy, sw, sh;
 
-  if (self->sheet == NULL)
-    return NULL;
-  shapes = o42_sheet_shapes (self->sheet);
-  for (guint i = shapes->len; i > 0; i--)
-    {
-      O42Shape *shape = g_ptr_array_index (shapes, i - 1);
-      double sx, sy, sw, sh;
-
-      shape_rect (self, shape, &sx, &sy, &sw, &sh);
-      if (sw < 0) { sx += sw; sw = -sw; }
-      if (sh < 0) { sy += sh; sh = -sh; }
-      if (x >= sx - 3 && x < sx + sw + 3 && y >= sy - 3 && y < sy + sh + 3)
-        return shape;
-    }
-  return NULL;
+  shape_rect (self, shape, &sx, &sy, &sw, &sh);
+  if (sw < 0) { sx += sw; sw = -sw; }
+  if (sh < 0) { sy += sh; sh = -sh; }
+  if (shape->kind == O42_SHAPE_FREEFORM || shape->kind == O42_SHAPE_OVAL)
+    return o42_shape_contains (shape, x - sx, y - sy, sw, sh, 3);
+  return x >= sx - 3 && x < sx + sw + 3 && y >= sy - 3 && y < sy + sh + 3;
 }
 
 /* Where a chart sits, in widget pixels. */
@@ -552,30 +561,123 @@ chart_rect (O42Grid *self, const O42Chart *chart,
   *h = chart->height;
 }
 
+static void picture_rect (O42Grid *self, const O42Picture *pic,
+                          double *x, double *y, double *w, double *h);
+
+/* How an object is turned and mirrored: a chart never is. */
+static void
+object_transform (const O42ObjectRef *ref, double *rotation, gboolean *flip_h, gboolean *flip_v)
+{
+  *rotation = 0;
+  *flip_h = *flip_v = FALSE;
+  if (ref->type == O42_OBJECT_SHAPE)
+    {
+      const O42Shape *shape = ref->object;
+      *rotation = shape->rotation; *flip_h = shape->flip_h; *flip_v = shape->flip_v;
+    }
+  else if (ref->type == O42_OBJECT_PICTURE)
+    {
+      const O42Picture *pic = ref->object;
+      *rotation = pic->rotation; *flip_h = pic->flip_h; *flip_v = pic->flip_v;
+    }
+}
+
+/* A point of the sheet taken into an object's own frame: the box as it
+ * would be unturned and unmirrored about its centre (cx, cy). */
+static void
+to_object_frame (double rotation, gboolean flip_h, gboolean flip_v,
+                 double cx, double cy, double *x, double *y)
+{
+  double dx = *x - cx, dy = *y - cy;
+
+  if (rotation != 0)
+    {
+      double a = -rotation * G_PI / 180;
+      double rx = dx * cos (a) - dy * sin (a), ry = dx * sin (a) + dy * cos (a);
+      dx = rx; dy = ry;
+    }
+  if (flip_h) dx = -dx;
+  if (flip_v) dy = -dy;
+  *x = cx + dx;
+  *y = cy + dy;
+}
+
+/* Sets cairo up to draw an object turned and mirrored about the centre
+ * of its box. */
+static void
+apply_object_transform (cairo_t *cr, double rotation, gboolean flip_h, gboolean flip_v,
+                        double x, double y, double w, double h)
+{
+  if (rotation == 0 && !flip_h && !flip_v)
+    return;
+  cairo_translate (cr, x + w / 2, y + h / 2);
+  if (rotation != 0)
+    cairo_rotate (cr, rotation * G_PI / 180);
+  cairo_scale (cr, flip_h ? -1 : 1, flip_v ? -1 : 1);
+  cairo_translate (cr, -(x + w / 2), -(y + h / 2));
+}
+
+/* The frontmost object under a point, whatever its kind: the objects
+ * are walked from the front, in the order they are painted. */
+static gboolean
+object_at (O42Grid *self, double x, double y, O42ObjectRef *hit)
+{
+  GArray *objects;
+  gboolean found = FALSE;
+
+  if (self->sheet == NULL)
+    return FALSE;
+  objects = o42_sheet_objects (self->sheet);
+  for (guint i = objects->len; i > 0 && !found; i--)
+    {
+      const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i - 1);
+      double ox, oy, ow, oh, px = x, py = y, rotation;
+      gboolean flip_h, flip_v;
+
+      switch (ref->type)
+        {
+        case O42_OBJECT_SHAPE:   shape_rect (self, ref->object, &ox, &oy, &ow, &oh);   break;
+        case O42_OBJECT_CHART:   chart_rect (self, ref->object, &ox, &oy, &ow, &oh);   break;
+        default:                 picture_rect (self, ref->object, &ox, &oy, &ow, &oh); break;
+        }
+      object_transform (ref, &rotation, &flip_h, &flip_v);
+      to_object_frame (rotation, flip_h, flip_v, ox + ow / 2, oy + oh / 2, &px, &py);
+      if (ref->type == O42_OBJECT_SHAPE)
+        found = shape_hit (self, ref->object, px, py);
+      else
+        found = px >= ox && px < ox + ow && py >= oy && py < oy + oh;
+      if (found)
+        *hit = *ref;
+    }
+  g_array_free (objects, TRUE);
+  return found;
+}
+
+/* The shape under a point, when a shape is what is on top there. */
+static O42Shape *
+shape_at (O42Grid *self, double x, double y)
+{
+  O42ObjectRef hit;
+
+  if (object_at (self, x, y, &hit) && hit.type == O42_OBJECT_SHAPE)
+    return hit.object;
+  return NULL;
+}
+
 static O42Chart *
 chart_at (O42Grid *self, double x, double y)
 {
-  GPtrArray *charts;
+  O42ObjectRef hit;
 
-  if (self->sheet == NULL)
-    return NULL;
-
-  charts = o42_sheet_charts (self->sheet);
-  for (guint i = charts->len; i > 0; i--)
-    {
-      O42Chart *chart = g_ptr_array_index (charts, i - 1);
-      double cx, cy, cw, ch;
-
-      chart_rect (self, chart, &cx, &cy, &cw, &ch);
-      if (x >= cx && x < cx + cw && y >= cy && y < cy + ch)
-        return chart;
-    }
-
+  if (object_at (self, x, y, &hit) && hit.type == O42_OBJECT_CHART)
+    return hit.object;
   return NULL;
 }
 
 static void anchor_place (O42Grid *self, int *arow, int *acol, double *adx,
                           double *ady, double x, double y);
+static void freeform_finish (O42Grid *self);
+static void freeform_point (O42Grid *self, double x, double y, gboolean last);
 static void picture_place (O42Grid *self, O42Picture *pic, double x, double y);
 
 /* The eight handles of a selected object, in the order they are drawn:
@@ -615,14 +717,42 @@ selected_object_rect (O42Grid *self, double *x, double *y, double *w, double *h)
   return TRUE;
 }
 
-/* Which handle of the selected object is under the point, or -1. */
+/* How the selected object is turned and mirrored. */
+static void
+selected_object_transform (O42Grid *self, double *rotation, gboolean *flip_h, gboolean *flip_v)
+{
+  O42ObjectRef ref = { O42_OBJECT_CHART, NULL, 0, 0 };
+
+  *rotation = 0;
+  *flip_h = *flip_v = FALSE;
+  if (self->sheet == NULL || self->selected_picture == 0)
+    return;
+  if (self->selected_is_shape)
+    {
+      ref.type = O42_OBJECT_SHAPE;
+      ref.object = o42_sheet_find_shape (self->sheet, self->selected_picture);
+    }
+  else if (!self->selected_is_chart)
+    {
+      ref.type = O42_OBJECT_PICTURE;
+      ref.object = o42_sheet_find_picture (self->sheet, self->selected_picture);
+    }
+  if (ref.object != NULL)
+    object_transform (&ref, rotation, flip_h, flip_v);
+}
+
+/* Which handle of the selected object is under the point, or -1.  The
+ * handles turn with the object, so the point is taken into its frame. */
 static int
 handle_at (O42Grid *self, double x, double y)
 {
-  double ox, oy, ow, oh;
+  double ox, oy, ow, oh, rotation;
+  gboolean flip_h, flip_v;
 
   if (!selected_object_rect (self, &ox, &oy, &ow, &oh))
     return -1;
+  selected_object_transform (self, &rotation, &flip_h, &flip_v);
+  to_object_frame (rotation, flip_h, flip_v, ox + ow / 2, oy + oh / 2, &x, &y);
 
   for (int k = 0; k < 8; k++)
     {
@@ -633,6 +763,100 @@ handle_at (O42Grid *self, double x, double y)
     }
 
   return -1;
+}
+
+/* ---- More than one object at a time ---------------------------------------- */
+
+/* Whether an object is among those selected with Shift beside the
+ * first. */
+static gboolean
+object_is_extra (O42Grid *self, O42ObjectType type, guint id)
+{
+  for (guint i = 0; self->extra_objects != NULL && i < self->extra_objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+      if (ref->type == type && ref->id == id)
+        return TRUE;
+    }
+  return FALSE;
+}
+
+static O42ObjectType
+selected_object_type (O42Grid *self)
+{
+  return self->selected_is_shape ? O42_OBJECT_SHAPE : self->selected_is_chart ? O42_OBJECT_CHART : O42_OBJECT_PICTURE;
+}
+
+/* Shift+click: the object joins the selection, or leaves it if it was
+ * in; the first selected stays the one with the handles. */
+static void
+toggle_extra_object (O42Grid *self, O42ObjectType type, guint id)
+{
+  if (self->extra_objects == NULL)
+    self->extra_objects = g_array_new (FALSE, FALSE, sizeof (O42ObjectRef));
+  for (guint i = 0; i < self->extra_objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+      if (ref->type == type && ref->id == id)
+        { g_array_remove_index (self->extra_objects, i); return; }
+    }
+  if (self->selected_picture == id && selected_object_type (self) == type)
+    return;
+  {
+    O42ObjectRef ref = { type, NULL, id, 0 };
+    g_array_append_val (self->extra_objects, ref);
+  }
+}
+
+/* The others move by the step the first took. */
+static void
+move_extras_with (O42Grid *self, int drow, int dcol, double ddx, double ddy)
+{
+  for (guint i = 0; self->extra_objects != NULL && i < self->extra_objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+      int *row = NULL, *col = NULL;
+      double *dx = NULL, *dy = NULL;
+
+      if (ref->type == O42_OBJECT_SHAPE)
+        {
+          O42Shape *s = o42_sheet_find_shape (self->sheet, ref->id);
+          if (s != NULL) { row = &s->row; col = &s->col; dx = &s->dx; dy = &s->dy; }
+        }
+      else if (ref->type == O42_OBJECT_PICTURE)
+        {
+          O42Picture *p = o42_sheet_find_picture (self->sheet, ref->id);
+          if (p != NULL) { row = &p->row; col = &p->col; dx = &p->dx; dy = &p->dy; }
+        }
+      else
+        {
+          O42Chart *c = o42_sheet_find_chart (self->sheet, ref->id);
+          if (c != NULL) { row = &c->row; col = &c->col; dx = &c->dx; dy = &c->dy; }
+        }
+      if (row != NULL)
+        {
+          *row = CLAMP (*row + drow, 0, O42_MAX_ROWS - 1);
+          *col = CLAMP (*col + dcol, 0, O42_MAX_COLS - 1);
+          *dx += ddx; *dy += ddy;
+        }
+    }
+}
+
+/* Where the rotation handle stands: above the top middle of the box,
+ * in the object's own frame. */
+#define ROTATE_HANDLE_UP 22.0
+
+static gboolean
+rotate_handle_at (O42Grid *self, double x, double y)
+{
+  double ox, oy, ow, oh, rotation;
+  gboolean flip_h, flip_v;
+
+  if (!selected_object_rect (self, &ox, &oy, &ow, &oh) || self->selected_is_chart)
+    return FALSE;
+  selected_object_transform (self, &rotation, &flip_h, &flip_v);
+  to_object_frame (rotation, flip_h, flip_v, ox + ow / 2, oy + oh / 2, &x, &y);
+  return fabs (x - (ox + ow / 2)) <= GRIP && fabs (y - (oy - ROTATE_HANDLE_UP)) <= GRIP;
 }
 
 /* Puts the selected object at a rectangle, re-anchoring its corner. */
@@ -671,27 +895,14 @@ selected_object_set_rect (O42Grid *self, double x, double y, double w, double h)
     }
 }
 
-/* The topmost picture under a point, or NULL. */
+/* The picture under a point, when a picture is what is on top there. */
 static O42Picture *
 picture_at (O42Grid *self, double x, double y)
 {
-  GPtrArray *pictures;
+  O42ObjectRef hit;
 
-  if (self->sheet == NULL)
-    return NULL;
-
-  pictures = o42_sheet_pictures (self->sheet);
-
-  for (guint i = pictures->len; i > 0; i--)
-    {
-      O42Picture *pic = g_ptr_array_index (pictures, i - 1);
-      double px, py, pw, ph;
-
-      picture_rect (self, pic, &px, &py, &pw, &ph);
-      if (x >= px && x < px + pw && y >= py && y < py + ph)
-        return pic;
-    }
-
+  if (object_at (self, x, y, &hit) && hit.type == O42_OBJECT_PICTURE)
+    return hit.object;
   return NULL;
 }
 
@@ -1096,12 +1307,15 @@ scroll_to_active (O42Grid *self)
 /* Selection                                                               */
 /* ---------------------------------------------------------------------- */
 
+static void validation_prompt_update (O42Grid *self);
+
 static void
 selection_changed (O42Grid *self)
 {
   self->blink_on = TRUE;
   gtk_widget_queue_draw (GTK_WIDGET (self));
   g_signal_emit (self, signals[SIGNAL_SELECTION_CHANGED], 0);
+  validation_prompt_update (self);
 }
 
 /* The outline margins follow the sheet's deepest groups, and the row
@@ -1111,8 +1325,10 @@ outline_sync (O42Grid *self)
 {
   int rl = self->sheet ? o42_sheet_max_row_level (self->sheet) : 0;
   int cl = self->sheet ? o42_sheet_max_col_level (self->sheet) : 0;
-  int w = rl > 0 ? rl * OUTLINE_STEP + 6 : 0;
-  int h = cl > 0 ? cl * OUTLINE_STEP + 6 : 0;
+  /* One step more than the deepest level, for the level buttons in
+   * the corner: 1 2 3 for a two-level outline. */
+  int w = rl > 0 ? (rl + 1) * OUTLINE_STEP + 6 : 0;
+  int h = cl > 0 ? (cl + 1) * OUTLINE_STEP + 6 : 0;
   int digits = 3;
   int header_w;
 
@@ -1136,6 +1352,22 @@ outline_sync (O42Grid *self)
       self->header_w = header_w;
       gtk_widget_queue_resize (GTK_WIDGET (self));
     }
+}
+
+/* Cells the user edited -- typed, cleared, pasted, filled or moved --
+ * told to whoever listens, with the range; a script's on_change hears
+ * of it through the window. */
+static void
+cells_edited (O42Grid *self, const O42Range *range)
+{
+  g_signal_emit_by_name (self, "cells-edited", range->row0, range->col0, range->row1, range->col1);
+}
+
+static void
+cells_edited_cell (O42Grid *self, int row, int col)
+{
+  O42Range one = { row, col, row, col };
+  cells_edited (self, &one);
 }
 
 static void
@@ -1238,6 +1470,31 @@ o42_grid_get_selection (O42Grid *self, O42Range *range)
   g_return_if_fail (range != NULL);
 
   selection_range (self, range);
+}
+
+void
+o42_grid_set_cursor (O42Grid *self, const O42Range *range, int active_row, int active_col)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  g_return_if_fail (range != NULL);
+
+  selection_forget_extras (self);
+  self->anchor_row = CLAMP (range->row0, 0, O42_MAX_ROWS - 1);
+  self->anchor_col = CLAMP (range->col0, 0, O42_MAX_COLS - 1);
+  self->active_row = CLAMP (range->row1, 0, O42_MAX_ROWS - 1);
+  self->active_col = CLAMP (range->col1, 0, O42_MAX_COLS - 1);
+  /* The active cell may be any corner of the selection; the anchor is
+   * the opposite one. */
+  if (o42_range_contains (range, active_row, active_col))
+    {
+      self->active_row = active_row;
+      self->active_col = active_col;
+      self->anchor_row = active_row == range->row0 ? range->row1 : range->row0;
+      self->anchor_col = active_col == range->col0 ? range->col1 : range->col0;
+    }
+  self->selected_picture = 0;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+  selection_changed (self);
 }
 
 void
@@ -2811,25 +3068,89 @@ end_edit (O42Grid *self)
   gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
-/* Data > Validation: an entry the active cell's rules refuse is
- * announced and dropped, as Excel's "stop" style does. */
+/* Data > Validation, on an entry the active cell's rule refuses: Stop
+ * announces it and drops it; Warning asks whether to keep it anyway
+ * and puts it in when told yes; Information tells and keeps it. */
+typedef struct {
+  O42Grid *grid;
+  int      row, col;
+  char    *text;
+} WarningEntry;
+
+static void
+on_warning_answered (GObject *source, GAsyncResult *result, gpointer data)
+{
+  WarningEntry *entry = data;
+  int button = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result, NULL);
+
+  if (button == 0 && entry->grid->sheet != NULL)
+    {
+      /* Yes: the entry stands after all. */
+      char *fixed = o42_sheet_typed_input (entry->grid->sheet, entry->row, entry->col, entry->text);
+      o42_sheet_set_input (entry->grid->sheet, entry->row, entry->col, fixed != NULL ? fixed : entry->text);
+      g_free (fixed);
+      sheet_changed (entry->grid);
+    }
+  g_free (entry->text);
+  g_object_unref (entry->grid);
+  g_free (entry);
+}
+
 static gboolean
 entry_allowed (O42Grid *self, const char *text)
 {
   char *message = NULL;
+  const O42Validation *v;
+  GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
+  GtkWindow *parent = GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL;
 
+  /* The inside of a What-If table is the table's to write, as in Excel. */
+  if (o42_sheet_data_table_at (self->sheet, self->active_row, self->active_col) != NULL)
+    {
+      GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", _("Cannot change part of a data table."));
+      gtk_alert_dialog_set_detail (alert, _("Data > Table made these cells; change the edges or the formula instead."));
+      gtk_alert_dialog_show (alert, parent);
+      g_object_unref (alert);
+      return FALSE;
+    }
   if (o42_sheet_validate (self->sheet, self->active_row, self->active_col, text, &message))
     return TRUE;
+  v = o42_sheet_validation_at (self->sheet, self->active_row, self->active_col);
   {
-    GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", message);
-    GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
+    const char *title = v != NULL && v->title != NULL && *v->title != '\0' ? v->title
+                        : v != NULL && v->style == O42_VALID_WARNING ? _("Warning")
+                        : v != NULL && v->style == O42_VALID_INFORMATION ? _("Information") : _("Stop");
+    GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", title);
 
-    gtk_alert_dialog_set_detail (alert, _("Data > Validation limits what this cell may hold."));
-    gtk_alert_dialog_show (alert, GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL);
+    gtk_alert_dialog_set_detail (alert, message);
+    if (v != NULL && v->style == O42_VALID_WARNING)
+      {
+        const char *buttons[] = { _("_Yes"), _("_No"), NULL };
+        WarningEntry *entry = g_new0 (WarningEntry, 1);
+
+        entry->grid = g_object_ref (self);
+        entry->row = self->active_row;
+        entry->col = self->active_col;
+        entry->text = g_strdup (text);
+        gtk_alert_dialog_set_message (alert, title);
+        {
+          char *asking = g_strdup_printf ("%s\n\n%s", message, _("Continue?"));
+          gtk_alert_dialog_set_detail (alert, asking);
+          g_free (asking);
+        }
+        gtk_alert_dialog_set_buttons (alert, buttons);
+        gtk_alert_dialog_set_default_button (alert, 1);
+        gtk_alert_dialog_set_cancel_button (alert, 1);
+        gtk_alert_dialog_choose (alert, parent, NULL, on_warning_answered, entry);
+        g_object_unref (alert);
+        g_free (message);
+        return FALSE;   /* for now; yes puts it in */
+      }
+    gtk_alert_dialog_show (alert, parent);
     g_object_unref (alert);
   }
   g_free (message);
-  return FALSE;
+  return v != NULL && v->style == O42_VALID_INFORMATION;
 }
 
 static void commit_editor_runs (O42Grid *self, const char *text);
@@ -2850,7 +3171,12 @@ o42_grid_commit_edit (O42Grid *self)
       end_edit (self);
       return;
     }
-  o42_sheet_set_input (self->sheet, self->active_row, self->active_col, text);
+  {
+    char *fixed = o42_sheet_typed_input (self->sheet, self->active_row, self->active_col, text);
+    o42_sheet_set_input (self->sheet, self->active_row, self->active_col, fixed != NULL ? fixed : text);
+    cells_edited_cell (self, self->active_row, self->active_col);
+    g_free (fixed);
+  }
   commit_editor_runs (self, text);
 
   end_edit (self);
@@ -2888,7 +3214,12 @@ o42_grid_set_active_input (O42Grid *self, const char *text)
 
   if (!entry_allowed (self, text))
     return;
-  o42_sheet_set_input (self->sheet, self->active_row, self->active_col, text);
+  {
+    char *fixed = o42_sheet_typed_input (self->sheet, self->active_row, self->active_col, text);
+    o42_sheet_set_input (self->sheet, self->active_row, self->active_col, fixed != NULL ? fixed : text);
+    cells_edited_cell (self, self->active_row, self->active_col);
+    g_free (fixed);
+  }
   sheet_changed (self);
 }
 
@@ -2908,7 +3239,10 @@ o42_grid_delete_selection (O42Grid *self)
     selection_ranges (self, ranges);
     o42_sheet_begin_group (self->sheet);
     for (guint i = 0; i < ranges->len; i++)
-      o42_sheet_clear_range (self->sheet, &g_array_index (ranges, O42Range, i));
+      {
+        o42_sheet_clear_range (self->sheet, &g_array_index (ranges, O42Range, i));
+        cells_edited (self, &g_array_index (ranges, O42Range, i));
+      }
     o42_sheet_end_group (self->sheet);
     g_array_unref (ranges);
   }
@@ -3000,6 +3334,82 @@ o42_grid_copy (O42Grid *self)
   g_free (self->clip_text);
   self->clip_text = g_string_free (out, FALSE);
   self->clip_range = range;
+  g_free (self->clip_sheet);
+  self->clip_sheet = g_strdup (o42_sheet_get_name (self->sheet));
+}
+
+void
+o42_grid_paste_as_link (O42Grid *self)
+{
+  O42Sheet *source;
+  O42Book *book;
+  char *quoted;
+
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->sheet == NULL || self->clip_text == NULL || self->clip_sheet == NULL)
+    return;
+  book = o42_sheet_get_book (self->sheet);
+  source = book != NULL ? o42_book_find_sheet (book, self->clip_sheet) : NULL;
+  if (source == NULL && strcmp (self->clip_sheet, o42_sheet_get_name (self->sheet)) == 0)
+    source = self->sheet;
+  if (source == NULL)
+    return;
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  quoted = o42_sheet_name_quote (o42_sheet_get_name (source));
+  o42_sheet_begin_group (self->sheet);
+  for (int r = self->clip_range.row0; r <= self->clip_range.row1; r++)
+    for (int c = self->clip_range.col0; c <= self->clip_range.col1; c++)
+      {
+        int row = self->active_row + r - self->clip_range.row0;
+        int col = self->active_col + c - self->clip_range.col0;
+        char *shown, *ref, *target;
+        O42Entry entry;
+
+        if (row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
+          continue;
+        shown = o42_sheet_get_display (source, r, c);
+        /* The text as text, so that a number stays the words it showed. */
+        if (shown != NULL && *shown != '\0' && (shown[0] == '=' || o42_entry_parse (shown, &entry)))
+          {
+            char *plain = g_strconcat ("'", shown, NULL);
+            o42_sheet_set_input (self->sheet, row, col, plain);
+            g_free (plain);
+          }
+        else
+          o42_sheet_set_input (self->sheet, row, col, shown != NULL ? shown : "");
+        ref = o42_ref_name (r, c);
+        target = g_strdup_printf ("#%s!%s", quoted, ref);
+        o42_sheet_set_link (self->sheet, row, col, target);
+        g_free (target);
+        g_free (ref);
+        g_free (shown);
+      }
+  o42_sheet_end_group (self->sheet);
+  g_free (quoted);
+  {
+    O42Range pasted = { self->active_row, self->active_col,
+                        MIN (O42_MAX_ROWS - 1, self->active_row + self->clip_range.row1 - self->clip_range.row0),
+                        MIN (O42_MAX_COLS - 1, self->active_col + self->clip_range.col1 - self->clip_range.col0) };
+    cells_edited (self, &pasted);
+  }
+  sheet_changed (self);
+}
+
+void
+o42_grid_set_show_notes (O42Grid *self, gboolean show)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  self->show_notes = show;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_get_show_notes (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->show_notes;
 }
 
 gboolean
@@ -3022,6 +3432,14 @@ o42_grid_paste_special (O42Grid *self, O42PasteMode mode, gboolean transpose)
 
   o42_sheet_copy_range_special (self->sheet, &self->clip_range,
                                 self->active_row, self->active_col, mode, transpose);
+  {
+    O42Range landed = { self->active_row, self->active_col,
+                        self->active_row + (transpose ? self->clip_range.col1 - self->clip_range.col0
+                                                      : self->clip_range.row1 - self->clip_range.row0),
+                        self->active_col + (transpose ? self->clip_range.row1 - self->clip_range.row0
+                                                      : self->clip_range.col1 - self->clip_range.col0) };
+    cells_edited (self, &landed);
+  }
   sheet_changed (self);
 }
 
@@ -3134,6 +3552,12 @@ o42_grid_paste (O42Grid *self)
 void
 o42_grid_fill (O42Grid *self, gboolean down)
 {
+  o42_grid_fill_direction (self, down ? O42_FILL_DOWN : O42_FILL_RIGHT);
+}
+
+void
+o42_grid_fill_direction (O42Grid *self, O42FillDirection direction)
+{
   O42Range range;
 
   g_return_if_fail (O42_IS_GRID (self));
@@ -3145,7 +3569,102 @@ o42_grid_fill (O42Grid *self, gboolean down)
     o42_grid_commit_edit (self);
 
   selection_range (self, &range);
-  o42_sheet_fill (self->sheet, &range, down);
+  o42_sheet_fill_direction (self->sheet, &range, direction);
+  cells_edited (self, &range);
+  sheet_changed (self);
+}
+
+void
+o42_grid_fill_series (O42Grid *self, const O42Series *series)
+{
+  O42Range range;
+
+  g_return_if_fail (O42_IS_GRID (self));
+
+  if (self->sheet == NULL)
+    return;
+
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  selection_range (self, &range);
+  o42_sheet_fill_series (self->sheet, &range, series);
+  cells_edited (self, &range);
+  sheet_changed (self);
+}
+
+void
+o42_grid_fill_justify (O42Grid *self)
+{
+  O42Range range;
+
+  g_return_if_fail (O42_IS_GRID (self));
+
+  if (self->sheet == NULL)
+    return;
+
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  selection_range (self, &range);
+  o42_sheet_fill_justify (self->sheet, &range);
+  /* The text may have run on below the range. */
+  range.row1 = MIN (O42_MAX_ROWS - 1, range.row1 + 64);
+  cells_edited (self, &range);
+  sheet_changed (self);
+}
+
+void
+o42_grid_clear_selection (O42Grid *self, O42ClearWhat what)
+{
+  GArray *ranges;
+
+  g_return_if_fail (O42_IS_GRID (self));
+
+  if (self->sheet == NULL)
+    return;
+
+  if (self->editing)
+    o42_grid_cancel_edit (self);
+
+  ranges = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  selection_ranges (self, ranges);
+  o42_sheet_begin_group (self->sheet);
+  for (guint i = 0; i < ranges->len; i++)
+    {
+      const O42Range *r = &g_array_index (ranges, O42Range, i);
+
+      if (what == O42_CLEAR_CONTENTS || what == O42_CLEAR_ALL)
+        o42_sheet_clear_range (self->sheet, r);
+      if (what == O42_CLEAR_FORMATS || what == O42_CLEAR_ALL)
+        o42_sheet_clear_formats (self->sheet, r);
+      if (what == O42_CLEAR_NOTES || what == O42_CLEAR_ALL)
+        {
+          /* The notes are a table keyed by cell; walk the ones there
+           * rather than every cell of a range that may be a column. */
+          GHashTableIter iter;
+          gpointer key;
+          GArray *keys = g_array_new (FALSE, FALSE, sizeof (guint64));
+
+          g_hash_table_iter_init (&iter, o42_sheet_notes (self->sheet));
+          while (g_hash_table_iter_next (&iter, &key, NULL))
+            {
+              guint64 k = *(guint64 *) key;
+
+              if (o42_range_contains (r, o42_key_row (k), o42_key_col (k)))
+                g_array_append_val (keys, k);
+            }
+          for (guint j = 0; j < keys->len; j++)
+            {
+              guint64 k = g_array_index (keys, guint64, j);
+              o42_sheet_set_note (self->sheet, o42_key_row (k), o42_key_col (k), NULL);
+            }
+          g_array_unref (keys);
+        }
+      cells_edited (self, r);
+    }
+  o42_sheet_end_group (self->sheet);
+  g_array_unref (ranges);
   sheet_changed (self);
 }
 
@@ -3327,6 +3846,27 @@ o42_grid_insert_chart (O42Grid *self, O42ChartKind kind, const char *title,
   chart->first_row_labels = first_row_labels;
   chart->first_col_labels = first_col_labels;
 
+  /* The macro recorder gets the one line that makes the same chart. */
+  {
+    O42Book *book = o42_sheet_get_book (self->sheet);
+
+    if (book != NULL && o42_book_recording (book))
+      {
+        char *a = o42_ref_name (range.row0, range.col0), *b = o42_ref_name (range.row1, range.col1);
+        char *at = o42_ref_name (row, col);
+        char *quoted = o42_python_quote (title != NULL ? title : "");
+        char *line = g_strdup_printf ("sheet.add_chart(\"%s\", \"%s:%s\", \"%s\", title=%s, series_in_rows=%s, "
+                                      "first_row_labels=%s, first_col_labels=%s)",
+                                      o42_chart_kind_name (kind), a, b, at, quoted,
+                                      series_in_rows ? "True" : "False",
+                                      first_row_labels ? "True" : "False",
+                                      first_col_labels ? "True" : "False");
+        o42_book_record_sheet (book, o42_sheet_get_name (self->sheet));
+        o42_book_record_line (book, line);
+        g_free (line); g_free (quoted); g_free (at); g_free (a); g_free (b);
+      }
+  }
+
   self->selected_picture = chart->id;
   self->selected_is_chart = TRUE;
   self->selected_is_shape = FALSE;
@@ -3489,6 +4029,7 @@ void
 o42_grid_refresh (O42Grid *self)
 {
   g_return_if_fail (O42_IS_GRID (self));
+  outline_sync (self);
   gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
@@ -3840,6 +4381,7 @@ o42_grid_trace (O42Grid *self, gboolean precedents)
       const O42Range *r = &g_array_index (found, O42Range, i);
       AuditArrow arrow;
 
+      arrow.red = FALSE;
       if (precedents)
         {
           arrow.from = *r;
@@ -3857,6 +4399,93 @@ o42_grid_trace (O42Grid *self, gboolean precedents)
     }
   g_array_unref (found);
   gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* Whether any cell of the rectangle holds an error. */
+static gboolean
+range_has_error (O42Sheet *sheet, const O42Range *r)
+{
+  for (int row = r->row0; row <= r->row1 && row < r->row0 + 1000; row++)
+    for (int col = r->col0; col <= r->col1 && col < r->col0 + 1000; col++)
+      {
+        O42Value v;
+        gboolean error;
+
+        if (o42_sheet_is_empty (sheet, row, col))
+          continue;
+        o42_sheet_get_value (sheet, row, col, &v);
+        error = v.type == O42_VALUE_ERROR;
+        o42_value_clear (&v);
+        if (error)
+          return TRUE;
+      }
+  return FALSE;
+}
+
+/* Tools > Auditing > Trace Error: from the active cell, which shows an
+ * error, back along its precedents to where the error comes from --
+ * red arrows from the cells that hold one, blue from the rest, and on
+ * again from each red one until a cell with no formula is reached. */
+gboolean
+o42_grid_trace_error (O42Grid *self)
+{
+  O42Range sel = { 0, 0, 0, 0 };
+  GArray *queue;
+  O42Value v;
+  gboolean is_error;
+
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  if (self->sheet == NULL)
+    return FALSE;
+  o42_grid_get_selection (self, &sel);
+  o42_sheet_get_value (self->sheet, sel.row0, sel.col0, &v);
+  is_error = v.type == O42_VALUE_ERROR;
+  o42_value_clear (&v);
+  if (!is_error)
+    return FALSE;
+  if (self->arrows == NULL)
+    self->arrows = g_array_new (FALSE, FALSE, sizeof (AuditArrow));
+
+  queue = g_array_new (FALSE, FALSE, sizeof (O42Range));
+  {
+    O42Range start = { sel.row0, sel.col0, sel.row0, sel.col0 };
+    g_array_append_val (queue, start);
+  }
+  for (guint q = 0; q < queue->len && q < 200; q++)
+    {
+      O42Range at = g_array_index (queue, O42Range, q);
+      GArray *found = o42_sheet_precedents (self->sheet, at.row0, at.col0);
+
+      for (guint i = 0; i < found->len; i++)
+        {
+          const O42Range *r = &g_array_index (found, O42Range, i);
+          AuditArrow arrow;
+
+          arrow.from = *r;
+          arrow.to_row = at.row0;
+          arrow.to_col = at.col0;
+          arrow.red = range_has_error (self->sheet, r);
+          g_array_append_val (self->arrows, arrow);
+          /* Follow a single erring cell further back. */
+          if (arrow.red && r->row0 == r->row1 && r->col0 == r->col1 &&
+              o42_sheet_has_formula (self->sheet, r->row0, r->col0))
+            {
+              gboolean seen = FALSE;
+
+              for (guint k = 0; k < queue->len && !seen; k++)
+                {
+                  const O42Range *earlier = &g_array_index (queue, O42Range, k);
+                  seen = earlier->row0 == r->row0 && earlier->col0 == r->col0;
+                }
+              if (!seen)
+                g_array_append_val (queue, *r);
+            }
+        }
+      g_array_unref (found);
+    }
+  g_array_unref (queue);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+  return TRUE;
 }
 
 void
@@ -3946,7 +4575,18 @@ o42_grid_group_objects (O42Grid *self, gboolean group)
   if (self->sheet == NULL)
     return;
   selection_range (self, &range);
-  if (group)
+  if (group && self->selected_picture != 0 && self->extra_objects != NULL && self->extra_objects->len > 0)
+    {
+      /* A set picked with Shift is grouped as itself. */
+      GArray *refs = g_array_new (FALSE, FALSE, sizeof (O42ObjectRef));
+      O42ObjectRef first = { selected_object_type (self), NULL, self->selected_picture, 0 };
+
+      g_array_append_val (refs, first);
+      g_array_append_vals (refs, self->extra_objects->data, self->extra_objects->len);
+      o42_sheet_group_refs (self->sheet, refs);
+      g_array_unref (refs);
+    }
+  else if (group)
     o42_sheet_group_objects (self->sheet, &range);
   else
     o42_sheet_ungroup_objects (self->sheet, &range);
@@ -4071,6 +4711,208 @@ o42_grid_get_show_zeros (O42Grid *self)
 {
   g_return_val_if_fail (O42_IS_GRID (self), TRUE);
   return !self->hide_zeros;
+}
+
+void
+o42_grid_set_show_checks (O42Grid *self, gboolean show)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  self->hide_checks = !show;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_get_show_checks (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), TRUE);
+  return !self->hide_checks;
+}
+
+void
+o42_grid_set_circle_invalid (O42Grid *self, gboolean on)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  self->circle_invalid = on;
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_get_circle_invalid (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->circle_invalid;
+}
+
+/* ---- Data validation in the grid: the input message, the in-cell arrow ---- */
+
+/* The active cell's place in widget pixels, as the editor is placed. */
+static void
+active_cell_alloc (O42Grid *self, GtkAllocation *alloc)
+{
+  double sx, sy;
+  O42Range merged;
+  double w = o42_sheet_col_width (self->sheet, self->active_col);
+  double h = o42_sheet_row_height (self->sheet, self->active_row);
+  int col = self->active_col, row = self->active_row;
+
+  if (o42_sheet_merged_at (self->sheet, self->active_row, self->active_col, &merged))
+    {
+      col = merged.col0; row = merged.row0;
+      w = col_x (self, merged.col1) + o42_sheet_col_width (self->sheet, merged.col1) - col_x (self, merged.col0);
+      h = row_y (self, merged.row1) + o42_sheet_row_height (self->sheet, merged.row1) - row_y (self, merged.row0);
+    }
+  grid_scroll (self, &sx, &sy);
+  alloc->x = (int) ((col_x (self, col) - (col < self->frozen_cols ? 0 : sx)) * self->zoom);
+  alloc->y = (int) ((row_y (self, row) - (row < self->frozen_rows ? 0 : sy)) * self->zoom);
+  alloc->width = (int) (w * self->zoom);
+  alloc->height = (int) (h * self->zoom);
+}
+
+/* The list rule with an arrow on the active cell, or NULL. */
+static const O42Validation *
+active_list_rule (O42Grid *self)
+{
+  const O42Validation *v;
+
+  if (self->sheet == NULL)
+    return NULL;
+  v = o42_sheet_validation_at (self->sheet, self->active_row, self->active_col);
+  return v != NULL && v->kind == O42_VALID_LIST && !v->no_dropdown ? v : NULL;
+}
+
+#define LIST_ARROW_W 16
+
+/* The rule's input message shown under the active cell while it is
+ * chosen, as Excel shows it; taken away when the cell has none. */
+static void
+validation_prompt_update (O42Grid *self)
+{
+  const O42Validation *v = self->sheet != NULL
+                           ? o42_sheet_validation_at (self->sheet, self->active_row, self->active_col) : NULL;
+  gboolean has = v != NULL && ((v->prompt != NULL && *v->prompt != '\0') ||
+                               (v->prompt_title != NULL && *v->prompt_title != '\0'));
+
+  if (!has)
+    {
+      if (self->prompt_popover != NULL && self->prompt_shown)
+        {
+          gtk_popover_popdown (GTK_POPOVER (self->prompt_popover));
+          self->prompt_shown = FALSE;
+        }
+      return;
+    }
+  if (self->prompt_popover == NULL)
+    {
+      GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 2);
+
+      self->prompt_popover = gtk_popover_new ();
+      gtk_widget_set_parent (self->prompt_popover, GTK_WIDGET (self));
+      gtk_popover_set_autohide (GTK_POPOVER (self->prompt_popover), FALSE);
+      gtk_popover_set_position (GTK_POPOVER (self->prompt_popover), GTK_POS_BOTTOM);
+      gtk_widget_set_can_focus (self->prompt_popover, FALSE);
+      self->prompt_title = gtk_label_new (NULL);
+      self->prompt_text = gtk_label_new (NULL);
+      gtk_label_set_xalign (GTK_LABEL (self->prompt_title), 0.0);
+      gtk_label_set_xalign (GTK_LABEL (self->prompt_text), 0.0);
+      gtk_label_set_wrap (GTK_LABEL (self->prompt_text), TRUE);
+      gtk_label_set_max_width_chars (GTK_LABEL (self->prompt_text), 40);
+      {
+        PangoAttrList *bold = pango_attr_list_new ();
+        pango_attr_list_insert (bold, pango_attr_weight_new (PANGO_WEIGHT_BOLD));
+        gtk_label_set_attributes (GTK_LABEL (self->prompt_title), bold);
+        pango_attr_list_unref (bold);
+      }
+      gtk_box_append (GTK_BOX (box), self->prompt_title);
+      gtk_box_append (GTK_BOX (box), self->prompt_text);
+      gtk_popover_set_child (GTK_POPOVER (self->prompt_popover), box);
+    }
+  gtk_label_set_text (GTK_LABEL (self->prompt_title), v->prompt_title != NULL ? v->prompt_title : "");
+  gtk_widget_set_visible (self->prompt_title, v->prompt_title != NULL && *v->prompt_title != '\0');
+  gtk_label_set_text (GTK_LABEL (self->prompt_text), v->prompt != NULL ? v->prompt : "");
+  gtk_widget_set_visible (self->prompt_text, v->prompt != NULL && *v->prompt != '\0');
+  {
+    GtkAllocation alloc;
+    GdkRectangle rect;
+
+    active_cell_alloc (self, &alloc);
+    rect.x = alloc.x; rect.y = alloc.y; rect.width = alloc.width; rect.height = alloc.height;
+    gtk_popover_set_pointing_to (GTK_POPOVER (self->prompt_popover), &rect);
+  }
+  if (!self->prompt_shown)
+    {
+      gtk_popover_popup (GTK_POPOVER (self->prompt_popover));
+      self->prompt_shown = TRUE;
+    }
+}
+
+static void
+on_list_row_activated (GtkListBox *box, GtkListBoxRow *row, gpointer data)
+{
+  O42Grid *self = data;
+  GtkWidget *label = gtk_list_box_row_get_child (row);
+  const char *text = gtk_label_get_text (GTK_LABEL (label));
+
+  (void) box;
+  if (self->editing)
+    o42_grid_cancel_edit (self);
+  o42_sheet_set_input (self->sheet, self->active_row, self->active_col, text);
+  gtk_popover_popdown (GTK_POPOVER (self->list_popover));
+  sheet_changed (self);
+  gtk_widget_grab_focus (GTK_WIDGET (self));
+}
+
+/* The in-cell arrow's list of the rule's entries, dropped under the cell. */
+static void
+validation_list_open (O42Grid *self, const O42Validation *v)
+{
+  char **items = o42_sheet_validation_items (self->sheet, v);
+  GtkWidget *child;
+  GtkAllocation alloc;
+  GdkRectangle rect;
+
+  if (self->list_popover == NULL)
+    {
+      GtkWidget *scroller = gtk_scrolled_window_new ();
+
+      self->list_popover = gtk_popover_new ();
+      gtk_widget_set_parent (self->list_popover, GTK_WIDGET (self));
+      gtk_popover_set_position (GTK_POPOVER (self->list_popover), GTK_POS_BOTTOM);
+      gtk_popover_set_has_arrow (GTK_POPOVER (self->list_popover), FALSE);
+      self->list_box = gtk_list_box_new ();
+      gtk_list_box_set_selection_mode (GTK_LIST_BOX (self->list_box), GTK_SELECTION_NONE);
+      g_signal_connect (self->list_box, "row-activated", G_CALLBACK (on_list_row_activated), self);
+      gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+      gtk_scrolled_window_set_max_content_height (GTK_SCROLLED_WINDOW (scroller), 240);
+      gtk_scrolled_window_set_propagate_natural_height (GTK_SCROLLED_WINDOW (scroller), TRUE);
+      gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), self->list_box);
+      gtk_popover_set_child (GTK_POPOVER (self->list_popover), scroller);
+    }
+  while ((child = gtk_widget_get_first_child (self->list_box)) != NULL)
+    gtk_list_box_remove (GTK_LIST_BOX (self->list_box), child);
+  for (int i = 0; items[i] != NULL; i++)
+    {
+      GtkWidget *label = gtk_label_new (items[i]);
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_list_box_append (GTK_LIST_BOX (self->list_box), label);
+    }
+  g_strfreev (items);
+  active_cell_alloc (self, &alloc);
+  rect.x = alloc.x; rect.y = alloc.y; rect.width = alloc.width + LIST_ARROW_W; rect.height = alloc.height;
+  gtk_popover_set_pointing_to (GTK_POPOVER (self->list_popover), &rect);
+  gtk_popover_popup (GTK_POPOVER (self->list_popover));
+}
+
+/* Is a widget-pixel point on the active cell's list arrow? */
+static gboolean
+on_list_arrow (O42Grid *self, double wx, double wy)
+{
+  GtkAllocation alloc;
+
+  if (active_list_rule (self) == NULL || self->editing)
+    return FALSE;
+  active_cell_alloc (self, &alloc);
+  return wx >= alloc.x + alloc.width && wx < alloc.x + alloc.width + LIST_ARROW_W &&
+         wy >= alloc.y && wy < alloc.y + alloc.height;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -4201,6 +5043,14 @@ on_key_pressed (GtkEventControllerKey *controller,
             o42_sheet_remove_chart (self->sheet, self->selected_picture);
           else
             o42_sheet_remove_picture (self->sheet, self->selected_picture);
+          for (guint i = 0; self->extra_objects != NULL && i < self->extra_objects->len; i++)
+            {
+              const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+              if (ref->type == O42_OBJECT_SHAPE) o42_sheet_remove_shape (self->sheet, ref->id);
+              else if (ref->type == O42_OBJECT_CHART) o42_sheet_remove_chart (self->sheet, ref->id);
+              else o42_sheet_remove_picture (self->sheet, ref->id);
+            }
+          g_clear_pointer (&self->extra_objects, g_array_unref);
           self->selected_picture = 0;
           sheet_changed (self);
           return GDK_EVENT_STOP;
@@ -4210,11 +5060,16 @@ on_key_pressed (GtkEventControllerKey *controller,
 
     case GDK_KEY_BackSpace:
       /* Backspace on a cell empties it and opens it for typing, which is
-       * how Excel 5 behaved and is still the fastest way to retype one. */
+       * how Excel 97 behaved and is still the fastest way to retype one. */
       o42_grid_begin_edit (self, "");
       return GDK_EVENT_STOP;
 
     case GDK_KEY_Escape:
+      if (self->freeform != NULL)
+        {
+          freeform_finish (self);
+          return GDK_EVENT_STOP;
+        }
       move_active (self, row, col, FALSE);
       return GDK_EVENT_STOP;
 
@@ -4256,6 +5111,13 @@ on_click_pressed (GtkGestureClick *gesture,
   if (self->sheet == NULL)
     return;
 
+  /* The active cell's list arrow drops its entries. */
+  if (n_press == 1 && on_list_arrow (self, x, y))
+    {
+      validation_list_open (self, active_list_rule (self));
+      return;
+    }
+
   /* The pointer arrives in widget pixels; the grid thinks in sheet pixels. */
   x /= self->zoom;
   y /= self->zoom;
@@ -4266,6 +5128,14 @@ on_click_pressed (GtkGestureClick *gesture,
 
   row = row_at_y (self, y);
   col = col_at_x (self, x);
+
+  /* A freeform being drawn: a click is a point of it, a double-click
+   * the last. */
+  if (self->freeform != NULL)
+    {
+      freeform_point (self, x, y, n_press >= 2);
+      return;
+    }
 
   /* A click while a formula is being typed writes the cell into it,
    * and the button stays down to drag out a range. */
@@ -4356,7 +5226,7 @@ on_click_pressed (GtkGestureClick *gesture,
           return;
         }
       self->painting = FALSE;
-      gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "cell");
+      o42_set_cursor_name (GTK_WIDGET (self), "cell");
     }
 
   /* A split bar can be taken hold of and moved, as in Excel. */
@@ -4377,6 +5247,21 @@ on_click_pressed (GtkGestureClick *gesture,
         return;
       }
   }
+
+  /* The rotation handle starts a turn. */
+  if (rotate_handle_at (self, x, y))
+    {
+      double r; gboolean fh, fv;
+
+      o42_sheet_begin_group (self->sheet);
+      o42_sheet_capture_object (self->sheet, self->selected_picture);
+      selected_object_transform (self, &r, &fh, &fv);
+      self->rotate_drag = TRUE;
+      self->rotate_from = r;
+      self->drag_mouse_x = x;
+      self->drag_mouse_y = y;
+      return;
+    }
 
   /* A handle of the selected object starts a resize. */
   {
@@ -4408,6 +5293,37 @@ on_click_pressed (GtkGestureClick *gesture,
     if (shape != NULL && !(state & GDK_CONTROL_MASK) &&
         o42_shape_is_control (shape->kind) && control_pressed (self, shape, x, y))
       return;
+
+    /* Shift+click on an object adds it to (or takes it from) the set
+     * selected; the first keeps the handles.  A plain click on an
+     * object starts the set over. */
+    if ((state & GDK_SHIFT_MASK) && self->selected_picture != 0 &&
+        (shape != NULL || chart != NULL || pic != NULL))
+      {
+        if (shape != NULL) toggle_extra_object (self, O42_OBJECT_SHAPE, shape->id);
+        else if (chart != NULL) toggle_extra_object (self, O42_OBJECT_CHART, chart->id);
+        else toggle_extra_object (self, O42_OBJECT_PICTURE, pic->id);
+        gtk_widget_queue_draw (GTK_WIDGET (self));
+        return;
+      }
+    if (shape != NULL || chart != NULL || pic != NULL)
+      {
+        guint id = shape != NULL ? shape->id : chart != NULL ? chart->id : pic->id;
+        O42ObjectType type = shape != NULL ? O42_OBJECT_SHAPE : chart != NULL ? O42_OBJECT_CHART : O42_OBJECT_PICTURE;
+
+        /* Dragging one of a set drags the set; clicking another object
+         * outside the set forgets it. */
+        if (!(id == self->selected_picture && type == selected_object_type (self)) &&
+            !object_is_extra (self, type, id))
+          g_clear_pointer (&self->extra_objects, g_array_unref);
+        else if (object_is_extra (self, type, id))
+          {
+            /* The clicked one becomes the first; the old first joins the rest. */
+            O42ObjectRef was = { selected_object_type (self), NULL, self->selected_picture, 0 };
+            toggle_extra_object (self, type, id);
+            g_array_append_val (self->extra_objects, was);
+          }
+      }
 
     if (shape != NULL)
       {
@@ -4469,6 +5385,7 @@ on_click_pressed (GtkGestureClick *gesture,
     if (self->selected_picture != 0)
       {
         self->selected_picture = 0;
+        g_clear_pointer (&self->extra_objects, g_array_unref);
         gtk_widget_queue_draw (GTK_WIDGET (self));
       }
   }
@@ -4612,6 +5529,9 @@ on_click_released (GtkGestureClick *gesture, int n_press,
             o42_sheet_move_range (self->sheet, &self->move_source,
                                   self->move_row, self->move_col);
           o42_grid_select_range (self, &landed);
+          cells_edited (self, &landed);
+          if (!self->move_copy)
+            cells_edited (self, &self->move_source);
           sheet_changed (self);
         }
       else
@@ -4629,6 +5549,7 @@ on_click_released (GtkGestureClick *gesture, int n_press,
            self->fill_target.col0 != self->fill_source.col0))
         {
           o42_sheet_autofill (self->sheet, &self->fill_source, &self->fill_target);
+          cells_edited (self, &self->fill_target);
           o42_grid_select_range (self, &self->fill_target);
           sheet_changed (self);
         }
@@ -4653,6 +5574,17 @@ on_click_released (GtkGestureClick *gesture, int n_press,
   if (self->resize_handle >= 0)
     {
       self->resize_handle = -1;
+      if (self->sheet != NULL)
+        {
+          o42_sheet_set_modified (self->sheet, TRUE);
+          o42_sheet_end_group (self->sheet);
+        }
+      sheet_changed (self);
+    }
+
+  if (self->rotate_drag)
+    {
+      self->rotate_drag = FALSE;
       if (self->sheet != NULL)
         {
           o42_sheet_set_modified (self->sheet, TRUE);
@@ -4706,12 +5638,54 @@ on_motion (GtkEventControllerMotion *controller,
       return;
     }
 
+  if (self->rotate_drag)
+    {
+      /* The angle from the centre to the pointer, less the quarter turn
+       * the handle stands at; Shift snaps to fifteen degrees. */
+      double ox, oy, ow, oh, angle;
+      GdkModifierType state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (controller));
+
+      if (!selected_object_rect (self, &ox, &oy, &ow, &oh))
+        return;
+      angle = atan2 (y - (oy + oh / 2), x - (ox + ow / 2)) * 180 / G_PI + 90;
+      if (state & GDK_SHIFT_MASK)
+        angle = floor (angle / 15 + 0.5) * 15;
+      angle = fmod (fmod (angle, 360) + 360, 360);
+      if (self->selected_is_shape)
+        {
+          O42Shape *shape = o42_sheet_find_shape (self->sheet, self->selected_picture);
+          if (shape != NULL) shape->rotation = angle;
+        }
+      else if (!self->selected_is_chart)
+        {
+          O42Picture *pic = o42_sheet_find_picture (self->sheet, self->selected_picture);
+          if (pic != NULL) pic->rotation = angle;
+        }
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+      return;
+    }
+
   if (self->resize_handle >= 0)
     {
       double dx = x - self->drag_mouse_x, dy = y - self->drag_mouse_y;
       double nx = self->resize_x0, ny = self->resize_y0;
       double nw = self->resize_w0, nh = self->resize_h0;
       double hx = HANDLE_X[self->resize_handle], hy = HANDLE_Y[self->resize_handle];
+      double rotation;
+      gboolean flip_h, flip_v;
+      GdkModifierType state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (controller));
+
+      /* A turned object is resized along its own axes: the drag is
+       * taken into its frame. */
+      selected_object_transform (self, &rotation, &flip_h, &flip_v);
+      if (rotation != 0 || flip_h || flip_v)
+        {
+          double zero_x = 0, zero_y = 0;
+
+          to_object_frame (rotation, flip_h, flip_v, 0, 0, &dx, &dy);
+          to_object_frame (rotation, flip_h, flip_v, 0, 0, &zero_x, &zero_y);
+          dx -= zero_x; dy -= zero_y;
+        }
 
       /* A left-side handle moves the left edge; a right-side one the
        * right edge; the middles leave the other axis alone. */
@@ -4722,6 +5696,27 @@ on_motion (GtkEventControllerMotion *controller,
 
       if (nw < 16) { if (hx == 0) nx = self->resize_x0 + self->resize_w0 - 16; nw = 16; }
       if (nh < 16) { if (hy == 0) ny = self->resize_y0 + self->resize_h0 - 16; nh = 16; }
+
+      /* A corner of a picture that keeps its proportions: whichever
+       * way the pointer has gone further sets the size, the other
+       * follows, about the corner opposite. */
+      if (hx != 0.5 && hy != 0.5 && self->resize_w0 > 0 && self->resize_h0 > 0)
+        {
+          O42Picture *pic = o42_grid_selected_picture (self);
+
+          /* Shift holds any object's proportions, as it does in Excel. */
+          if ((pic != NULL && pic->lock_aspect) || (state & GDK_SHIFT_MASK))
+            {
+              double ratio = self->resize_w0 / self->resize_h0;
+
+              if (nw / self->resize_w0 >= nh / self->resize_h0)
+                nh = nw / ratio;
+              else
+                nw = nh * ratio;
+              if (hx == 0) nx = self->resize_x0 + self->resize_w0 - nw;
+              if (hy == 0) ny = self->resize_y0 + self->resize_h0 - nh;
+            }
+        }
 
       selected_object_set_rect (self, nx, ny, nw, nh);
       gtk_widget_queue_draw (GTK_WIDGET (self));
@@ -4806,10 +5801,9 @@ on_motion (GtkEventControllerMotion *controller,
       if (handle >= 0)
         cursor = HANDLE_CURSORS[handle];
       else if (x >= HEADER_W && y >= HEADER_H && on_selection_edge (self, x, y))
-        gtk_widget_set_cursor_from_name (GTK_WIDGET (self),
-                                         (gtk_event_controller_get_current_event_state (
-                                            GTK_EVENT_CONTROLLER (controller)) & GDK_CONTROL_MASK)
-                                         ? "copy" : "move");
+        cursor = (gtk_event_controller_get_current_event_state (
+                    GTK_EVENT_CONTROLLER (controller)) & GDK_CONTROL_MASK)
+                 ? "copy" : "move";
       else if (x >= HEADER_W && y >= HEADER_H && on_fill_handle (self, x, y))
         cursor = "crosshair";
       else if (split_bar_at (self, x, y) == 1)     cursor = "row-resize";
@@ -4820,7 +5814,7 @@ on_motion (GtkEventControllerMotion *controller,
       else if (row_boundary_at (self, x, y) >= 0) cursor = "row-resize";
       else if (y < HEADER_H || x < HEADER_W)      cursor = "default";
 
-      gtk_widget_set_cursor_from_name (GTK_WIDGET (self), cursor);
+      o42_set_cursor_name (GTK_WIDGET (self), cursor);
     }
 
   if (self->picture_drag && self->sheet != NULL)
@@ -4863,6 +5857,15 @@ on_motion (GtkEventControllerMotion *controller,
       else if (pic != NULL)
         move_group_with (self, pic->id, pic->row - was_row, pic->col - was_col,
                          pic->dx - was_dx, pic->dy - was_dy);
+      {
+        int drow = 0, dcol = 0;
+        double ddx = 0, ddy = 0;
+
+        if (chart != NULL) { drow = chart->row - was_row; dcol = chart->col - was_col; ddx = chart->dx - was_dx; ddy = chart->dy - was_dy; }
+        else if (shape != NULL) { drow = shape->row - was_row; dcol = shape->col - was_col; ddx = shape->dx - was_dx; ddy = shape->dy - was_dy; }
+        else if (pic != NULL) { drow = pic->row - was_row; dcol = pic->col - was_col; ddx = pic->dx - was_dx; ddy = pic->dy - was_dy; }
+        move_extras_with (self, drow, dcol, ddx, ddy);
+      }
       gtk_widget_queue_draw (GTK_WIDGET (self));
       return;
     }
@@ -4978,6 +5981,127 @@ wrapped_height (O42Grid *self, int row, int col)
   return th + 2;
 }
 
+/* The height a cell's text needs: its wrapped height, or one line of
+ * its font; 0 for an empty cell. */
+static int
+cell_text_height (O42Grid *self, int row, int col)
+{
+  const O42Fmt *fmt = o42_sheet_get_fmt (self->sheet, row, col);
+  PangoFontDescription *desc;
+  int tw, th;
+
+  int size, n_runs = 0;
+  const O42TextRun *runs;
+
+  if (fmt == NULL || o42_sheet_is_empty (self->sheet, row, col))
+    return 0;
+  if (fmt->wrap)
+    return wrapped_height (self, row, col);
+
+  /* Rich text: the tallest of its fonts is what the row must hold. */
+  size = fmt->size;
+  runs = o42_sheet_runs (self->sheet, row, col, &n_runs);
+  for (int i = 0; runs != NULL && i < n_runs; i++)
+    size = MAX (size, runs[i].fmt.size);
+
+  desc = pango_font_description_new ();
+  pango_font_description_set_family (desc, fmt->family ? fmt->family : "Sans");
+  pango_font_description_set_size (desc, (size / 2) * PANGO_SCALE);
+  pango_font_description_set_weight (desc, fmt->bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+  pango_font_description_set_style (desc, fmt->italic ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
+  pango_layout_set_font_description (self->layout, desc);
+  pango_font_description_free (desc);
+  pango_layout_set_attributes (self->layout, NULL);
+  pango_layout_set_text (self->layout, "Xg", -1);
+  pango_layout_set_width (self->layout, -1);
+  pango_layout_get_pixel_size (self->layout, &tw, &th);
+  return th + 2;
+}
+
+typedef struct {
+  O42Grid  *grid;
+  O42Range  rows;      /* the rows being fitted */
+  GHashTable *wanted;  /* row -> the tallest text in it */
+} RowFit;
+
+static void
+note_row_fit (O42Sheet *sheet, int row, int col, gpointer user)
+{
+  RowFit *fit = user;
+  int wanted;
+
+  (void) sheet;
+  if (row < fit->rows.row0 || row > fit->rows.row1)
+    return;
+  wanted = cell_text_height (fit->grid, row, col);
+  if (wanted > GPOINTER_TO_INT (g_hash_table_lookup (fit->wanted, GINT_TO_POINTER (row))))
+    g_hash_table_insert (fit->wanted, GINT_TO_POINTER (row), GINT_TO_POINTER (wanted));
+}
+
+void
+o42_grid_autofit_rows (O42Grid *self)
+{
+  RowFit fit;
+
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->sheet == NULL)
+    return;
+  if (self->editing)
+    o42_grid_commit_edit (self);
+
+  fit.grid = self;
+  selection_range (self, &fit.rows);
+  fit.wanted = g_hash_table_new (g_direct_hash, g_direct_equal);
+  /* The stored cells, not every cell of a selection that may be the
+   * whole sheet. */
+  o42_sheet_foreach_cell (self->sheet, note_row_fit, &fit);
+
+  o42_sheet_begin_group (self->sheet);
+  for (int row = fit.rows.row0; row <= fit.rows.row1; row++)
+    {
+      int wanted = GPOINTER_TO_INT (g_hash_table_lookup (fit.wanted, GINT_TO_POINTER (row)));
+
+      /* A row with nothing in it goes back to the default height; the
+       * others are as tall as their text and no shorter than that. */
+      if (wanted <= 0)
+        {
+          if (o42_sheet_row_height_set (self->sheet, row))
+            o42_sheet_set_row_height (self->sheet, row, 20);
+        }
+      else if (wanted != o42_sheet_row_height (self->sheet, row))
+        o42_sheet_set_row_height (self->sheet, row, MAX (wanted, 20));
+      /* A million empty rows below a small selection cost nothing: only
+       * the rows that have a height of their own are looked at above,
+       * but the loop itself would; stop where the cells stop. */
+      if (row - fit.rows.row0 > 100000 && g_hash_table_size (fit.wanted) == 0)
+        break;
+    }
+  o42_sheet_end_group (self->sheet);
+  g_hash_table_destroy (fit.wanted);
+
+  gtk_widget_queue_resize (GTK_WIDGET (self));
+  sheet_changed (self);
+}
+
+double
+o42_grid_fit_zoom (O42Grid *self, const O42Range *range)
+{
+  double view_w, view_h, need_w, need_h, zoom;
+
+  g_return_val_if_fail (O42_IS_GRID (self), 1.0);
+  if (self->sheet == NULL || range == NULL)
+    return 1.0;
+
+  view_w = gtk_widget_get_width (GTK_WIDGET (self)) - HEADER_W;
+  view_h = gtk_widget_get_height (GTK_WIDGET (self)) - HEADER_H;
+  need_w = o42_sheet_col_offset (self->sheet, range->col1 + 1) - o42_sheet_col_offset (self->sheet, range->col0);
+  need_h = o42_sheet_row_offset (self->sheet, range->row1 + 1) - o42_sheet_row_offset (self->sheet, range->row0);
+  if (view_w <= 0 || view_h <= 0 || need_w <= 0 || need_h <= 0)
+    return 1.0;
+  zoom = MIN (view_w / need_w, view_h / need_h);
+  return CLAMP (zoom, 0.25, 4.0);
+}
+
 /* One stored cell, on the way past: the tallest wrap in each row is
  * remembered and the rows are grown afterwards.  Walking the cells that
  * exist rather than the used rectangle is what keeps this from taking a
@@ -5045,6 +6169,7 @@ draw_cell_text (O42Grid      *self,
   int tw, th;
   double tx, ty;
   O42HAlign halign;
+  O42FormatLayout flayout;
 
   if (o42_sheet_conditional_fmt (self->sheet, row, col, &conditional))
     fmt = &conditional;
@@ -5057,7 +6182,7 @@ draw_cell_text (O42Grid      *self,
       return;
     }
 
-  text = o42_fmt_display (fmt, &value);
+  text = o42_fmt_display_layout (fmt, &value, &flayout);
   halign = o42_fmt_effective_halign (fmt, &value);
   is_text = (value.type == O42_VALUE_TEXT);
   colour = fmt->colour;
@@ -5111,11 +6236,31 @@ draw_cell_text (O42Grid      *self,
         if (fmt->strikeout)
           pango_attr_list_insert (attrs, pango_attr_strikethrough_new (TRUE));
       }
+    if (flayout.n_pads > 0)
+      {
+        /* The format's "_x" gaps, each as wide as x in this font. */
+        o42_format_pad_attributes (self->layout, &flayout, &attrs);
+        pango_layout_set_text (self->layout, text, -1);
+      }
     pango_layout_set_attributes (self->layout, attrs);
     if (attrs != NULL)
       pango_attr_list_unref (attrs);
   }
   pango_layout_get_pixel_size (self->layout, &tw, &th);
+
+  /* Shrink to fit: the font made smaller, in proportion, until the text
+   * fits the cell's width; never below a point size of 1. */
+  if (fmt->shrink && !fmt->wrap && tw + 2 * CELL_PAD > w && tw > 0)
+    {
+      double scale = MAX (w - 2 * CELL_PAD, 1.0) / tw;
+      int points = MAX ((int) floor (fmt->size / 2 * scale), 1);
+      PangoFontDescription *smaller = pango_font_description_copy (pango_layout_get_font_description (self->layout));
+
+      pango_font_description_set_size (smaller, points * PANGO_SCALE);
+      pango_layout_set_font_description (self->layout, smaller);
+      pango_font_description_free (smaller);
+      pango_layout_get_pixel_size (self->layout, &tw, &th);
+    }
 
   /* A number that does not fit must not be shown clipped: 1234 with its
    * first digit cut off reads as 234.  A General-format number is shown
@@ -5127,7 +6272,7 @@ draw_cell_text (O42Grid      *self,
       gboolean fits = FALSE;
 
       o42_sheet_get_value (self->sheet, row, col, &v);
-      if (v.type == O42_VALUE_NUMBER && fmt->number == O42_NUM_GENERAL)
+      if (v.type == O42_VALUE_NUMBER && fmt->number == O42_NUM_GENERAL && fmt->custom == NULL)
         {
           for (int digits = 9; digits >= 1 && !fits; digits--)
             {
@@ -5151,6 +6296,7 @@ draw_cell_text (O42Grid      *self,
         {
           GString *hashes = g_string_new ("#");
 
+          pango_layout_set_attributes (self->layout, NULL);
           pango_layout_set_text (self->layout, "#", -1);
           pango_layout_get_pixel_size (self->layout, &tw, &th);
           while (tw > 0 && (hashes->len + 1) * tw + 2 * CELL_PAD <= w)
@@ -5161,6 +6307,7 @@ draw_cell_text (O42Grid      *self,
           pango_layout_set_text (self->layout, text, -1);
           pango_layout_get_pixel_size (self->layout, &tw, &th);
         }
+      flayout.fill_at = -1;
     }
 
   if (fmt->wrap)
@@ -5211,34 +6358,108 @@ draw_cell_text (O42Grid      *self,
   }
 
   set_rgb (cr, colour);
-  if (fmt->rotation != 0)
-    {
-      /* Turned about the cell's centre. */
-      cairo_translate (cr, x + w / 2.0, y + h / 2.0);
-      cairo_rotate (cr, -fmt->rotation * G_PI / 180.0);
-      cairo_move_to (cr, -tw / 2.0, -th / 2.0);
-    }
-  else
-    cairo_move_to (cr, tx, ty);
-  pango_cairo_show_layout (cr, self->layout);
+  {
+    double left_w, right_w, gap;
+
+    if (fmt->rotation != 0)
+      {
+        /* Turned about the cell's centre. */
+        cairo_translate (cr, x + w / 2.0, y + h / 2.0);
+        cairo_rotate (cr, -fmt->rotation * G_PI / 180.0);
+        cairo_move_to (cr, -tw / 2.0, -th / 2.0);
+        pango_cairo_show_layout (cr, self->layout);
+      }
+    else if (!fmt->wrap && o42_format_fill_split (self->layout, &flayout, w, CELL_PAD,
+                                                   &left_w, &right_w, &gap))
+      {
+        /* A filled format: what is before the fill at the left edge,
+         * what is after it flush right, the fill character repeated
+         * across the gap.  Accounting's "* " is how the symbol and the
+         * number come to stand apart. */
+        gboolean linked = o42_sheet_get_link (self->sheet, row, col) != NULL;
+
+        (void) left_w;
+        o42_format_draw_filled (cr, self->layout, text, &flayout,
+                                fmt->underline || linked, fmt->strikeout,
+                                x + CELL_PAD, x + w - CELL_PAD - right_w, gap, ty);
+      }
+    else
+      {
+        cairo_move_to (cr, tx, ty);
+        pango_cairo_show_layout (cr, self->layout);
+      }
+  }
   cairo_restore (cr);
   pango_layout_set_attributes (self->layout, NULL);
 
   g_free (text);
 }
 
-/* The cells of a rectangle of rows and columns: fills first, then the
- * selection wash, then gridlines, text and borders.  Called once for the
- * scrolled area and once more for each frozen band, translated. */
+/* The format a cell is drawn with: its own, or what a conditional
+ * format makes of it.  `scratch` is somewhere to build the second on;
+ * the answer points either at it or into the sheet. */
+static const O42Fmt *
+cell_fmt (O42Grid *self, int row, int col, O42Fmt *scratch)
+{
+  if (o42_sheet_conditional_fmt (self->sheet, row, col, scratch))
+    return scratch;
+  return o42_sheet_get_fmt (self->sheet, row, col);
+}
+
+/* The borders round a merged range, drawn on the whole of it rather
+ * than on the cells it swallowed: each edge takes its style from the
+ * cell along that side, which is where Excel keeps it. */
+static void
+paint_merge_borders (O42Grid *self, cairo_t *cr, const O42Range *m,
+                     double x, double y, double w, double h)
+{
+  O42Fmt near, far;
+  double at = x;
+
+  for (int col = m->col0; col <= m->col1; col++)
+    {
+      double cw = o42_sheet_col_width (self->sheet, col);
+      const O42Fmt *top = cell_fmt (self, m->row0, col, &near);
+      const O42Fmt *bottom = cell_fmt (self, m->row1, col, &far);
+
+      if (top->border_top)
+        o42_draw_border_line (cr, top->border_style[O42_SIDE_TOP], top->border_colour[O42_SIDE_TOP],
+                              at, floor (y) + 0.5, at + cw, floor (y) + 0.5);
+      if (bottom->border_bottom)
+        o42_draw_border_line (cr, bottom->border_style[O42_SIDE_BOTTOM], bottom->border_colour[O42_SIDE_BOTTOM],
+                              at, floor (y + h) + 0.5, at + cw, floor (y + h) + 0.5);
+      at += cw;
+    }
+
+  at = y;
+  for (int row = m->row0; row <= m->row1; row++)
+    {
+      double ch = o42_sheet_row_height (self->sheet, row);
+      const O42Fmt *left = cell_fmt (self, row, m->col0, &near);
+      const O42Fmt *right = cell_fmt (self, row, m->col1, &far);
+
+      if (left->border_left)
+        o42_draw_border_line (cr, left->border_style[O42_SIDE_LEFT], left->border_colour[O42_SIDE_LEFT],
+                              floor (x) + 0.5, at, floor (x) + 0.5, at + ch);
+      if (right->border_right)
+        o42_draw_border_line (cr, right->border_style[O42_SIDE_RIGHT], right->border_colour[O42_SIDE_RIGHT],
+                              floor (x + w) + 0.5, at, floor (x + w) + 0.5, at + ch);
+      at += ch;
+    }
+}
+
 /* Paints one merged range as a single cell: its fill, the top-left cell's
- * text over the whole, and its border. */
+ * text over the whole, and its border.  The fill goes down over the
+ * borders the cells underneath drew, so the borders are drawn again
+ * here, round the range as a whole. */
 static void
 paint_merge (O42Grid *self, cairo_t *cr, const O42Range *sel, const O42Range *m)
 {
   double x = col_x (self, m->col0), y = row_y (self, m->row0);
   double w = col_x (self, m->col1) + o42_sheet_col_width (self->sheet, m->col1) - x;
   double h = row_y (self, m->row1) + o42_sheet_row_height (self->sheet, m->row1) - y;
-  const O42Fmt *fmt = o42_sheet_get_fmt (self->sheet, m->row0, m->col0);
+  O42Fmt scratch;
+  const O42Fmt *fmt = cell_fmt (self, m->row0, m->col0, &scratch);
 
   if (w <= 0 || h <= 0)
     return;
@@ -5259,8 +6480,13 @@ paint_merge (O42Grid *self, cairo_t *cr, const O42Range *sel, const O42Range *m)
 
   if (!(self->editing && m->row0 == self->active_row && m->col0 == self->active_col))
     draw_cell_text (self, cr, m->row0, m->col0, x, y, w, h);
+
+  paint_merge_borders (self, cr, m, x, y, w, h);
 }
 
+/* The cells of a rectangle of rows and columns: fills first, then the
+ * selection wash, then gridlines, text and borders.  Called once for the
+ * scrolled area and once more for each frozen band, translated. */
 static void
 paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
              int first_row, int last_row, int first_col, int last_col)
@@ -5278,11 +6504,8 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
       for (int col = first_col; col <= last_col; col++)
         {
           double w = o42_sheet_col_width (self->sheet, col);
-          const O42Fmt *fmt = o42_sheet_get_fmt (self->sheet, row, col);
           O42Fmt conditional;
-
-          if (o42_sheet_conditional_fmt (self->sheet, row, col, &conditional))
-            fmt = &conditional;
+          const O42Fmt *fmt = cell_fmt (self, row, col, &conditional);
 
           o42_pattern_fill (fmt, cr, x, y, w, h);
 
@@ -5340,6 +6563,33 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
               !o42_sheet_merged_at (self->sheet, row, col, NULL))
             draw_cell_text (self, cr, row, col, x, y, w, h);
 
+          /* Excel's green corner on a cell the error checking doubts. */
+          if (!self->hide_checks && !o42_sheet_is_empty (self->sheet, row, col) &&
+              o42_sheet_error_check (self->sheet, row, col) != O42_CHECK_NONE)
+            {
+              cairo_set_source_rgb (cr, 0.0, 0.55, 0.0);
+              cairo_move_to (cr, x + 1, y + 1);
+              cairo_line_to (cr, x + 7, y + 1);
+              cairo_line_to (cr, x + 1, y + 7);
+              cairo_close_path (cr);
+              cairo_fill (cr);
+            }
+
+          /* Circle Invalid Data: a red ring around a cell whose value
+           * breaks its validation. */
+          if (self->circle_invalid && !o42_sheet_is_empty (self->sheet, row, col) &&
+              o42_sheet_cell_invalid (self->sheet, row, col))
+            {
+              cairo_save (cr);
+              cairo_translate (cr, x + w / 2.0, y + h / 2.0);
+              cairo_scale (cr, (w / 2.0) + 3, (h / 2.0) + 2);
+              cairo_arc (cr, 0, 0, 1.0, 0, 2 * G_PI);
+              cairo_restore (cr);
+              cairo_set_source_rgb (cr, 0.85, 0.0, 0.0);
+              cairo_set_line_width (cr, 2.0);
+              cairo_stroke (cr);
+            }
+
           x += w;
         }
       y += h;
@@ -5355,7 +6605,10 @@ paint_cells (O42Grid *self, cairo_t *cr, const O42Range *sel,
       for (int col = first_col; col <= last_col; col++)
         {
           double w = o42_sheet_col_width (self->sheet, col);
-          const O42Fmt *fmt = o42_sheet_get_fmt (self->sheet, row, col);
+          O42Fmt conditional;
+          /* A conditional format carries borders of its own, and they
+           * are the ones to draw where one holds. */
+          const O42Fmt *fmt = cell_fmt (self, row, col, &conditional);
 
           if (fmt->border_top)
             o42_draw_border_line (cr, fmt->border_style[O42_SIDE_TOP], fmt->border_colour[O42_SIDE_TOP],
@@ -5458,6 +6711,26 @@ paint_selection (O42Grid *self, cairo_t *cr, const O42Range *sel)
     /* The fill handle at the bottom right of the selection. */
     cairo_rectangle (cr, floor (sx1) - 3, floor (sy1) - 3, 5, 5);
     cairo_fill (cr);
+
+    /* A list validation's arrow, a button to the right of the cell. */
+    if (!self->editing && active_list_rule (self) != NULL)
+      {
+        double bx = floor (ax + aw) + 1, bw = LIST_ARROW_W / self->zoom, bh = MIN (ah, 20 / self->zoom);
+        double by = floor (ay + ah - bh);
+
+        cairo_set_source_rgb (cr, 0.94, 0.94, 0.94);
+        cairo_rectangle (cr, bx, by, bw, bh);
+        cairo_fill_preserve (cr);
+        cairo_set_source_rgb (cr, 0.55, 0.55, 0.55);
+        cairo_set_line_width (cr, 1.0);
+        cairo_stroke (cr);
+        cairo_set_source_rgb (cr, 0, 0, 0);
+        cairo_move_to (cr, bx + bw * 0.25, by + bh * 0.4);
+        cairo_line_to (cr, bx + bw * 0.75, by + bh * 0.4);
+        cairo_line_to (cr, bx + bw * 0.5, by + bh * 0.7);
+        cairo_close_path (cr);
+        cairo_fill (cr);
+      }
   }
 
 }
@@ -5524,7 +6797,12 @@ paint_outline (O42Grid *self, cairo_t *cr, gboolean rows, double hx, double hy,
            * scroll, which hx and hy carry. */
           a = rows ? hy + row_y (self, i) : hx + col_x (self, i);
           b = rows ? hy + row_y (self, end + 1) : hx + col_x (self, end + 1);
-          box = b;   /* the summary row's top */
+          /* The box against the summary: the row after the run, or the
+           * one before it when the settings put summaries above. */
+          if (rows ? o42_sheet_summary_above (self->sheet) : o42_sheet_summary_left (self->sheet))
+            box = a - 12;
+          else
+            box = b;
           collapsed = outline_run_hidden (self->sheet, rows, i, end);
 
           cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
@@ -5561,10 +6839,71 @@ paint_outline (O42Grid *self, cairo_t *cr, gboolean rows, double hx, double hy,
   cairo_restore (cr);
 }
 
+/* Excel's level buttons, 1 2 3, in the corner against the outline
+ * margin: across the top of the row margin, down the side of the
+ * column one.  Pressing N shows the rows (columns) shallower than N. */
+static void
+paint_level_buttons (O42Grid *self, cairo_t *cr, gboolean rows, double hx, double hy)
+{
+  int levels = rows ? o42_sheet_max_row_level (self->sheet) : o42_sheet_max_col_level (self->sheet);
+  PangoFontDescription *desc = pango_font_description_from_string ("Sans 7");
+
+  pango_layout_set_font_description (self->layout, desc);
+  pango_font_description_free (desc);
+  for (int level = 1; level <= levels + 1; level++)
+    {
+      double centre = 3 + (level - 1) * OUTLINE_STEP + OUTLINE_STEP / 2.0;
+      double bx = rows ? hx + centre - 5 : hx + self->outline_w + 4;
+      double by = rows ? hy + self->outline_h + 4 : hy + centre - 5;
+      char digit[4];
+      int tw, th;
+
+      cairo_set_source_rgb (cr, 1, 1, 1);
+      cairo_rectangle (cr, bx, by, 11, 11);
+      cairo_fill (cr);
+      cairo_set_source_rgb (cr, 0.2, 0.2, 0.2);
+      cairo_rectangle (cr, floor (bx) + 0.5, floor (by) + 0.5, 11, 11);
+      cairo_stroke (cr);
+      g_snprintf (digit, sizeof digit, "%d", level);
+      pango_layout_set_text (self->layout, digit, -1);
+      pango_layout_get_pixel_size (self->layout, &tw, &th);
+      cairo_move_to (cr, bx + (11 - tw) / 2.0, by + (11 - th) / 2.0);
+      pango_cairo_show_layout (cr, self->layout);
+    }
+}
+
+/* A click on a level button: TRUE if the point was on one, and the
+ * outline folded to that level. */
+static gboolean
+level_button_click (O42Grid *self, double x, double y)
+{
+  gboolean rows;
+  int levels, level;
+
+  if (self->sheet == NULL || x >= HEADER_W || y >= HEADER_H)
+    return FALSE;
+  if (self->outline_w > 0 && x < self->outline_w && y >= self->outline_h)
+    { rows = TRUE; level = (int) ((x - 3) / OUTLINE_STEP) + 1; }
+  else if (self->outline_h > 0 && y < self->outline_h && x >= self->outline_w)
+    { rows = FALSE; level = (int) ((y - 3) / OUTLINE_STEP) + 1; }
+  else
+    return FALSE;
+  levels = rows ? o42_sheet_max_row_level (self->sheet) : o42_sheet_max_col_level (self->sheet);
+  if (level < 1 || level > levels + 1)
+    return TRUE;
+  o42_sheet_outline_to_level (self->sheet, rows, level);
+  gtk_widget_queue_resize (GTK_WIDGET (self));
+  sheet_changed (self);
+  return TRUE;
+}
+
 /* A click in the outline margin: which run's box, if any, and toggle it. */
 static gboolean
 outline_click (O42Grid *self, double x, double y)
 {
+  if (level_button_click (self, x, y))
+    return TRUE;
+
   gboolean rows;
   int levels, level;
   double along, across;
@@ -5583,16 +6922,33 @@ outline_click (O42Grid *self, double x, double y)
   if (level < 1 || level > levels)
     return TRUE;
 
-  /* The box sits at the top of the row after a run: find the run whose
+  /* The box sits at the top of the row after a run (or the bottom of
+   * the row before it, with summaries above): find the run whose
    * summary row the click is in. */
   {
+    gboolean above = rows ? o42_sheet_summary_above (self->sheet) : o42_sheet_summary_left (self->sheet);
     int at = rows ? row_at_y (self, along) : col_at_x (self, along);
-    int end = at - 1, start;
-    if (end < 0 || (rows ? o42_sheet_row_level (self->sheet, end) : o42_sheet_col_level (self->sheet, end)) < level)
-      return TRUE;
-    start = end;
-    while (start > 0 && (rows ? o42_sheet_row_level (self->sheet, start - 1) : o42_sheet_col_level (self->sheet, start - 1)) >= level)
-      start--;
+    int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
+    int end, start;
+
+    if (above)
+      {
+        start = at + 1;
+        if (start >= limit || (rows ? o42_sheet_row_level (self->sheet, start) : o42_sheet_col_level (self->sheet, start)) < level)
+          return TRUE;
+        end = start;
+        while (end + 1 < limit && (rows ? o42_sheet_row_level (self->sheet, end + 1) : o42_sheet_col_level (self->sheet, end + 1)) >= level)
+          end++;
+      }
+    else
+      {
+        end = at - 1;
+        if (end < 0 || (rows ? o42_sheet_row_level (self->sheet, end) : o42_sheet_col_level (self->sheet, end)) < level)
+          return TRUE;
+        start = end;
+        while (start > 0 && (rows ? o42_sheet_row_level (self->sheet, start - 1) : o42_sheet_col_level (self->sheet, start - 1)) >= level)
+          start--;
+      }
     {
       gboolean hide = !outline_run_hidden (self->sheet, rows, start, end);
       o42_sheet_begin_group (self->sheet);
@@ -5691,6 +7047,279 @@ paint_row_headers (O42Grid *self, cairo_t *cr, const O42Range *sel, double hx,
       }
 }
 
+/* Eight handles round a selected object, as Excel drew them; each drags
+ * its edge. */
+static void
+paint_handles (cairo_t *cr, double x, double y, double w, double h)
+{
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  cairo_set_line_width (cr, 1.0);
+  cairo_rectangle (cr, floor (x) + 0.5, floor (y) + 0.5, floor (w), floor (h));
+  cairo_stroke (cr);
+  for (int k = 0; k < 8; k++)
+    {
+      cairo_rectangle (cr, x + HANDLE_X[k] * w - 3, y + HANDLE_Y[k] * h - 3, 6, 6);
+      cairo_fill (cr);
+    }
+}
+
+/* The pictures, shapes and charts, back to front in one pass, so that
+ * whatever was brought to the front is in front.  Only those that
+ * touch the rectangle (vx, vy, vw, vh) of sheet pixels are painted: the
+ * scrolled view, or a frozen band's share of it. */
+/* View > Comments: each note in a pale box to the right of its cell,
+ * a line from the cell's corner, as Excel shows them all at once. */
+static void
+paint_notes (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, double vh)
+{
+  GHashTableIter iter;
+  gpointer key, value;
+
+  g_hash_table_iter_init (&iter, o42_sheet_notes (self->sheet));
+  while (g_hash_table_iter_next (&iter, &key, &value))
+    {
+      guint64 k = *(guint64 *) key;
+      int row = o42_key_row (k), col = o42_key_col (k);
+      double x = col_x (self, col + 1), y = row_y (self, row);
+      double bx = x + 12, by = MAX (y - 10, HEADER_H), bw = 160, bh;
+      int tw, th;
+
+      if (o42_sheet_row_hidden (self->sheet, row) || o42_sheet_col_hidden (self->sheet, col))
+        continue;
+      if (bx > vx + vw || by > vy + vh || x < vx - 200 || y < vy - 200)
+        continue;
+
+      pango_layout_set_attributes (self->layout, NULL);
+      pango_layout_set_font_description (self->layout, NULL);
+      pango_layout_set_text (self->layout, value, -1);
+      pango_layout_set_width (self->layout, (int) (bw - 8) * PANGO_SCALE);
+      pango_layout_set_wrap (self->layout, PANGO_WRAP_WORD_CHAR);
+      pango_layout_get_pixel_size (self->layout, &tw, &th);
+      bh = th + 8;
+
+      cairo_set_source_rgb (cr, 0.4, 0.4, 0.4);
+      cairo_set_line_width (cr, 1);
+      cairo_move_to (cr, x - 1, y + 1);
+      cairo_line_to (cr, bx, by + 6);
+      cairo_stroke (cr);
+      cairo_set_source_rgb (cr, 1.0, 1.0, 0.88);
+      cairo_rectangle (cr, bx, by, bw, bh);
+      cairo_fill_preserve (cr);
+      cairo_set_source_rgb (cr, 0.4, 0.4, 0.4);
+      cairo_stroke (cr);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      cairo_move_to (cr, bx + 4, by + 4);
+      pango_cairo_show_layout (cr, self->layout);
+      pango_layout_set_width (self->layout, -1);
+    }
+}
+
+static void
+paint_objects (O42Grid *self, cairo_t *cr, double vx, double vy, double vw, double vh)
+{
+  GArray *objects = o42_sheet_objects (self->sheet);
+
+  if (self->show_notes)
+    paint_notes (self, cr, vx, vy, vw, vh);
+
+  for (guint i = 0; i < objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i);
+      double ox, oy, ow, oh;
+      gboolean selected;
+
+      switch (ref->type)
+        {
+        case O42_OBJECT_PICTURE:
+          picture_rect (self, ref->object, &ox, &oy, &ow, &oh);
+          selected = ref->id == self->selected_picture && !self->selected_is_chart && !self->selected_is_shape;
+          break;
+        case O42_OBJECT_SHAPE:
+          shape_rect (self, ref->object, &ox, &oy, &ow, &oh);
+          selected = ref->id == self->selected_picture && self->selected_is_shape;
+          break;
+        default:
+          chart_rect (self, ref->object, &ox, &oy, &ow, &oh);
+          selected = ref->id == self->selected_picture && self->selected_is_chart;
+          break;
+        }
+      if (!selected && object_is_extra (self, ref->type, ref->id))
+        selected = TRUE;
+      if (ox > vx + vw || oy > vy + vh || ox + MAX (ow, 1) < vx || oy + MAX (oh, 1) < vy)
+        continue;
+
+      cairo_save (cr);
+      {
+        double rotation;
+        gboolean flip_h, flip_v;
+
+        object_transform (ref, &rotation, &flip_h, &flip_v);
+        apply_object_transform (cr, rotation, flip_h, flip_v, ox, oy, ow, oh);
+      }
+      cairo_translate (cr, ox, oy);
+      switch (ref->type)
+        {
+        case O42_OBJECT_PICTURE:
+          o42_picture_paint (ref->object, cr, ow, oh);
+          break;
+        case O42_OBJECT_SHAPE:
+          o42_sheet_draw_shape (self->sheet, ref->object, cr, ow, oh);
+          break;
+        default:
+          o42_sheet_draw_chart (self->sheet, ref->object, cr, ow, oh);
+          break;
+        }
+      /* The handles turn with the object; the first selected has the
+       * rotation handle on a stalk, unless it is a chart. */
+      if (selected)
+        {
+          paint_handles (cr, 0, 0, ow, oh);
+          if (ref->id == self->selected_picture && ref->type == selected_object_type (self) &&
+              ref->type != O42_OBJECT_CHART)
+            {
+              cairo_set_source_rgb (cr, 0, 0.5, 0);
+              cairo_move_to (cr, ow / 2, 0);
+              cairo_line_to (cr, ow / 2, -ROTATE_HANDLE_UP + 4);
+              cairo_stroke (cr);
+              cairo_arc (cr, ow / 2, -ROTATE_HANDLE_UP, 4, 0, 2 * G_PI);
+              cairo_fill (cr);
+            }
+        }
+      cairo_restore (cr);
+    }
+  g_array_free (objects, TRUE);
+}
+
+/* ---- Freeforms ---------------------------------------------------------- */
+
+void
+o42_grid_begin_freeform (O42Grid *self)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+  if (self->editing)
+    o42_grid_commit_edit (self);
+  g_clear_pointer (&self->freeform, g_array_unref);
+  g_clear_pointer (&self->extra_objects, g_array_unref);
+  self->freeform = g_array_new (FALSE, FALSE, sizeof (double));
+  gtk_widget_grab_focus (GTK_WIDGET (self));
+}
+
+gboolean
+o42_grid_drawing_freeform (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->freeform != NULL;
+}
+
+/* The points so far become the shape: its box is their bounds, anchored
+ * at the cell under the top left, and each point a fraction of it. */
+static void
+freeform_finish (O42Grid *self)
+{
+  GArray *pts = self->freeform;
+  guint n;
+  double x0 = G_MAXDOUBLE, y0 = G_MAXDOUBLE, x1 = -G_MAXDOUBLE, y1 = -G_MAXDOUBLE;
+  gboolean closed = FALSE;
+  O42Shape *shape;
+  int row, col;
+  double dx, dy;
+
+  self->freeform = NULL;
+  if (pts == NULL)
+    return;
+  n = pts->len / 2;
+  if (n >= 3)
+    {
+      double fx = g_array_index (pts, double, 0), fy = g_array_index (pts, double, 1);
+      double lx = g_array_index (pts, double, 2 * n - 2), ly = g_array_index (pts, double, 2 * n - 1);
+
+      /* A last point back on the first closes the outline and is not a
+       * point of its own. */
+      if (hypot (lx - fx, ly - fy) <= 6)
+        { closed = TRUE; n--; }
+    }
+  if (n < 2)
+    {
+      g_array_unref (pts);
+      gtk_widget_queue_draw (GTK_WIDGET (self));
+      return;
+    }
+  for (guint i = 0; i < n; i++)
+    {
+      double x = g_array_index (pts, double, 2 * i), y = g_array_index (pts, double, 2 * i + 1);
+      x0 = MIN (x0, x); y0 = MIN (y0, y); x1 = MAX (x1, x); y1 = MAX (y1, y);
+    }
+  if (x1 - x0 < 1) x1 = x0 + 1;
+  if (y1 - y0 < 1) y1 = y0 + 1;
+  anchor_place (self, &row, &col, &dx, &dy, x0, y0);
+  shape = o42_sheet_add_shape (self->sheet, O42_SHAPE_FREEFORM, row, col);
+  if (shape != NULL)
+    {
+      shape->dx = dx;
+      shape->dy = dy;
+      shape->width = x1 - x0;
+      shape->height = y1 - y0;
+      shape->closed = closed;
+      if (!closed)
+        shape->fill = O42_FILL_NONE;
+      for (guint i = 0; i < n; i++)
+        {
+          double x = g_array_index (pts, double, 2 * i), y = g_array_index (pts, double, 2 * i + 1);
+          o42_shape_path_add (shape, i == 0 ? 'M' : 'L', (x - x0) / shape->width, (y - y0) / shape->height, 0, 0, 0, 0);
+        }
+      self->selected_picture = shape->id;
+      self->selected_is_chart = FALSE;
+      self->selected_is_shape = TRUE;
+      sheet_changed (self);
+    }
+  g_array_unref (pts);
+  gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+static void
+freeform_point (O42Grid *self, double x, double y, gboolean last)
+{
+  if (self->freeform == NULL)
+    return;
+  if (!last || self->freeform->len == 0)
+    {
+      g_array_append_val (self->freeform, x);
+      g_array_append_val (self->freeform, y);
+    }
+  if (last)
+    freeform_finish (self);
+  else
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+/* The outline being drawn, as a dashed line through its points. */
+static void
+paint_freeform (O42Grid *self, cairo_t *cr)
+{
+  static const double dashes[] = { 4, 3 };
+
+  if (self->freeform == NULL || self->freeform->len < 2)
+    return;
+  cairo_save (cr);
+  cairo_set_source_rgb (cr, 0.1, 0.3, 0.8);
+  cairo_set_line_width (cr, 1.5);
+  cairo_set_dash (cr, dashes, 2, 0);
+  for (guint i = 0; i + 1 < self->freeform->len; i += 2)
+    {
+      double x = g_array_index (self->freeform, double, i), y = g_array_index (self->freeform, double, i + 1);
+      if (i == 0) cairo_move_to (cr, x, y); else cairo_line_to (cr, x, y);
+    }
+  cairo_stroke (cr);
+  cairo_set_dash (cr, NULL, 0, 0);
+  for (guint i = 0; i + 1 < self->freeform->len; i += 2)
+    {
+      double x = g_array_index (self->freeform, double, i), y = g_array_index (self->freeform, double, i + 1);
+      cairo_rectangle (cr, x - 2, y - 2, 4, 4);
+    }
+  cairo_fill (cr);
+  cairo_restore (cr);
+}
+
 static void
 o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
 {
@@ -5756,6 +7385,39 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   cairo_rectangle (cr, scroll_x, scroll_y, view_w, view_h);
   cairo_fill (cr);
 
+  /* Format > Sheet > Background: the picture tiled from the sheet's
+   * corner, under the cells and never printed. */
+  {
+    GBytes *source = o42_sheet_background (self->sheet, NULL);
+
+    if (source != self->background_source)
+      {
+        g_clear_pointer (&self->background, cairo_surface_destroy);
+        g_clear_pointer (&self->background_source, g_bytes_unref);
+        if (source != NULL)
+          {
+            self->background = o42_image_surface (source);
+            self->background_source = g_bytes_ref (source);
+          }
+      }
+    if (self->background != NULL && !o42_sheet_is_chart_sheet (self->sheet))
+      {
+        cairo_pattern_t *tile = cairo_pattern_create_for_surface (self->background);
+        cairo_matrix_t m;
+
+        cairo_pattern_set_extend (tile, CAIRO_EXTEND_REPEAT);
+        cairo_matrix_init_translate (&m, -HEADER_W, -HEADER_H);
+        cairo_pattern_set_matrix (tile, &m);
+        cairo_save (cr);
+        cairo_rectangle (cr, MAX (scroll_x, HEADER_W), MAX (scroll_y, HEADER_H), view_w, view_h);
+        cairo_clip (cr);
+        cairo_set_source (cr, tile);
+        cairo_paint (cr);
+        cairo_restore (cr);
+        cairo_pattern_destroy (tile);
+      }
+  }
+
   if (o42_sheet_is_chart_sheet (self->sheet))
     {
       /* One chart, filling the window with a margin around it. */
@@ -5777,7 +7439,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   paint_cells (self, cr, &sel, first_row, last_row, first_col, last_col);
 
   /* Notes: a small red triangle in the top-right corner of the cell, as
-   * Excel 5 marked them. */
+   * Excel 97 marked them. */
   {
     GHashTable *notes = o42_sheet_notes (self->sheet);
     GHashTableIter iter;
@@ -5804,7 +7466,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
   }
 
   /* AutoFilter buttons: a small square with a triangle at the right of
-   * each heading, as Excel 5 drew them. */
+   * each heading, as Excel 97 drew them. */
   {
     O42Range filter;
 
@@ -5841,120 +7503,19 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
       }
   }
 
-  /* Pictures float above the cells. */
+  /* The objects float above the cells, back to front, clipped to the
+   * scrolling part of the grid: the frozen bands paint their own. */
   {
-    GPtrArray *pictures = o42_sheet_pictures (self->sheet);
+    double frozen_w = self->frozen_cols > 0 ? col_x (self, self->frozen_cols) - HEADER_W : 0;
+    double frozen_h = self->frozen_rows > 0 ? row_y (self, self->frozen_rows) - HEADER_H : 0;
 
-    for (guint i = 0; i < pictures->len; i++)
-      {
-        O42Picture *pic = g_ptr_array_index (pictures, i);
-        cairo_surface_t *surface;
-        double px, py, pw, ph;
-
-        picture_rect (self, pic, &px, &py, &pw, &ph);
-
-        if (px > scroll_x + view_w || py > scroll_y + view_h ||
-            px + pw < scroll_x || py + ph < scroll_y)
-          continue;
-
-        surface = o42_picture_surface (pic);
-        if (surface == NULL)
-          continue;
-
-        cairo_save (cr);
-        cairo_translate (cr, px, py);
-        cairo_scale (cr, pw / cairo_image_surface_get_width (surface),
-                         ph / cairo_image_surface_get_height (surface));
-        cairo_set_source_surface (cr, surface, 0, 0);
-        cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
-        cairo_paint (cr);
-        cairo_restore (cr);
-
-        if (pic->id == self->selected_picture && !self->selected_is_chart)
-          {
-            /* Eight handles, as Excel drew them; each drags its edge. */
-            cairo_set_source_rgb (cr, 0, 0, 0);
-            cairo_set_line_width (cr, 1.0);
-            cairo_rectangle (cr, floor (px) + 0.5, floor (py) + 0.5,
-                             floor (pw), floor (ph));
-            cairo_stroke (cr);
-
-            for (int k = 0; k < 8; k++)
-              {
-                cairo_rectangle (cr, px + HANDLE_X[k] * pw - 3, py + HANDLE_Y[k] * ph - 3,
-                                 6, 6);
-                cairo_fill (cr);
-              }
-          }
-      }
-  }
-
-  /* Shapes: rectangles, ovals, lines, arrows and text boxes. */
-  {
-    GPtrArray *shapes = o42_sheet_shapes (self->sheet);
-
-    for (guint i = 0; i < shapes->len; i++)
-      {
-        O42Shape *shape = g_ptr_array_index (shapes, i);
-        double sx, sy, shape_w, shape_h;
-
-        shape_rect (self, shape, &sx, &sy, &shape_w, &shape_h);
-        if (sx > scroll_x + view_w || sy > scroll_y + view_h ||
-            sx + MAX (shape_w, 1) < scroll_x || sy + MAX (shape_h, 1) < scroll_y)
-          continue;
-
-        cairo_save (cr);
-        cairo_translate (cr, sx, sy);
-        o42_sheet_draw_shape (self->sheet, shape, cr, shape_w, shape_h);
-        cairo_restore (cr);
-
-        if (shape->id == self->selected_picture && self->selected_is_shape)
-          {
-            cairo_set_source_rgb (cr, 0, 0, 0);
-            cairo_set_line_width (cr, 1.0);
-            cairo_rectangle (cr, floor (sx) + 0.5, floor (sy) + 0.5, floor (shape_w), floor (shape_h));
-            cairo_stroke (cr);
-            for (int k = 0; k < 8; k++)
-              {
-                cairo_rectangle (cr, sx + HANDLE_X[k] * shape_w - 3, sy + HANDLE_Y[k] * shape_h - 3, 6, 6);
-                cairo_fill (cr);
-              }
-          }
-      }
-  }
-
-  /* Charts, drawn from the cells as they stand. */
-  {
-    GPtrArray *charts = o42_sheet_charts (self->sheet);
-
-    for (guint i = 0; i < charts->len; i++)
-      {
-        O42Chart *chart = g_ptr_array_index (charts, i);
-        double cx, cy, cw, ch;
-
-        chart_rect (self, chart, &cx, &cy, &cw, &ch);
-        if (cx > scroll_x + view_w || cy > scroll_y + view_h ||
-            cx + cw < scroll_x || cy + ch < scroll_y)
-          continue;
-
-        cairo_save (cr);
-        cairo_translate (cr, cx, cy);
-        o42_sheet_draw_chart (self->sheet, chart, cr, cw, ch);
-        cairo_restore (cr);
-
-        if (chart->id == self->selected_picture && self->selected_is_chart)
-          {
-            cairo_set_source_rgb (cr, 0, 0, 0);
-            cairo_set_line_width (cr, 1.0);
-            cairo_rectangle (cr, floor (cx) + 0.5, floor (cy) + 0.5, floor (cw), floor (ch));
-            cairo_stroke (cr);
-            for (int k = 0; k < 8; k++)
-              {
-                cairo_rectangle (cr, cx + HANDLE_X[k] * cw - 3, cy + HANDLE_Y[k] * ch - 3, 6, 6);
-                cairo_fill (cr);
-              }
-          }
-      }
+    cairo_save (cr);
+    cairo_rectangle (cr, scroll_x + HEADER_W + frozen_w, scroll_y + HEADER_H + frozen_h,
+                     view_w, view_h);
+    cairo_clip (cr);
+    paint_objects (self, cr, scroll_x, scroll_y, view_w, view_h);
+    paint_freeform (self, cr);
+    cairo_restore (cr);
   }
 
   /* The range an autofill drag will fill, as a grey outline. */
@@ -6047,7 +7608,10 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
       double angle;
 
       cairo_save (cr);
-      cairo_set_source_rgb (cr, 0.1, 0.25, 0.7);
+      if (a->red)
+        cairo_set_source_rgb (cr, 0.8, 0.1, 0.1);
+      else
+        cairo_set_source_rgb (cr, 0.1, 0.25, 0.7);
       cairo_set_line_width (cr, 1.5);
 
       /* A ring round the range the arrow comes from, then the arrow. */
@@ -6068,38 +7632,96 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
       cairo_restore (cr);
     }
 
-  /* Page breaks, where the printed pages would divide. */
+  /* Page Break Preview, as Excel draws it: what is not printed washed
+   * grey, each print area with a solid blue edge, the pages inside it
+   * divided by dashed lines, and "Page N" written large and faint
+   * across each. */
   if (self->show_breaks && self->sheet != NULL)
     {
-      double margin = o42_sheet_print_setup (self->sheet)->margin;
-      O42Pages *pages = o42_pages_new (self->sheet, 595 - 2 * margin, 842 - 2 * margin);
-      int *rows = NULL, *cols = NULL;
-      int n_rows = o42_pages_row_breaks (pages, &rows);
-      int n_cols = o42_pages_col_breaks (pages, &cols);
+      O42Pages *pages = o42_pages_new (self->sheet);
       static const double dashes[] = { 6, 4 };
+      O42Range region;
+      PangoLayout *mark = pango_cairo_create_layout (cr);
+      PangoFontDescription *desc = pango_font_description_from_string ("Sans Bold 28");
+
+      pango_layout_set_font_description (mark, desc);
+      pango_font_description_free (desc);
 
       cairo_save (cr);
-      cairo_set_source_rgb (cr, 0.1, 0.3, 0.8);
-      cairo_set_line_width (cr, 2);
-      cairo_set_dash (cr, dashes, 2, 0);
-      for (int i = 0; i < n_rows; i++)
-        {
-          double y = row_y (self, rows[i]);
+      cairo_rectangle (cr, HEADER_W, HEADER_H, view_w, view_h);
+      cairo_clip (cr);
 
-          cairo_move_to (cr, HEADER_W, floor (y) + 0.5);
-          cairo_line_to (cr, scroll_x + view_w, floor (y) + 0.5);
-        }
-      for (int i = 0; i < n_cols; i++)
+      /* The wash, with the regions cut out of it. */
+      cairo_save (cr);
+      cairo_set_fill_rule (cr, CAIRO_FILL_RULE_EVEN_ODD);
+      cairo_rectangle (cr, HEADER_W, HEADER_H, view_w, view_h);
+      for (int n = 0; o42_pages_region (pages, n, &region); n++)
         {
-          double x = col_x (self, cols[i]);
-
-          cairo_move_to (cr, floor (x) + 0.5, HEADER_H);
-          cairo_line_to (cr, floor (x) + 0.5, scroll_y + view_h);
+          double x0 = col_x (self, region.col0), y0 = row_y (self, region.row0);
+          double x1 = col_x (self, region.col1) + o42_sheet_col_width (self->sheet, region.col1);
+          double y1 = row_y (self, region.row1) + o42_sheet_row_height (self->sheet, region.row1);
+          cairo_rectangle (cr, x0, y0, x1 - x0, y1 - y0);
         }
-      cairo_stroke (cr);
+      cairo_set_source_rgba (cr, 0.5, 0.5, 0.5, 0.25);
+      cairo_fill (cr);
       cairo_restore (cr);
-      g_free (rows);
-      g_free (cols);
+
+      for (int n = 0; o42_pages_region (pages, n, &region); n++)
+        {
+          int *rows = NULL, *cols = NULL;
+          int n_rows = o42_pages_region_bands (pages, n, TRUE, &rows);
+          int n_cols = o42_pages_region_bands (pages, n, FALSE, &cols);
+          double x0 = col_x (self, region.col0), y0 = row_y (self, region.row0);
+          double x1 = col_x (self, region.col1) + o42_sheet_col_width (self->sheet, region.col1);
+          double y1 = row_y (self, region.row1) + o42_sheet_row_height (self->sheet, region.row1);
+
+          /* The page numbers, one per band pair. */
+          for (int cb = 0; cb < n_cols; cb++)
+            for (int rb = 0; rb < n_rows; rb++)
+              {
+                double px0 = col_x (self, cols[cb]);
+                double px1 = cb + 1 < n_cols ? col_x (self, cols[cb + 1]) : x1;
+                double py0 = row_y (self, rows[rb]);
+                double py1 = rb + 1 < n_rows ? row_y (self, rows[rb + 1]) : y1;
+                char *label = g_strdup_printf (_("Page %d"), o42_pages_region_page (pages, n, cb, rb));
+                int tw, th;
+
+                if (px1 < scroll_x + HEADER_W || px0 > scroll_x + HEADER_W + view_w ||
+                    py1 < scroll_y + HEADER_H || py0 > scroll_y + HEADER_H + view_h)
+                  { g_free (label); continue; }
+                pango_layout_set_text (mark, label, -1);
+                pango_layout_get_pixel_size (mark, &tw, &th);
+                cairo_set_source_rgba (cr, 0.4, 0.4, 0.4, 0.35);
+                cairo_move_to (cr, (px0 + px1 - tw) / 2, (py0 + py1 - th) / 2);
+                pango_cairo_show_layout (cr, mark);
+                g_free (label);
+              }
+
+          /* The dashed divisions inside, then the solid edge. */
+          cairo_set_source_rgb (cr, 0.1, 0.3, 0.8);
+          cairo_set_line_width (cr, 2);
+          cairo_set_dash (cr, dashes, 2, 0);
+          for (int i = 1; i < n_rows; i++)
+            {
+              double y = row_y (self, rows[i]);
+              cairo_move_to (cr, x0, floor (y) + 0.5);
+              cairo_line_to (cr, x1, floor (y) + 0.5);
+            }
+          for (int i = 1; i < n_cols; i++)
+            {
+              double x = col_x (self, cols[i]);
+              cairo_move_to (cr, floor (x) + 0.5, y0);
+              cairo_line_to (cr, floor (x) + 0.5, y1);
+            }
+          cairo_stroke (cr);
+          cairo_set_dash (cr, NULL, 0, 0);
+          cairo_rectangle (cr, floor (x0) + 0.5, floor (y0) + 0.5, floor (x1 - x0), floor (y1 - y0));
+          cairo_stroke (cr);
+          g_free (rows);
+          g_free (cols);
+        }
+      cairo_restore (cr);
+      g_object_unref (mark);
       o42_pages_free (pages);
     }
 
@@ -6139,6 +7761,8 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_translate (cr, 0, dy);
           paint_cells (self, cr, &sel, top_row, band_last_row, first_col, last_col);
           paint_selection (self, cr, &sel);
+          paint_objects (self, cr, scroll_x + HEADER_W + frozen_w, scroll_y + HEADER_H - dy,
+                         view_w, frozen_h);
           cairo_restore (cr);
         }
 
@@ -6153,6 +7777,8 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_translate (cr, dx, 0);
           paint_cells (self, cr, &sel, first_row, last_row, left_col, band_last_col);
           paint_selection (self, cr, &sel);
+          paint_objects (self, cr, scroll_x + HEADER_W - dx, scroll_y + HEADER_H + frozen_h,
+                         frozen_w, view_h);
           cairo_restore (cr);
         }
 
@@ -6166,6 +7792,8 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_translate (cr, dx, dy);
           paint_cells (self, cr, &sel, top_row, band_last_row, left_col, band_last_col);
           paint_selection (self, cr, &sel);
+          paint_objects (self, cr, scroll_x + HEADER_W - dx, scroll_y + HEADER_H - dy,
+                         frozen_w, frozen_h);
           cairo_restore (cr);
         }
 
@@ -6252,6 +7880,10 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
     cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
     cairo_rectangle (cr, hx, hy, HEADER_W, HEADER_H);
     cairo_fill (cr);
+    if (self->outline_w > 0)
+      paint_level_buttons (self, cr, TRUE, hx, hy);
+    if (self->outline_h > 0)
+      paint_level_buttons (self, cr, FALSE, hx, hy);
 
     cairo_set_source_rgb (cr, 0.50, 0.50, 0.50);
     cairo_move_to (cr, hx, hy + HEADER_H - 0.5);
@@ -6417,6 +8049,10 @@ o42_grid_size_allocate (GtkWidget *widget, int width, int height, int baseline)
   if (self->editor != NULL)
     place_editor (self);
   place_editor_extras (self);
+  if (self->prompt_popover != NULL)
+    gtk_popover_present (GTK_POPOVER (self->prompt_popover));
+  if (self->list_popover != NULL)
+    gtk_popover_present (GTK_POPOVER (self->list_popover));
 }
 
 static void
@@ -6584,8 +8220,20 @@ object_menu (O42Grid *self)
       menu_add (menu, "Format Sha_pe...", "win.format-shape");
       menu_add (menu, "Format Contro_l...", "win.format-control");
     }
+  else
+    menu_add (menu, "Format P_icture...", "win.format-picture");
   menu_add (menu, "_Group Objects", "win.group-objects");
   menu_add (menu, "_Ungroup Objects", "win.ungroup-objects");
+  {
+    GMenu *order = g_menu_new ();
+
+    menu_add (order, "Bring to _Front", "win.order::front");
+    menu_add (order, "Send to _Back", "win.order::back");
+    menu_add (order, "Bring F_orward", "win.order::forward");
+    menu_add (order, "Send Back_ward", "win.order::backward");
+    g_menu_append_submenu (menu, "O_rder", G_MENU_MODEL (order));
+    g_object_unref (order);
+  }
   return menu;
 }
 
@@ -6673,6 +8321,10 @@ o42_grid_dispose (GObject *object)
 {
   O42Grid *self = O42_GRID (object);
 
+  g_clear_pointer (&self->background, cairo_surface_destroy);
+  g_clear_pointer (&self->background_source, g_bytes_unref);
+  g_clear_pointer (&self->clip_sheet, g_free);
+
   if (self->blink_id != 0)
     {
       g_source_remove (self->blink_id);
@@ -6698,9 +8350,20 @@ o42_grid_dispose (GObject *object)
       gtk_widget_unparent (self->editor);
       self->editor = NULL;
     }
+  if (self->prompt_popover != NULL)
+    {
+      gtk_widget_unparent (self->prompt_popover);
+      self->prompt_popover = NULL;
+    }
+  if (self->list_popover != NULL)
+    {
+      gtk_widget_unparent (self->list_popover);
+      self->list_popover = NULL;
+    }
 
   g_clear_pointer (&self->complete_names, g_ptr_array_unref);
   g_clear_pointer (&self->extra_sel, g_array_unref);
+  g_clear_pointer (&self->freeform, g_array_unref);
   g_clear_pointer (&self->refs, g_array_unref);
   g_clear_pointer (&self->arrows, g_array_unref);
   g_clear_object (&self->layout);
@@ -6737,6 +8400,9 @@ o42_grid_class_init (O42GridClass *klass)
     g_signal_new ("selection-changed", G_TYPE_FROM_CLASS (klass),
                   G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
 
+  g_signal_new ("cells-edited", G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 4,
+                G_TYPE_INT, G_TYPE_INT, G_TYPE_INT, G_TYPE_INT);
   signals[SIGNAL_SHEET_CHANGED] =
     g_signal_new ("sheet-changed", G_TYPE_FROM_CLASS (klass),
                   G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
@@ -6819,7 +8485,10 @@ o42_grid_init (O42Grid *self)
   GtkGesture *click;
 
   gtk_widget_set_focusable (GTK_WIDGET (self), TRUE);
-  gtk_widget_set_cursor_from_name (GTK_WIDGET (self), "cell");
+  o42_set_cursor_name (GTK_WIDGET (self), "cell");
+  /* A validation's input message can only be shown once the grid is on
+   * screen; a cell chosen before that gets it then. */
+  g_signal_connect_after (self, "map", G_CALLBACK (validation_prompt_update), NULL);
 
   self->header_w = 42;   /* three digits and room; outline_sync grows it */
   self->layout = pango_layout_new (gtk_widget_get_pango_context (GTK_WIDGET (self)));
@@ -6915,7 +8584,7 @@ o42_grid_selected_chart (O42Grid *self)
 }
 
 void
-o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, const char *text)
+o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, const char *text)
 {
   O42Shape *shape;
   int row = 0, col = 0;
@@ -6925,6 +8594,7 @@ o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, const char *text)
   shape = o42_sheet_add_shape (self->sheet, kind, row, col);
   if (shape == NULL)
     return;
+  shape->geom = geom;
   shape->dx = 8;
   shape->dy = 8;
   if (text != NULL)
@@ -6932,10 +8602,66 @@ o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, const char *text)
       g_free (shape->text);
       shape->text = g_strdup (text);
     }
+  {
+    O42Book *book = o42_sheet_get_book (self->sheet);
+
+    if (book != NULL && o42_book_recording (book))
+      {
+        const char *name = (kind == O42_SHAPE_RECT && geom != O42_GEOM_RECT)
+                           ? o42_shape_geom_name (geom) : o42_shape_kind_name (kind);
+        char *at = o42_ref_name (row, col);
+        char *quoted = text != NULL && *text != '\0' ? o42_python_quote (text) : NULL;
+        char *line = quoted != NULL
+                     ? g_strdup_printf ("sheet.add_shape(\"%s\", \"%s\", text=%s)", name, at, quoted)
+                     : g_strdup_printf ("sheet.add_shape(\"%s\", \"%s\")", name, at);
+        o42_book_record_sheet (book, o42_sheet_get_name (self->sheet));
+        o42_book_record_line (book, line);
+        g_free (line); g_free (quoted); g_free (at);
+      }
+  }
   self->selected_picture = shape->id;
   self->selected_is_chart = FALSE;
   self->selected_is_shape = TRUE;
   gtk_widget_queue_draw (GTK_WIDGET (self));
+}
+
+O42Picture *
+o42_grid_selected_picture (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), NULL);
+  if (self->sheet == NULL || self->selected_picture == 0 || self->selected_is_chart || self->selected_is_shape)
+    return NULL;
+  return o42_sheet_find_picture (self->sheet, self->selected_picture);
+}
+
+gboolean
+o42_grid_has_selected_object (O42Grid *self)
+{
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  return self->sheet != NULL && self->selected_picture != 0;
+}
+
+gboolean
+o42_grid_reorder_selected (O42Grid *self, O42Order how)
+{
+  O42ObjectType type;
+  gboolean moved;
+
+  g_return_val_if_fail (O42_IS_GRID (self), FALSE);
+  if (self->sheet == NULL || self->selected_picture == 0)
+    return FALSE;
+  type = self->selected_is_shape ? O42_OBJECT_SHAPE
+       : self->selected_is_chart ? O42_OBJECT_CHART : O42_OBJECT_PICTURE;
+  moved = o42_sheet_reorder_object (self->sheet, type, self->selected_picture, how);
+  for (guint i = 0; self->extra_objects != NULL && i < self->extra_objects->len; i++)
+    {
+      const O42ObjectRef *ref = &g_array_index (self->extra_objects, O42ObjectRef, i);
+      if (o42_sheet_reorder_object (self->sheet, ref->type, ref->id, how))
+        moved = TRUE;
+    }
+  if (moved)
+    gtk_widget_queue_draw (GTK_WIDGET (self));
+  return moved;
 }
 
 O42Shape *

@@ -15,6 +15,7 @@
 #include <glib/gstdio.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 
 /* Gnumeric measures columns and rows in points; the grid lays out at 96
@@ -69,9 +70,9 @@ append_style (GString *out, const O42Fmt *fmt, const O42Range *r)
     "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n",
     r->col0, r->row0, r->col1, r->row1);
   g_string_append_printf (out,
-    "        <gnm:Style HAlign=\"%d\" VAlign=\"%d\" WrapText=\"%d\" ShrinkToFit=\"0\" "
+    "        <gnm:Style HAlign=\"%d\" VAlign=\"%d\" WrapText=\"%d\" ShrinkToFit=\"%d\" "
     "Rotation=\"%d\" Shade=\"%d\" Indent=\"%d\" Locked=\"%d\" Hidden=\"%d\" Fore=\"",
-    gnm_halign (fmt->halign), gnm_valign (fmt->valign), fmt->wrap ? 1 : 0,
+    gnm_halign (fmt->halign), gnm_valign (fmt->valign), fmt->wrap ? 1 : 0, fmt->shrink ? 1 : 0,
     fmt->rotation < 0 ? 360 + fmt->rotation : fmt->rotation,
     fmt->pattern != O42_PATTERN_NONE ? o42_pattern_to_shade ((O42Pattern) fmt->pattern)
                                      : (fmt->fill != O42_FILL_NONE ? 1 : 0),
@@ -129,6 +130,26 @@ gnm_colour_parse (const char *text)
 
 /* "&Lleft&Ccentre&Rright" with &P &N &D &T &F &A -> three escaped
  * parts with &[PAGE] &[PAGES] &[DATE] &[TIME] &[FILE] &[TAB]. */
+/* Gnumeric names the paper as GTK does, by its PWG name. */
+static const char *
+gnumeric_paper_name (int code)
+{
+  switch (code)
+    {
+    case 1:  return "na_letter";
+    case 5:  return "na_legal";
+    case 7:  return "na_executive";
+    case 8:  return "iso_a3";
+    case 11: return "iso_a5";
+    case 12: return "jis_b4";
+    case 13: return "jis_b5";
+    case 14: return "na_foolscap";
+    case 17: return "na_ledger";
+    case 70: return "iso_a6";
+    default: return "iso_a4";
+    }
+}
+
 static void
 hf_split_gnumeric (const char *text, char **left, char **centre, char **right)
 {
@@ -153,8 +174,35 @@ hf_split_gnumeric (const char *text, char **left, char **centre, char **right)
             case 'T': g_string_append (parts[which], "&[TIME]"); break;
             case 'F': g_string_append (parts[which], "&[FILE]"); break;
             case 'A': g_string_append (parts[which], "&[TAB]"); break;
+            case 'Z': g_string_append (parts[which], "&[PATH]"); break;
             case '&': g_string_append_c (parts[which], '&'); break;
-            default: break;
+            case '"':
+              /* A font, "&"Arial,Bold"": Gnumeric has no code for one, so
+               * it is carried in a bracket code of office42's own that
+               * Gnumeric shows as it is. */
+              {
+                const char *close = strchr (p + 1, '"');
+                if (close != NULL)
+                  {
+                    g_string_append (parts[which], "&[o42:");
+                    g_string_append_len (parts[which], p, close - p + 1);
+                    g_string_append_c (parts[which], ']');
+                    p = close;
+                  }
+                break;
+              }
+            default:
+              /* &B &I &U &S &E &X &Y, &12 a size, &K a colour: as above. */
+              g_string_append (parts[which], "&[o42:");
+              g_string_append_c (parts[which], code);
+              if (g_ascii_isdigit (code))
+                while (g_ascii_isdigit (p[1]))
+                  g_string_append_c (parts[which], *++p);
+              else if (code == 'K')
+                for (int k = 0; k < 6 && g_ascii_isxdigit (p[1]); k++)
+                  g_string_append_c (parts[which], *++p);
+              g_string_append_c (parts[which], ']');
+              break;
             }
           continue;
         }
@@ -196,6 +244,12 @@ hf_join_excel (const char *left, const char *middle, const char *right)
                   else if (strcmp (code, "TIME") == 0) g_string_append (out, "&T");
                   else if (strcmp (code, "FILE") == 0) g_string_append (out, "&F");
                   else if (strcmp (code, "TAB") == 0) g_string_append (out, "&A");
+                  else if (strcmp (code, "PATH") == 0) g_string_append (out, "&Z");
+                  else if (g_str_has_prefix (code, "o42:"))
+                    {
+                      g_string_append_c (out, '&');
+                      g_string_append (out, code + 4);
+                    }
                   g_free (code);
                   p = end;
                   continue;
@@ -253,16 +307,20 @@ write_cell (Writer *w, O42Sheet *sheet, int row, int col)
 
             /* The fewest digits that read back as the same double, so 4.3
              * is written as 4.3 and not 4.2999999999999998, and a number
-             * survives a round trip unchanged either way. */
-            for (int digits = 15; digits <= 17; digits++)
-              {
-                char spec[8];
+             * survives a round trip unchanged either way.  A whole number
+             * is written as the integer it is, straight away. */
+            if (v.as.number == floor (v.as.number) && fabs (v.as.number) < 1e15)
+              g_snprintf (buf, sizeof buf, "%lld", (long long) v.as.number);
+            else
+              for (int digits = 15; digits <= 17; digits++)
+                {
+                  char spec[8];
 
-                g_snprintf (spec, sizeof spec, "%%.%dg", digits);
-                g_ascii_formatd (buf, sizeof buf, spec, v.as.number);
-                if (g_ascii_strtod (buf, NULL) == v.as.number)
-                  break;
-              }
+                  g_snprintf (spec, sizeof spec, "%%.%dg", digits);
+                  g_ascii_formatd (buf, sizeof buf, spec, v.as.number);
+                  if (g_ascii_strtod (buf, NULL) == v.as.number)
+                    break;
+                }
             text = g_strdup (buf);
             value_type = 40;
             break;
@@ -390,6 +448,7 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
   double fx0, fy0, fx1, fy1;
   char *a, *b, *encoded;
   char fx0s[32], fy0s[32], fx1s[32], fy1s[32];
+  char ct[32], cb[32], cl[32], cr[32];
 
   locate (sheet, TRUE, x0, &c0, &fx0);
   locate (sheet, FALSE, y0, &r0, &fy0);
@@ -402,12 +461,21 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
   g_ascii_dtostr (fy0s, sizeof fy0s, fy0);
   g_ascii_dtostr (fx1s, sizeof fx1s, fx1);
   g_ascii_dtostr (fy1s, sizeof fy1s, fy1);
+  /* Gnumeric's own crop attributes, fractions of the picture. */
+  g_ascii_dtostr (ct, sizeof ct, pic->crop_t);
+  g_ascii_dtostr (cb, sizeof cb, pic->crop_b);
+  g_ascii_dtostr (cl, sizeof cl, pic->crop_l);
+  g_ascii_dtostr (cr, sizeof cr, pic->crop_r);
 
   g_string_append_printf (out,
     "      <gnm:SheetObjectImage ObjectBound=\"%s:%s\" ObjectOffset=\"%s %s %s %s\" "
     "ObjectAnchorType=\"16 16 16 16\" Direction=\"17\" "
-    "crop-top=\"0\" crop-bottom=\"0\" crop-left=\"0\" crop-right=\"0\">\n",
-    a, b, fx0s, fy0s, fx1s, fy1s);
+    "crop-top=\"%s\" crop-bottom=\"%s\" crop-left=\"%s\" crop-right=\"%s\" "
+    "o42-z=\"%u\" o42-group=\"%u\" o42-rotation=\"%g\" o42-flip-h=\"%d\" o42-flip-v=\"%d\" "
+    "o42-lock-aspect=\"%d\" o42-anchor=\"%s\" o42-brightness=\"%g\" o42-contrast=\"%g\">\n",
+    a, b, fx0s, fy0s, fx1s, fy1s, ct, cb, cl, cr, pic->z, pic->group, pic->rotation,
+    pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0, o42_anchor_mode_name (pic->anchor),
+    pic->brightness, pic->contrast);
 
   encoded = g_base64_encode (g_bytes_get_data (pic->data, NULL),
                              g_bytes_get_size (pic->data));
@@ -472,9 +540,9 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     "o42-kind=\"%s\" o42-first-row-labels=\"%d\" o42-first-col-labels=\"%d\" "
     "o42-series-in-rows=\"%d\" o42-legend=\"%d\" o42-gridlines=\"%d\" o42-labels=\"%d\" "
     "o42-trend=\"%s\" o42-trend-order=\"%d\" o42-errbars=\"%s\" o42-errvalue=\"%g\" "
-    "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-group=\"%u\" "
+    "o42-font=\"%s\" o42-fontsize=\"%g\" o42-data-sheet=\"%s\" o42-3d=\"%d\" o42-of-pie=\"%d\" o42-of-pie-count=\"%d\" o42-group=\"%u\" o42-z=\"%u\" "
     "o42-yformat=\"%s\" o42-secondary=\"%d\" "
-    "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\"%s>\n"
+    "o42-marker=\"%s\" o42-marker-size=\"%g\" o42-marker-picture=\"%u\" o42-anchor=\"%s\"%s>\n"
     "        <gnm:GogObject type=\"GogGraph\">\n"
     "          <GogObject role=\"Chart\" type=\"GogChart\">\n",
     a, b, fx0s, fy0s, fx1s, fy1s, o42_chart_kind_name (chart->kind),
@@ -483,10 +551,11 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     chart->data_labels ? 1 : 0, o42_trend_kind_name (chart->trend), chart->trend_order,
     o42_errbar_kind_name (chart->err_bars), chart->err_value,
     chart->font_family != NULL ? chart->font_family : "", chart->font_size,
-    chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0, chart->group,
+    chart->data_sheet != NULL ? chart->data_sheet : "", chart->three_d ? 1 : 0,
+    chart->of_pie, chart->of_pie_count, chart->group, chart->z,
     yfmt, chart->secondary_from,
     o42_marker_kind_name (chart->marker), chart->marker_size,
-    chart->marker_picture, bounds);
+    chart->marker_picture, o42_anchor_mode_name (chart->anchor), bounds);
 
   if (*title != '\0')
     g_string_append_printf (out,
@@ -585,30 +654,20 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
   g_free (title); g_free (sheet_name);
 }
 
-static gboolean
-write_gzipped (GFile *file, const char *data, gsize length, GError **error)
+/* The output as it is written: the XML of a big book would be hundreds
+ * of megabytes held whole, so what has been made is pushed through the
+ * compressor as it goes and the string emptied. */
+static GOutputStream *stream_out;
+static GError *stream_error;
+
+static void
+flush_if_large (GString *out)
 {
-  GFileOutputStream *raw;
-  GZlibCompressor *compressor;
-  GOutputStream *zipped;
-  gboolean ok;
-
-  raw = g_file_replace (file, NULL, FALSE, G_FILE_CREATE_NONE, NULL, error);
-  if (raw == NULL)
-    return FALSE;
-
-  compressor = g_zlib_compressor_new (G_ZLIB_COMPRESSOR_FORMAT_GZIP, -1);
-  zipped = g_converter_output_stream_new (G_OUTPUT_STREAM (raw),
-                                          G_CONVERTER (compressor));
-
-  ok = g_output_stream_write_all (zipped, data, length, NULL, NULL, error) &&
-       g_output_stream_close (zipped, NULL, error);
-
-  g_object_unref (zipped);
-  g_object_unref (compressor);
-  g_object_unref (raw);
-
-  return ok;
+  if (stream_out == NULL || out->len < (1u << 20))
+    return;
+  if (stream_error == NULL)
+    g_output_stream_write_all (stream_out, out->str, out->len, NULL, NULL, &stream_error);
+  g_string_truncate (out, 0);
 }
 
 static void
@@ -626,17 +685,25 @@ write_sheet (GString *out, O42Sheet *sheet)
   o42_sheet_used_range (sheet, &used);
   name = g_markup_escape_text (o42_sheet_get_name (sheet), -1);
 
+  {
+  char zoom_text[G_ASCII_DTOSTR_BUF_SIZE];
   g_string_append_printf (w.out,
-    "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"0\" HideGrid=\"0\" HideColHeader=\"0\" "
-    "HideRowHeader=\"0\" DisplayOutlines=\"1\" OutlineSymbolsBelow=\"1\" OutlineSymbolsRight=\"1\" "
-    "Visibility=\"GNM_SHEET_VISIBILITY_VISIBLE\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
-    "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\">\n"
+    "    <gnm:Sheet DisplayFormulas=\"0\" HideZero=\"%d\" HideGrid=\"%d\" HideColHeader=\"0\" "
+    "HideRowHeader=\"0\" DisplayOutlines=\"%d\" OutlineSymbolsBelow=\"%d\" OutlineSymbolsRight=\"%d\" "
+    "Visibility=\"%s\" GridColor=\"0:0:0\" o42-Protected=\"%d\" "
+    "o42-chart-sheet=\"%d\" o42-tab-colour=\"%u\" o42-password=\"%u\"%s>\n"
     "      <gnm:Name>%s</gnm:Name>\n"
     "      <gnm:MaxCol>%d</gnm:MaxCol>\n      <gnm:MaxRow>%d</gnm:MaxRow>\n"
-    "      <gnm:Zoom>1</gnm:Zoom>\n",
+    "      <gnm:Zoom>%s</gnm:Zoom>\n",
+    o42_sheet_view (sheet)->zeros ? 0 : 1, o42_sheet_view (sheet)->gridlines ? 0 : 1,
+    o42_sheet_view (sheet)->outline_symbols ? 1 : 0,
+    o42_sheet_summary_above (sheet) ? 0 : 1, o42_sheet_summary_left (sheet) ? 0 : 1,
+    o42_sheet_hidden (sheet) ? "GNM_SHEET_VISIBILITY_HIDDEN" : "GNM_SHEET_VISIBILITY_VISIBLE",
     o42_sheet_protected (sheet) ? 1 : 0, o42_sheet_is_chart_sheet (sheet) ? 1 : 0,
     o42_sheet_tab_colour (sheet), o42_sheet_password_hash (sheet),
-    name, used.col1, used.row1);
+    o42_sheet_view (sheet)->right_to_left ? " RTL_Layout=\"1\"" : "",
+    name, used.col1, used.row1, g_ascii_formatd (zoom_text, sizeof zoom_text, "%g", o42_sheet_view (sheet)->zoom / 100.0));
+  }
 
   /* The print setup, in Gnumeric's own element and codes; the print
    * area is the sheet-level name Print_Area, as Gnumeric keeps it. */
@@ -646,44 +713,88 @@ write_sheet (GString *out, O42Sheet *sheet)
 
     if (ps->has_area)
       {
-        char *a = o42_ref_name_full (ps->area.row0, ps->area.col0, TRUE, TRUE);
-        char *b = o42_ref_name_full (ps->area.row1, ps->area.col1, TRUE, TRUE);
-        g_string_append_printf (w.out,
+        g_string_append (w.out,
           "      <gnm:Names>\n        <gnm:Name>\n          <gnm:name>Print_Area</gnm:name>\n"
-          "          <gnm:value>%s:%s</gnm:value>\n          <gnm:position>A1</gnm:position>\n        </gnm:Name>\n      </gnm:Names>\n", a, b);
-        g_free (a); g_free (b);
+          "          <gnm:value>");
+        for (int k = 0; k < MAX (ps->n_areas, 1); k++)
+          {
+            const O42Range *area = ps->n_areas > 0 ? &ps->areas[k] : &ps->area;
+            char *a = o42_ref_name_full (area->row0, area->col0, TRUE, TRUE);
+            char *b = o42_ref_name_full (area->row1, area->col1, TRUE, TRUE);
+            g_string_append_printf (w.out, "%s%s:%s", k > 0 ? "," : "", a, b);
+            g_free (a); g_free (b);
+          }
+        g_string_append (w.out,
+          "</gnm:value>\n          <gnm:position>A1</gnm:position>\n        </gnm:Name>\n      </gnm:Names>\n");
       }
     hf_split_gnumeric (ps->header, &hl, &hc, &hr);
     hf_split_gnumeric (ps->footer, &fl, &fc, &fr);
-    g_string_append_printf (w.out,
-      "      <gnm:PrintInformation>\n"
-      "        <gnm:Scale type=\"percentage\" percentage=\"%d\"/>\n"
-      "        <gnm:vcenter value=\"0\"/>\n        <gnm:hcenter value=\"0\"/>\n"
-      "        <gnm:grid value=\"%d\"/>\n        <gnm:even_if_only_styles value=\"0\"/>\n"
-      "        <gnm:monochrome value=\"0\"/>\n        <gnm:draft value=\"0\"/>\n"
-      "        <gnm:titles value=\"%d\"/>\n"
-      "        <gnm:o42-Print Scale=\"%d\" FitWide=\"%d\" FitTall=\"%d\" Margin=\"%g\"/>\n",
-      ps->scale, ps->gridlines ? 1 : 0, ps->headings ? 1 : 0,
-      ps->scale, ps->fit_wide, ps->fit_tall, ps->margin);
     {
-      GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
-      GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
-      for (guint i = 0; i < rb->len; i++)
-        g_string_append_printf (w.out, "        <gnm:o42-PageBreak Rows=\"1\" At=\"%d\"/>\n",
-                                g_array_index (rb, int, i));
-      for (guint i = 0; i < cb->len; i++)
-        g_string_append_printf (w.out, "        <gnm:o42-PageBreak Rows=\"0\" At=\"%d\"/>\n",
-                                g_array_index (cb, int, i));
+      static const char *const notes[] = { NULL, "at_end", "in_place" };
+      static const char *const errors[] = { "as_displayed", "as_blank", "as_dashes", "as_na" };
+      char pts[6][G_ASCII_DTOSTR_BUF_SIZE];
+      const double margins[6] = { ps->margin_top, ps->margin_bottom, ps->margin_left,
+                                  ps->margin_right, ps->margin_header, ps->margin_footer };
+
+      for (int i = 0; i < 6; i++)
+        g_ascii_formatd (pts[i], sizeof pts[i], "%g", margins[i]);
+      g_string_append_printf (w.out,
+        "      <gnm:PrintInformation>\n"
+        "        <gnm:Margins>\n"
+        "          <gnm:top Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:bottom Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:left Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:right Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:header Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "          <gnm:footer Points=\"%s\" PrefUnit=\"mm\"/>\n"
+        "        </gnm:Margins>\n",
+        pts[0], pts[1], pts[2], pts[3], pts[4], pts[5]);
+      if (ps->fit_wide > 0 || ps->fit_tall > 0)
+        g_string_append_printf (w.out, "        <gnm:Scale type=\"size_fit\" cols=\"%d\" rows=\"%d\"/>\n",
+                                ps->fit_wide, ps->fit_tall);
+      else
+        g_string_append_printf (w.out, "        <gnm:Scale type=\"percentage\" percentage=\"%d\"/>\n", ps->scale);
+      g_string_append_printf (w.out,
+        "        <gnm:vcenter value=\"%d\"/>\n        <gnm:hcenter value=\"%d\"/>\n"
+        "        <gnm:grid value=\"%d\"/>\n        <gnm:even_if_only_styles value=\"0\"/>\n"
+        "        <gnm:monochrome value=\"%d\"/>\n        <gnm:draft value=\"%d\"/>\n"
+        "        <gnm:titles value=\"%d\"/>\n"
+        "        <gnm:o42-Print FirstPage=\"%d\"/>\n",
+        ps->vcenter ? 1 : 0, ps->hcenter ? 1 : 0, ps->gridlines ? 1 : 0,
+        ps->black_white ? 1 : 0, ps->draft ? 1 : 0, ps->headings ? 1 : 0, ps->first_page);
+      {
+        GArray *rb = o42_sheet_page_breaks (sheet, TRUE);
+        GArray *cb = o42_sheet_page_breaks (sheet, FALSE);
+        for (guint i = 0; i < rb->len; i++)
+          g_string_append_printf (w.out, "        <gnm:o42-PageBreak Rows=\"1\" At=\"%d\"/>\n",
+                                  g_array_index (rb, int, i));
+        for (guint i = 0; i < cb->len; i++)
+          g_string_append_printf (w.out, "        <gnm:o42-PageBreak Rows=\"0\" At=\"%d\"/>\n",
+                                  g_array_index (cb, int, i));
+      }
+      if (ps->title_rows > 0)
+        g_string_append_printf (w.out, "        <gnm:repeat_top value=\"A%d:IV%d\"/>\n",
+                                ps->title_row_first + 1, ps->title_row_first + ps->title_rows);
+      if (ps->title_cols > 0)
+        {
+          char first[8], last[8];
+          o42_col_name (ps->title_col_first, first, sizeof first);
+          o42_col_name (ps->title_col_first + ps->title_cols - 1, last, sizeof last);
+          g_string_append_printf (w.out, "        <gnm:repeat_left value=\"%s1:%s65536\"/>\n", first, last);
+        }
+      g_string_append_printf (w.out,
+        "        <gnm:order>%s</gnm:order>\n        <gnm:orientation>%s</gnm:orientation>\n"
+        "        <gnm:Header Left=\"%s\" Middle=\"%s\" Right=\"%s\"/>\n"
+        "        <gnm:Footer Left=\"%s\" Middle=\"%s\" Right=\"%s\"/>\n"
+        "        <gnm:paper>%s</gnm:paper>\n",
+        ps->down_then_over ? "d_then_r" : "r_then_d", ps->landscape ? "landscape" : "portrait",
+        hl, hc, hr, fl, fc, fr, gnumeric_paper_name (ps->paper));
+      if (ps->notes != O42_PRINT_NOTES_NONE)
+        g_string_append_printf (w.out, "        <gnm:comments placement=\"%s\"/>\n", notes[CLAMP (ps->notes, 1, 2)]);
+      if (ps->errors != O42_PRINT_ERRORS_SHOWN)
+        g_string_append_printf (w.out, "        <gnm:errors placement=\"%s\"/>\n", errors[CLAMP (ps->errors, 0, 3)]);
+      g_string_append (w.out, "      </gnm:PrintInformation>\n");
     }
-    if (ps->title_rows > 0)
-      g_string_append_printf (w.out, "        <gnm:repeat_top value=\"A1:IV%d\"/>\n", ps->title_rows);
-    g_string_append_printf (w.out,
-      "        <gnm:order>d_then_r</gnm:order>\n        <gnm:orientation>landscape</gnm:orientation>\n"
-      "        <gnm:Header Left=\"%s\" Middle=\"%s\" Right=\"%s\"/>\n"
-      "        <gnm:Footer Left=\"%s\" Middle=\"%s\" Right=\"%s\"/>\n"
-      "        <gnm:paper>na_letter</gnm:paper>\n"
-      "      </gnm:PrintInformation>\n",
-      hl, hc, hr, fl, fc, fr);
     g_free (hl); g_free (hc); g_free (hr); g_free (fl); g_free (fc); g_free (fr);
   }
 
@@ -757,9 +868,37 @@ write_sheet (GString *out, O42Sheet *sheet)
         g_string_append_printf (w.out,
           "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
           "        <gnm:Style o42-conditional=\"1\">\n"
-          "          <gnm:Condition Operator=\"%d\" Value0=\"%s\" Value1=\"%s\" o42-mask=\"%u\">\n",
+          "          <gnm:Condition Operator=\"%d\" Value0=\"%s\" Value1=\"%s\" o42-mask=\"%u\"",
           c->range.col0, c->range.row0, c->range.col1, c->range.row1,
-          (int) c->op, v0, v1, (unsigned) c->mask);
+          c->is_formula ? 8 : (int) c->op, v0, v1, (unsigned) c->mask);
+        if (c->kind == O42_COND_SCALE)
+          {
+            /* A colour scale, in an attribute Gnumeric passes over:
+             * "type,value,rrggbb" per stop, semicolons between. */
+            g_string_append (w.out, " o42-scale=\"");
+            for (int k = 0; k < CLAMP (c->stops, 2, 3); k++)
+              {
+                char sv[G_ASCII_DTOSTR_BUF_SIZE];
+                g_ascii_dtostr (sv, sizeof sv, c->stop_value[k]);
+                g_string_append_printf (w.out, "%s%d,%s,%06X", k > 0 ? ";" : "", c->stop_type[k], sv, c->stop_colour[k]);
+              }
+            g_string_append_c (w.out, '"');
+          }
+        g_string_append (w.out, ">\n");
+        /* The operands as Gnumeric writes them, without the '=': a
+         * formula, or the number itself. */
+        for (int k = 0; k < 2; k++)
+          {
+            const char *expr = k == 0 ? c->expr1 : c->expr2;
+            gboolean wanted = k == 0 ? TRUE : (c->op == O42_COND_BETWEEN || c->op == O42_COND_NOT_BETWEEN) && !c->is_formula;
+            char *escaped;
+
+            if (!wanted)
+              continue;
+            escaped = g_markup_escape_text (expr != NULL ? expr + (expr[0] == '=') : (k == 0 ? v0 : v1), -1);
+            g_string_append_printf (w.out, "            <gnm:Expression%d>%s</gnm:Expression%d>\n", k, escaped, k);
+            g_free (escaped);
+          }
         {
           /* The style inside is written the ordinary way, indented a
            * little wrongly, which XML does not mind. */
@@ -806,21 +945,32 @@ write_sheet (GString *out, O42Sheet *sheet)
           e0 = g_markup_escape_text (v->value ? v->value : "", -1);
         e1 = g_markup_escape_text (v->value2 ? v->value2 : "", -1);
 
-        g_string_append_printf (w.out,
-          "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
-          "        <gnm:Style o42-validation=\"1\">\n"
-          "          <gnm:Validation Style=\"1\" Type=\"%d\" Operator=\"%d\" AllowBlank=\"%d\" "
-          "UseDropdown=\"%d\" Title=\"\" Message=\"%s\">\n"
-          "            <gnm:Expression0>%s</gnm:Expression0>\n",
-          v->range.col0, v->range.row0, v->range.col1, v->range.row1,
-          (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0, v->kind == O42_VALID_LIST ? 1 : 0,
-          message, e0);
-        if (v->value2 != NULL && v->value2[0] != '\0')
-          g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
-        g_string_append (w.out,
-          "          </gnm:Validation>\n"
-          "        </gnm:Style>\n"
-          "      </gnm:StyleRegion>\n");
+        {
+          /* Gnumeric's Style: 0 none, 1 stop, 2 warning, 3 information;
+           * the input message is its own element. */
+          char *title = g_markup_escape_text (v->title ? v->title : "", -1);
+          char *ptitle = g_markup_escape_text (v->prompt_title ? v->prompt_title : "", -1);
+          char *prompt = g_markup_escape_text (v->prompt ? v->prompt : "", -1);
+
+          g_string_append_printf (w.out,
+            "      <gnm:StyleRegion startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\">\n"
+            "        <gnm:Style o42-validation=\"1\">\n"
+            "          <gnm:Validation Style=\"%d\" Type=\"%d\" Operator=\"%d\" AllowBlank=\"%d\" "
+            "UseDropdown=\"%d\" Title=\"%s\" Message=\"%s\">\n"
+            "            <gnm:Expression0>%s</gnm:Expression0>\n",
+            v->range.col0, v->range.row0, v->range.col1, v->range.row1,
+            v->no_error ? 0 : (int) v->style + 1, (int) v->kind, (int) v->op, v->allow_blank ? 1 : 0,
+            v->kind == O42_VALID_LIST && !v->no_dropdown ? 1 : 0, title, message, e0);
+          if (v->value2 != NULL && v->value2[0] != '\0')
+            g_string_append_printf (w.out, "            <gnm:Expression1>%s</gnm:Expression1>\n", e1);
+          g_string_append (w.out, "          </gnm:Validation>\n");
+          if (ptitle[0] || prompt[0])
+            g_string_append_printf (w.out, "          <gnm:InputMessage Title=\"%s\" Message=\"%s\"/>\n", ptitle, prompt);
+          g_string_append (w.out,
+            "        </gnm:Style>\n"
+            "      </gnm:StyleRegion>\n");
+          g_free (title); g_free (ptitle); g_free (prompt);
+        }
         g_free (message);
         g_free (e0);
         g_free (e1);
@@ -856,8 +1006,10 @@ write_sheet (GString *out, O42Sheet *sheet)
 
   /* Column widths and row heights that are not the default. */
   g_string_append_printf (w.out, "      <gnm:Cols DefaultSizePts=\"%g\">\n",
-                          PX_TO_PT (o42_sheet_col_width (sheet, O42_MAX_COLS - 1)));
-  for (int col = 0; col <= used.col1; col++)
+                          PX_TO_PT (o42_sheet_default_col_width (sheet)));
+  /* Every column, not only the used ones: a width set past the last
+   * cell is a width all the same. */
+  for (int col = 0; col < O42_MAX_COLS; col++)
     {
       gboolean hidden = o42_sheet_col_hidden (sheet, col);
       int width = o42_sheet_col_width (sheet, col);
@@ -869,7 +1021,7 @@ write_sheet (GString *out, O42Sheet *sheet)
       if (hidden)
         g_string_append_printf (w.out, "        <gnm:ColInfo No=\"%d\" Unit=\"%g\" Hidden=\"1\"%s/>\n",
                                 col, PX_TO_PT (80), outline);
-      else if (width != o42_sheet_col_width (sheet, O42_MAX_COLS - 1) || level > 0)
+      else if (width != o42_sheet_default_col_width (sheet) || level > 0)
         g_string_append_printf (w.out, "        <gnm:ColInfo No=\"%d\" Unit=\"%g\"%s/>\n",
                                 col, PX_TO_PT (width), outline);
     }
@@ -894,6 +1046,23 @@ write_sheet (GString *out, O42Sheet *sheet)
                                 row, PX_TO_PT (height), outline);
     }
   g_string_append (w.out, "      </gnm:Rows>\n");
+
+  /* What-If tables: the rectangle and its input cells; the inside holds
+   * TABLE formulas, which Gnumeric would not know, so the values are in
+   * the cells too. */
+  {
+    GArray *tables = o42_sheet_data_tables (sheet);
+    for (guint i = 0; i < tables->len; i++)
+      {
+        const O42DataTable *t = &g_array_index (tables, O42DataTable, i);
+        char *a = o42_ref_name (t->range.row0, t->range.col0);
+        char *b = o42_ref_name (t->range.row1, t->range.col1);
+        char *ri = t->row_input_row >= 0 ? o42_ref_name (t->row_input_row, t->row_input_col) : g_strdup ("");
+        char *ci = t->col_input_row >= 0 ? o42_ref_name (t->col_input_row, t->col_input_col) : g_strdup ("");
+        g_string_append_printf (w.out, "      <gnm:o42-DataTable Range=\"%s:%s\" RowInput=\"%s\" ColInput=\"%s\"/>\n", a, b, ri, ci);
+        g_free (a); g_free (b); g_free (ri); g_free (ci);
+      }
+  }
 
   /* Pivot tables: office42's own element, since Gnumeric has none. */
   for (int i = 0; i < o42_sheet_n_scenarios (sheet); i++)
@@ -930,6 +1099,7 @@ write_sheet (GString *out, O42Sheet *sheet)
         const O42Shape *sh = g_ptr_array_index (shapes, i);
         char *at = o42_ref_name (sh->row, sh->col);
         char *body = g_markup_escape_text (sh->text != NULL ? sh->text : "", -1);
+        char *text_attrs = NULL;
         char *control = NULL;
 
         /* A form control carries the cell it drives and the rest of
@@ -949,12 +1119,52 @@ write_sheet (GString *out, O42Sheet *sheet)
             g_free (script);
           }
 
+        /* The text's font and alignment, only when they are not the
+         * kind's own. */
+        {
+          GString *ta = g_string_new (NULL);
+          if (sh->font != NULL)
+            {
+              char *e = g_markup_escape_text (sh->font, -1);
+              g_string_append_printf (ta, " Font=\"%s\"", e);
+              g_free (e);
+            }
+          if (sh->font_size > 0) g_string_append_printf (ta, " FontSize=\"%g\"", sh->font_size);
+          if (sh->bold) g_string_append (ta, " Bold=\"1\"");
+          if (sh->italic) g_string_append (ta, " Italic=\"1\"");
+          if (sh->text_colour != 0) g_string_append_printf (ta, " TextColour=\"%u\"", (guint) sh->text_colour);
+          g_string_append_printf (ta, " TextHAlign=\"%d\" TextVAlign=\"%d\"", (int) sh->text_halign, (int) sh->text_valign);
+          if (sh->text_nowrap) g_string_append (ta, " NoWrap=\"1\"");
+          if (sh->text_inset != 4) g_string_append_printf (ta, " Inset=\"%g\"", sh->text_inset);
+          if (sh->path != NULL)
+            {
+              char *path = o42_shape_path_to_string (sh);
+              g_string_append_printf (ta, " Path=\"%s\" Closed=\"%d\"", path, sh->closed ? 1 : 0);
+              g_free (path);
+            }
+          if (sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+            g_string_append_printf (ta, " FillKind=\"gradient\" Fill2=\"%u\" Angle=\"%g\"", (guint) sh->fill2, sh->gradient_angle);
+          else if (sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+            g_string_append_printf (ta, " FillKind=\"pattern\" Fill2=\"%u\" Pattern=\"%s\"", (guint) sh->fill2, o42_pattern_name (sh->pattern));
+          if (sh->shadow)
+            g_string_append_printf (ta, " Shadow=\"%u\" ShadowDx=\"%g\" ShadowDy=\"%g\"", (guint) sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
+          if (sh->anchor != O42_ANCHOR_TWO_CELL)
+            g_string_append_printf (ta, " Anchor=\"%s\"", o42_anchor_mode_name (sh->anchor));
+          text_attrs = g_string_free (ta, FALSE);
+        }
         g_string_append_printf (w.out,
-          "      <gnm:o42-Shape Kind=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
-          "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\"%s>%s</gnm:o42-Shape>\n",
-          o42_shape_kind_name (sh->kind), at, sh->dx, sh->dy, sh->width, sh->height,
-          (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group,
-          control != NULL ? control : "", body);
+          "      <gnm:o42-Shape Kind=\"%s\" Geom=\"%s\" At=\"%s\" Dx=\"%g\" Dy=\"%g\" W=\"%g\" H=\"%g\" "
+          "Fill=\"%u\" Line=\"%u\" LineWidth=\"%g\" Group=\"%u\" Z=\"%u\" "
+          "Dash=\"%s\" HeadStart=\"%s\" HeadEnd=\"%s\" HeadStartSize=\"%d\" HeadEndSize=\"%d\" "
+          "Rotation=\"%g\" FlipH=\"%d\" FlipV=\"%d\"%s%s>%s</gnm:o42-Shape>\n",
+          o42_shape_kind_name (sh->kind), o42_shape_geom_name (sh->geom), at,
+          sh->dx, sh->dy, sh->width, sh->height,
+          (guint) sh->fill, (guint) sh->line, sh->line_width, sh->group, sh->z,
+          o42_dash_name (sh->dash), o42_head_name (sh->head_start), o42_head_name (sh->head_end),
+          (int) sh->head_start_size, (int) sh->head_end_size,
+          sh->rotation, sh->flip_h ? 1 : 0, sh->flip_v ? 1 : 0,
+          control != NULL ? control : "", text_attrs, body);
+        g_free (text_attrs);
         g_free (control);
         g_free (at);
         g_free (body);
@@ -1012,12 +1222,14 @@ write_sheet (GString *out, O42Sheet *sheet)
         char *a1 = o42_ref_name (p->source.row0, p->source.col0);
         char *b1 = o42_ref_name (p->source.row1, p->source.col1);
         char *at = o42_ref_name (p->row, p->col);
+        char *opts_raw = o42_pivot_options_to_string (p);
+        char *opts = g_markup_escape_text (opts_raw, -1);
         g_string_append_printf (w.out,
           "      <gnm:o42-Pivot Source=\"%s\" Range=\"%s:%s\" RowField=\"%s\" ColField=\"%s\" "
-          "DataField=\"%s\" Agg=\"%d\" At=\"%s\" Rows=\"%d\" Cols=\"%d\" Filter=\"%s\" FilterValue=\"%s\"/>\n",
-          src, a1, b1, rf, cf, df, (int) p->agg, at, p->rows, p->cols, ff, fv);
+          "DataField=\"%s\" Agg=\"%d\" At=\"%s\" Rows=\"%d\" Cols=\"%d\" Filter=\"%s\" FilterValue=\"%s\" Options=\"%s\"/>\n",
+          src, a1, b1, rf, cf, df, (int) p->agg, at, p->rows, p->cols, ff, fv, opts);
         g_free (src); g_free (rf); g_free (cf); g_free (df); g_free (a1); g_free (b1); g_free (at);
-        g_free (ff); g_free (fv);
+        g_free (ff); g_free (fv); g_free (opts); g_free (opts_raw);
       }
   }
 
@@ -1089,10 +1301,15 @@ write_sheet (GString *out, O42Sheet *sheet)
       }
   }
 
-  g_string_append (w.out,
-    "      <gnm:Selections CursorCol=\"0\" CursorRow=\"0\">\n"
-    "        <gnm:Selection startCol=\"0\" startRow=\"0\" endCol=\"0\" endRow=\"0\"/>\n"
-    "      </gnm:Selections>\n");
+  {
+    const O42SheetView *view = o42_sheet_view (sheet);
+    g_string_append_printf (w.out,
+      "      <gnm:Selections CursorCol=\"%d\" CursorRow=\"%d\">\n"
+      "        <gnm:Selection startCol=\"%d\" startRow=\"%d\" endCol=\"%d\" endRow=\"%d\"/>\n"
+      "      </gnm:Selections>\n",
+      view->active_col, view->active_row, view->selection.col0, view->selection.row0,
+      view->selection.col1, view->selection.row1);
+  }
 
   {
     GPtrArray *pictures = o42_sheet_pictures (sheet);
@@ -1134,10 +1351,22 @@ write_sheet (GString *out, O42Sheet *sheet)
     {
       guint64 key = g_array_index (w.keys, guint64, i);
       write_cell (&w, sheet, o42_key_row (key), o42_key_col (key));
+      flush_if_large (w.out);
     }
-  g_string_append (w.out,
-    "      </gnm:Cells>\n"
-    "    </gnm:Sheet>\n");
+  g_string_append (w.out, "      </gnm:Cells>\n");
+  {
+    const char *format = NULL;
+    GBytes *background = o42_sheet_background (sheet, &format);
+
+    if (background != NULL)
+      {
+        char *encoded = g_base64_encode (g_bytes_get_data (background, NULL), g_bytes_get_size (background));
+        g_string_append_printf (w.out, "      <gnm:o42-Background image-type=\"%s\">%s</gnm:o42-Background>\n",
+                                format != NULL ? format : "png", encoded);
+        g_free (encoded);
+      }
+  }
+  g_string_append (w.out, "    </gnm:Sheet>\n");
 
   g_array_free (w.keys, TRUE);
   g_free (name);
@@ -1155,6 +1384,21 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
 
   n = o42_book_n_sheets (book);
   out = g_string_new (NULL);
+  {
+    GFileOutputStream *raw = g_file_replace (file, NULL, FALSE, G_FILE_CREATE_NONE, NULL, error);
+    GZlibCompressor *compressor;
+
+    if (raw == NULL)
+      {
+        g_string_free (out, TRUE);
+        return FALSE;
+      }
+    compressor = g_zlib_compressor_new (G_ZLIB_COMPRESSOR_FORMAT_GZIP, -1);
+    stream_out = g_converter_output_stream_new (G_OUTPUT_STREAM (raw), G_CONVERTER (compressor));
+    g_object_unref (compressor);
+    g_object_unref (raw);
+    g_clear_error (&stream_error);
+  }
 
   {
     int iteration_max = 100;
@@ -1166,13 +1410,39 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
     "<gnm:Workbook xmlns:gnm=\"http://www.gnumeric.org/v10.dtd\" "
     "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" "
+    "xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "
+    "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" "
+    "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" "
     "xsi:schemaLocation=\"http://www.gnumeric.org/v9.xsd\">\n"
     "  <gnm:Version Epoch=\"1\" Major=\"12\" Minor=\"50\" Full=\"1.12.50\"/>\n"
     "  <gnm:Calculation ManualRecalc=\"%d\" EnableIteration=\"%d\" "
-    "MaxIterations=\"%d\" IterationTolerance=\"%g\" FloatRadix=\"2\" FloatDigits=\"53\"/>\n"
+    "MaxIterations=\"%d\" IterationTolerance=\"%g\" FloatRadix=\"2\" FloatDigits=\"53\"%s/>\n"
     "  <gnm:SheetNameIndex>\n",
     o42_book_manual (book) ? 1 : 0, iteration_on ? 1 : 0,
-    iteration_max, iteration_tolerance);
+    iteration_max, iteration_tolerance,
+    o42_book_date_1904 (book) ? " DateConvention=\"Apple:1904\"" : "");
+    if (o42_book_precision_as_displayed (book))
+      g_string_append (out, "  <gnm:o42-Options PrecisionAsDisplayed=\"1\"/>\n");
+    if (o42_book_protected (book))
+      g_string_append_printf (out, "  <gnm:o42-Protection Structure=\"1\" Hash=\"%u\"/>\n",
+                              (unsigned) o42_book_password_hash (book));
+    /* AutoCorrect, options and list, which Gnumeric passes over. */
+    g_string_append_printf (out, "  <gnm:o42-AutoCorrect Initials=\"%d\" Sentences=\"%d\" Days=\"%d\" Replace=\"%d\">\n",
+                            o42_book_autocorrect_option (book, O42_AUTOCORRECT_INITIALS) ? 1 : 0,
+                            o42_book_autocorrect_option (book, O42_AUTOCORRECT_SENTENCES) ? 1 : 0,
+                            o42_book_autocorrect_option (book, O42_AUTOCORRECT_DAYS) ? 1 : 0,
+                            o42_book_autocorrect_option (book, O42_AUTOCORRECT_REPLACE) ? 1 : 0);
+    for (int i = 0; i < o42_book_n_autocorrections (book); i++)
+      {
+        const char *to = NULL;
+        const char *from = o42_book_autocorrection (book, i, &to);
+        char *efrom = g_markup_escape_text (from, -1), *eto = g_markup_escape_text (to, -1);
+
+        g_string_append_printf (out, "    <gnm:o42-Correction From=\"%s\" To=\"%s\"/>\n", efrom, eto);
+        g_free (efrom);
+        g_free (eto);
+      }
+    g_string_append (out, "  </gnm:o42-AutoCorrect>\n");
   }
   for (int i = 0; i < n; i++)
     {
@@ -1185,6 +1455,42 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
   g_string_append (out,
     "  </gnm:SheetNameIndex>\n"
     "  <gnm:Geometry Width=\"960\" Height=\"700\"/>\n");
+
+  /* File > Properties, in the OpenDocument metadata Gnumeric itself
+   * keeps them in: the Dublin Core ones by name, the rest as user
+   * fields. */
+  {
+    static const char *const ELEMENTS[O42_N_PROPS] = {
+      "dc:title", "dc:subject", "dc:creator", NULL, NULL, NULL, "meta:keyword", "dc:description"
+    };
+    static const char *const USER[O42_N_PROPS] = {
+      NULL, NULL, NULL, "Manager", "Company", "Category", NULL, NULL
+    };
+    gboolean any = FALSE;
+
+    for (int i = 0; i < O42_N_PROPS; i++)
+      any = any || *o42_book_property (book, (O42Property) i) != '\0';
+    if (any)
+      {
+        g_string_append (out, "  <office:document-meta office:version=\"1.2\">\n    <office:meta>\n");
+        for (int i = 0; i < O42_N_PROPS; i++)
+          {
+            const char *value = o42_book_property (book, (O42Property) i);
+            char *escaped;
+
+            if (*value == '\0')
+              continue;
+            escaped = g_markup_escape_text (value, -1);
+            if (ELEMENTS[i] != NULL)
+              g_string_append_printf (out, "      <%s>%s</%s>\n", ELEMENTS[i], escaped, ELEMENTS[i]);
+            else
+              g_string_append_printf (out, "      <meta:user-defined meta:name=\"%s\">%s</meta:user-defined>\n",
+                                      USER[i], escaped);
+            g_free (escaped);
+          }
+        g_string_append (out, "    </office:meta>\n  </office:document-meta>\n");
+      }
+  }
 
   {
     GList *names = o42_book_names (book);
@@ -1208,6 +1514,17 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
               "      <gnm:value>%s!%s:%s</gnm:value>\n      <gnm:position>A1</gnm:position>\n"
               "    </gnm:Name>\n", esc, sheet_name, a, b);
             g_free (sheet_name); g_free (a); g_free (b); g_free (esc);
+          }
+        else if (o42_book_lookup_name_formula (book, l->data) != NULL)
+          {
+            char *esc = g_markup_escape_text (l->data, -1);
+            char *val = g_markup_escape_text (o42_book_lookup_name_formula (book, l->data), -1);
+
+            g_string_append_printf (out,
+              "    <gnm:Name>\n      <gnm:name>%s</gnm:name>\n"
+              "      <gnm:value>%s</gnm:value>\n      <gnm:position>A1</gnm:position>\n"
+              "    </gnm:Name>\n", esc, val);
+            g_free (esc); g_free (val);
           }
       }
     if (names != NULL)
@@ -1270,6 +1587,22 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
       g_string_append (out, "  </gnm:o42-Views>\n");
     }
 
+  /* The Watch Window's cells, likewise. */
+  if (o42_book_n_watches (book) > 0)
+    {
+      g_string_append (out, "  <gnm:o42-Watches>\n");
+      for (int i = 0; i < o42_book_n_watches (book); i++)
+        {
+          const O42Watch *watch = o42_book_watch_at (book, i);
+          char *wsheet = g_markup_escape_text (watch->sheet, -1);
+
+          g_string_append_printf (out, "    <gnm:o42-Watch Sheet=\"%s\" Row=\"%d\" Col=\"%d\"/>\n",
+                                  wsheet, watch->row, watch->col);
+          g_free (wsheet);
+        }
+      g_string_append (out, "  </gnm:o42-Watches>\n");
+    }
+
   /* The book's database: a path to a file beside it, or the file
    * itself, carried in the book so that it travels with it. */
   {
@@ -1326,18 +1659,38 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
           const char *sname = o42_book_script_name (book, i);
           char *ename = g_markup_escape_text (sname, -1);
           char *ecode = g_markup_escape_text (o42_book_script_code (book, sname), -1);
-          g_string_append_printf (out, "    <gnm:o42-Script Name=\"%s\">%s</gnm:o42-Script>\n", ename, ecode);
+          char shortcut = o42_book_script_shortcut (book, sname);
+          const char *about = o42_book_script_description (book, sname);
+          char *eabout = g_markup_escape_text (about, -1);
+          g_string_append_printf (out, "    <gnm:o42-Script Name=\"%s\"", ename);
+          if (shortcut != 0)
+            g_string_append_printf (out, " Shortcut=\"%c\"", shortcut);
+          if (*about != '\0')
+            g_string_append_printf (out, " Description=\"%s\"", eabout);
+          g_string_append_printf (out, ">%s</gnm:o42-Script>\n", ecode);
           g_free (ename);
           g_free (ecode);
+          g_free (eabout);
         }
       g_string_append (out, "  </gnm:o42-Scripts>\n");
     }
 
-  g_string_append (out,
-    "  <gnm:UIData SelectedTab=\"0\"/>\n"
-    "</gnm:Workbook>\n");
+  {
+    int active_tab = 0;
+    for (int i = 0; i < o42_book_n_sheets (book); i++)
+      if (o42_sheet_view (o42_book_sheet (book, i))->selected)
+        { active_tab = i; break; }
+    g_string_append_printf (out,
+      "  <gnm:UIData SelectedTab=\"%d\"/>\n"
+      "</gnm:Workbook>\n", active_tab);
+  }
 
-  ok = write_gzipped (file, out->str, out->len, error);
+  if (stream_error == NULL)
+    g_output_stream_write_all (stream_out, out->str, out->len, NULL, NULL, &stream_error);
+  ok = stream_error == NULL && g_output_stream_close (stream_out, NULL, &stream_error);
+  if (stream_error != NULL)
+    g_propagate_error (error, g_steal_pointer (&stream_error));
+  g_clear_object (&stream_out);
   g_string_free (out, TRUE);
 
   return ok;
@@ -1367,9 +1720,19 @@ typedef struct {
   char       *scenario_comment;
   O42FmtMask  style_mask;
   gboolean    in_names;         /* inside gnm:Names */
+  gboolean    in_print_info;    /* inside gnm:PrintInformation */
+  gboolean    saw_selection;    /* the sheet's first gnm:Selection was read */
+  GArray     *data_tables;      /* O42DataTable, defined when the sheet ends */
+  int         print_text;       /* 1 in its order, 2 orientation, 3 paper */
+  GString    *text;             /* what they say */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
+  char        script_shortcut;
+  char       *script_description;
   gboolean    in_database;      /* gnm:o42-Database with the file inside it */
   gboolean    in_custom_list;   /* gnm:o42-CustomList, whose text is the list */
+  gboolean    in_meta;          /* office:document-meta */
+  int         meta_prop;        /* the O42Property being read, or -1 */
+  GString    *meta_text;
   GString    *custom_list;
   GString    *database;         /* its base64 */
   gboolean    in_query;         /* gnm:o42-Query, sheet level */
@@ -1382,6 +1745,8 @@ typedef struct {
   /* A gnm:Validation inside a style, with its expressions. */
   O42Validation validation;
   gboolean    in_validation;
+  gboolean    validation_ready;     /* read, waiting for its Style to close */
+  char       *pending_prompt_title, *pending_prompt;   /* an InputMessage read before its Validation */
   int         expr_index;     /* 0 or 1 while inside an Expression, else -1 */
   GString    *expr;
 
@@ -1393,6 +1758,7 @@ typedef struct {
 
   /* A gnm:Condition inside it: the style that follows is the rule's. */
   gboolean    in_condition;
+  gboolean    condition_has_value;   /* Value0 was given: a number, ours */
   O42Condition condition;
   gboolean    region_is_conditional;   /* a region we wrote for a rule only */
   GString    *font_name;
@@ -1424,7 +1790,18 @@ typedef struct {
   int         graph_legend, graph_gridlines;   /* -1 unknown */
   int         graph_labels, graph_trend, graph_trend_order, graph_secondary;
   gboolean    graph_3d;
+  int         graph_of_pie, graph_of_pie_count;
   guint       graph_group;
+  guint       graph_z;
+  guint       object_z;         /* an image's z and group, from its start tag */
+  guint       object_group;
+  double      object_rotation;
+  gboolean    object_flip_h, object_flip_v;
+  double      object_crop[4];   /* left, top, right, bottom */
+  gboolean    object_lock_aspect;
+  O42AnchorMode object_anchor;
+  double      object_brightness, object_contrast;
+  O42AnchorMode graph_anchor;
   char       *graph_trend_name, *graph_err_name, *graph_font, *graph_data_sheet;
   char       *graph_marker_name;
   double      graph_marker_size;
@@ -1437,6 +1814,7 @@ typedef struct {
   /* The picture being read. */
   gboolean    in_object;
   gboolean    in_content;
+  gboolean    in_background;    /* gnm:o42-Background, base64 in r->content */
   O42Range    object_bound;
   double      object_offset[4];
   GString    *content;
@@ -1503,12 +1881,213 @@ start_element (GMarkupParseContext *context, const char *element,
 
   (void) context; (void) error;
 
+  /* The cells first, a million of them against a few of everything
+   * else, and their attributes in one pass rather than one search of
+   * the list for each. */
+  if (strcmp (name, "Cell") == 0)
+    {
+      r->in_cell = TRUE;
+      r->cell_row = r->cell_col = r->cell_type = r->cell_expr_id = -1;
+      r->cell_rows = r->cell_cols = 0;
+      g_clear_pointer (&r->cell_style, g_free);
+      g_clear_pointer (&r->cell_runs, g_free);
+      for (int i = 0; names[i] != NULL; i++)
+        {
+          const char *a = names[i];
+
+          if (a[0] == 'R' && strcmp (a, "Row") == 0)            r->cell_row = atoi (values[i]);
+          else if (a[0] == 'C' && strcmp (a, "Col") == 0)       r->cell_col = atoi (values[i]);
+          else if (a[0] == 'V' && strcmp (a, "ValueType") == 0) r->cell_type = atoi (values[i]);
+          else if (a[0] == 'R' && strcmp (a, "Rows") == 0)      r->cell_rows = atoi (values[i]);
+          else if (a[0] == 'C' && strcmp (a, "Cols") == 0)      r->cell_cols = atoi (values[i]);
+          else if (a[0] == 'E' && strcmp (a, "ExprID") == 0)    r->cell_expr_id = atoi (values[i]);
+          else if (strcmp (a, "o42-style") == 0)                r->cell_style = g_strdup (values[i]);
+          else if (strcmp (a, "o42-runs") == 0)                 r->cell_runs = g_strdup (values[i]);
+        }
+      g_string_truncate (r->cell_text, 0);
+      return;
+    }
+
+  if (strcmp (name, "document-meta") == 0)
+    {
+      r->in_meta = TRUE;
+      r->meta_prop = -1;
+      return;
+    }
+  if (r->in_meta)
+    {
+      /* The Dublin Core elements by name, and the rest by the name of
+       * the user field. */
+      const char *field = attr (names, values, "meta:name");
+      O42Property which;
+
+      r->meta_prop = -1;
+      if (strcmp (name, "title") == 0)            r->meta_prop = O42_PROP_TITLE;
+      else if (strcmp (name, "subject") == 0)     r->meta_prop = O42_PROP_SUBJECT;
+      else if (strcmp (name, "creator") == 0)     r->meta_prop = O42_PROP_AUTHOR;
+      else if (strcmp (name, "keyword") == 0)     r->meta_prop = O42_PROP_KEYWORDS;
+      else if (strcmp (name, "description") == 0) r->meta_prop = O42_PROP_COMMENTS;
+      else if (strcmp (name, "user-defined") == 0 && field != NULL && o42_property_parse (field, &which))
+        r->meta_prop = which;
+      if (r->meta_prop >= 0)
+        {
+          if (r->meta_text == NULL)
+            r->meta_text = g_string_new (NULL);
+          g_string_truncate (r->meta_text, 0);
+        }
+      return;
+    }
+
   if (r->sheet != NULL && strcmp (name, "o42-Print") == 0)
     {
-      o42_sheet_set_print_scale (r->sheet, attr_int (names, values, "Scale", 100),
-                                 attr_int (names, values, "FitWide", 0),
-                                 attr_int (names, values, "FitTall", 0));
-      o42_sheet_set_print_margin (r->sheet, attr_double (names, values, "Margin", 36));
+      /* Files from before 1.1 kept the scale and one margin here; now
+       * Gnumeric's own elements carry them and this holds the rest. */
+      if (attr (names, values, "Scale") != NULL)
+        {
+          o42_sheet_set_print_scale (r->sheet, attr_int (names, values, "Scale", 100),
+                                     attr_int (names, values, "FitWide", 0),
+                                     attr_int (names, values, "FitTall", 0));
+          o42_sheet_set_print_margin (r->sheet, attr_double (names, values, "Margin", 36));
+        }
+      if (attr (names, values, "FirstPage") != NULL)
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+          ps.first_page = attr_int (names, values, "FirstPage", 1);
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      return;
+    }
+
+  if (r->sheet != NULL && r->in_print_info &&
+      (strcmp (name, "top") == 0 || strcmp (name, "bottom") == 0 || strcmp (name, "left") == 0 ||
+       strcmp (name, "right") == 0 || strcmp (name, "header") == 0 || strcmp (name, "footer") == 0))
+    {
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+      double points = attr_double (names, values, "Points", -1);
+
+      if (points >= 0)
+        {
+          switch (name[0] == 'b' ? 'B' : name[0] == 'h' ? 'H' : name[0] == 'f' ? 'F' : name[0] == 'l' ? 'L' : name[0] == 'r' ? 'R' : 'T')
+            {
+            case 'T': ps.margin_top = points; break;
+            case 'B': ps.margin_bottom = points; break;
+            case 'L': ps.margin_left = points; break;
+            case 'R': ps.margin_right = points; break;
+            case 'H': ps.margin_header = points; break;
+            default:  ps.margin_footer = points; break;
+            }
+          o42_sheet_set_print_setup (r->sheet, &ps);
+        }
+      return;
+    }
+
+  if (r->sheet != NULL && strcmp (name, "PrintInformation") == 0)
+    {
+      r->in_print_info = TRUE;
+      return;
+    }
+
+  if (r->sheet != NULL && !r->in_print_info && strcmp (name, "Zoom") == 0)
+    {
+      g_string_truncate (r->text, 0);
+      r->print_text = 4;
+      return;
+    }
+
+  if (r->sheet != NULL && (strcmp (name, "Selections") == 0 || strcmp (name, "Selection") == 0))
+    {
+      O42SheetView view = *o42_sheet_view (r->sheet);
+
+      if (name[9] == 's')
+        {
+          view.active_col = attr_int (names, values, "CursorCol", 0);
+          view.active_row = attr_int (names, values, "CursorRow", 0);
+        }
+      else if (!r->saw_selection)
+        {
+          view.selection = o42_range_normalise (attr_int (names, values, "startRow", 0),
+                                                attr_int (names, values, "startCol", 0),
+                                                attr_int (names, values, "endRow", 0),
+                                                attr_int (names, values, "endCol", 0));
+          r->saw_selection = TRUE;
+        }
+      o42_sheet_set_view (r->sheet, &view);
+      return;
+    }
+
+  if (strcmp (name, "UIData") == 0)
+    {
+      int tab = attr_int (names, values, "SelectedTab", 0);
+      for (int i = 0; i < o42_book_n_sheets (r->book); i++)
+        {
+          O42SheetView view = *o42_sheet_view (o42_book_sheet (r->book, i));
+          view.selected = i == tab;
+          o42_sheet_set_view (o42_book_sheet (r->book, i), &view);
+        }
+      return;
+    }
+
+  if (r->sheet != NULL && r->in_print_info &&
+      (strcmp (name, "Scale") == 0 || strcmp (name, "vcenter") == 0 || strcmp (name, "hcenter") == 0 ||
+       strcmp (name, "monochrome") == 0 || strcmp (name, "draft") == 0 || strcmp (name, "repeat_left") == 0 ||
+       strcmp (name, "comments") == 0 || strcmp (name, "errors") == 0 ||
+       strcmp (name, "order") == 0 || strcmp (name, "orientation") == 0 || strcmp (name, "paper") == 0))
+    {
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+      const char *v = attr (names, values, "value");
+      const char *placement = attr (names, values, "placement");
+
+      if (strcmp (name, "Scale") == 0)
+        {
+          const char *type = attr (names, values, "type");
+          if (type != NULL && strcmp (type, "size_fit") == 0)
+            {
+              ps.fit_wide = attr_int (names, values, "cols", 0);
+              ps.fit_tall = attr_int (names, values, "rows", 0);
+            }
+          else
+            {
+              ps.scale = attr_int (names, values, "percentage", 100);
+              ps.fit_wide = ps.fit_tall = 0;
+            }
+        }
+      else if (strcmp (name, "vcenter") == 0) ps.vcenter = v != NULL && atoi (v) != 0;
+      else if (strcmp (name, "hcenter") == 0) ps.hcenter = v != NULL && atoi (v) != 0;
+      else if (strcmp (name, "monochrome") == 0) ps.black_white = v != NULL && atoi (v) != 0;
+      else if (strcmp (name, "draft") == 0) ps.draft = v != NULL && atoi (v) != 0;
+      else if (strcmp (name, "repeat_left") == 0)
+        {
+          /* E1:F65536: columns E to F. */
+          const char *colon = v != NULL ? strchr (v, ':') : NULL;
+          int first = 0, last = 0;
+          for (const char *q = v != NULL ? v : ""; g_ascii_isalpha (*q); q++)
+            first = first * 26 + (g_ascii_toupper (*q) - 'A' + 1);
+          for (const char *q = colon != NULL ? colon + 1 : ""; g_ascii_isalpha (*q); q++)
+            last = last * 26 + (g_ascii_toupper (*q) - 'A' + 1);
+          if (first > 0 && last >= first)
+            {
+              ps.title_col_first = first - 1;
+              ps.title_cols = last - first + 1;
+            }
+        }
+      else if (strcmp (name, "comments") == 0)
+        ps.notes = placement != NULL && strcmp (placement, "at_end") == 0 ? O42_PRINT_NOTES_AT_END
+                 : placement != NULL && strcmp (placement, "in_place") == 0 ? O42_PRINT_NOTES_IN_PLACE
+                 : O42_PRINT_NOTES_NONE;
+      else if (strcmp (name, "errors") == 0)
+        ps.errors = placement != NULL && strcmp (placement, "as_blank") == 0 ? O42_PRINT_ERRORS_BLANK
+                  : placement != NULL && strcmp (placement, "as_dashes") == 0 ? O42_PRINT_ERRORS_DASHES
+                  : placement != NULL && strcmp (placement, "as_na") == 0 ? O42_PRINT_ERRORS_NA
+                  : O42_PRINT_ERRORS_SHOWN;
+      else
+        {
+          /* order, orientation and paper are text: gathered when the
+           * element ends. */
+          g_string_truncate (r->text, 0);
+          r->print_text = name[1] == 'r' && name[2] == 'd' ? 1 : name[1] == 'r' ? 2 : 3;
+          return;
+        }
+      o42_sheet_set_print_setup (r->sheet, &ps);
       return;
     }
 
@@ -1531,11 +2110,14 @@ start_element (GMarkupParseContext *context, const char *element,
         o42_sheet_set_print_options (r->sheet, ps->gridlines, v != NULL && atoi (v) != 0, ps->title_rows);
       else if (strcmp (name, "repeat_top") == 0)
         {
+          /* A5:IV6: rows 5 to 6. */
           const char *colon = v != NULL ? strchr (v, ':') : NULL;
-          const char *digits = colon != NULL ? colon + 1 : NULL;
-          while (digits != NULL && *digits != '\0' && !g_ascii_isdigit (*digits)) digits++;
-          if (digits != NULL && *digits != '\0')
-            o42_sheet_set_print_options (r->sheet, ps->gridlines, ps->headings, atoi (digits));
+          const char *first = v, *last = colon != NULL ? colon + 1 : NULL;
+          while (first != NULL && *first != '\0' && !g_ascii_isdigit (*first)) first++;
+          while (last != NULL && *last != '\0' && !g_ascii_isdigit (*last)) last++;
+          if (first != NULL && last != NULL && *first != '\0' && *last != '\0')
+            o42_sheet_set_print_title_ranges (r->sheet, atoi (first) - 1, atoi (last) - 1,
+                                              ps->title_col_first, ps->title_col_first + ps->title_cols - 1);
         }
       else
         {
@@ -1550,6 +2132,16 @@ start_element (GMarkupParseContext *context, const char *element,
   if (strcmp (name, "Names") == 0)
     {
       r->in_names = TRUE;
+      return;
+    }
+
+  if (strcmp (name, "o42-Watch") == 0)
+    {
+      const char *wsheet = attr (names, values, "Sheet");
+
+      if (wsheet != NULL)
+        o42_book_add_watch (r->book, wsheet, attr_int (names, values, "Row", 0),
+                            attr_int (names, values, "Col", 0));
       return;
     }
 
@@ -1586,6 +2178,51 @@ start_element (GMarkupParseContext *context, const char *element,
                               attr_int (names, values, "EnableIteration", 0) != 0,
                               attr_int (names, values, "MaxIterations", 100),
                               attr_double (names, values, "IterationTolerance", 0.001));
+      /* Gnumeric's name for the Macintosh epoch. */
+      o42_book_set_date_1904 (r->book, g_strcmp0 (attr (names, values, "DateConvention"), "Apple:1904") == 0);
+      return;
+    }
+
+  if (strcmp (name, "o42-Background") == 0 && r->sheet != NULL)
+    {
+      const char *type = attr (names, values, "image-type");
+
+      r->in_background = TRUE;
+      if (r->content == NULL)
+        r->content = g_string_new (NULL);
+      g_string_truncate (r->content, 0);
+      g_free (r->content_type);
+      r->content_type = g_strdup (type != NULL ? type : "png");
+      return;
+    }
+
+  if (strcmp (name, "o42-Options") == 0)
+    {
+      o42_book_set_precision_as_displayed (r->book, attr_int (names, values, "PrecisionAsDisplayed", 0) != 0);
+      return;
+    }
+
+  if (strcmp (name, "o42-AutoCorrect") == 0)
+    {
+      o42_book_clear_autocorrections (r->book);
+      o42_book_set_autocorrect_option (r->book, O42_AUTOCORRECT_INITIALS, attr_int (names, values, "Initials", 1) != 0);
+      o42_book_set_autocorrect_option (r->book, O42_AUTOCORRECT_SENTENCES, attr_int (names, values, "Sentences", 1) != 0);
+      o42_book_set_autocorrect_option (r->book, O42_AUTOCORRECT_DAYS, attr_int (names, values, "Days", 1) != 0);
+      o42_book_set_autocorrect_option (r->book, O42_AUTOCORRECT_REPLACE, attr_int (names, values, "Replace", 1) != 0);
+      return;
+    }
+  if (strcmp (name, "o42-Correction") == 0)
+    {
+      const char *from = attr (names, values, "From"), *to = attr (names, values, "To");
+      if (from != NULL && to != NULL)
+        o42_book_add_autocorrection (r->book, from, to);
+      return;
+    }
+
+  if (strcmp (name, "o42-Protection") == 0)
+    {
+      o42_book_set_password_hash (r->book, (guint16) attr_int (names, values, "Hash", 0));
+      o42_book_set_protected (r->book, attr_int (names, values, "Structure", 0) != 0);
       return;
     }
 
@@ -1644,12 +2281,19 @@ start_element (GMarkupParseContext *context, const char *element,
 
   if (strcmp (name, "o42-Script") == 0)
     {
-      const char *sname = NULL;
+      const char *sname = NULL, *shortcut = NULL, *about = NULL;
       for (int i = 0; names[i] != NULL; i++)
-        if (strcmp (names[i], "Name") == 0) sname = values[i];
+        {
+          if (strcmp (names[i], "Name") == 0) sname = values[i];
+          if (strcmp (names[i], "Shortcut") == 0) shortcut = values[i];
+          if (strcmp (names[i], "Description") == 0) about = values[i];
+        }
       r->in_script = TRUE;
       g_free (r->script_name);
       r->script_name = g_strdup (sname != NULL ? sname : "Script");
+      r->script_shortcut = shortcut != NULL ? shortcut[0] : 0;
+      g_free (r->script_description);
+      r->script_description = g_strdup (about);
       if (r->script_code == NULL) r->script_code = g_string_new (NULL);
       g_string_truncate (r->script_code, 0);
       return;
@@ -1684,6 +2328,7 @@ start_element (GMarkupParseContext *context, const char *element,
     {
       /* The book starts with one sheet; that one takes the file's first
        * and the rest are added after it. */
+      r->saw_selection = FALSE;
       r->sheet_index++;
       if (r->sheet_index == 1)
         r->sheet = o42_book_sheet (r->book, 0);
@@ -1692,7 +2337,22 @@ start_element (GMarkupParseContext *context, const char *element,
       if (r->sheet != NULL)
         {
           o42_sheet_set_protected (r->sheet, attr_int (names, values, "o42-Protected", 0) != 0);
+          {
+            O42SheetView view = *o42_sheet_view (r->sheet);
+            view.zeros = attr_int (names, values, "HideZero", 0) == 0;
+            view.gridlines = attr_int (names, values, "HideGrid", 0) == 0;
+            view.outline_symbols = attr_int (names, values, "DisplayOutlines", 1) != 0;
+            view.right_to_left = attr_int (names, values, "RTL_Layout", 0) != 0;
+            o42_sheet_set_view (r->sheet, &view);
+          }
+          {
+            const char *vis = attr (names, values, "Visibility");
+            if (vis != NULL && strcmp (vis, "GNM_SHEET_VISIBILITY_VISIBLE") != 0)
+              o42_sheet_set_hidden (r->sheet, TRUE);
+          }
           o42_sheet_set_chart_sheet (r->sheet, attr_int (names, values, "o42-chart-sheet", 0) != 0);
+          o42_sheet_set_outline_settings (r->sheet, attr_int (names, values, "OutlineSymbolsBelow", 1) == 0,
+                                          attr_int (names, values, "OutlineSymbolsRight", 1) == 0);
           {
             const char *tab = attr (names, values, "o42-tab-colour");
 
@@ -1744,9 +2404,45 @@ start_element (GMarkupParseContext *context, const char *element,
       v->op = (O42CondOp) attr_int (names, values, "Operator", 0);
       v->allow_blank = attr_int (names, values, "AllowBlank", 1) != 0;
       v->message = g_strdup (attr (names, values, "Message") ? attr (names, values, "Message") : "");
+      v->title = g_strdup (attr (names, values, "Title") ? attr (names, values, "Title") : "");
       v->value = g_strdup ("");
       v->value2 = g_strdup ("");
+      {
+        int style = attr_int (names, values, "Style", 1);
+        v->no_error = style == 0;
+        v->style = style == 2 ? O42_VALID_WARNING : style == 3 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+        v->no_dropdown = v->kind == O42_VALID_LIST && attr_int (names, values, "UseDropdown", 1) == 0;
+      }
+      /* An input message read before the rule waits for it. */
+      v->prompt_title = r->pending_prompt_title; r->pending_prompt_title = NULL;
+      v->prompt = r->pending_prompt; r->pending_prompt = NULL;
       r->in_validation = TRUE;
+      return;
+    }
+
+  if (r->in_style && strcmp (name, "InputMessage") == 0)
+    {
+      /* Gnumeric writes it after the Validation; either order is read. */
+      const char *title = attr (names, values, "Title"), *text = attr (names, values, "Message");
+      if (r->validation.kind != O42_VALID_ANY || r->validation.value != NULL)
+        {
+          g_free (r->validation.prompt_title); g_free (r->validation.prompt);
+          r->validation.prompt_title = g_strdup (title ? title : "");
+          r->validation.prompt = g_strdup (text ? text : "");
+        }
+      else
+        {
+          g_free (r->pending_prompt_title); g_free (r->pending_prompt);
+          r->pending_prompt_title = g_strdup (title ? title : "");
+          r->pending_prompt = g_strdup (text ? text : "");
+        }
+      return;
+    }
+
+  if (r->in_condition && (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
+    {
+      r->expr_index = name[10] - '0';
+      g_string_truncate (r->expr, 0);
       return;
     }
 
@@ -1762,11 +2458,34 @@ start_element (GMarkupParseContext *context, const char *element,
       r->in_condition = TRUE;
       memset (&r->condition, 0, sizeof r->condition);
       r->condition.range = r->region;
-      r->condition.op = (O42CondOp) attr_int (names, values, "Operator", 0);
+      r->condition.op = (O42CondOp) MIN (attr_int (names, values, "Operator", 0), 7);
+      r->condition.is_formula = attr_int (names, values, "Operator", 0) == 8;
       r->condition.value = attr_double (names, values, "Value0", 0);
       r->condition.value2 = attr_double (names, values, "Value1", 0);
+      r->condition.expr1 = r->condition.expr2 = NULL;
+      r->condition_has_value = attr (names, values, "Value0") != NULL;
       r->condition.mask = (O42FmtMask) attr_int (names, values, "o42-mask", 0);
       o42_fmt_init_default (&r->condition.fmt);
+      if (attr (names, values, "o42-scale") != NULL)
+        {
+          char **stops = g_strsplit (attr (names, values, "o42-scale"), ";", 4);
+
+          r->condition.kind = O42_COND_SCALE;
+          for (int k = 0; stops[k] != NULL && k < 3; k++)
+            {
+              char **parts = g_strsplit (stops[k], ",", 3);
+
+              if (g_strv_length (parts) == 3)
+                {
+                  r->condition.stop_type[k] = atoi (parts[0]);
+                  r->condition.stop_value[k] = g_ascii_strtod (parts[1], NULL);
+                  r->condition.stop_colour[k] = (guint32) g_ascii_strtoull (parts[2], NULL, 16);
+                  r->condition.stops = k + 1;
+                }
+              g_strfreev (parts);
+            }
+          g_strfreev (stops);
+        }
       /* The nested style is read into fmt/mask like any other; it is
        * taken over when the Condition closes. */
       o42_fmt_init_default (&r->fmt);
@@ -1797,6 +2516,7 @@ start_element (GMarkupParseContext *context, const char *element,
         default: r->fmt.valign = O42_VALIGN_BOTTOM; break;
         }
       r->fmt.wrap = attr_int (names, values, "WrapText", 0) != 0;
+      r->fmt.shrink = attr_int (names, values, "ShrinkToFit", 0) != 0;
       r->fmt.indent = (guint8) CLAMP (attr_int (names, values, "Indent", 0), 0, 15);
       r->fmt.locked = attr_int (names, values, "Locked", 1) != 0;
       r->fmt.hidden = attr_int (names, values, "Hidden", 0) != 0;
@@ -1920,6 +2640,16 @@ start_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  /* The width of the columns that are not listed. */
+  if (strcmp (name, "Cols") == 0)
+    {
+      double pts = attr_double (names, values, "DefaultSizePts", -1);
+
+      if (pts > 0)
+        o42_sheet_set_default_col_width (r->sheet, (int) (PT_TO_PX (pts) + 0.5));
+      return;
+    }
+
   if (strcmp (name, "ColInfo") == 0 || strcmp (name, "RowInfo") == 0)
     {
       int no = attr_int (names, values, "No", -1);
@@ -1979,6 +2709,57 @@ start_element (GMarkupParseContext *context, const char *element,
           r->shape->line = (guint32) attr_int (names, values, "Line", 0);
           r->shape->line_width = attr_double (names, values, "LineWidth", 1.5);
           r->shape->group = (guint) attr_int (names, values, "Group", 0);
+          if (attr (names, values, "Z") != NULL)
+            r->shape->z = (guint) attr_int (names, values, "Z", 0);
+          o42_shape_geom_parse (attr (names, values, "Geom"), &r->shape->geom);
+          o42_dash_parse (attr (names, values, "Dash"), &r->shape->dash);
+          o42_head_parse (attr (names, values, "HeadStart"), &r->shape->head_start);
+          o42_head_parse (attr (names, values, "HeadEnd"), &r->shape->head_end);
+          r->shape->head_start_size = (O42HeadSize) CLAMP (attr_int (names, values, "HeadStartSize", 1), 0, 2);
+          r->shape->head_end_size = (O42HeadSize) CLAMP (attr_int (names, values, "HeadEndSize", 1), 0, 2);
+          r->shape->rotation = attr_double (names, values, "Rotation", 0);
+          r->shape->flip_h = attr_int (names, values, "FlipH", 0) != 0;
+          r->shape->flip_v = attr_int (names, values, "FlipV", 0) != 0;
+          if (attr (names, values, "Font") != NULL)
+            r->shape->font = g_intern_string (attr (names, values, "Font"));
+          r->shape->font_size = attr_double (names, values, "FontSize", 0);
+          r->shape->bold = attr_int (names, values, "Bold", 0) != 0;
+          r->shape->italic = attr_int (names, values, "Italic", 0) != 0;
+          r->shape->text_colour = (guint32) attr_int (names, values, "TextColour", 0);
+          if (attr (names, values, "TextHAlign") != NULL)
+            r->shape->text_halign = (O42HAlign) CLAMP (attr_int (names, values, "TextHAlign", 0), 0, 3);
+          if (attr (names, values, "TextVAlign") != NULL)
+            r->shape->text_valign = (O42VAlign) CLAMP (attr_int (names, values, "TextVAlign", 0), 0, 2);
+          r->shape->text_nowrap = attr_int (names, values, "NoWrap", 0) != 0;
+          r->shape->text_inset = attr_double (names, values, "Inset", 4);
+          if (attr (names, values, "Path") != NULL)
+            {
+              o42_shape_path_from_string (r->shape, attr (names, values, "Path"));
+              r->shape->closed = attr_int (names, values, "Closed", 0) != 0;
+            }
+          {
+            const char *fk = attr (names, values, "FillKind");
+            if (fk != NULL && strcmp (fk, "gradient") == 0)
+              {
+                r->shape->fill_kind = O42_SHAPE_FILL_GRADIENT;
+                r->shape->fill2 = (guint32) attr_int (names, values, "Fill2", 0xFFFFFF);
+                r->shape->gradient_angle = attr_double (names, values, "Angle", 0);
+              }
+            else if (fk != NULL && strcmp (fk, "pattern") == 0)
+              {
+                r->shape->fill_kind = O42_SHAPE_FILL_PATTERN;
+                r->shape->fill2 = (guint32) attr_int (names, values, "Fill2", 0);
+                o42_pattern_parse (attr (names, values, "Pattern"), &r->shape->pattern);
+              }
+            o42_anchor_mode_parse (attr (names, values, "Anchor"), &r->shape->anchor);
+            if (attr (names, values, "Shadow") != NULL)
+              {
+                r->shape->shadow = TRUE;
+                r->shape->shadow_colour = (guint32) attr_int (names, values, "Shadow", 0x808080);
+                r->shape->shadow_dx = attr_double (names, values, "ShadowDx", 3);
+                r->shape->shadow_dy = attr_double (names, values, "ShadowDy", 3);
+              }
+          }
           if (o42_shape_is_control (kind))
             {
               const char *link = attr (names, values, "Link");
@@ -2039,6 +2820,29 @@ start_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (strcmp (name, "o42-DataTable") == 0 && r->sheet != NULL)
+    {
+      O42DataTable t;
+      const char *range = attr (names, values, "Range");
+      const char *ri = attr (names, values, "RowInput"), *ci = attr (names, values, "ColInput");
+      gsize used;
+
+      memset (&t, 0, sizeof t);
+      t.row_input_row = t.row_input_col = t.col_input_row = t.col_input_col = -1;
+      if (range != NULL && o42_ref_parse (range, &t.range.row0, &t.range.col0, &used) && range[used] == ':' &&
+          o42_ref_parse (range + used + 1, &t.range.row1, &t.range.col1, NULL))
+        {
+          if (ri != NULL && *ri != '\0') o42_ref_parse (ri, &t.row_input_row, &t.row_input_col, NULL);
+          if (ci != NULL && *ci != '\0') o42_ref_parse (ci, &t.col_input_row, &t.col_input_col, NULL);
+          /* The cells hold the TABLE formulas already; the table is defined
+           * and worked out once every cell is in, at the sheet's end. */
+          if (r->data_tables == NULL)
+            r->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
+          g_array_append_val (r->data_tables, t);
+        }
+      return;
+    }
+
   if (strcmp (name, "o42-Pivot") == 0)
     {
       /* The definition only: the values are in the cells already, and
@@ -2063,9 +2867,12 @@ start_element (GMarkupParseContext *context, const char *element,
           p.agg = (O42PivotAgg) attr_int (names, values, "Agg", 0);
           p.rows = attr_int (names, values, "Rows", 0);
           p.cols = attr_int (names, values, "Cols", 0);
+          o42_pivot_options_apply (&p, attr (names, values, "Options"));
           o42_sheet_define_pivot (r->sheet, &p);
           g_strfreev (p.row_fields);
           g_strfreev (p.col_fields);
+          g_strfreev (p.data_fields);
+          g_free (p.groups);
         }
       return;
     }
@@ -2135,23 +2942,6 @@ start_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
-  if (strcmp (name, "Cell") == 0)
-    {
-      r->in_cell = TRUE;
-      r->cell_row = attr_int (names, values, "Row", -1);
-      r->cell_col = attr_int (names, values, "Col", -1);
-      r->cell_type = attr_int (names, values, "ValueType", -1);
-      r->cell_rows = attr_int (names, values, "Rows", 0);
-      r->cell_cols = attr_int (names, values, "Cols", 0);
-      r->cell_expr_id = attr_int (names, values, "ExprID", -1);
-      g_free (r->cell_style);
-      r->cell_style = g_strdup (attr (names, values, "o42-style"));
-      g_free (r->cell_runs);
-      r->cell_runs = g_strdup (attr (names, values, "o42-runs"));
-      g_string_truncate (r->cell_text, 0);
-      return;
-    }
-
   if (strcmp (name, "SheetObjectGraph") == 0 || (r->in_graph && strcmp (name, "GogObject") == 0) ||
       (r->in_graph && strcmp (name, "dimension") == 0))
     {
@@ -2179,11 +2969,16 @@ start_element (GMarkupParseContext *context, const char *element,
           r->graph_trend_name = g_strdup (attr (names, values, "o42-trend"));
           r->graph_trend_order = attr_int (names, values, "o42-trend-order", 2);
           r->graph_3d = attr_int (names, values, "o42-3d", 0) != 0;
+          r->graph_of_pie = attr_int (names, values, "o42-of-pie", 0);
+          r->graph_of_pie_count = attr_int (names, values, "o42-of-pie-count", 2);
           g_free (r->graph_marker_name);
           r->graph_marker_name = g_strdup (attr (names, values, "o42-marker"));
           r->graph_marker_size = attr_double (names, values, "o42-marker-size", 0);
           r->graph_marker_picture = (guint) attr_int (names, values, "o42-marker-picture", 0);
           r->graph_group = (guint) attr_int (names, values, "o42-group", 0);
+          r->graph_z = (guint) attr_int (names, values, "o42-z", 0);
+          r->graph_anchor = O42_ANCHOR_TWO_CELL;
+          o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->graph_anchor);
           g_free (r->graph_err_name);
           r->graph_err_name = g_strdup (attr (names, values, "o42-errbars"));
           g_free (r->graph_font);
@@ -2274,6 +3069,20 @@ start_element (GMarkupParseContext *context, const char *element,
       r->in_object = FALSE;
       r->object_offset[0] = r->object_offset[1] = 0;
       r->object_offset[2] = r->object_offset[3] = 1;
+      r->object_z = (guint) attr_int (names, values, "o42-z", 0);
+      r->object_group = (guint) attr_int (names, values, "o42-group", 0);
+      r->object_rotation = attr_double (names, values, "o42-rotation", 0);
+      r->object_crop[0] = attr_double (names, values, "crop-left", 0);
+      r->object_crop[1] = attr_double (names, values, "crop-top", 0);
+      r->object_crop[2] = attr_double (names, values, "crop-right", 0);
+      r->object_crop[3] = attr_double (names, values, "crop-bottom", 0);
+      r->object_lock_aspect = attr_int (names, values, "o42-lock-aspect", 1) != 0;
+      r->object_anchor = O42_ANCHOR_TWO_CELL;
+      o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->object_anchor);
+      r->object_brightness = attr_double (names, values, "o42-brightness", 0);
+      r->object_contrast = attr_double (names, values, "o42-contrast", 0);
+      r->object_flip_h = attr_int (names, values, "o42-flip-h", 0) != 0;
+      r->object_flip_v = attr_int (names, values, "o42-flip-v", 0) != 0;
 
       if (bound != NULL &&
           o42_ref_parse (bound, &r->object_bound.row0, &r->object_bound.col0, &used))
@@ -2367,6 +3176,21 @@ finish_cell (Reader *r)
   if (*text == '\0')
     return;
 
+  /* A constant of a known type goes in as the value it is, without
+   * being read as typed text: a string stays a string whatever it
+   * looks like, and a number is not parsed twice. */
+  if (text[0] != '=' && (r->cell_type == 60 || r->cell_type == 40 || r->cell_type == 30))
+    {
+      O42Value value = r->cell_type == 60 ? o42_value_text (text)
+                                          : o42_value_number (g_ascii_strtod (text, NULL));
+
+      o42_sheet_set_value (r->sheet, r->cell_row, r->cell_col, &value);
+      o42_value_clear (&value);
+      g_free (forced);
+      forced = NULL;
+      goto placed;
+    }
+
   switch (r->cell_type)
     {
     case 60:
@@ -2393,6 +3217,7 @@ finish_cell (Reader *r)
     o42_sheet_set_input (r->sheet, r->cell_row, r->cell_col,
                          forced != NULL ? forced : text);
   g_free (forced);
+placed:
   r->seen_cell = TRUE;
   if (r->cell_runs != NULL && r->sheet != NULL)
     {
@@ -2477,6 +3302,20 @@ finish_picture (Reader *r)
   g_bytes_unref (data);
   if (pic == NULL)
     return;
+  if (r->object_z > 0)
+    pic->z = r->object_z;
+  pic->group = r->object_group;
+  pic->rotation = r->object_rotation;
+  pic->flip_h = r->object_flip_h;
+  pic->flip_v = r->object_flip_v;
+  pic->crop_l = CLAMP (r->object_crop[0], 0, 0.99);
+  pic->crop_t = CLAMP (r->object_crop[1], 0, 0.99);
+  pic->crop_r = CLAMP (r->object_crop[2], 0, 0.99);
+  pic->crop_b = CLAMP (r->object_crop[3], 0, 0.99);
+  pic->lock_aspect = r->object_lock_aspect;
+  pic->anchor = r->object_anchor;
+  pic->brightness = r->object_brightness;
+  pic->contrast = r->object_contrast;
 
   x0 = offset_px (r->sheet, TRUE, r->object_bound.col0) +
        r->object_offset[0] * o42_sheet_col_width (r->sheet, r->object_bound.col0);
@@ -2504,6 +3343,59 @@ end_element (GMarkupParseContext *context, const char *element,
   const char *name = local_name (element);
 
   (void) context; (void) error;
+
+  if (strcmp (name, "Cell") == 0 && r->in_cell)
+    {
+      r->in_cell = FALSE;
+      finish_cell (r);
+      return;
+    }
+
+  if (r->in_meta)
+    {
+      if (strcmp (name, "document-meta") == 0)
+        r->in_meta = FALSE;
+      else if (r->meta_prop >= 0)
+        {
+          o42_book_set_property (r->book, (O42Property) r->meta_prop, r->meta_text->str);
+          r->meta_prop = -1;
+        }
+      return;
+    }
+
+  if (r->print_text != 0 && r->sheet != NULL)
+    {
+      O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
+      char *v = g_strstrip (g_strdup (r->text->str));
+
+      if (r->print_text == 4)
+        {
+          O42SheetView view = *o42_sheet_view (r->sheet);
+          double zoom = g_ascii_strtod (v, NULL);
+          if (zoom > 0)
+            view.zoom = (int) (zoom * 100 + 0.5);
+          o42_sheet_set_view (r->sheet, &view);
+          g_free (v);
+          r->print_text = 0;
+          return;
+        }
+      if (r->print_text == 1)
+        ps.down_then_over = strcmp (v, "r_then_d") != 0;
+      else if (r->print_text == 2)
+        ps.landscape = strcmp (v, "landscape") == 0;
+      else if (o42_paper_from_name (v) != 0)
+        ps.paper = o42_paper_from_name (v);
+      o42_sheet_set_print_setup (r->sheet, &ps);
+      g_free (v);
+      r->print_text = 0;
+      return;
+    }
+
+  if (r->in_print_info && strcmp (name, "PrintInformation") == 0)
+    {
+      r->in_print_info = FALSE;
+      return;
+    }
 
   if (r->in_query && strcmp (name, "o42-Query") == 0)
     {
@@ -2550,6 +3442,8 @@ end_element (GMarkupParseContext *context, const char *element,
   if (r->in_script && strcmp (name, "o42-Script") == 0)
     {
       o42_book_set_script (r->book, r->script_name, r->script_code->str);
+      if (r->script_shortcut != 0 || r->script_description != NULL)
+        o42_book_set_script_options (r->book, r->script_name, r->script_shortcut, r->script_description);
       r->in_script = FALSE;
       return;
     }
@@ -2591,20 +3485,29 @@ end_element (GMarkupParseContext *context, const char *element,
             {
               if (r->sheet != NULL && strcmp (r->name_name->str, "Print_Area") == 0)
                 {
-                  O42Range area;
-                  char *clean = g_strdup (r->name_value->str);
-                  char *w = clean;
-                  const char *bang = strrchr (r->name_value->str, '!');
-                  for (const char *q = bang != NULL ? bang + 1 : r->name_value->str; *q != '\0'; q++)
-                    if (*q != '$') *w++ = *q;
-                  *w = '\0';
-                  {
-                    gsize used = 0;
-                    if (o42_ref_parse (clean, &area.row0, &area.col0, &used) && clean[used] == ':' &&
-                        o42_ref_parse (clean + used + 1, &area.row1, &area.col1, NULL))
-                      o42_sheet_set_print_area (r->sheet, &area);
-                  }
-                  g_free (clean);
+                  /* A1:C5,E1:F9, each part an area, each perhaps with a sheet. */
+                  O42Range areas[O42_PRINT_AREAS_MAX];
+                  int n = 0;
+                  char **parts = g_strsplit (r->name_value->str, ",", -1);
+
+                  for (int k = 0; parts[k] != NULL && n < O42_PRINT_AREAS_MAX; k++)
+                    {
+                      const char *bang = strrchr (parts[k], '!');
+                      char *clean = g_strdup (parts[k]);
+                      char *w = clean;
+                      gsize used = 0;
+
+                      for (const char *q = bang != NULL ? bang + 1 : parts[k]; *q != '\0'; q++)
+                        if (*q != '$') *w++ = *q;
+                      *w = '\0';
+                      if (o42_ref_parse (clean, &areas[n].row0, &areas[n].col0, &used) && clean[used] == ':' &&
+                          o42_ref_parse (clean + used + 1, &areas[n].row1, &areas[n].col1, NULL))
+                        n++;
+                      g_free (clean);
+                    }
+                  g_strfreev (parts);
+                  if (n > 0)
+                    o42_sheet_set_print_areas (r->sheet, areas, n);
                 }
               return;
             }
@@ -2618,6 +3521,12 @@ end_element (GMarkupParseContext *context, const char *element,
     return;
 
   /* The filter's choices were applied before the cells arrived. */
+  if (strcmp (name, "Sheet") == 0 && r->data_tables != NULL && r->sheet != NULL)
+    {
+      for (guint i = 0; i < r->data_tables->len; i++)
+        o42_sheet_define_data_table (r->sheet, &g_array_index (r->data_tables, O42DataTable, i));
+      g_clear_pointer (&r->data_tables, g_array_unref);
+    }
   if (strcmp (name, "Sheet") == 0)
     {
       o42_sheet_autofilter_refresh (r->sheet);
@@ -2644,6 +3553,30 @@ end_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (r->in_condition && r->expr_index >= 0 &&
+      (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
+    {
+      /* A number stands as itself; anything else is a formula operand,
+       * Gnumeric's or ours.  Our own Value0 already gave the number. */
+      const char *text = r->expr->str;
+      char *end_ptr = NULL;
+      double v = g_ascii_strtod (text, &end_ptr);
+
+      if (*text != '\0' && end_ptr != NULL && *end_ptr == '\0' && !r->condition.is_formula)
+        {
+          if (r->expr_index == 0) r->condition.value = v; else r->condition.value2 = v;
+        }
+      else if (*text != '\0')
+        {
+          char *eq = g_strconcat (text[0] == '=' ? "" : "=", text, NULL);
+          if (r->expr_index == 0) r->condition.expr1 = g_intern_string (eq);
+          else r->condition.expr2 = g_intern_string (eq);
+          g_free (eq);
+        }
+      r->expr_index = -1;
+      return;
+    }
+
   if (r->in_validation && (strcmp (name, "Expression0") == 0 || strcmp (name, "Expression1") == 0))
     {
       char *text = g_strdup (r->expr->str);
@@ -2666,14 +3599,28 @@ end_element (GMarkupParseContext *context, const char *element,
 
   if (strcmp (name, "Validation") == 0 && r->in_validation)
     {
+      /* Added when the Style closes, so an InputMessage after the rule
+       * is taken up first. */
       r->in_validation = FALSE;
+      r->validation_ready = TRUE;
+      return;
+    }
+  if (strcmp (name, "Style") == 0 && r->validation_ready)
+    {
+      r->validation_ready = FALSE;
       if (r->validation.kind != O42_VALID_ANY && r->validation.range.row1 - r->validation.range.row0 < 2000)
-        o42_sheet_add_validation (r->sheet, &r->validation);
+        {
+          o42_sheet_add_validation (r->sheet, &r->validation);
+        }
       g_free (r->validation.value);
       g_free (r->validation.value2);
       g_free (r->validation.message);
+      g_free (r->validation.title);
+      g_free (r->validation.prompt_title);
+      g_free (r->validation.prompt);
       memset (&r->validation, 0, sizeof r->validation);
-      return;
+      g_clear_pointer (&r->pending_prompt_title, g_free);
+      g_clear_pointer (&r->pending_prompt, g_free);
     }
 
   if (strcmp (name, "Condition") == 0 && r->in_condition)
@@ -2757,13 +3704,6 @@ end_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
-  if (strcmp (name, "Cell") == 0 && r->in_cell)
-    {
-      r->in_cell = FALSE;
-      finish_cell (r);
-      return;
-    }
-
   if (strcmp (name, "Merge") == 0 && r->in_merge)
     {
       O42Range m;
@@ -2785,6 +3725,23 @@ end_element (GMarkupParseContext *context, const char *element,
     {
       r->in_content = FALSE;
       finish_picture (r);
+      return;
+    }
+
+  if (strcmp (name, "o42-Background") == 0 && r->in_background)
+    {
+      gsize length = 0;
+      guchar *raw = r->content->len > 0 ? g_base64_decode (r->content->str, &length) : NULL;
+
+      r->in_background = FALSE;
+      if (raw != NULL && length > 0 && r->sheet != NULL)
+        {
+          GBytes *bytes = g_bytes_new_take (raw, length);
+          o42_sheet_set_background (r->sheet, bytes, r->content_type);
+          g_bytes_unref (bytes);
+        }
+      else
+        g_free (raw);
       return;
     }
 
@@ -2899,7 +3856,12 @@ end_element (GMarkupParseContext *context, const char *element,
               chart->font_size = r->graph_font_size;
             }
           chart->three_d = r->graph_3d;
+          chart->of_pie = r->graph_of_pie;
+          chart->of_pie_count = r->graph_of_pie_count;
           chart->group = r->graph_group;
+          if (r->graph_z > 0)
+            chart->z = r->graph_z;
+          chart->anchor = r->graph_anchor;
           if (r->graph_data_sheet != NULL)
             {
               g_free (chart->data_sheet);
@@ -2937,8 +3899,17 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
 
   (void) context; (void) error;
 
+  if (r->in_meta)
+    {
+      if (r->meta_prop >= 0)
+        g_string_append_len (r->meta_text, text, (gssize) length);
+      return;
+    }
+
   if (r->in_shape)
     { g_string_append_len (r->shape_text, text, (gssize) length); return; }
+  if (r->print_text != 0)
+    { g_string_append_len (r->text, text, (gssize) length); return; }
   if (r->in_script)
     { g_string_append_len (r->script_code, text, (gssize) length); return; }
   if (r->in_database)
@@ -2959,7 +3930,7 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     g_string_append_len (r->cell_text, text, (gssize) length);
   else if (r->in_merge)
     g_string_append_len (r->merge, text, (gssize) length);
-  else if (r->in_validation && r->expr_index >= 0)
+  else if ((r->in_validation || r->in_condition) && r->expr_index >= 0)
     g_string_append_len (r->expr, text, (gssize) length);
   else if (r->in_dimension)
     g_string_append_len (r->dimension, text, (gssize) length);
@@ -2967,48 +3938,38 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     g_string_append_len (r->name, text, (gssize) length);
   else if (r->in_font)
     g_string_append_len (r->font_name, text, (gssize) length);
-  else if (r->in_content)
+  else if (r->in_content || r->in_background)
     g_string_append_len (r->content, text, (gssize) length);
 }
 
-static char *
-read_maybe_gzipped (GFile *file, gsize *length, GError **error)
+/* The file as a stream of its XML, gunzipped when it is gzipped: the
+ * XML of a big book is hundreds of megabytes, and is parsed as it is
+ * read rather than held whole. */
+static GInputStream *
+open_maybe_gzipped (GFile *file, GError **error)
 {
-  char *raw = NULL;
-  gsize raw_length = 0;
+  GFileInputStream *raw = g_file_read (file, NULL, error);
+  GBufferedInputStream *buffered;
+  const guchar *head;
+  gsize n = 0;
 
-  if (!g_file_load_contents (file, NULL, &raw, &raw_length, NULL, error))
+  if (raw == NULL)
     return NULL;
-
-  if (raw_length >= 2 && (guchar) raw[0] == 0x1f && (guchar) raw[1] == 0x8b)
+  buffered = G_BUFFERED_INPUT_STREAM (g_buffered_input_stream_new (G_INPUT_STREAM (raw)));
+  g_object_unref (raw);
+  g_buffered_input_stream_fill (buffered, 2, NULL, NULL);
+  head = g_buffered_input_stream_peek_buffer (buffered, &n);
+  if (n >= 2 && head[0] == 0x1f && head[1] == 0x8b)
     {
-      GInputStream *memory = g_memory_input_stream_new_from_data (raw, (gssize) raw_length, g_free);
       GZlibDecompressor *decompressor = g_zlib_decompressor_new (G_ZLIB_COMPRESSOR_FORMAT_GZIP);
-      GInputStream *unzipped = g_converter_input_stream_new (memory, G_CONVERTER (decompressor));
-      GByteArray *out = g_byte_array_new ();
-      guchar buffer[65536];
-      gssize n;
+      GInputStream *unzipped = g_converter_input_stream_new (G_INPUT_STREAM (buffered),
+                                                             G_CONVERTER (decompressor));
 
-      while ((n = g_input_stream_read (unzipped, buffer, sizeof buffer, NULL, error)) > 0)
-        g_byte_array_append (out, buffer, (guint) n);
-
-      g_object_unref (unzipped);
       g_object_unref (decompressor);
-      g_object_unref (memory);
-
-      if (n < 0)
-        {
-          g_byte_array_free (out, TRUE);
-          return NULL;
-        }
-
-      *length = out->len;
-      g_byte_array_append (out, (const guchar *) "", 1);
-      return (char *) g_byte_array_free (out, FALSE);
+      g_object_unref (buffered);
+      return unzipped;
     }
-
-  *length = raw_length;
-  return raw;
+  return G_INPUT_STREAM (buffered);
 }
 
 gboolean
@@ -3019,23 +3980,34 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   };
   Reader r;
   GMarkupParseContext *context;
-  char *xml;
-  gsize length = 0;
+  GInputStream *xml;
+  char *chunk;
+  gssize got;
   gboolean ok;
   O42Range everything = { 0, 0, O42_MAX_ROWS - 1, O42_MAX_COLS - 1 };
 
   g_return_val_if_fail (book != NULL, FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
-  xml = read_maybe_gzipped (file, &length, error);
+  xml = open_maybe_gzipped (file, error);
   if (xml == NULL)
     return FALSE;
 
-  if (strstr (xml, "gnm:Workbook") == NULL && strstr (xml, "<Workbook") == NULL)
+  /* The first piece says whether this is a Gnumeric file at all. */
+  chunk = g_malloc (1 << 20);
+  got = g_input_stream_read (xml, chunk, 1 << 20, NULL, error);
+  if (got < 0)
+    {
+      g_free (chunk);
+      g_object_unref (xml);
+      return FALSE;
+    }
+  if (g_strstr_len (chunk, got, "gnm:Workbook") == NULL && g_strstr_len (chunk, got, "<Workbook") == NULL)
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
                    "This is not a Gnumeric file.");
-      g_free (xml);
+      g_free (chunk);
+      g_object_unref (xml);
       return FALSE;
     }
 
@@ -3051,6 +4023,7 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   r.dimension = g_string_new (NULL);
   r.graph_title = g_string_new (NULL);
   r.shape_text = g_string_new (NULL);
+  r.text = g_string_new (NULL);
   r.graph_x_title = g_string_new (NULL);
   r.graph_y_title = g_string_new (NULL);
   r.name_name = g_string_new (NULL);
@@ -3079,10 +4052,22 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   }
 
   context = g_markup_parse_context_new (&parser, G_MARKUP_TREAT_CDATA_AS_TEXT, &r, NULL);
-  ok = g_markup_parse_context_parse (context, xml, (gssize) length, error) &&
-       g_markup_parse_context_end_parse (context, error);
+  ok = TRUE;
+  while (ok && got > 0)
+    {
+      ok = g_markup_parse_context_parse (context, chunk, got, error);
+      if (ok)
+        {
+          got = g_input_stream_read (xml, chunk, 1 << 20, NULL, error);
+          ok = got >= 0;
+        }
+    }
+  ok = ok && g_markup_parse_context_end_parse (context, error);
   g_markup_parse_context_free (context);
+  g_free (chunk);
+  g_object_unref (xml);
   g_free (r.script_name);
+  g_free (r.script_description);
   g_free (r.style_link);
   g_free (r.style_name);
   g_free (r.cell_style);
@@ -3125,6 +4110,8 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
         }
       if (usable)
         o42_book_define_name (book, nm, target, &range);
+      else if (tree->type != O42_NODE_ERROR && tree->type != O42_NODE_RANGE && tree->type != O42_NODE_REF)
+        o42_book_define_name_formula (book, nm, val);
       o42_node_free (tree);
     }
   g_ptr_array_free (r.pending_names, TRUE);
@@ -3134,11 +4121,11 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   g_string_free (r.dimension, TRUE);
   g_string_free (r.graph_title, TRUE);
   g_string_free (r.shape_text, TRUE);
+  g_string_free (r.text, TRUE);
   g_string_free (r.graph_x_title, TRUE);
   g_string_free (r.graph_y_title, TRUE);
   g_hash_table_destroy (r.shared_exprs);
   g_free (r.content_type);
-  g_free (xml);
 
   for (int i = 0; i < o42_book_n_sheets (book); i++)
     o42_sheet_clear_undo (o42_book_sheet (book, i));

@@ -8,13 +8,25 @@
 
 #include <string.h>
 
+/* Is the file one Excel writes with tabs between the fields: .txt,
+ * .tsv or .tab rather than .csv? */
+static gboolean
+file_is_tabbed (GFile *file)
+{
+  char *name = g_file_get_basename (file);
+  gboolean tabbed = name != NULL && (g_str_has_suffix (name, ".txt") || g_str_has_suffix (name, ".tsv") ||
+                                     g_str_has_suffix (name, ".tab") || g_str_has_suffix (name, ".TXT"));
+  g_free (name);
+  return tabbed;
+}
+
 static void
-append_field (GString *out, const char *text)
+append_field (GString *out, const char *text, char sep)
 {
   gboolean quote = FALSE;
 
   for (const char *p = text; *p != '\0'; p++)
-    if (*p == ',' || *p == '"' || *p == '\n' || *p == '\r')
+    if (*p == sep || *p == '"' || *p == '\n' || *p == '\r')
       {
         quote = TRUE;
         break;
@@ -47,10 +59,12 @@ o42_csv_save (O42Sheet *sheet, GFile *file, GError **error)
   O42Range used;
   GString *out = g_string_new (NULL);
   gboolean ok;
+  char sep;
 
   g_return_val_if_fail (sheet != NULL, FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
+  sep = file_is_tabbed (file) ? '\t' : ',';
   o42_sheet_used_range (sheet, &used);
 
   /* From A1, not from the used range's corner, so that a sheet with its
@@ -62,8 +76,8 @@ o42_csv_save (O42Sheet *sheet, GFile *file, GError **error)
           char *text = o42_sheet_get_display (sheet, row, col);
 
           if (col > 0)
-            g_string_append_c (out, ',');
-          append_field (out, text);
+            g_string_append_c (out, sep);
+          append_field (out, text, sep);
           g_free (text);
         }
       g_string_append (out, "\r\n");
@@ -158,6 +172,35 @@ o42_csv_load (O42Sheet *sheet, GFile *file, GError **error)
   if (!g_file_load_contents (file, NULL, &contents, &length, NULL, error))
     return FALSE;
 
+  /* UTF-16, which Excel writes for "Unicode Text": by its byte-order
+   * mark, or failing one by the NULs between the letters. */
+  {
+    const char *from = NULL;
+    gsize skip = 0;
+
+    if (length >= 2 && (guchar) contents[0] == 0xFF && (guchar) contents[1] == 0xFE)
+      { from = "UTF-16LE"; skip = 2; }
+    else if (length >= 2 && (guchar) contents[0] == 0xFE && (guchar) contents[1] == 0xFF)
+      { from = "UTF-16BE"; skip = 2; }
+    else if (length >= 4 && contents[0] != '\0' && contents[1] == '\0' && contents[3] == '\0')
+      from = "UTF-16LE";
+    else if (length >= 4 && contents[0] == '\0' && contents[2] == '\0' && contents[1] != '\0')
+      from = "UTF-16BE";
+    if (from != NULL)
+      {
+        gsize written = 0;
+        char *converted = g_convert (contents + skip, (gssize) (length - skip), "UTF-8", from,
+                                     NULL, &written, NULL);
+
+        if (converted != NULL)
+          {
+            g_free (contents);
+            contents = converted;
+            length = written;
+          }
+      }
+  }
+
   /* A stray NUL is not the end of the file: it becomes a space, so
    * that the rest of the file is read rather than the whole refused. */
   for (gsize i = 0; i < length; i++)
@@ -176,12 +219,16 @@ o42_csv_load (O42Sheet *sheet, GFile *file, GError **error)
 
   /* Half the world's Excels write semicolons, because their decimal point
    * is a comma.  If the first line has semicolons and no commas, that is
-   * the file's separator. */
+   * the file's separator; a tab in it, and none of either, or a .txt
+   * name, makes it a tab. */
   {
     const char *nl = strchr (p, '\n');
     gsize first = (nl != NULL) ? (gsize) (nl - p) : strlen (p);
+    gboolean tab = memchr (p, '\t', first) != NULL;
 
-    if (memchr (p, ';', first) != NULL && memchr (p, ',', first) == NULL)
+    if (tab && (file_is_tabbed (file) || (memchr (p, ',', first) == NULL && memchr (p, ';', first) == NULL)))
+      sep = '\t';
+    else if (memchr (p, ';', first) != NULL && memchr (p, ',', first) == NULL)
       sep = ';';
   }
 

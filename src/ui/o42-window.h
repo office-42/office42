@@ -42,6 +42,10 @@ gboolean o42_window_point_step (O42Window *self, const char *direction);
 
 void o42_window_select_cell (O42Window *self, int row, int col);
 
+/* Runs Python against the window's book, as the console does, and
+ * prints what it printed on standard output: for --py. */
+void o42_window_run_python (O42Window *self, const char *code);
+
 /* Whether the small dialogs are modal.  They are, except when a picture
  * is being taken of them: see --screenshot. */
 void o42_window_set_dialogs_modal (gboolean modal);

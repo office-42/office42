@@ -208,7 +208,7 @@ writes or explicitly chooses to run.
 
 **Display name:** Office42
 
-**Short description:** A spreadsheet in the shape of Excel 5, with 610
+**Short description:** A spreadsheet in the shape of Excel 97, with 610
 functions, charts, pivot tables and Python.
 
 **Description:**

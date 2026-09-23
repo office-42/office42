@@ -82,12 +82,14 @@ mime_for (const char *format)
   if (strcmp (format, "gif") == 0) return "image/gif";
   if (strcmp (format, "bmp") == 0) return "image/bmp";
   if (strcmp (format, "tiff") == 0) return "image/tiff";
+  if (strcmp (format, "emf") == 0) return "image/x-emf";
+  if (strcmp (format, "wmf") == 0) return "image/x-wmf";
   return "image/png";
 }
 
 static void
 append_anchor (GString *dr, O42Sheet *sheet, int row, int col, double dx, double dy,
-               double width, double height)
+               double width, double height, O42AnchorMode mode)
 {
   double x0 = offset_px (sheet, TRUE, col) + dx;
   double y0 = offset_px (sheet, FALSE, row) + dy;
@@ -97,10 +99,10 @@ append_anchor (GString *dr, O42Sheet *sheet, int row, int col, double dx, double
   cell_at (sheet, TRUE, x0 + width, &to_col, &to_dx);
   cell_at (sheet, FALSE, y0 + height, &to_row, &to_dy);
   g_string_append_printf (dr,
-    "<xdr:twoCellAnchor editAs=\"oneCell\">"
+    "<xdr:twoCellAnchor editAs=\"%s\">"
     "<xdr:from><xdr:col>%d</xdr:col><xdr:colOff>%.0f</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>%.0f</xdr:rowOff></xdr:from>"
     "<xdr:to><xdr:col>%d</xdr:col><xdr:colOff>%.0f</xdr:colOff><xdr:row>%d</xdr:row><xdr:rowOff>%.0f</xdr:rowOff></xdr:to>",
-    col, dx * EMU_PER_PX, row, dy * EMU_PER_PX,
+    o42_anchor_mode_name (mode), col, dx * EMU_PER_PX, row, dy * EMU_PER_PX,
     to_col, to_dx * EMU_PER_PX, to_row, to_dy * EMU_PER_PX);
 }
 
@@ -164,18 +166,22 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   int first_col = d->col0 + (chart->first_col_labels ? 1 : 0);
   gboolean scatter = chart->kind == O42_CHART_SCATTER;
   gboolean pie = chart->kind == O42_CHART_PIE;
-  gboolean secondary = chart->secondary_from > 0 && !pie;
+  /* A round chart's series takes no trendline and no error bars, and a
+   * surface's takes no labels either: the schema has nowhere to put
+   * them, and Excel calls the file broken rather than ignoring them. */
+  gboolean round = pie || chart->kind == O42_CHART_DOUGHNUT;
+  gboolean surface = chart->kind == O42_CHART_SURFACE || chart->kind == O42_CHART_CONTOUR;
+  gboolean radar = chart->kind == O42_CHART_RADAR || chart->kind == O42_CHART_POLAR;
+  /* A bubble is plotted from three lines, as a scatter is from two:
+   * across, up, and the size of each bubble. */
+  gboolean bubble = chart->kind == O42_CHART_BUBBLE;
+  gboolean secondary = chart->secondary_from > 0 && !pie && chart->kind != O42_CHART_DOUGHNUT;
   /* The sheet the cells are on, which is not the chart's own when it
    * sits on a chart sheet. */
   const char *source = (chart->data_sheet != NULL && chart->data_sheet[0] != '\0')
                        ? chart->data_sheet : o42_sheet_get_name (sheet);
   const char *element;
   int series = 0;
-  /* The series colours o42_chart_draw uses, written out so readers
-   * that take an absent style as "no fill" (LibreOffice) show bars. */
-  static const guint32 COLOURS[] = {
-    0x000080, 0x800000, 0x008000, 0x008080, 0x800080, 0x808000, 0x808080, 0x0000FF
-  };
 
   if (chart->title != NULL && chart->title[0] != '\0')
     {
@@ -188,13 +194,12 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   else
     g_string_append (out, "<c:autoTitleDeleted val=\"1\"/>");
 
-  g_string_append (out, "<c:plotArea><c:layout/>");
   /* Excel has a 3-D element of its own for each kind that can have
    * depth; a scatter cannot. */
   switch (chart->kind)
     {
     case O42_CHART_LINE:    element = chart->three_d ? "line3DChart" : "lineChart"; break;
-    case O42_CHART_PIE:     element = chart->three_d ? "pie3DChart" : "pieChart"; break;
+    case O42_CHART_PIE:     element = chart->of_pie != 0 ? "ofPieChart" : chart->three_d ? "pie3DChart" : "pieChart"; break;
     case O42_CHART_DOUGHNUT: element = "doughnutChart"; break;
     case O42_CHART_RADAR:   element = "radarChart"; break;
     case O42_CHART_BUBBLE:  element = "bubbleChart"; break;
@@ -209,9 +214,14 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_SCATTER: element = "scatterChart"; break;
     default:                element = chart->three_d ? "bar3DChart" : "barChart"; break;
     }
+  /* The viewing angle belongs to the chart, before the plot area:
+   * inside it, which is where this used to be written, Excel finds an
+   * element the schema does not allow there and offers to repair the
+   * file. */
   if (chart->three_d)
     g_string_append (out, "<c:view3D><c:rotX val=\"15\"/><c:rotY val=\"20\"/>"
                           "<c:rAngAx val=\"1\"/></c:view3D>");
+  g_string_append (out, "<c:plotArea><c:layout/>");
   /* Series from secondary_from on go into a second chart group with
    * its own pair of axes, which is how Excel writes a secondary axis. */
   for (int group = 0; group < (secondary ? 2 : 1); group++)
@@ -225,12 +235,18 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     case O42_CHART_PERCENT: g_string_append (out, "<c:barDir val=\"col\"/><c:grouping val=\"percentStacked\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_LINE:    g_string_append (out, "<c:grouping val=\"standard\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_AREA:    g_string_append (out, "<c:grouping val=\"standard\"/><c:varyColors val=\"0\"/>"); break;
-    case O42_CHART_PIE:     g_string_append (out, "<c:varyColors val=\"1\"/>"); break;
+    case O42_CHART_PIE:
+      if (chart->of_pie != 0)
+        g_string_append_printf (out, "<c:ofPieType val=\"%s\"/>", chart->of_pie == 2 ? "bar" : "pie");
+      g_string_append (out, "<c:varyColors val=\"1\"/>");
+      break;
     case O42_CHART_SCATTER: g_string_append (out, "<c:scatterStyle val=\"lineMarker\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_DOUGHNUT: g_string_append (out, "<c:varyColors val=\"1\"/>"); break;
     case O42_CHART_RADAR:   g_string_append (out, "<c:radarStyle val=\"marker\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_BUBBLE:  g_string_append (out, "<c:varyColors val=\"0\"/>"); break;
-    case O42_CHART_STOCK:   g_string_append (out, "<c:varyColors val=\"0\"/>"); break;
+    /* A stock chart's group holds its series and nothing before
+     * them: the schema gives it no varyColors. */
+    case O42_CHART_STOCK:   break;
     case O42_CHART_SURFACE:
     case O42_CHART_CONTOUR: g_string_append (out, "<c:wireframe val=\"0\"/>"); break;
     case O42_CHART_POLAR:   g_string_append (out, "<c:radarStyle val=\"filled\"/><c:varyColors val=\"0\"/>"); break;
@@ -253,11 +269,13 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     int x_line = -1;
     int r0, c0, r1, c1;
 
-    /* A scatter's first line is x, not a series of its own. */
-    if (scatter)
+    /* A scatter's first line is x, not a series of its own, and a
+     * bubble's first is x with the second up and a third for the
+     * sizes -- the three the chart is drawn from. */
+    if (scatter || bubble)
       { x_line = cat_line; first = cat_line + 1; }
 
-    for (int i = first; i <= last && (!pie || series == 0); i++)
+    for (int i = first; i <= last && (!pie || series == 0) && (!bubble || series == 0); i++)
       {
         int ordinal = i - first;
 
@@ -273,7 +291,10 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
             g_free (ref);
           }
         {
-          guint32 colour = COLOURS[ordinal % G_N_ELEMENTS (COLOURS)];
+          /* The series colours o42_chart_draw uses, written out so
+           * readers that take an absent style as "no fill"
+           * (LibreOffice) show bars. */
+          guint32 colour = o42_chart_series_colour (chart, ordinal);
           if (chart->kind == O42_CHART_LINE || scatter)
             g_string_append_printf (out,
               "<c:spPr><a:ln w=\"28575\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill></a:ln></c:spPr>", colour);
@@ -284,8 +305,47 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
               chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT)
             g_string_append (out, "<c:invertIfNegative val=\"0\"/>");
         }
-        line_range (chart, first_row, first_col, i, &r0, &c0, &r1, &c1);
+        /* What follows is in the order the schema lays a series out:
+         * the marker, then the labels, the trendline and the error
+         * bars, and the cells last.  Excel reads a series against that
+         * order and offers to repair a file that puts the cells first,
+         * which is how this was written before. */
         if (scatter)
+          g_string_append (out, "<c:marker><c:symbol val=\"circle\"/></c:marker>");
+        if (chart->data_labels && !surface)
+          g_string_append (out, "<c:dLbls><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/>"
+                                "<c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbls>");
+        if (chart->trend != O42_TREND_NONE && !round && !surface && !radar)
+          {
+            static const char *types[] = { "", "linear", "poly", "exp", "log", "power", "movingAvg" };
+
+            g_string_append_printf (out, "<c:trendline><c:trendlineType val=\"%s\"/>",
+                                    types[chart->trend]);
+            if (chart->trend == O42_TREND_POLY)
+              g_string_append_printf (out, "<c:order val=\"%d\"/>", CLAMP (chart->trend_order, 2, 6));
+            else if (chart->trend == O42_TREND_MOVING)
+              g_string_append_printf (out, "<c:period val=\"%d\"/>", MAX (chart->trend_order, 2));
+            g_string_append (out, "</c:trendline>");
+          }
+        if (chart->err_bars != O42_ERRBAR_NONE && !round && !surface && !radar)
+          {
+            static const char *types[] = { "", "fixedVal", "percentage", "stdDev", "stdErr" };
+
+            g_string_append_printf (out,
+              "<c:errBars><c:errDir val=\"y\"/><c:errBarType val=\"both\"/>"
+              "<c:errValType val=\"%s\"/><c:noEndCap val=\"0\"/>", types[chart->err_bars]);
+            if (chart->err_bars != O42_ERRBAR_STDERR)
+              {
+                char buf[G_ASCII_DTOSTR_BUF_SIZE];
+
+                g_ascii_dtostr (buf, sizeof buf, chart->err_value);
+                g_string_append_printf (out, "<c:val val=\"%s\"/>", buf);
+              }
+            g_string_append (out, "</c:errBars>");
+          }
+
+        line_range (chart, first_row, first_col, i, &r0, &c0, &r1, &c1);
+        if (scatter || bubble)
           {
             int xr0, xc0, xr1, xc1;
             char *yref = ref_text (source, r0, c0, r1, c1);
@@ -294,11 +354,23 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
             line_range (chart, first_row, first_col, x_line, &xr0, &xc0, &xr1, &xc1);
             xref = ref_text (source, xr0, xc0, xr1, xc1);
             g_string_append_printf (out,
-              "<c:marker><c:symbol val=\"circle\"/></c:marker>"
               "<c:xVal><c:numRef><c:f>%s</c:f></c:numRef></c:xVal>"
               "<c:yVal><c:numRef><c:f>%s</c:f></c:numRef></c:yVal>", xref, yref);
             g_free (xref);
             g_free (yref);
+            /* The line after the values, where there is one, gives the
+             * size of each bubble. */
+            if (bubble && i + 1 <= last)
+              {
+                int sr0, sc0, sr1, sc1;
+                char *sref;
+
+                line_range (chart, first_row, first_col, i + 1, &sr0, &sc0, &sr1, &sc1);
+                sref = ref_text (source, sr0, sc0, sr1, sc1);
+                g_string_append_printf (out,
+                  "<c:bubbleSize><c:numRef><c:f>%s</c:f></c:numRef></c:bubbleSize>", sref);
+                g_free (sref);
+              }
           }
         else
           {
@@ -316,37 +388,6 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
             g_string_append_printf (out, "<c:val><c:numRef><c:f>%s</c:f></c:numRef></c:val>", vref);
             g_free (vref);
           }
-        if (chart->data_labels)
-          g_string_append (out, "<c:dLbls><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/>"
-                                "<c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbls>");
-        if (chart->trend != O42_TREND_NONE && !pie)
-          {
-            static const char *types[] = { "", "linear", "poly", "exp", "log", "power", "movingAvg" };
-
-            g_string_append_printf (out, "<c:trendline><c:trendlineType val=\"%s\"/>",
-                                    types[chart->trend]);
-            if (chart->trend == O42_TREND_POLY)
-              g_string_append_printf (out, "<c:order val=\"%d\"/>", CLAMP (chart->trend_order, 2, 6));
-            else if (chart->trend == O42_TREND_MOVING)
-              g_string_append_printf (out, "<c:period val=\"%d\"/>", MAX (chart->trend_order, 2));
-            g_string_append (out, "</c:trendline>");
-          }
-        if (chart->err_bars != O42_ERRBAR_NONE && !pie)
-          {
-            static const char *types[] = { "", "fixedVal", "percentage", "stdDev", "stdErr" };
-
-            g_string_append_printf (out,
-              "<c:errBars><c:errDir val=\"y\"/><c:errBarType val=\"both\"/>"
-              "<c:errValType val=\"%s\"/><c:noEndCap val=\"0\"/>", types[chart->err_bars]);
-            if (chart->err_bars != O42_ERRBAR_STDERR)
-              {
-                char buf[G_ASCII_DTOSTR_BUF_SIZE];
-
-                g_ascii_dtostr (buf, sizeof buf, chart->err_value);
-                g_string_append_printf (out, "<c:val val=\"%s\"/>", buf);
-              }
-            g_string_append (out, "</c:errBars>");
-          }
         g_string_append (out, "</c:ser>");
         series++;
       }
@@ -358,20 +399,25 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     g_string_append (out, "<c:gapWidth val=\"150\"/>");
   else if (chart->kind == O42_CHART_LINE)
     g_string_append (out, "<c:marker val=\"1\"/>");
+  else if (chart->kind == O42_CHART_PIE && chart->of_pie != 0)
+    g_string_append_printf (out, "<c:gapWidth val=\"100\"/><c:splitType val=\"pos\"/><c:splitPos val=\"%d\"/>"
+                                 "<c:secondPieSize val=\"75\"/>",
+                            chart->of_pie_count > 0 ? chart->of_pie_count : 2);
   if (chart->kind == O42_CHART_SURFACE)
     /* A surface stands on three: the categories across, the values up,
      * and the series into the page. */
     g_string_append (out, "<c:axId val=\"10001\"/><c:axId val=\"10002\"/>"
                           "<c:axId val=\"10005\"/>");
-  else if (!pie)
+  else if (!round)
     g_string_append_printf (out, "<c:axId val=\"%d\"/><c:axId val=\"%d\"/>",
                             group == 0 ? 10001 : 10003, group == 0 ? 10002 : 10004);
   g_string_append_printf (out, "</c:%s>", element);
     }
 
-  if (!pie)
+  /* A round chart -- a pie or a doughnut -- has no axes at all. */
+  if (!round)
     {
-      const char *cat_axis = scatter ? "valAx" : "catAx";
+      const char *cat_axis = scatter || bubble ? "valAx" : "catAx";
       gboolean bar = chart->kind == O42_CHART_BAR;
       char *xt = axis_title_xml (chart->x_title);
       char *yt = axis_title_xml (chart->y_title);
@@ -390,7 +436,11 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
         "<c:axPos val=\"%s\"/>%s<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:tickLblPos val=\"nextTo\"/>"
         "<c:crossAx val=\"10002\"/><c:crosses val=\"autoZero\"/>%s</c:%s>",
         cat_axis, bar ? "l" : "b", xt,
-        scatter ? "<c:crossBetween val=\"midCat\"/>" : "<c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/>",
+        /* The tail of an axis differs with its kind: a value axis
+         * across (a scatter's or a bubble's) takes crossBetween, and a
+         * category axis the three that say how its labels sit. */
+        scatter || bubble ? "<c:crossBetween val=\"midCat\"/>"
+                          : "<c:auto val=\"1\"/><c:lblAlgn val=\"ctr\"/><c:lblOffset val=\"100\"/>",
         cat_axis);
       g_string_append_printf (out,
         "<c:valAx><c:axId val=\"10002\"/><c:scaling><c:orientation val=\"minMax\"/>%s</c:scaling><c:delete val=\"0\"/>"
@@ -399,7 +449,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
         "<c:crossBetween val=\"%s\"/></c:valAx>",
         minmax, bar ? "b" : "l", chart->gridlines ? "<c:majorGridlines/>" : "", yt,
         code, *code == 'G' ? 1 : 0,
-        scatter ? "midCat" : "between");
+        scatter || bubble ? "midCat" : "between");
       if (chart->kind == O42_CHART_SURFACE)
         g_string_append (out,
           "<c:serAx><c:axId val=\"10005\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling>"
@@ -422,6 +472,14 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
       g_free (xt);
       g_free (yt);
     }
+  /* The grey plot area Excel 97 gave a chart with axes, so that Excel
+   * and LibreOffice show what office42 draws. */
+  if (!chart->three_d &&
+      (chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_LINE || chart->kind == O42_CHART_BAR ||
+       chart->kind == O42_CHART_AREA || chart->kind == O42_CHART_SCATTER || chart->kind == O42_CHART_STACKED ||
+       chart->kind == O42_CHART_PERCENT || chart->kind == O42_CHART_BUBBLE || chart->kind == O42_CHART_STOCK))
+    g_string_append (out, "<c:spPr><a:solidFill><a:srgbClr val=\"C0C0C0\"/></a:solidFill>"
+                          "<a:ln><a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill></a:ln></c:spPr>");
   g_string_append (out, "</c:plotArea>");
   if ((series > 1 || pie) && chart->legend)
     g_string_append (out, "<c:legend><c:legendPos val=\"r\"/><c:overlay val=\"0\"/></c:legend>");
@@ -445,6 +503,115 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   return g_string_free (out, FALSE);
 }
 
+/* The a:xfrm attributes for a turned or mirrored object: the angle in
+ * 60,000ths of a degree, and the flips.  A static buffer: one call per
+ * printf. */
+/* A freeform's outline as a custom geometry: one path the size of the
+ * box, in EMU, with the moves, lines and curves as they are. */
+static void
+append_cust_geom (GString *dr, const O42Shape *sh)
+{
+  double w = MAX (sh->width, 1) * EMU_PER_PX, h = MAX (sh->height, 1) * EMU_PER_PX;
+
+  g_string_append_printf (dr,
+    "<a:custGeom><a:avLst/><a:gdLst/><a:ahLst/><a:cxnLst/><a:rect l=\"0\" t=\"0\" r=\"r\" b=\"b\"/>"
+    "<a:pathLst><a:path w=\"%.0f\" h=\"%.0f\">", w, h);
+  for (guint i = 0; i < sh->path->len; i++)
+    {
+      const O42PathPoint *p = &g_array_index (sh->path, O42PathPoint, i);
+
+      if (p->op == 'M')
+        g_string_append_printf (dr, "<a:moveTo><a:pt x=\"%.0f\" y=\"%.0f\"/></a:moveTo>", p->x * w, p->y * h);
+      else if (p->op == 'C')
+        g_string_append_printf (dr, "<a:cubicBezTo><a:pt x=\"%.0f\" y=\"%.0f\"/><a:pt x=\"%.0f\" y=\"%.0f\"/><a:pt x=\"%.0f\" y=\"%.0f\"/></a:cubicBezTo>",
+                                p->x1 * w, p->y1 * h, p->x2 * w, p->y2 * h, p->x * w, p->y * h);
+      else
+        g_string_append_printf (dr, "<a:lnTo><a:pt x=\"%.0f\" y=\"%.0f\"/></a:lnTo>", p->x * w, p->y * h);
+    }
+  if (sh->closed)
+    g_string_append (dr, "<a:close/>");
+  g_string_append (dr, "</a:path></a:pathLst></a:custGeom>");
+}
+
+/* The words in a shape, a paragraph per line, with the body's anchor,
+ * wrap and insets and each run's font: what Excel writes, so that it
+ * reads them back the same. */
+static void
+append_text_body (GString *dr, const O42Shape *sh)
+{
+  O42HAlign halign = o42_shape_text_halign (sh);
+  O42VAlign valign = o42_shape_text_valign (sh);
+  double inset_emu = MAX (sh->text_inset, 0) * EMU_PER_PX;
+  char **lines = g_strsplit (sh->text != NULL ? sh->text : "", "\n", -1);
+  char *family = g_markup_escape_text (sh->font != NULL ? sh->font : "Arial", -1);
+
+  g_string_append_printf (dr,
+    "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"%s\" lIns=\"%.0f\" tIns=\"%.0f\" rIns=\"%.0f\" bIns=\"%.0f\" anchor=\"%s\"/><a:lstStyle/>",
+    sh->text_nowrap ? "none" : "square", inset_emu, inset_emu, inset_emu, inset_emu,
+    valign == O42_VALIGN_TOP ? "t" : valign == O42_VALIGN_MIDDLE ? "ctr" : "b");
+  for (int i = 0; lines[i] != NULL; i++)
+    {
+      char *t = g_markup_escape_text (lines[i], -1);
+
+      g_string_append_printf (dr, "<a:p><a:pPr algn=\"%s\"/>",
+                              halign == O42_HALIGN_LEFT ? "l" : halign == O42_HALIGN_RIGHT ? "r" : "ctr");
+      if (*lines[i] != '\0')
+        g_string_append_printf (dr,
+          "<a:r><a:rPr lang=\"en-US\" sz=\"%.0f\"%s%s><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>"
+          "<a:latin typeface=\"%s\"/></a:rPr><a:t>%s</a:t></a:r>",
+          (sh->font_size > 0 ? sh->font_size : 10) * 100, sh->bold ? " b=\"1\"" : "",
+          sh->italic ? " i=\"1\"" : "", sh->text_colour & 0xFFFFFFu, family, t);
+      g_string_append (dr, "</a:p>");
+      g_free (t);
+    }
+  g_string_append (dr, "</xdr:txBody>");
+  g_strfreev (lines);
+  g_free (family);
+}
+
+static const char *
+xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
+{
+  static char buffer[64];
+
+  buffer[0] = '\0';
+  if (rotation != 0)
+    g_snprintf (buffer, sizeof buffer, " rot=\"%.0f\"", fmod (rotation + 360, 360) * 60000);
+  if (flip_h)
+    g_strlcat (buffer, " flipH=\"1\"", sizeof buffer);
+  if (flip_v)
+    g_strlcat (buffer, " flipV=\"1\"", sizeof buffer);
+  return buffer;
+}
+
+/* A picture's brightness and contrast as a:lum, in thousandths of a
+ * per cent; nothing when both are as they were.  A static buffer. */
+static const char *
+lum_xml (const O42Picture *pic)
+{
+  static char buffer[64];
+
+  if (pic->brightness == 0 && pic->contrast == 0)
+    return "";
+  g_snprintf (buffer, sizeof buffer, "<a:lum bright=\"%.0f\" contrast=\"%.0f\"/>",
+              pic->brightness * 100000, pic->contrast * 100000);
+  return buffer;
+}
+
+/* A cropped picture's a:srcRect, the margins in thousandths of a per
+ * cent; nothing for one that is whole.  A static buffer, as above. */
+static const char *
+src_rect (const O42Picture *pic)
+{
+  static char buffer[96];
+
+  if (pic->crop_l <= 0 && pic->crop_r <= 0 && pic->crop_t <= 0 && pic->crop_b <= 0)
+    return "";
+  g_snprintf (buffer, sizeof buffer, "<a:srcRect l=\"%.0f\" t=\"%.0f\" r=\"%.0f\" b=\"%.0f\"/>",
+              pic->crop_l * 100000, pic->crop_t * 100000, pic->crop_r * 100000, pic->crop_b * 100000);
+  return buffer;
+}
+
 int
 o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
                      GString *content_types, GHashTable *extensions_seen,
@@ -466,114 +633,161 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<Relationships xmlns=\"" NS_PKG "\">");
 
-  for (guint i = 0; i < pictures->len; i++)
-    {
-      const O42Picture *pic = g_ptr_array_index (pictures, i);
-      const char *ext = pic->format ? pic->format : "png";
-      char *part = g_strdup_printf ("xl/media/image%d_%u.%s", index, i + 1, ext);
+  /* The objects go out back to front, as they are painted, so that a
+   * reader that paints in document order -- Excel does -- shows them in
+   * the same order.  Each kind keeps its own numbering for its parts. */
+  {
+    GArray *objects = o42_sheet_objects (sheet);
+    guint n_pic = 0, n_chart = 0, n_shape = 0;
 
-      o42_zip_writer_add (zip, part, g_bytes_get_data (pic->data, NULL), g_bytes_get_size (pic->data));
-      if (!g_hash_table_contains (extensions_seen, ext))
-        {
-          g_hash_table_add (extensions_seen, g_strdup (ext));
-          g_string_append_printf (content_types, "<Default Extension=\"%s\" ContentType=\"%s\"/>", ext, mime_for (ext));
-        }
-      g_string_append_printf (rels,
-        "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image%d_%u.%s\"/>",
-        rid, index, i + 1, ext);
+    for (guint k = 0; k < objects->len; k++)
+      {
+        const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, k);
 
-      append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height);
-      g_string_append_printf (dr,
-        "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr></xdr:nvPicPr>"
-        "<xdr:blipFill><a:blip r:embed=\"rId%d\"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
-        "<xdr:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
-        "<xdr:clientData/></xdr:twoCellAnchor>",
-        shape, i + 1, rid, pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
-      rid++;
-      shape++;
-      g_free (part);
-    }
+        if (ref->type == O42_OBJECT_PICTURE)
+          {
+            const O42Picture *pic = ref->object;
+            guint i = n_pic++;
+            const char *ext = pic->format ? pic->format : "png";
+            char *part = g_strdup_printf ("xl/media/image%d_%u.%s", index, i + 1, ext);
 
-  for (guint i = 0; i < charts->len; i++)
-    {
-      const O42Chart *chart = g_ptr_array_index (charts, i);
-      char *part = g_strdup_printf ("xl/charts/chart%d_%u.xml", index, i + 1);
-      char *xml = chart_xml (sheet, chart);
+            o42_zip_writer_add (zip, part, g_bytes_get_data (pic->data, NULL), g_bytes_get_size (pic->data));
+            if (!g_hash_table_contains (extensions_seen, ext))
+              {
+                g_hash_table_add (extensions_seen, g_strdup (ext));
+                g_string_append_printf (content_types, "<Default Extension=\"%s\" ContentType=\"%s\"/>", ext, mime_for (ext));
+              }
+            g_string_append_printf (rels,
+              "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/image%d_%u.%s\"/>",
+              rid, index, i + 1, ext);
 
-      o42_zip_writer_add (zip, part, xml, strlen (xml));
-      g_string_append_printf (content_types,
-        "<Override PartName=\"/%s\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>", part);
-      g_string_append_printf (rels,
-        "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"../charts/chart%d_%u.xml\"/>",
-        rid, index, i + 1);
+            append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, pic->anchor);
+            g_string_append_printf (dr,
+              "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"%d\"/></xdr:cNvPicPr></xdr:nvPicPr>"
+              "<xdr:blipFill><a:blip r:embed=\"rId%d\">%s</a:blip>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
+              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
+              "<xdr:clientData/></xdr:twoCellAnchor>",
+              shape, i + 1, pic->lock_aspect ? 1 : 0, rid, lum_xml (pic), src_rect (pic),
+              xfrm_attrs (pic->rotation, pic->flip_h, pic->flip_v),
+              pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
+            rid++;
+            shape++;
+            g_free (part);
+          }
 
-      /* A chart sheet has no cells to anchor to, so its chart is
-       * placed absolutely, as Excel places one. */
-      if (o42_sheet_is_chart_sheet (sheet))
-        g_string_append_printf (dr,
-          "<xdr:absoluteAnchor><xdr:pos x=\"0\" y=\"0\"/><xdr:ext cx=\"%.0f\" cy=\"%.0f\"/>",
-          chart->width * EMU_PER_PX, chart->height * EMU_PER_PX);
-      else
-        append_anchor (dr, sheet, chart->row, chart->col, chart->dx, chart->dy,
-                       chart->width, chart->height);
-      g_string_append_printf (dr,
-        "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"%d\" name=\"Chart %u\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>"
-        "<xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
-        "<a:graphic><a:graphicData uri=\"" NS_C "\"><c:chart xmlns:c=\"" NS_C "\" r:id=\"rId%d\"/></a:graphicData></a:graphic>"
-        "</xdr:graphicFrame><xdr:clientData/>%s",
-        shape, i + 1, rid,
-        o42_sheet_is_chart_sheet (sheet) ? "</xdr:absoluteAnchor>" : "</xdr:twoCellAnchor>");
-      rid++;
-      shape++;
-      g_free (xml);
-      g_free (part);
-    }
+        if (ref->type == O42_OBJECT_CHART)
+          {
+            const O42Chart *chart = ref->object;
+            guint i = n_chart++;
+            char *part = g_strdup_printf ("xl/charts/chart%d_%u.xml", index, i + 1);
+            char *xml = chart_xml (sheet, chart);
 
-  /* Shapes are drawn by the file rather than carried in it: a preset
-   * geometry, a fill, an outline and whatever is written inside. */
-  for (guint i = 0; i < shapes->len; i++)
-    {
-      const O42Shape *sh = g_ptr_array_index (shapes, i);
-      gboolean stroke = sh->kind == O42_SHAPE_LINE || sh->kind == O42_SHAPE_ARROW;
+            o42_zip_writer_add (zip, part, xml, strlen (xml));
+            g_string_append_printf (content_types,
+              "<Override PartName=\"/%s\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>", part);
+            g_string_append_printf (rels,
+              "<Relationship Id=\"rId%d\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart\" Target=\"../charts/chart%d_%u.xml\"/>",
+              rid, index, i + 1);
 
-      /* A form control is not a drawing: it goes into the sheet's
-       * legacy drawing, with an x:ClientData that says what it does.
-       * Writing it here as well would put two of it on the sheet. */
-      if (o42_shape_is_control (sh->kind))
-        continue;
+            /* A chart sheet has no cells to anchor to, so its chart is
+             * placed absolutely, as Excel places one. */
+            if (o42_sheet_is_chart_sheet (sheet))
+              g_string_append_printf (dr,
+                "<xdr:absoluteAnchor><xdr:pos x=\"0\" y=\"0\"/><xdr:ext cx=\"%.0f\" cy=\"%.0f\"/>",
+                chart->width * EMU_PER_PX, chart->height * EMU_PER_PX);
+            else
+              append_anchor (dr, sheet, chart->row, chart->col, chart->dx, chart->dy,
+                             chart->width, chart->height, chart->anchor);
+            g_string_append_printf (dr,
+              "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"%d\" name=\"Chart %u\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>"
+              "<xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
+              "<a:graphic><a:graphicData uri=\"" NS_C "\"><c:chart xmlns:c=\"" NS_C "\" r:id=\"rId%d\"/></a:graphicData></a:graphic>"
+              "</xdr:graphicFrame><xdr:clientData/>%s",
+              shape, i + 1, rid,
+              o42_sheet_is_chart_sheet (sheet) ? "</xdr:absoluteAnchor>" : "</xdr:twoCellAnchor>");
+            rid++;
+            shape++;
+            g_free (xml);
+            g_free (part);
+          }
 
-      append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height);
-      g_string_append_printf (dr,
-        "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
-        "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
-        "<xdr:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>"
-        "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>",
-        shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : "Shape", i + 1,
-        sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
-        sh->width * EMU_PER_PX, sh->height * EMU_PER_PX,
-        sh->kind == O42_SHAPE_OVAL ? "ellipse" : stroke ? "line" : "rect");
-      if (sh->fill == O42_FILL_NONE || stroke)
-        g_string_append (dr, "<a:noFill/>");
-      else
-        g_string_append_printf (dr, "<a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
-                                sh->fill & 0xFFFFFFu);
-      g_string_append_printf (dr,
-        "<a:ln w=\"%.0f\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
-        sh->line_width * EMU_PER_PX, sh->line & 0xFFFFFFu);
-      if (sh->kind == O42_SHAPE_ARROW)
-        g_string_append (dr, "<a:tailEnd type=\"triangle\"/>");
-      g_string_append (dr, "</a:ln></xdr:spPr>");
-      g_string_append (dr,
-        "<xdr:txBody><a:bodyPr vertOverflow=\"clip\" wrap=\"square\"/><a:lstStyle/><a:p>");
-      if (sh->text != NULL && sh->text[0] != '\0')
-        {
-          char *t = g_markup_escape_text (sh->text, -1);
-          g_string_append_printf (dr, "<a:r><a:rPr lang=\"en-US\"/><a:t>%s</a:t></a:r>", t);
-          g_free (t);
-        }
-      g_string_append (dr, "</a:p></xdr:txBody></xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
-      shape++;
-    }
+        /* Shapes are drawn by the file rather than carried in it: a preset
+         * geometry, a fill, an outline and whatever is written inside. */
+        if (ref->type == O42_OBJECT_SHAPE)
+          {
+            const O42Shape *sh = ref->object;
+            guint i = n_shape++;
+            gboolean stroke = sh->kind == O42_SHAPE_LINE || sh->kind == O42_SHAPE_ARROW;
+
+            /* A form control is not a drawing: it goes into the sheet's
+             * legacy drawing, with an x:ClientData that says what it does.
+             * Writing it here as well would put two of it on the sheet. */
+            if (o42_shape_is_control (sh->kind))
+              continue;
+
+            append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height, sh->anchor);
+            g_string_append_printf (dr,
+              "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
+              "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
+              "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>",
+              shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : sh->kind == O42_SHAPE_FREEFORM ? "Freeform" : "Shape", i + 1,
+              sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
+              xfrm_attrs (sh->rotation, sh->flip_h, sh->flip_v),
+              sh->width * EMU_PER_PX, sh->height * EMU_PER_PX);
+            if (sh->kind == O42_SHAPE_FREEFORM && sh->path != NULL)
+              append_cust_geom (dr, sh);
+            else
+              g_string_append_printf (dr, "<a:prstGeom prst=\"%s\"><a:avLst/></a:prstGeom>", o42_shape_prst (sh));
+            if (sh->fill == O42_FILL_NONE || stroke || (sh->kind == O42_SHAPE_FREEFORM && !sh->closed))
+              g_string_append (dr, "<a:noFill/>");
+            else if (sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+              g_string_append_printf (dr,
+                "<a:gradFill rotWithShape=\"1\"><a:gsLst><a:gs pos=\"0\"><a:srgbClr val=\"%06X\"/></a:gs>"
+                "<a:gs pos=\"100000\"><a:srgbClr val=\"%06X\"/></a:gs></a:gsLst><a:lin ang=\"%.0f\" scaled=\"0\"/></a:gradFill>",
+                sh->fill & 0xFFFFFFu, sh->fill2 & 0xFFFFFFu, fmod (fmod (sh->gradient_angle, 360) + 360, 360) * 60000);
+            else if (sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+              g_string_append_printf (dr,
+                "<a:pattFill prst=\"%s\"><a:fgClr><a:srgbClr val=\"%06X\"/></a:fgClr><a:bgClr><a:srgbClr val=\"%06X\"/></a:bgClr></a:pattFill>",
+                o42_shape_pattern_prst (sh->pattern), sh->fill2 & 0xFFFFFFu, sh->fill & 0xFFFFFFu);
+            else
+              g_string_append_printf (dr, "<a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
+                                      sh->fill & 0xFFFFFFu);
+            g_string_append_printf (dr,
+              "<a:ln w=\"%.0f\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill>",
+              sh->line_width * EMU_PER_PX, sh->line & 0xFFFFFFu);
+            if (sh->dash != O42_DASH_SOLID)
+              g_string_append_printf (dr, "<a:prstDash val=\"%s\"/>", o42_dash_name (sh->dash));
+            if (stroke)
+              {
+                /* The head is at the line's first point, the tail at its
+                 * last; a size is "sm", "med" or "lg" both ways. */
+                static const char *const SIZES[] = { "sm", "med", "lg" };
+
+                if (sh->head_start != O42_HEAD_NONE)
+                  g_string_append_printf (dr, "<a:headEnd type=\"%s\" w=\"%s\" len=\"%s\"/>",
+                                          o42_head_name (sh->head_start),
+                                          SIZES[CLAMP (sh->head_start_size, 0, 2)],
+                                          SIZES[CLAMP (sh->head_start_size, 0, 2)]);
+                if (sh->head_end != O42_HEAD_NONE)
+                  g_string_append_printf (dr, "<a:tailEnd type=\"%s\" w=\"%s\" len=\"%s\"/>",
+                                          o42_head_name (sh->head_end),
+                                          SIZES[CLAMP (sh->head_end_size, 0, 2)],
+                                          SIZES[CLAMP (sh->head_end_size, 0, 2)]);
+              }
+            g_string_append (dr, "</a:ln>");
+            if (sh->shadow)
+              g_string_append_printf (dr,
+                "<a:effectLst><a:outerShdw dist=\"%.0f\" dir=\"%.0f\" algn=\"tl\" rotWithShape=\"0\"><a:srgbClr val=\"%06X\"/></a:outerShdw></a:effectLst>",
+                hypot (sh->shadow_dx, sh->shadow_dy) * EMU_PER_PX,
+                fmod (atan2 (sh->shadow_dy, sh->shadow_dx) * 180 / G_PI + 360, 360) * 60000, sh->shadow_colour & 0xFFFFFFu);
+            g_string_append (dr, "</xdr:spPr>");
+            append_text_body (dr, sh);
+            g_string_append (dr, "</xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
+            shape++;
+          }
+      }
+    g_array_free (objects, TRUE);
+  }
 
   g_string_append (dr, "</xdr:wsDr>");
   g_string_append (rels, "</Relationships>");
@@ -666,8 +880,24 @@ rels_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       const char *id = attr (names, values, "Id");
       const char *target = attr (names, values, "Target");
+      const char *type = attr (names, values, "Type");
+      const char *mode = attr (names, values, "TargetMode");
       if (id && target)
-        g_hash_table_insert (user, g_strdup (id), g_strdup (target));
+        {
+          /* A part's name in a relationship is a URI, so a space in it
+           * is written %20 and has to be put back before the part can
+           * be found in the package.  A target that leads out of the
+           * book -- a hyperlink -- is left exactly as it was written. */
+          char *plain = (mode == NULL || g_ascii_strcasecmp (mode, "External") != 0)
+                        ? g_uri_unescape_string (target, NULL) : NULL;
+
+          g_hash_table_insert (user, g_strdup (id), plain != NULL ? plain : g_strdup (target));
+        }
+      /* The kind of part as well, under "type:" and the id, for the
+       * callers that must tell a comments part from its name -- which
+       * Excel calls comments1.xml and openpyxl comment1.xml. */
+      if (id && type)
+        g_hash_table_insert (user, g_strconcat ("type:", id, NULL), g_strdup (type));
     }
 }
 
@@ -713,6 +943,7 @@ typedef struct
   int          in_axis;        /* 1 in catAx (or the first valAx of a scatter), 2 in valAx */
   gboolean     saw_valax, saw_grid, saw_legend, saw_labels, has_min, has_max, in_err;
   gboolean     three_d;
+  int          of_pie, of_pie_count;   /* ofPieChart: its type and split */
   char        *font_family;
   double       font_size;
   O42ErrBarKind err_bars;
@@ -722,7 +953,7 @@ typedef struct
   int          groups, n_ser, secondary_at;
   double       min, max;
   GString     *x_title, *y_title, *y_format;
-  const char  *role;      /* tx, cat, val, xVal, yVal */
+  const char  *role;      /* tx, cat, val, xVal, yVal, bubbleSize */
   GString     *f;
   GString     *title;
   O42Range     box;
@@ -753,6 +984,12 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
     { c->kind = O42_CHART_LINE; c->kind_known = TRUE; }
   else if (strcmp (n, "pieChart") == 0 || strcmp (n, "pie3DChart") == 0)
     { c->kind = O42_CHART_PIE; c->kind_known = TRUE; }
+  else if (strcmp (n, "ofPieChart") == 0)
+    { c->kind = O42_CHART_PIE; c->kind_known = TRUE; c->of_pie = 1; c->of_pie_count = 2; }
+  else if (strcmp (n, "ofPieType") == 0)
+    c->of_pie = g_strcmp0 (attr (names, values, "val"), "bar") == 0 ? 2 : 1;
+  else if (strcmp (n, "splitPos") == 0)
+    c->of_pie_count = (int) g_ascii_strtod (attr (names, values, "val") != NULL ? attr (names, values, "val") : "2", NULL);
   else if (strcmp (n, "doughnutChart") == 0)
     { c->kind = O42_CHART_DOUGHNUT; c->kind_known = TRUE; }
   else if (strcmp (n, "radarChart") == 0)
@@ -791,7 +1028,8 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
       c->in_err = FALSE;
     }
   else if (strcmp (n, "tx") == 0 || strcmp (n, "cat") == 0 || strcmp (n, "val") == 0 ||
-           strcmp (n, "xVal") == 0 || strcmp (n, "yVal") == 0)
+           strcmp (n, "xVal") == 0 || strcmp (n, "yVal") == 0 ||
+           strcmp (n, "bubbleSize") == 0)
     c->role = g_intern_string (n);
   else if (strcmp (n, "f") == 0)
     { c->in_f = TRUE; g_string_truncate (c->f, 0); }
@@ -920,7 +1158,8 @@ chart_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
       o42_node_free (tree);
     }
   else if (strcmp (n, "tx") == 0 || strcmp (n, "cat") == 0 || strcmp (n, "val") == 0 ||
-           strcmp (n, "xVal") == 0 || strcmp (n, "yVal") == 0)
+           strcmp (n, "xVal") == 0 || strcmp (n, "yVal") == 0 ||
+           strcmp (n, "bubbleSize") == 0)
     c->role = NULL;
   else if (strcmp (n, "title") == 0)
     c->in_title = FALSE;
@@ -943,7 +1182,8 @@ chart_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user
 
 static void
 add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
-                     int row, int col, double dx, double dy, double width, double height)
+                     int row, int col, double dx, double dy, double width, double height,
+                     O42AnchorMode anchor)
 {
   static const GMarkupParser parser = { chart_start, chart_end, chart_text, NULL, NULL };
   ChartReader c;
@@ -959,6 +1199,7 @@ add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
       O42Chart *chart = o42_sheet_add_chart (sheet, c.kind_known ? c.kind : O42_CHART_COLUMN, &c.box, row, col);
       if (chart != NULL)
         {
+          chart->anchor = anchor;
           chart->first_row_labels = c.have_tx;
           chart->first_col_labels = c.have_cat || c.kind == O42_CHART_SCATTER;
           g_free (chart->title);
@@ -974,6 +1215,8 @@ add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
           chart->trend = c.trend;
           chart->trend_order = c.trend_order > 0 ? c.trend_order : 2;
           chart->three_d = c.three_d;
+          chart->of_pie = c.of_pie;
+          chart->of_pie_count = c.of_pie_count;
           chart->err_bars = c.err_bars;
           chart->err_value = c.err_value;
           if (c.sheet != NULL && g_ascii_strcasecmp (c.sheet, o42_sheet_get_name (sheet)) != 0)
@@ -1024,6 +1267,7 @@ typedef struct
   GString    *text;
   char       *blip, *chart;
 
+  O42AnchorMode anchor_mode;
   gboolean    is_shape;    /* an xdr:sp: a shape the file describes */
   gboolean    in_line;     /* inside a:ln, so a colour is the outline's */
   gboolean    in_body;     /* inside xdr:txBody, so a:t is the shape's text */
@@ -1031,7 +1275,53 @@ typedef struct
   gboolean    arrow, text_box;
   guint32     fill, line;
   double      line_width;
+  O42Dash     dash;
+  O42Head     head_start, head_end;
+  O42HeadSize head_start_size, head_end_size;
+  double      rotation;    /* degrees, from a:xfrm */
+  gboolean    flip_h, flip_v;
+  double      crop[4];     /* a:srcRect l, t, r, b as fractions */
+  double      bright, contrast;   /* a:lum, as fractions */
+  gboolean    lock_aspect;
   GString    *body;
+
+  /* The fill's kind: a gradient's stops and angle, a pattern's colours,
+   * and a shadow. */
+  O42ShapeFillKind fill_kind;
+  int         in_grad;      /* 1 inside a:gradFill; the stops count as they come */
+  int         grad_stops;
+  guint32     fill2;
+  double      grad_angle;
+  int         in_patt;      /* 1 in a:fgClr, 2 in a:bgClr, 3 elsewhere in a:pattFill */
+  O42Pattern  pattern;
+  gboolean    in_shadow, shadow;
+  guint32     shadow_colour;
+  double      shadow_dx, shadow_dy;
+
+  /* A custom geometry: the path's own size and its steps, gathered as
+   * a:pt come. */
+  gboolean    custom;
+  double      path_w, path_h;
+  char        path_op;      /* the step being read: 'M', 'L' or 'C' */
+  double      cubic[6];     /* a curve's points so far */
+  int         cubic_n;
+  GArray     *path;         /* O42PathPoint */
+  gboolean    path_closed;
+
+  /* The body's text style, from a:bodyPr, the first a:pPr and the
+   * first a:rPr. */
+  gboolean    in_rpr;
+  gboolean    have_rpr;
+  gboolean    have_ppr;
+  gboolean    have_anchor;  /* a:bodyPr said where the text sits */
+  O42HAlign   t_halign;
+  O42VAlign   t_valign;
+  gboolean    t_nowrap;
+  double      t_inset;      /* px, or -1 for unsaid */
+  double      t_size;       /* points, or 0 */
+  gboolean    t_bold, t_italic;
+  guint32     t_colour;
+  const char *t_font;       /* interned, or NULL */
 } DrawReader;
 
 /* An a:srgbClr or a:sysClr as 0x00RRGGBB. */
@@ -1064,6 +1354,11 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->from_col = d->from_row = d->to_col = d->to_row = 0;
       d->from_coff = d->from_roff = d->to_coff = d->to_roff = 0;
       d->absolute = strcmp (n, "absoluteAnchor") == 0;
+      /* How it follows the cells: the anchor's kind, or what editAs says. */
+      d->anchor_mode = d->absolute ? O42_ANCHOR_ABSOLUTE
+                     : strcmp (n, "oneCellAnchor") == 0 ? O42_ANCHOR_ONE_CELL : O42_ANCHOR_TWO_CELL;
+      if (!d->absolute)
+        o42_anchor_mode_parse (attr (names, values, "editAs"), &d->anchor_mode);
       d->have_to = d->have_ext = FALSE;
       d->abs_x = d->abs_y = 0;
       d->is_shape = d->in_line = d->in_body = d->arrow = d->text_box = FALSE;
@@ -1071,6 +1366,36 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       d->fill = O42_FILL_NONE;
       d->line = 0x000000u;
       d->line_width = 1;
+      d->dash = O42_DASH_SOLID;
+      d->rotation = 0;
+      d->flip_h = d->flip_v = FALSE;
+      d->crop[0] = d->crop[1] = d->crop[2] = d->crop[3] = 0;
+      d->bright = d->contrast = 0;
+      d->lock_aspect = TRUE;
+      d->head_start = d->head_end = O42_HEAD_NONE;
+      d->head_start_size = d->head_end_size = O42_HEAD_MEDIUM;
+      d->in_rpr = d->have_rpr = d->have_ppr = d->have_anchor = FALSE;
+      d->custom = d->path_closed = FALSE;
+      d->fill_kind = O42_SHAPE_FILL_SOLID;
+      d->in_grad = d->grad_stops = d->in_patt = 0;
+      d->fill2 = 0xFFFFFF;
+      d->grad_angle = 0;
+      d->pattern = O42_PATTERN_GRAY50;
+      d->in_shadow = d->shadow = FALSE;
+      d->shadow_colour = 0x808080;
+      d->shadow_dx = d->shadow_dy = 3;
+      d->path_w = d->path_h = 0;
+      d->path_op = 0;
+      d->cubic_n = 0;
+      if (d->path != NULL) g_array_set_size (d->path, 0);
+      d->t_halign = O42_HALIGN_GENERAL;
+      d->t_valign = O42_VALIGN_BOTTOM;
+      d->t_nowrap = FALSE;
+      d->t_inset = -1;
+      d->t_size = 0;
+      d->t_bold = d->t_italic = FALSE;
+      d->t_colour = 0;
+      d->t_font = NULL;
       g_string_truncate (d->body, 0);
       g_clear_pointer (&d->blip, g_free);
       g_clear_pointer (&d->chart, g_free);
@@ -1084,6 +1409,38 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *x = attr (names, values, "x"), *y = attr (names, values, "y");
       if (x) d->abs_x = g_ascii_strtod (x, NULL) / EMU_PER_PX;
       if (y) d->abs_y = g_ascii_strtod (y, NULL) / EMU_PER_PX;
+    }
+  else if (strcmp (n, "lum") == 0)
+    {
+      const char *b = attr (names, values, "bright"), *c = attr (names, values, "contrast");
+      d->bright = b != NULL ? CLAMP (g_ascii_strtod (b, NULL) / 100000, -1, 1) : 0;
+      d->contrast = c != NULL ? CLAMP (g_ascii_strtod (c, NULL) / 100000, -1, 1) : 0;
+    }
+  else if (strcmp (n, "srcRect") == 0)
+    {
+      static const char *const SIDES[4] = { "l", "t", "r", "b" };
+
+      for (int i = 0; i < 4; i++)
+        {
+          const char *v = attr (names, values, SIDES[i]);
+          d->crop[i] = v != NULL ? CLAMP (g_ascii_strtod (v, NULL) / 100000, 0, 0.99) : 0;
+        }
+    }
+  else if (strcmp (n, "picLocks") == 0)
+    {
+      const char *v = attr (names, values, "noChangeAspect");
+      d->lock_aspect = v != NULL && strcmp (v, "0") != 0 && strcmp (v, "false") != 0;
+    }
+  else if (strcmp (n, "xfrm") == 0)
+    {
+      const char *rot = attr (names, values, "rot");
+      const char *fh = attr (names, values, "flipH");
+      const char *fv = attr (names, values, "flipV");
+
+      if (rot != NULL)
+        d->rotation = g_ascii_strtod (rot, NULL) / 60000;
+      d->flip_h = fh != NULL && strcmp (fh, "0") != 0 && strcmp (fh, "false") != 0;
+      d->flip_v = fv != NULL && strcmp (fv, "0") != 0 && strcmp (fv, "false") != 0;
     }
   else if (strcmp (n, "ext") == 0 && !d->have_ext)
     {
@@ -1130,9 +1487,23 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if ((strcmp (n, "tailEnd") == 0 || strcmp (n, "headEnd") == 0) && d->is_shape)
     {
       const char *type = attr (names, values, "type");
-      if (type != NULL && strcmp (type, "none") != 0)
+      const char *len = attr (names, values, "len");
+      O42Head head = O42_HEAD_NONE;
+      O42HeadSize size = O42_HEAD_MEDIUM;
+
+      if (type != NULL && !o42_head_parse (type, &head))
+        head = O42_HEAD_TRIANGLE;   /* a kind office42 does not draw, but a head */
+      if (len != NULL)
+        size = strcmp (len, "sm") == 0 ? O42_HEAD_SMALL : strcmp (len, "lg") == 0 ? O42_HEAD_LARGE : O42_HEAD_MEDIUM;
+      if (head != O42_HEAD_NONE)
         d->arrow = TRUE;
+      if (n[0] == 'h')
+        { d->head_start = head; d->head_start_size = size; }
+      else
+        { d->head_end = head; d->head_end_size = size; }
     }
+  else if (strcmp (n, "prstDash") == 0 && d->is_shape && d->in_line)
+    o42_dash_parse (attr (names, values, "val"), &d->dash);
   else if (strcmp (n, "noFill") == 0 && d->is_shape && !d->in_line)
     d->fill = O42_FILL_NONE;
   else if ((strcmp (n, "srgbClr") == 0 || strcmp (n, "sysClr") == 0) && d->is_shape)
@@ -1142,11 +1513,159 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       if (draw_colour (names, values, &colour))
         {
           if (d->in_line) d->line = colour;
+          else if (d->in_rpr) d->t_colour = colour;
+          else if (d->in_shadow) d->shadow_colour = colour;
+          else if (d->in_grad)
+            {
+              /* The first stop is the fill, the last the second colour. */
+              if (d->grad_stops == 0) d->fill = colour;
+              else d->fill2 = colour;
+              d->grad_stops++;
+            }
+          else if (d->in_patt == 1) d->fill2 = colour;
+          else if (d->in_patt == 2) d->fill = colour;
           else if (!d->in_body) d->fill = colour;
         }
     }
+  else if (strcmp (n, "gradFill") == 0 && d->is_shape && !d->in_line && !d->in_body)
+    {
+      d->in_grad = 1;
+      d->fill_kind = O42_SHAPE_FILL_GRADIENT;
+    }
+  else if (strcmp (n, "lin") == 0 && d->in_grad)
+    {
+      const char *ang = attr (names, values, "ang");
+      if (ang != NULL) d->grad_angle = g_ascii_strtod (ang, NULL) / 60000;
+    }
+  else if (strcmp (n, "pattFill") == 0 && d->is_shape && !d->in_line && !d->in_body)
+    {
+      d->in_patt = 3;
+      d->fill_kind = O42_SHAPE_FILL_PATTERN;
+      d->pattern = o42_shape_pattern_from_prst (attr (names, values, "prst"));
+    }
+  else if (strcmp (n, "fgClr") == 0 && d->in_patt) d->in_patt = 1;
+  else if (strcmp (n, "bgClr") == 0 && d->in_patt) d->in_patt = 2;
+  else if (strcmp (n, "outerShdw") == 0 && d->is_shape)
+    {
+      const char *dist = attr (names, values, "dist"), *dir = attr (names, values, "dir");
+      double px = dist != NULL ? g_ascii_strtod (dist, NULL) / EMU_PER_PX : 3;
+      double a = dir != NULL ? g_ascii_strtod (dir, NULL) / 60000 * G_PI / 180 : G_PI / 4;
+
+      d->in_shadow = d->shadow = TRUE;
+      d->shadow_dx = floor (px * cos (a) * 10 + 0.5) / 10;
+      d->shadow_dy = floor (px * sin (a) * 10 + 0.5) / 10;
+    }
+  else if (strcmp (n, "custGeom") == 0 && d->is_shape)
+    {
+      d->custom = TRUE;
+      if (d->path == NULL) d->path = g_array_new (FALSE, FALSE, sizeof (O42PathPoint));
+    }
+  else if (strcmp (n, "path") == 0 && d->custom)
+    {
+      const char *w = attr (names, values, "w"), *h = attr (names, values, "h");
+      /* The first path is the one taken; Excel writes one. */
+      if (d->path->len == 0)
+        {
+          d->path_w = w != NULL ? g_ascii_strtod (w, NULL) : 0;
+          d->path_h = h != NULL ? g_ascii_strtod (h, NULL) : 0;
+        }
+    }
+  else if (d->custom && (strcmp (n, "moveTo") == 0 || strcmp (n, "lnTo") == 0 || strcmp (n, "cubicBezTo") == 0))
+    {
+      d->path_op = n[0] == 'm' ? 'M' : n[0] == 'l' ? 'L' : 'C';
+      d->cubic_n = 0;
+    }
+  else if (d->custom && strcmp (n, "quadBezTo") == 0)
+    {
+      d->path_op = 'Q';
+      d->cubic_n = 0;
+    }
+  else if (d->custom && strcmp (n, "close") == 0)
+    d->path_closed = TRUE;
+  else if (d->custom && strcmp (n, "pt") == 0 && d->path_op != 0)
+    {
+      const char *xs = attr (names, values, "x"), *ys = attr (names, values, "y");
+      double w = d->path_w > 0 ? d->path_w : 1, h = d->path_h > 0 ? d->path_h : 1;
+      double x = xs != NULL ? g_ascii_strtod (xs, NULL) / w : 0;
+      double y = ys != NULL ? g_ascii_strtod (ys, NULL) / h : 0;
+      O42PathPoint p = { d->path_op, x, y, 0, 0, 0, 0 };
+
+      if (d->path_op == 'C' || d->path_op == 'Q')
+        {
+          d->cubic[d->cubic_n * 2] = x;
+          d->cubic[d->cubic_n * 2 + 1] = y;
+          d->cubic_n++;
+          if (d->path_op == 'C' && d->cubic_n == 3)
+            {
+              p.x1 = d->cubic[0]; p.y1 = d->cubic[1]; p.x2 = d->cubic[2]; p.y2 = d->cubic[3];
+              p.x = d->cubic[4]; p.y = d->cubic[5];
+              g_array_append_val (d->path, p);
+              d->cubic_n = 0;
+            }
+          else if (d->path_op == 'Q' && d->cubic_n == 2)
+            {
+              /* A quadratic as the cubic it equals, from the last point. */
+              const O42PathPoint *last = d->path->len > 0 ? &g_array_index (d->path, O42PathPoint, d->path->len - 1) : NULL;
+              double lx = last != NULL ? last->x : d->cubic[0], ly = last != NULL ? last->y : d->cubic[1];
+              p.op = 'C';
+              p.x1 = lx + 2.0 / 3 * (d->cubic[0] - lx); p.y1 = ly + 2.0 / 3 * (d->cubic[1] - ly);
+              p.x2 = d->cubic[2] + 2.0 / 3 * (d->cubic[0] - d->cubic[2]); p.y2 = d->cubic[3] + 2.0 / 3 * (d->cubic[1] - d->cubic[3]);
+              p.x = d->cubic[2]; p.y = d->cubic[3];
+              g_array_append_val (d->path, p);
+              d->cubic_n = 0;
+            }
+        }
+      else
+        g_array_append_val (d->path, p);
+    }
   else if (strcmp (n, "txBody") == 0)
     d->in_body = TRUE;
+  else if (strcmp (n, "bodyPr") == 0 && d->in_body)
+    {
+      const char *wrap = attr (names, values, "wrap");
+      const char *anchor = attr (names, values, "anchor");
+      const char *lins = attr (names, values, "lIns");
+
+      d->t_nowrap = wrap != NULL && strcmp (wrap, "none") == 0;
+      if (anchor != NULL)
+        {
+          d->have_anchor = TRUE;
+          d->t_valign = strcmp (anchor, "t") == 0 ? O42_VALIGN_TOP
+                      : strcmp (anchor, "ctr") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+        }
+      if (lins != NULL)
+        d->t_inset = floor (g_ascii_strtod (lins, NULL) / EMU_PER_PX * 10 + 0.5) / 10;
+    }
+  else if (strcmp (n, "pPr") == 0 && d->in_body && !d->have_ppr)
+    {
+      const char *algn = attr (names, values, "algn");
+
+      d->have_ppr = TRUE;
+      if (algn != NULL)
+        d->t_halign = strcmp (algn, "l") == 0 ? O42_HALIGN_LEFT : strcmp (algn, "r") == 0 ? O42_HALIGN_RIGHT
+                    : strcmp (algn, "ctr") == 0 ? O42_HALIGN_CENTRE : O42_HALIGN_GENERAL;
+    }
+  else if ((strcmp (n, "rPr") == 0 || strcmp (n, "endParaRPr") == 0) && d->in_body)
+    {
+      d->in_rpr = TRUE;
+      if (!d->have_rpr && strcmp (n, "rPr") == 0)
+        {
+          const char *sz = attr (names, values, "sz");
+          const char *b = attr (names, values, "b");
+          const char *i = attr (names, values, "i");
+
+          d->have_rpr = TRUE;
+          if (sz != NULL) d->t_size = g_ascii_strtod (sz, NULL) / 100;
+          d->t_bold = b != NULL && strcmp (b, "0") != 0;
+          d->t_italic = i != NULL && strcmp (i, "0") != 0;
+        }
+    }
+  else if (strcmp (n, "latin") == 0 && d->in_rpr)
+    {
+      const char *face = attr (names, values, "typeface");
+      if (face != NULL && *face != '\0' && *face != '+' && d->t_font == NULL)
+        d->t_font = g_intern_string (face);
+    }
   else if (strcmp (n, "p") == 0 && d->in_body && d->body->len > 0)
     g_string_append_c (d->body, '\n');   /* the line before this one ended */
   else if (strcmp (n, "t") == 0 && d->in_body)
@@ -1222,6 +1741,15 @@ finish_anchor (DrawReader *d)
               pic->dy = dy;
               pic->width = width;
               pic->height = height;
+              pic->rotation = d->rotation;
+              pic->flip_h = d->flip_h;
+              pic->flip_v = d->flip_v;
+              pic->crop_l = d->crop[0]; pic->crop_t = d->crop[1];
+              pic->crop_r = d->crop[2]; pic->crop_b = d->crop[3];
+              pic->lock_aspect = d->lock_aspect;
+              pic->anchor = d->anchor_mode;
+              pic->brightness = d->bright;
+              pic->contrast = d->contrast;
             }
         }
       g_free (part);
@@ -1231,28 +1759,75 @@ finish_anchor (DrawReader *d)
       O42ShapeKind kind = O42_SHAPE_RECT;
       O42Shape *sh;
 
-      if (strcmp (d->geom, "ellipse") == 0)
-        kind = O42_SHAPE_OVAL;
+      if (d->custom && d->path != NULL && d->path->len >= 2)
+        kind = O42_SHAPE_FREEFORM;
       else if (strcmp (d->geom, "line") == 0 || g_str_has_prefix (d->geom, "straightConnector"))
         kind = d->arrow ? O42_SHAPE_ARROW : O42_SHAPE_LINE;
-      else if (d->text_box || d->body->len > 0)
-        kind = O42_SHAPE_TEXT;   /* Excel says txBox; others just write in it */
+      else if (d->text_box || (d->body->len > 0 && strcmp (d->geom, "rect") == 0 && d->fill == O42_FILL_NONE))
+        kind = O42_SHAPE_TEXT;   /* Excel says txBox; an unfilled rectangle with words is one too */
 
       sh = o42_sheet_add_shape (d->sheet, kind, row, col);
       if (sh != NULL)
         {
+          /* The preset outline: an ellipse is a kind of its own, the
+           * AutoShapes are outlines a rectangle wears; a freeform brings
+           * its own. */
+          if (kind == O42_SHAPE_FREEFORM)
+            {
+              for (guint k = 0; k < d->path->len; k++)
+                {
+                  const O42PathPoint *pp = &g_array_index (d->path, O42PathPoint, k);
+                  o42_shape_path_add (sh, pp->op, pp->x, pp->y, pp->x1, pp->y1, pp->x2, pp->y2);
+                }
+              sh->closed = d->path_closed;
+            }
+          else
+            o42_shape_apply_prst (sh, d->geom);
           sh->dx = dx;
           sh->dy = dy;
           sh->width = width;
           sh->height = height;
+          sh->anchor = d->anchor_mode;
           sh->fill = d->fill;
+          sh->fill_kind = d->fill_kind;
+          sh->fill2 = d->fill2;
+          sh->gradient_angle = d->grad_angle;
+          sh->pattern = d->pattern;
+          sh->shadow = d->shadow;
+          sh->shadow_colour = d->shadow_colour;
+          sh->shadow_dx = d->shadow_dx;
+          sh->shadow_dy = d->shadow_dy;
           sh->line = d->line;
           sh->line_width = d->line_width;
+          sh->dash = d->dash;
+          sh->rotation = d->rotation;
+          sh->flip_h = d->flip_h;
+          sh->flip_v = d->flip_v;
+          if (kind == O42_SHAPE_LINE || kind == O42_SHAPE_ARROW)
+            {
+              sh->head_start = d->head_start;
+              sh->head_end = d->head_end;
+              sh->head_start_size = d->head_start_size;
+              sh->head_end_size = d->head_end_size;
+            }
           if (d->body->len > 0)
             {
               g_free (sh->text);
               sh->text = g_strdup (d->body->str);
             }
+          if (d->t_halign != O42_HALIGN_GENERAL) sh->text_halign = d->t_halign;
+          if (d->have_anchor) sh->text_valign = d->t_valign;
+          sh->text_nowrap = d->t_nowrap;
+          if (d->t_inset >= 0) sh->text_inset = d->t_inset;
+          if (d->have_rpr)
+            {
+              sh->font_size = d->t_size;
+              sh->bold = d->t_bold;
+              sh->italic = d->t_italic;
+              sh->text_colour = d->t_colour;
+            }
+          if (d->t_font != NULL && g_ascii_strcasecmp (d->t_font, "Arial") != 0)
+            sh->font = d->t_font;
         }
     }
   else if (d->chart != NULL)
@@ -1260,7 +1835,7 @@ finish_anchor (DrawReader *d)
       const char *target = g_hash_table_lookup (d->rels, d->chart);
       char *part = target ? resolve (d->dir, target) : NULL;
       if (part != NULL)
-        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height);
+        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height, d->anchor_mode);
       g_free (part);
     }
 }
@@ -1282,6 +1857,11 @@ draw_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **er
   else if (strcmp (n, "to") == 0) d->in_to = FALSE;
   else if (strcmp (n, "ln") == 0) d->in_line = FALSE;
   else if (strcmp (n, "txBody") == 0) d->in_body = FALSE;
+  else if (strcmp (n, "rPr") == 0 || strcmp (n, "endParaRPr") == 0) d->in_rpr = FALSE;
+  else if (strcmp (n, "gradFill") == 0) d->in_grad = 0;
+  else if (strcmp (n, "pattFill") == 0) d->in_patt = 0;
+  else if ((strcmp (n, "fgClr") == 0 || strcmp (n, "bgClr") == 0) && d->in_patt) d->in_patt = 3;
+  else if (strcmp (n, "outerShdw") == 0) d->in_shadow = FALSE;
   else if (strcmp (n, "t") == 0 && d->field != NULL)
     {
       g_string_append (d->body, d->text->str);
@@ -1346,6 +1926,7 @@ o42_xlsx_draw_read (GHashTable *parts, const char *sheet_part, const char *rid, 
 
   g_string_free (d.text, TRUE);
   g_string_free (d.body, TRUE);
+  if (d.path != NULL) g_array_unref (d.path);
   g_free (d.blip);
   g_free (d.chart);
   g_free (d.dir);

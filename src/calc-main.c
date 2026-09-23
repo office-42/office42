@@ -24,7 +24,8 @@
  *
  * from standard input.  A line with "=" sets a cell, a bare reference shows
  * one, and "dump" prints the used range.  "copy A1:B2 C1", "filldown A1:A9",
- * "fillright A1:F1", "insertrows 3 2", "deleterows 3", "insertcols 2" and
+ * "fillright A1:F1" (and "fillup", "fillleft"), "series A1:A9 linear 2",
+ * "justify A1:C6", "insertrows 3 2", "deleterows 3", "insertcols 2" and
  * "deletecols 2" move cells about, with row and column numbers as the
  * headers show them.  "save FILE" and "load FILE" write and read a
  * .gnumeric file, or a .csv one if the name ends that way.  "sort A1:C9 B
@@ -38,12 +39,14 @@
  */
 
 #include "o42-sheet.h"
+#include "o42-entry.h"
 #include "o42-analysis.h"
 #include "o42-image.h"
 #include "o42-pattern.h"
 #include "o42-spell.h"
 #include "o42-book.h"
 #include "o42-eval.h"
+#include "o42-eval-steps.h"
 #include "o42-csv.h"
 #include "o42-text-formats.h"
 #include "o42-lotus.h"
@@ -134,17 +137,98 @@ spell_word (const char *word, gsize offset, gsize length, gpointer user)
   g_free (where);
 }
 
+/* ---- What the terminal does for a script ------------------------------ */
+
+/* A script's office42.selection, msgbox() and the rest are the window's
+ * to answer; here the terminal answers instead: the selection is what
+ * "select A1:B2" last said, a message is printed, a question is
+ * answered by the next line of input. */
+static struct {
+  O42Sheet *sheet;
+  O42Range  range;
+  int       row, col;
+} calc_selection;
+
+static gboolean
+calc_get_selection (gpointer user, O42Book *book, O42Sheet **sheet,
+                    O42Range *range, int *row, int *col)
+{
+  (void) user;
+  if (calc_selection.sheet == NULL || o42_book_sheet_index (book, calc_selection.sheet) < 0)
+    return FALSE;
+  *sheet = calc_selection.sheet;
+  *range = calc_selection.range;
+  *row = calc_selection.row;
+  *col = calc_selection.col;
+  return TRUE;
+}
+
+static void
+calc_set_selection (gpointer user, O42Book *book, O42Sheet *sheet,
+                    const O42Range *range, int row, int col)
+{
+  char *a = o42_ref_name (range->row0, range->col0);
+  char *b = o42_ref_name (range->row1, range->col1);
+  (void) user; (void) book;
+  calc_selection.sheet = sheet;
+  calc_selection.range = *range;
+  calc_selection.row = row;
+  calc_selection.col = col;
+  printf ("selected %s!%s:%s\n", o42_sheet_get_name (sheet), a, b);
+  g_free (a);
+  g_free (b);
+}
+
+static void
+calc_message (gpointer user, O42Book *book, const char *text)
+{
+  (void) user; (void) book;
+  printf ("message: %s\n", text);
+}
+
+static char *
+calc_input (gpointer user, O42Book *book, const char *prompt, const char *initial)
+{
+  char answer[1024];
+  (void) user; (void) book; (void) initial;
+  printf ("input: %s\n", prompt);
+  fflush (stdout);
+  if (fgets (answer, sizeof answer, stdin) == NULL)
+    return NULL;
+  return g_strdup (g_strstrip (answer));
+}
+
+static void
+calc_status (gpointer user, O42Book *book, const char *text)
+{
+  (void) user; (void) book;
+  printf ("status: %s\n", text);
+}
+
+static void
+calc_install_host (O42Book *book)
+{
+  O42PythonHost host = { NULL, calc_get_selection, calc_set_selection, calc_message,
+                         calc_input, calc_status, NULL, NULL, NULL, NULL, NULL };
+  calc_selection.sheet = o42_book_sheet (book, 0);
+  calc_selection.range = o42_range_normalise (0, 0, 0, 0);
+  o42_python_set_host (&host);
+}
+
 int
 main (int argc, char *argv[])
 {
   O42Book *book = o42_book_new ();
   O42Sheet *sheet = o42_book_sheet (book, 0);
   O42Db *db = NULL;
-  char line[4096];
+  static char line[65536];   /* a cell holds 32767 characters, and a note more */
 
   /* SQLVALUE() asks the book's database; it answers #N/A while there
    * is none. */
   o42_db_register_function (book);
+  calc_install_host (book);
+  /* The personal scripts' functions, before any formula asks. */
+  o42_python_start ();
 
   (void) argc; (void) argv;
 
@@ -164,22 +248,31 @@ main (int argc, char *argv[])
               "  A1                 shows a cell's value and formula\n"
               "  dump               prints the used range\n"
               "\n"
-              "Cells     copy paste filldown fillright autofill moverange merge merges\n"
-              "          insertrows deleterows insertcols deletecols insertcells deletecells\n"
+              "Cells     copy paste filldown fillright fillup fillleft fillacross series justify\n"
+              "          autofill\n"
+              "          moverange merge unmerge merges\n"
+              "          insertrows deleterows insertcols deletecols insertcells deletecells array\n"
               "Formats   format font fontinfo border pattern rich runs indent rotate fmtinfo\n"
-              "          style defstyle styleat autoformat cond conds uncond\n"
-              "Sheets    sheet rename delsheet freeze split hiderows levels group protect\n"
-              "          lock hide editable chartsheet\n"
-              "Data      sort find replace filter advfilter subtotal dedupe consolidate\n"
-              "          table pivot refresh validate validations goalseek solve scenario\n"
-              "          analyse whatif\n"
+              "          style defstyle styleat styles autoformat cond conds uncond\n"
+              "Sheets    sheet rename delsheet copysheet background freeze split hiderows unhiderows\n"
+              "          hidecols\n"
+              "          unhidecols\n"
+              "          levels group ungroup protect lock hide editable chartsheet tabcolour\n"
+              "          autooutline clearoutline detail outlinelevel\n"
+              "Data      sort find replace filter autofilter advfilter subtotal unsubtotal dedupe\n"
+              "          consolidate table untable tables pivot refresh validate unvalidate validations\n"
+              "          goalseek solve scenario scenarios showscenario delscenario summary\n"
+              "          analyse whatif split splitfixed customlist customlists\n"
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
-              "          picture pictures objgroup objungroup note link links\n"
+              "          picture pictures pictureset objects order objgroup objungroup note link links\n"
               "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
-              "          pagebreak margin\n"
-              "Python    py pyfile script scripts runscript delscript record\n"
+              "          pagebreak margin pageopt header footer titlerows titlecols\n"
+              "Python    py pyfile script scripts runscript delscript record select fire\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
-              "Other     undo redo name names unname spell view views calcmode iterate recalc\n"
+              "Other     undo redo name names unname createnames applynames prop props autocorrect\n"
+              "          correction uncorrect corrections autocorrectopt spell view\n"
+              "          views shown calcmode iterate recalc\n"
+              "          evaluate watch watches unwatch check date1904 precision fixeddecimals\n"
               "\n"
               "A command given without its arguments prints its usage.  docs/GUIDE.md\n"
               "section 19 says what each does; --functions lists every function.\n");
@@ -265,10 +358,191 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* "evaluate A1" works the cell's formula out a step at a time,
+       * printing each stage with the part that goes next in [brackets]:
+       * what Tools > Formula Auditing > Evaluate Formula shows. */
+      if (g_str_has_prefix (text, "evaluate "))
+        {
+          int r, c;
+
+          if (o42_ref_parse (text + 9, &r, &c, NULL) && o42_sheet_has_formula (sheet, r, c))
+            {
+              char *input = o42_sheet_get_input (sheet, r, c);
+              O42Node *tree = o42_formula_parse (input[0] == '=' ? input + 1 : input);
+              O42Stepper *stepper = o42_stepper_new (o42_sheet_eval_context (sheet), tree, r, c);
+
+              for (int guard = 0; guard < 1000; guard++)
+                {
+                  int start = -1, length = 0;
+                  char *s = o42_stepper_text (stepper, &start, &length);
+
+                  if (start >= 0)
+                    printf ("=%.*s[%.*s]%s\n", start, s, length, s + start, s + start + length);
+                  else
+                    printf ("=%s\n", s);
+                  g_free (s);
+                  if (o42_stepper_done (stepper))
+                    break;
+                  o42_stepper_step (stepper);
+                }
+              o42_stepper_free (stepper);
+              o42_node_free (tree);
+              g_free (input);
+            }
+          else
+            fprintf (stderr, "usage: evaluate A1 (a cell holding a formula)\n");
+          continue;
+        }
+
+      /* "watch A1:B2" adds the cells to the Watch Window's list,
+       * "watches" prints it with the values, "unwatch N" drops one. */
+      if (g_str_has_prefix (text, "watch "))
+        {
+          O42Range r;
+          gsize len = 0;
+
+          if (o42_ref_parse (text + 6, &r.row0, &r.col0, &len))
+            {
+              r.row1 = r.row0; r.col1 = r.col0;
+              if (text[6 + len] == ':')
+                o42_ref_parse (text + 7 + len, &r.row1, &r.col1, NULL);
+              for (int rr = r.row0; rr <= r.row1; rr++)
+                for (int cc = r.col0; cc <= r.col1; cc++)
+                  o42_book_add_watch (book, o42_sheet_get_name (sheet), rr, cc);
+            }
+          else
+            fprintf (stderr, "usage: watch A1:B2\n");
+          continue;
+        }
+      /* "check A1:C9" says what the error checking doubts about each
+       * cell of the range that it doubts anything about. */
+      if (g_str_has_prefix (text, "check "))
+        {
+          O42Range r;
+          gsize len = 0;
+
+          if (o42_ref_parse (text + 6, &r.row0, &r.col0, &len))
+            {
+              r.row1 = r.row0; r.col1 = r.col0;
+              if (text[6 + len] == ':')
+                o42_ref_parse (text + 7 + len, &r.row1, &r.col1, NULL);
+              for (int rr = r.row0; rr <= r.row1; rr++)
+                for (int cc = r.col0; cc <= r.col1; cc++)
+                  {
+                    O42ErrorCheck check = o42_sheet_error_check (sheet, rr, cc);
+
+                    if (check != O42_CHECK_NONE)
+                      {
+                        char *name = o42_ref_name (rr, cc);
+                        printf ("%s: %s\n", name, o42_error_check_text (check));
+                        g_free (name);
+                      }
+                  }
+            }
+          else
+            fprintf (stderr, "usage: check A1:C9\n");
+          continue;
+        }
+      if (strcmp (text, "watches") == 0)
+        {
+          for (int i = 0; i < o42_book_n_watches (book); i++)
+            {
+              const O42Watch *w = o42_book_watch_at (book, i);
+              O42Sheet *on = o42_book_find_sheet (book, w->sheet);
+              char *name = o42_ref_name (w->row, w->col);
+              char *shown = on != NULL ? o42_sheet_get_display (on, w->row, w->col) : g_strdup ("?");
+              char *input = on != NULL ? o42_sheet_get_input (on, w->row, w->col) : g_strdup ("");
+
+              printf ("%d: %s!%s = %s%s%s\n", i, w->sheet, name, shown,
+                      input[0] == '=' ? "  " : "", input[0] == '=' ? input : "");
+              g_free (name); g_free (shown); g_free (input);
+            }
+          continue;
+        }
+      if (g_str_has_prefix (text, "unwatch "))
+        {
+          if (!o42_book_remove_watch (book, atoi (text + 8)))
+            fprintf (stderr, "no such watch\n");
+          continue;
+        }
+
+      /* copysheet [NAME]: a copy of the current sheet after it, which
+       * becomes the current sheet. */
+      if (strcmp (text, "copysheet") == 0 || g_str_has_prefix (text, "copysheet "))
+        {
+          const char *name = text[9] == ' ' ? g_strstrip (text + 10) : NULL;
+          int at = o42_book_sheet_index (book, sheet);
+          O42Sheet *copy = o42_book_copy_sheet (book, at, at + 1, name);
+
+          if (copy != NULL)
+            {
+              sheet = copy;
+              printf ("copied to %s\n", o42_sheet_get_name (copy));
+            }
+          continue;
+        }
+
       if (g_str_has_prefix (text, "rename "))
         {
           if (!o42_book_rename_sheet (book, o42_book_sheet_index (book, sheet), text + 7))
             fprintf (stderr, "cannot rename to %s\n", text + 7);
+          continue;
+        }
+
+      if (g_str_has_prefix (text, "hidesheet ") || g_str_has_prefix (text, "unhidesheet "))
+        {
+          const char *nm = text[0] == 'h' ? text + 10 : text + 12;
+          O42Sheet *target = o42_book_find_sheet (book, nm);
+          if (target == NULL)
+            fprintf (stderr, "no sheet %s\n", nm);
+          else
+            o42_sheet_set_hidden (target, text[0] == 'h');
+          continue;
+        }
+
+      /* viewopt zoom N | gridlines on|off | zeros on|off; viewinfo */
+      if (g_str_has_prefix (text, "viewopt "))
+        {
+          O42SheetView view = *o42_sheet_view (sheet);
+          char **w = g_strsplit (text + 8, " ", -1);
+          if (g_strv_length (w) >= 2 && strcmp (w[0], "zoom") == 0) view.zoom = atoi (w[1]);
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "gridlines") == 0) view.gridlines = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "zeros") == 0) view.zeros = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 2 && strcmp (w[0], "rtl") == 0) view.right_to_left = strcmp (w[1], "on") == 0;
+          else if (g_strv_length (w) >= 1 && strcmp (w[0], "shown") == 0)
+            {
+              for (int i = 0; i < o42_book_n_sheets (book); i++)
+                {
+                  O42SheetView other = *o42_sheet_view (o42_book_sheet (book, i));
+                  other.selected = o42_book_sheet (book, i) == sheet;
+                  o42_sheet_set_view (o42_book_sheet (book, i), &other);
+                }
+              view.selected = TRUE;
+            }
+          else
+            fprintf (stderr, "usage: viewopt zoom N | gridlines on|off | zeros on|off | rtl on|off | shown\n");
+          o42_sheet_set_view (sheet, &view);
+          g_strfreev (w);
+          continue;
+        }
+      if (strcmp (text, "viewinfo") == 0)
+        {
+          const O42SheetView *view = o42_sheet_view (sheet);
+          char *a = o42_ref_name (view->active_row, view->active_col);
+          char *b = o42_ref_name (view->selection.row0, view->selection.col0);
+          char *c = o42_ref_name (view->selection.row1, view->selection.col1);
+          printf ("zoom %d gridlines %s zeros %s rtl %s active %s selection %s:%s%s\n", view->zoom,
+                  view->gridlines ? "on" : "off", view->zeros ? "on" : "off", view->right_to_left ? "on" : "off",
+                  a, b, c, view->selected ? " shown" : "");
+          g_free (a); g_free (b); g_free (c);
+          continue;
+        }
+
+      if (strcmp (text, "sheets") == 0)
+        {
+          for (int i = 0; i < o42_book_n_sheets (book); i++)
+            printf ("%s%s\n", o42_sheet_get_name (o42_book_sheet (book, i)),
+                    o42_sheet_hidden (o42_book_sheet (book, i)) ? " (hidden)" : "");
           continue;
         }
 
@@ -286,10 +560,11 @@ main (int argc, char *argv[])
           const char *path = text + 5;
           GFile *file = g_file_new_for_path (path);
           GError *error = NULL;
-          gboolean csv = g_str_has_suffix (path, ".csv");
-          gboolean xlsx = g_str_has_suffix (path, ".xlsx");
+          gboolean csv = g_str_has_suffix (path, ".csv") || g_str_has_suffix (path, ".txt") ||
+                         g_str_has_suffix (path, ".tsv") || g_str_has_suffix (path, ".tab");
+          gboolean xlsx = g_str_has_suffix (path, ".xlsx") || g_str_has_suffix (path, ".xlsm");
           gboolean xls = g_str_has_suffix (path, ".xls");
-          gboolean ods = g_str_has_suffix (path, ".ods");
+          gboolean ods = g_str_has_suffix (path, ".ods") || g_str_has_suffix (path, ".fods");
           gboolean html = g_str_has_suffix (path, ".html") || g_str_has_suffix (path, ".htm");
           gboolean dif = g_str_has_suffix (path, ".dif");
           gboolean sylk = g_str_has_suffix (path, ".slk") || g_str_has_suffix (path, ".sylk");
@@ -297,6 +572,8 @@ main (int argc, char *argv[])
           gboolean wk1 = g_str_has_suffix (path, ".wk1") || g_str_has_suffix (path, ".wks");
           gboolean ok;
 
+          if (text[0] == 'l')
+            o42_book_begin_load (book);
           if (text[0] == 'l')
             ok = csv ? o42_csv_load (sheet, file, &error)
                : xlsx ? o42_xlsx_load (book, file, &error)
@@ -307,7 +584,9 @@ main (int argc, char *argv[])
                : sylk ? o42_sylk_load (sheet, file, &error)
                : wk1 ? o42_lotus_load (sheet, file, &error)
                      : o42_gnumeric_load (book, file, &error);
-          else
+          if (text[0] == 'l')
+            o42_book_end_load (book);
+          if (text[0] != 'l')
             ok = csv ? o42_csv_save (sheet, file, &error)
                : xlsx ? o42_xlsx_save (book, file, &error)
                : xls ? o42_xls_save (book, file, &error)
@@ -323,6 +602,10 @@ main (int argc, char *argv[])
             fprintf (stderr, "%s: %d cells outside the 65,536 rows by 256 "
                              "columns Excel 97 holds were not written\n",
                      path, o42_xls_dropped_cells);
+          if (ok && (xlsx || ods) && text[0] == 115 && o42_xlsx_dropped_cells > 0)
+            fprintf (stderr, "%s: %d cells beyond the 1,048,576 rows Excel "
+                             "holds were not written\n",
+                     path, o42_xlsx_dropped_cells);
 
           if (ok && !csv && !html && !dif && !sylk && !wk1 && text[0] == 'l')
             sheet = o42_book_sheet (book, 0);
@@ -338,6 +621,108 @@ main (int argc, char *argv[])
               g_clear_error (&error);
             }
           g_object_unref (file);
+          continue;
+        }
+
+      /* series A1:A10 linear|growth|date|autofill STEP [stop=N] [unit=day|
+       * weekday|month|year] [rows] [trend]: Edit > Fill > Series. */
+      if (g_str_has_prefix (text, "series "))
+        {
+          char **words = g_strsplit (text, " ", -1);
+          int n = (int) g_strv_length (words);
+          O42Range r;
+          O42Series series = { FALSE, O42_SERIES_LINEAR, O42_SERIES_DAY, 1, FALSE, FALSE, 0 };
+          gsize len = 0;
+          gboolean ok = n >= 3 && o42_ref_parse (words[1], &r.row0, &r.col0, &len);
+
+          if (ok && words[1][len] == ':')
+            ok = o42_ref_parse (words[1] + len + 1, &r.row1, &r.col1, NULL);
+          else if (ok)
+            { r.row1 = r.row0; r.col1 = r.col0; }
+          if (ok)
+            {
+              r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              if (strcmp (words[2], "linear") == 0) series.type = O42_SERIES_LINEAR;
+              else if (strcmp (words[2], "growth") == 0) series.type = O42_SERIES_GROWTH;
+              else if (strcmp (words[2], "date") == 0) series.type = O42_SERIES_DATE;
+              else if (strcmp (words[2], "autofill") == 0) series.type = O42_SERIES_AUTOFILL;
+              else ok = FALSE;
+            }
+          for (int i = 3; ok && i < n; i++)
+            {
+              if (g_str_has_prefix (words[i], "stop="))
+                { series.has_stop = TRUE; series.stop = g_ascii_strtod (words[i] + 5, NULL); }
+              else if (g_str_has_prefix (words[i], "unit="))
+                {
+                  const char *u = words[i] + 5;
+                  series.unit = strcmp (u, "weekday") == 0 ? O42_SERIES_WEEKDAY
+                              : strcmp (u, "month") == 0 ? O42_SERIES_MONTH
+                              : strcmp (u, "year") == 0 ? O42_SERIES_YEAR : O42_SERIES_DAY;
+                }
+              else if (strcmp (words[i], "rows") == 0) series.in_rows = TRUE;
+              else if (strcmp (words[i], "trend") == 0) series.trend = TRUE;
+              else series.step = g_ascii_strtod (words[i], NULL);
+            }
+          if (ok)
+            o42_sheet_fill_series (sheet, &r, &series);
+          else
+            fprintf (stderr, "usage: series A1:A10 linear|growth|date|autofill STEP [stop=N] [unit=day|weekday|month|year] [rows] [trend]\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* fillacross A1:B2 all|values|formats [Sheet2,Sheet3]: Edit > Fill >
+       * Across Worksheets; every other sheet when none is named. */
+      if (g_str_has_prefix (text, "fillacross "))
+        {
+          char **words = g_strsplit (text + 11, " ", -1);
+          O42Range r;
+          gsize len = 0;
+          int n = (int) g_strv_length (words);
+
+          if (n >= 2 && o42_ref_parse (words[0], &r.row0, &r.col0, &len) && words[0][len] == ':' &&
+              o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))
+            {
+              O42PasteMode mode = strcmp (words[1], "values") == 0 ? O42_PASTE_VALUES
+                                : strcmp (words[1], "formats") == 0 ? O42_PASTE_FORMATS : O42_PASTE_ALL;
+              GPtrArray *targets = g_ptr_array_new ();
+
+              r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              if (n >= 3)
+                {
+                  char **names = g_strsplit (words[2], ",", -1);
+                  for (int i = 0; names[i] != NULL; i++)
+                    if (o42_book_find_sheet (book, names[i]) != NULL)
+                      g_ptr_array_add (targets, o42_book_find_sheet (book, names[i]));
+                  g_strfreev (names);
+                }
+              else
+                for (int i = 0; i < o42_book_n_sheets (book); i++)
+                  if (o42_book_sheet (book, i) != sheet)
+                    g_ptr_array_add (targets, o42_book_sheet (book, i));
+              o42_book_fill_across (book, sheet, &r, (O42Sheet **) targets->pdata, (int) targets->len, mode);
+              g_ptr_array_unref (targets);
+            }
+          else
+            fprintf (stderr, "usage: fillacross A1:B2 all|values|formats [Sheet2,Sheet3]\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* justify A1:C6: Edit > Fill > Justify. */
+      if (g_str_has_prefix (text, "justify "))
+        {
+          O42Range r;
+          gsize len = 0;
+
+          if (o42_ref_parse (text + 8, &r.row0, &r.col0, &len) && text[8 + len] == ':' &&
+              o42_ref_parse (text + 8 + len + 1, &r.row1, &r.col1, NULL))
+            {
+              r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              o42_sheet_fill_justify (sheet, &r);
+            }
+          else
+            fprintf (stderr, "usage: justify A1:C6\n");
           continue;
         }
 
@@ -415,6 +800,7 @@ main (int argc, char *argv[])
                       else if (strcmp (a, "underline") == 0) { want.underline = 1; mask |= O42_FMT_UNDERLINE; }
                       else if (strcmp (a, "strike") == 0) { want.strikeout = 1; mask |= O42_FMT_STRIKEOUT; }
                       else if (strcmp (a, "wrap") == 0) { want.wrap = 1; mask |= O42_FMT_WRAP; }
+                      else if (strcmp (a, "shrink") == 0) { want.shrink = 1; mask |= O42_FMT_WRAP; }
                       else if (g_str_has_prefix (a, "size=")) { want.size = (guint8) (g_ascii_strtod (a + 5, NULL) * 2); mask |= O42_FMT_SIZE; }
                       else if (g_str_has_prefix (a, "family=")) { want.family = g_intern_string (a + 7); mask |= O42_FMT_FAMILY; }
                       else if (g_str_has_prefix (a, "colour=")) { want.colour = (guint32) g_ascii_strtoull (a + 7, NULL, 16); mask |= O42_FMT_COLOUR; }
@@ -474,6 +860,9 @@ main (int argc, char *argv[])
         }
 
       /* solve TARGET max|min|VALUE A1,B1 [A2<=10] [B2>=0] ... */
+      /* solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [B2=bin]
+       * [nonneg] [report]: nonneg keeps every changing cell at or
+       * above zero, report writes the Answer Report sheet. */
       if (g_str_has_prefix (text, "solve "))
         {
           char **words = g_strsplit (text + 6, " ", -1);
@@ -481,10 +870,9 @@ main (int argc, char *argv[])
           int trow, tcol;
           O42SolverGoal goal = O42_SOLVER_MAX;
           double goal_value = 0;
-          O42Ref changing[16];
-          int n_changing = 0;
-          O42SolverBound bounds[16];
-          int n_bounds = 0;
+          GArray *changing = g_array_new (FALSE, FALSE, sizeof (O42Ref));
+          GArray *bounds = g_array_new (FALSE, FALSE, sizeof (O42SolverBound));
+          gboolean nonneg = FALSE, report = FALSE;
 
           if (n >= 3 && o42_ref_parse (words[0], &trow, &tcol, NULL))
             {
@@ -495,42 +883,107 @@ main (int argc, char *argv[])
               else { goal = O42_SOLVER_VALUE; goal_value = g_ascii_strtod (words[1], NULL); }
 
               cells = g_strsplit (words[2], ",", -1);
-              for (int i = 0; cells[i] != NULL && n_changing < 16; i++)
-                if (o42_ref_parse (cells[i], &changing[n_changing].row, &changing[n_changing].col, NULL))
-                  n_changing++;
+              for (int i = 0; cells[i] != NULL; i++)
+                {
+                  O42Ref ref;
+                  O42Range r;
+                  gsize len = 0;
+
+                  if (o42_ref_parse (cells[i], &r.row0, &r.col0, &len) && cells[i][len] == ':' &&
+                      o42_ref_parse (cells[i] + len + 1, &r.row1, &r.col1, NULL))
+                    {
+                      r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+                      for (int rr = r.row0; rr <= r.row1; rr++)
+                        for (int cc = r.col0; cc <= r.col1; cc++)
+                          { ref.row = rr; ref.col = cc; g_array_append_val (changing, ref); }
+                    }
+                  else if (o42_ref_parse (cells[i], &ref.row, &ref.col, NULL))
+                    g_array_append_val (changing, ref);
+                }
               g_strfreev (cells);
 
-              for (int i = 3; i < n && n_bounds < 16; i++)
+              for (int i = 3; i < n; i++)
                 {
                   const char *op = strstr (words[i], "<=");
                   O42SolverOp which = O42_SOLVER_LE;
+                  O42SolverBound bound;
                   char *cell;
 
+                  if (strcmp (words[i], "nonneg") == 0) { nonneg = TRUE; continue; }
+                  if (strcmp (words[i], "report") == 0) { report = TRUE; continue; }
                   if (op == NULL) { op = strstr (words[i], ">="); which = O42_SOLVER_GE; }
                   if (op == NULL) { op = strchr (words[i], '='); which = O42_SOLVER_EQ; }
                   if (op == NULL) continue;
                   cell = g_strndup (words[i], (gsize) (op - words[i]));
-                  if (o42_ref_parse (cell, &bounds[n_bounds].row, &bounds[n_bounds].col, NULL))
+                  if (o42_ref_parse (cell, &bound.row, &bound.col, NULL))
                     {
-                      bounds[n_bounds].op = which;
-                      bounds[n_bounds].value = g_ascii_strtod (op + (which == O42_SOLVER_EQ ? 1 : 2), NULL);
-                      n_bounds++;
+                      const char *rhs = op + (which == O42_SOLVER_EQ ? 1 : 2);
+
+                      bound.op = which;
+                      bound.value = 0;
+                      if (which == O42_SOLVER_EQ && strcmp (rhs, "int") == 0)
+                        bound.op = O42_SOLVER_INT;
+                      else if (which == O42_SOLVER_EQ && strcmp (rhs, "bin") == 0)
+                        bound.op = O42_SOLVER_BIN;
+                      else
+                        bound.value = g_ascii_strtod (rhs, NULL);
+                      g_array_append_val (bounds, bound);
                     }
                   g_free (cell);
                 }
+              if (nonneg)
+                for (guint i = 0; i < changing->len; i++)
+                  {
+                    const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+                    O42SolverBound bound = { ref->row, ref->col, O42_SOLVER_GE, 0 };
+                    g_array_append_val (bounds, bound);
+                  }
 
-              if (n_changing > 0)
+              if (changing->len > 0)
                 {
                   double reached = 0;
-                  gboolean ok = o42_sheet_solve (sheet, trow, tcol, goal, goal_value,
-                                                 changing, n_changing, bounds, n_bounds, &reached);
+                  double *original = g_new0 (double, changing->len);
+                  double original_target = 0;
+                  gboolean ok;
+
+                  for (guint i = 0; i < changing->len; i++)
+                    {
+                      const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+                      O42Value v;
+                      O42ErrorCode e;
+                      o42_sheet_get_value (sheet, ref->row, ref->col, &v);
+                      if (v.type == O42_VALUE_NUMBER) o42_value_to_number (&v, &original[i], &e);
+                      o42_value_clear (&v);
+                    }
+                  {
+                    O42Value v;
+                    O42ErrorCode e;
+                    o42_sheet_get_value (sheet, trow, tcol, &v);
+                    if (v.type == O42_VALUE_NUMBER) o42_value_to_number (&v, &original_target, &e);
+                    o42_value_clear (&v);
+                  }
+                  ok = o42_sheet_solve (sheet, trow, tcol, goal, goal_value,
+                                        (const O42Ref *) changing->data, (int) changing->len,
+                                        (const O42SolverBound *) bounds->data, (int) bounds->len, &reached);
                   printf ("%s %g\n", ok ? "reached" : "gave up at", reached);
+                  if (report)
+                    {
+                      O42Sheet *made = o42_sheet_solver_report (sheet, trow, tcol, goal, goal_value,
+                                                                (const O42Ref *) changing->data, (int) changing->len,
+                                                                (const O42SolverBound *) bounds->data, (int) bounds->len,
+                                                                original, original_target);
+                      if (made != NULL)
+                        sheet = made;
+                    }
+                  g_free (original);
                 }
               else
-                fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10]...\n");
+                fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [nonneg] [report]\n");
             }
           else
-            fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10]...\n");
+            fprintf (stderr, "usage: solve TARGET max|min|VALUE A1,B1 [A2<=10] [B1=int] [nonneg] [report]\n");
+          g_array_unref (changing);
+          g_array_unref (bounds);
           g_strfreev (words);
           continue;
         }
@@ -617,6 +1070,34 @@ main (int argc, char *argv[])
 
       /* scenario NAME A1:B2 [COMMENT] saves the cells' values; showscenario
        * NAME puts them back; scenarios lists them; delscenario NAME. */
+      /* "summary B5,C7" writes the Scenario Summary sheet, with those
+       * as its result cells, and switches to it. */
+      if (g_str_has_prefix (text, "summary"))
+        {
+          GArray *results = g_array_new (FALSE, FALSE, sizeof (guint64));
+          char **words = g_strsplit (text + 7, ",", -1);
+          O42Sheet *made;
+
+          for (int i = 0; words[i] != NULL; i++)
+            {
+              int r, c;
+
+              if (o42_ref_parse (g_strstrip (words[i]), &r, &c, NULL))
+                {
+                  guint64 key = o42_key (r, c);
+                  g_array_append_val (results, key);
+                }
+            }
+          g_strfreev (words);
+          made = o42_sheet_scenario_summary (sheet, results);
+          if (made != NULL)
+            sheet = made;
+          else
+            fprintf (stderr, "no scenarios to summarise\n");
+          g_array_unref (results);
+          continue;
+        }
+
       if (g_str_has_prefix (text, "scenario ") || g_str_has_prefix (text, "showscenario ") ||
           g_str_has_prefix (text, "delscenario ") || strcmp (text, "scenarios") == 0)
         {
@@ -790,6 +1271,68 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* select A1:B2 [C2] -- what office42.selection answers, and what a
+       * macro being recorded writes down before its next line */
+      /* fire open|before_save|close|selection A1:B2: an event, as the
+       * window would fire it. */
+      if (g_str_has_prefix (text, "fire "))
+        {
+          char **words = g_strsplit (text + 5, " ", 2);
+          O42Range r = { 0, 0, 0, 0 };
+          gboolean ranged = words[1] != NULL;
+          char *said = NULL;
+
+          if (ranged)
+            {
+              gsize at = 0;
+              if (!o42_ref_parse (words[1], &r.row0, &r.col0, &at) ||
+                  (words[1][at] == ':' && !o42_ref_parse (words[1] + at + 1, &r.row1, &r.col1, NULL)))
+                { fprintf (stderr, "usage: fire EVENT [A1:B2]\n"); g_strfreev (words); continue; }
+              if (words[1][at] != ':') { r.row1 = r.row0; r.col1 = r.col0; }
+            }
+          o42_python_fire (book, words[0], ranged ? sheet : NULL, ranged ? &r : NULL, &said);
+          if (said != NULL)
+            fputs (said, stdout);
+          g_free (said);
+          g_strfreev (words);
+          continue;
+        }
+      if (g_str_has_prefix (text, "select "))
+        {
+          char **words = g_strsplit (text + 7, " ", -1);
+          O42Range r;
+          gsize len = 0;
+          int arow, acol;
+
+          if (words[0] != NULL && o42_ref_parse (words[0], &r.row0, &r.col0, &len))
+            {
+              if (words[0][len] == ':' && o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))
+                r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              else
+                { r.row1 = r.row0; r.col1 = r.col0; }
+              arow = r.row0; acol = r.col0;
+              if (words[1] != NULL)
+                o42_ref_parse (words[1], &arow, &acol, NULL);
+              calc_selection.sheet = sheet;
+              calc_selection.range = r;
+              calc_selection.row = arow;
+              calc_selection.col = acol;
+              {
+                /* The sheet's own view remembers it, as the window's grid would. */
+                O42SheetView view = *o42_sheet_view (sheet);
+                view.selection = r;
+                view.active_row = arow;
+                view.active_col = acol;
+                o42_sheet_set_view (sheet, &view);
+              }
+              o42_book_record_selection (book, o42_sheet_get_name (sheet), &r, arow, acol);
+            }
+          else
+            fprintf (stderr, "usage: select A1:B2 [ACTIVE]\n");
+          g_strfreev (words);
+          continue;
+        }
+
       /* record on; record off [NAME] -- writes the macro, or keeps it
        * in the book under a name */
       if (g_str_has_prefix (text, "record "))
@@ -799,7 +1342,11 @@ main (int argc, char *argv[])
           if (g_str_has_prefix (what, "on"))
             {
               o42_book_record_start (book);
-              printf ("recording\n");
+              /* "record on relative": cells relative to the selection's
+               * active cell, as Excel's Relative References button. */
+              o42_book_record_set_relative (book, strstr (what, "relative") != NULL,
+                                            calc_selection.row, calc_selection.col);
+              printf ("recording%s\n", strstr (what, "relative") != NULL ? " relative" : "");
             }
           else
             {
@@ -1084,6 +1631,80 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* pictureset ID rotation|fliph|flipv|width|height VALUE */
+      if (g_str_has_prefix (text, "pictureset "))
+        {
+          char **words = g_strsplit (text, " ", 4);
+          int n = (int) g_strv_length (words);
+          O42Picture *pic = n >= 2 ? o42_sheet_find_picture (sheet, (guint) atoi (words[1])) : NULL;
+
+          if (pic == NULL)
+            fprintf (stderr, "no such picture\n");
+          else if (n >= 4)
+            {
+              double number = g_ascii_strtod (words[3], NULL);
+
+              if (strcmp (words[2], "rotation") == 0)    pic->rotation = number;
+              else if (strcmp (words[2], "cropl") == 0)  pic->crop_l = number;
+              else if (strcmp (words[2], "cropr") == 0)  pic->crop_r = number;
+              else if (strcmp (words[2], "cropt") == 0)  pic->crop_t = number;
+              else if (strcmp (words[2], "cropb") == 0)  pic->crop_b = number;
+              else if (strcmp (words[2], "lockaspect") == 0) pic->lock_aspect = number != 0;
+              else if (strcmp (words[2], "fliph") == 0)  pic->flip_h = number != 0;
+              else if (strcmp (words[2], "flipv") == 0)  pic->flip_v = number != 0;
+              else if (strcmp (words[2], "width") == 0)  pic->width = number;
+              else if (strcmp (words[2], "height") == 0) pic->height = number;
+              else if (strcmp (words[2], "anchor") == 0)
+                { if (!o42_anchor_mode_parse (words[3], &pic->anchor)) fprintf (stderr, "twoCell, oneCell or absolute\n"); }
+              else if (strcmp (words[2], "brightness") == 0) pic->brightness = CLAMP (number, -1, 1);
+              else if (strcmp (words[2], "contrast") == 0) pic->contrast = CLAMP (number, -1, 1);
+              else fprintf (stderr, "no such field\n");
+            }
+          else
+            fprintf (stderr, "usage: pictureset ID rotation|fliph|flipv|width|height|"
+                             "cropl|cropr|cropt|cropb|lockaspect|anchor|brightness|contrast VALUE\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* objects: every picture, shape and chart from the back to the
+       * front; order shape|picture|chart ID front|back|forward|backward */
+      if (strcmp (text, "objects") == 0)
+        {
+          GArray *objects = o42_sheet_objects (sheet);
+
+          for (guint i = 0; i < objects->len; i++)
+            {
+              const O42ObjectRef *ref = &g_array_index (objects, O42ObjectRef, i);
+              printf ("%s %u z %u\n",
+                      ref->type == O42_OBJECT_PICTURE ? "picture"
+                      : ref->type == O42_OBJECT_SHAPE ? "shape" : "chart", ref->id, ref->z);
+            }
+          g_array_free (objects, TRUE);
+          continue;
+        }
+      if (g_str_has_prefix (text, "order "))
+        {
+          char **words = g_strsplit (text + 6, " ", 3);
+          O42ObjectType type = O42_OBJECT_SHAPE;
+          O42Order how = O42_ORDER_FRONT;
+          gboolean ok = g_strv_length (words) == 3;
+
+          if (ok && strcmp (words[0], "picture") == 0) type = O42_OBJECT_PICTURE;
+          else if (ok && strcmp (words[0], "chart") == 0) type = O42_OBJECT_CHART;
+          else if (ok && strcmp (words[0], "shape") != 0) ok = FALSE;
+          if (ok && strcmp (words[2], "back") == 0) how = O42_ORDER_BACK;
+          else if (ok && strcmp (words[2], "forward") == 0) how = O42_ORDER_FORWARD;
+          else if (ok && strcmp (words[2], "backward") == 0) how = O42_ORDER_BACKWARD;
+          else if (ok && strcmp (words[2], "front") != 0) ok = FALSE;
+          if (!ok)
+            fprintf (stderr, "usage: order shape|picture|chart ID front|back|forward|backward\n");
+          else if (!o42_sheet_reorder_object (sheet, type, (guint) atoi (words[1]), how))
+            fprintf (stderr, "nothing moved\n");
+          g_strfreev (words);
+          continue;
+        }
+
       /* objgroup A1:D10; objungroup A1:D10 -- "group" is taken by the
        * outline grouping of rows and columns. */
       if (g_str_has_prefix (text, "objgroup ") || g_str_has_prefix (text, "objungroup "))
@@ -1125,8 +1746,17 @@ main (int argc, char *argv[])
                   const O42Picture *pic = g_ptr_array_index (list, i);
                   char *at = o42_ref_name (pic->row, pic->col);
 
-                  printf ("picture %u: %s at %s %gx%g\n", pic->id,
+                  printf ("picture %u: %s at %s %gx%g", pic->id,
                           pic->format != NULL ? pic->format : "?", at, pic->width, pic->height);
+                  if (pic->rotation != 0 || pic->flip_h || pic->flip_v)
+                    printf (" turned %g%s%s", pic->rotation, pic->flip_h ? " flip-h" : "", pic->flip_v ? " flip-v" : "");
+                  if (pic->crop_l > 0 || pic->crop_r > 0 || pic->crop_t > 0 || pic->crop_b > 0)
+                    printf (" crop %g %g %g %g", pic->crop_l, pic->crop_t, pic->crop_r, pic->crop_b);
+                  if (!pic->lock_aspect)
+                    printf (" free");
+                  if (pic->brightness != 0 || pic->contrast != 0)
+                    printf (" brightness %g contrast %g", pic->brightness, pic->contrast);
+                  printf ("\n");
                   g_free (at);
                 }
             }
@@ -1169,15 +1799,57 @@ main (int argc, char *argv[])
                 {
                   const O42Shape *sh = g_ptr_array_index (shapes, i);
                   char *at = o42_ref_name (sh->row, sh->col);
-                  printf ("shape %u: %s at %s %gx%g group %u fill ", sh->id,
-                          o42_shape_kind_name (sh->kind), at, sh->width, sh->height,
+                  printf ("shape %u: %s", sh->id, o42_shape_kind_name (sh->kind));
+                  if (sh->geom != O42_GEOM_RECT)
+                    printf ("/%s", o42_shape_geom_name (sh->geom));
+                  printf (" at %s %gx%g group %u fill ", at, sh->width, sh->height,
                           sh->group);
                   if (sh->fill == O42_FILL_NONE)
                     printf ("none");
                   else
                     printf ("%06X", sh->fill);
-                  printf (" line %06X/%g \"%s\"", sh->line, sh->line_width,
-                          sh->text != NULL ? sh->text : "");
+                  if (sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_GRADIENT)
+                    printf (" gradient %06X %g", sh->fill2, sh->gradient_angle);
+                  else if (sh->fill != O42_FILL_NONE && sh->fill_kind == O42_SHAPE_FILL_PATTERN)
+                    printf (" pattern %s %06X", o42_pattern_name (sh->pattern), sh->fill2);
+                  if (sh->shadow)
+                    printf (" shadow %06X %g,%g", sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
+                  if (sh->anchor != O42_ANCHOR_TWO_CELL)
+                    printf (" %s", o42_anchor_mode_name (sh->anchor));
+                  printf (" line %06X/%g", sh->line, sh->line_width);
+                  if (sh->dash != O42_DASH_SOLID)
+                    printf (" %s", o42_dash_name (sh->dash));
+                  if (sh->rotation != 0 || sh->flip_h || sh->flip_v)
+                    printf (" turned %g%s%s", sh->rotation, sh->flip_h ? " flip-h" : "", sh->flip_v ? " flip-v" : "");
+                  if (sh->head_start != O42_HEAD_NONE || sh->head_end != O42_HEAD_NONE)
+                    printf (" heads %s/%d %s/%d", o42_head_name (sh->head_start), sh->head_start_size,
+                            o42_head_name (sh->head_end), sh->head_end_size);
+                  printf (" \"%s\"", sh->text != NULL ? sh->text : "");
+                  if (sh->path != NULL)
+                    {
+                      printf (" %s", sh->closed ? "closed" : "open");
+                      for (guint k = 0; k < sh->path->len; k++)
+                        {
+                          const O42PathPoint *pt = &g_array_index (sh->path, O42PathPoint, k);
+                          if (pt->op == 'C')
+                            printf (" C%.2f,%.2f;%.2f,%.2f;%.2f,%.2f", pt->x1, pt->y1, pt->x2, pt->y2, pt->x, pt->y);
+                          else
+                            printf (" %c%.2f,%.2f", pt->op, pt->x, pt->y);
+                        }
+                    }
+                  if (sh->font != NULL || sh->font_size > 0 || sh->bold || sh->italic || sh->text_colour != 0 ||
+                      sh->text_halign != O42_HALIGN_GENERAL || sh->text_valign != O42_VALIGN_BOTTOM ||
+                      sh->text_nowrap || sh->text_inset != 4)
+                    {
+                      static const char *const HA[] = { "general", "left", "centre", "right" };
+                      static const char *const VA[] = { "bottom", "middle", "top" };
+                      char *font = o42_shape_font_string (sh);
+
+                      printf (" text %s %06X %s/%s%s inset %g", font, sh->text_colour,
+                              HA[CLAMP (sh->text_halign, 0, 3)], VA[CLAMP (sh->text_valign, 0, 2)],
+                              sh->text_nowrap ? " nowrap" : "", sh->text_inset);
+                      g_free (font);
+                    }
                   if (o42_shape_is_control (sh->kind))
                     {
                       double v = 0;
@@ -1197,20 +1869,54 @@ main (int argc, char *argv[])
           else
             {
               char **words = g_strsplit (text + 6, " ", 3);
-              O42ShapeKind kind;
+              O42ShapeKind kind = O42_SHAPE_RECT;
+              O42ShapeGeom geom = O42_GEOM_RECT;
               int srow, scol;
 
-              if (g_strv_length (words) >= 2 && o42_shape_kind_parse (words[0], &kind) &&
+              if (g_strv_length (words) >= 2 &&
+                  (o42_shape_kind_parse (words[0], &kind) || o42_shape_geom_parse (words[0], &geom)) &&
                   o42_ref_parse (words[1], &srow, &scol, NULL))
                 {
                   O42Shape *sh = o42_sheet_add_shape (sheet, kind, srow, scol);
-                  if (sh != NULL && g_strv_length (words) >= 3)
+                  if (sh != NULL)
+                    sh->geom = geom;
+                  if (sh != NULL && kind == O42_SHAPE_FREEFORM && g_strv_length (words) >= 3)
+                    {
+                      /* shape freeform A1 x,y x,y ...: pixels from the cell's
+                       * corner; a last point on the first closes it. */
+                      char **pts = g_strsplit (words[2], " ", -1);
+                      int n = (int) g_strv_length (pts);
+                      double x0 = G_MAXDOUBLE, y0 = G_MAXDOUBLE, x1 = -G_MAXDOUBLE, y1 = -G_MAXDOUBLE;
+
+                      if (n >= 3 && strcmp (pts[0], pts[n - 1]) == 0)
+                        { sh->closed = TRUE; n--; }
+                      else
+                        sh->fill = O42_FILL_NONE;
+                      for (int k = 0; k < n; k++)
+                        {
+                          double x = g_ascii_strtod (pts[k], NULL), y = g_ascii_strtod (strchr (pts[k], ',') ? strchr (pts[k], ',') + 1 : "0", NULL);
+                          x0 = MIN (x0, x); y0 = MIN (y0, y); x1 = MAX (x1, x); y1 = MAX (y1, y);
+                        }
+                      sh->dx = x0; sh->dy = y0;
+                      sh->width = MAX (x1 - x0, 1); sh->height = MAX (y1 - y0, 1);
+                      for (int k = 0; k < n; k++)
+                        {
+                          double x = g_ascii_strtod (pts[k], NULL), y = g_ascii_strtod (strchr (pts[k], ',') ? strchr (pts[k], ',') + 1 : "0", NULL);
+                          o42_shape_path_add (sh, k == 0 ? 'M' : 'L', (x - x0) / sh->width, (y - y0) / sh->height, 0, 0, 0, 0);
+                        }
+                      g_strfreev (pts);
+                    }
+                  else if (sh != NULL && g_strv_length (words) >= 3)
                     { g_free (sh->text); sh->text = g_strdup (words[2]); }
                 }
               else
                 fprintf (stderr, "usage: shape rectangle|oval|line|arrow|textbox|"
                                  "button|checkbox|option|spinner|scrollbar|listbox|"
-                                 "combo|label|groupbox A1 [TEXT]\n");
+                                 "combo|label|groupbox|roundrect|triangle|rttriangle|"
+                                 "diamond|pentagon|hexagon|octagon|plus|star4|star5|star8|"
+                                 "rightarrow|leftarrow|uparrow|downarrow|leftrightarrow|"
+                                 "rectcallout|ellipsecallout|flowprocess|flowdecision|"
+                                 "flowterminator A1 [TEXT]; shape freeform A1 x,y x,y ...\n");
               g_strfreev (words);
             }
           continue;
@@ -1460,9 +2166,12 @@ main (int argc, char *argv[])
           continue;
         }
 
-      /* calcmode auto|manual; iterate off|on [MAX [TOLERANCE]]; recalc */
+      /* calcmode auto|manual; iterate off|on [MAX [TOLERANCE]]; recalc;
+       * date1904 on|off; precision on|off (as displayed); fixeddecimals
+       * off|PLACES */
       if (g_str_has_prefix (text, "calcmode") || g_str_has_prefix (text, "iterate") ||
-          strcmp (text, "recalc") == 0)
+          strcmp (text, "recalc") == 0 || g_str_has_prefix (text, "date1904") ||
+          g_str_has_prefix (text, "precision") || g_str_has_prefix (text, "fixeddecimals"))
         {
           char **words = g_strsplit (text, " ", -1);
           int n = (int) g_strv_length (words);
@@ -1471,6 +2180,26 @@ main (int argc, char *argv[])
             {
               for (int i = 0; i < o42_book_n_sheets (book); i++)
                 o42_sheet_recalculate (o42_book_sheet (book, i));
+            }
+          else if (g_str_has_prefix (text, "date1904"))
+            {
+              if (n >= 2)
+                o42_book_set_date_1904 (book, strcmp (words[1], "on") == 0);
+              printf ("date system %s\n", o42_book_date_1904 (book) ? "1904" : "1900");
+              for (int i = 0; i < o42_book_n_sheets (book); i++)
+                o42_sheet_recalculate (o42_book_sheet (book, i));
+            }
+          else if (g_str_has_prefix (text, "precision"))
+            {
+              if (n >= 2)
+                o42_book_set_precision_as_displayed (book, strcmp (words[1], "on") == 0);
+              printf ("precision as displayed %s\n", o42_book_precision_as_displayed (book) ? "on" : "off");
+            }
+          else if (g_str_has_prefix (text, "fixeddecimals"))
+            {
+              if (n >= 2)
+                o42_entry_set_fixed_decimals (strcmp (words[1], "off") == 0 ? -1 : atoi (words[1]));
+              printf ("fixed decimals %d\n", o42_entry_fixed_decimals ());
             }
           else if (g_str_has_prefix (text, "calcmode"))
             {
@@ -1548,12 +2277,75 @@ main (int argc, char *argv[])
                 sh->width = number;
               else if (strcmp (words[2], "height") == 0)
                 sh->height = number;
+              else if (strcmp (words[2], "dash") == 0)
+                { if (!o42_dash_parse (words[3], &sh->dash)) fprintf (stderr, "no such dash\n"); }
+              else if (strcmp (words[2], "headstart") == 0)
+                { if (!o42_head_parse (words[3], &sh->head_start)) fprintf (stderr, "no such head\n"); }
+              else if (strcmp (words[2], "headend") == 0)
+                { if (!o42_head_parse (words[3], &sh->head_end)) fprintf (stderr, "no such head\n"); }
+              else if (strcmp (words[2], "headstartsize") == 0)
+                sh->head_start_size = (O42HeadSize) CLAMP ((int) number, 0, 2);
+              else if (strcmp (words[2], "headendsize") == 0)
+                sh->head_end_size = (O42HeadSize) CLAMP ((int) number, 0, 2);
+              else if (strcmp (words[2], "linewidth") == 0)
+                sh->line_width = number;
+              else if (strcmp (words[2], "rotation") == 0)
+                sh->rotation = number;
+              else if (strcmp (words[2], "fliph") == 0)
+                sh->flip_h = number != 0;
+              else if (strcmp (words[2], "flipv") == 0)
+                sh->flip_v = number != 0;
+              else if (strcmp (words[2], "font") == 0)
+                sh->font = g_intern_string (words[3]);
+              else if (strcmp (words[2], "fontsize") == 0)
+                sh->font_size = number;
+              else if (strcmp (words[2], "bold") == 0)
+                sh->bold = number != 0;
+              else if (strcmp (words[2], "italic") == 0)
+                sh->italic = number != 0;
+              else if (strcmp (words[2], "textcolour") == 0)
+                sh->text_colour = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "halign") == 0)
+                sh->text_halign = strcmp (words[3], "left") == 0 ? O42_HALIGN_LEFT : strcmp (words[3], "right") == 0 ? O42_HALIGN_RIGHT
+                                : strcmp (words[3], "centre") == 0 ? O42_HALIGN_CENTRE : O42_HALIGN_GENERAL;
+              else if (strcmp (words[2], "valign") == 0)
+                sh->text_valign = strcmp (words[3], "top") == 0 ? O42_VALIGN_TOP : strcmp (words[3], "middle") == 0 ? O42_VALIGN_MIDDLE : O42_VALIGN_BOTTOM;
+              else if (strcmp (words[2], "nowrap") == 0)
+                sh->text_nowrap = number != 0;
+              else if (strcmp (words[2], "inset") == 0)
+                sh->text_inset = number;
+              else if (strcmp (words[2], "fill") == 0)
+                sh->fill = strcmp (words[3], "none") == 0 ? O42_FILL_NONE : (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "line") == 0)
+                sh->line = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "fillkind") == 0)
+                sh->fill_kind = strcmp (words[3], "gradient") == 0 ? O42_SHAPE_FILL_GRADIENT
+                              : strcmp (words[3], "pattern") == 0 ? O42_SHAPE_FILL_PATTERN : O42_SHAPE_FILL_SOLID;
+              else if (strcmp (words[2], "fill2") == 0)
+                sh->fill2 = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "angle") == 0)
+                sh->gradient_angle = number;
+              else if (strcmp (words[2], "pattern") == 0)
+                { if (!o42_pattern_parse (words[3], &sh->pattern)) fprintf (stderr, "no such pattern\n"); }
+              else if (strcmp (words[2], "shadow") == 0)
+                sh->shadow = number != 0;
+              else if (strcmp (words[2], "shadowcolour") == 0)
+                sh->shadow_colour = (guint32) g_ascii_strtoull (words[3], NULL, 16);
+              else if (strcmp (words[2], "shadowdx") == 0)
+                sh->shadow_dx = number;
+              else if (strcmp (words[2], "shadowdy") == 0)
+                sh->shadow_dy = number;
+              else if (strcmp (words[2], "anchor") == 0)
+                { if (!o42_anchor_mode_parse (words[3], &sh->anchor)) fprintf (stderr, "twoCell, oneCell or absolute\n"); }
               else
                 fprintf (stderr, "no such field\n");
             }
           else
             fprintf (stderr, "usage: controlset ID link|source|script|text|value|"
-                             "min|max|step|page|width|height VALUE\n");
+                             "min|max|step|page|width|height|linewidth|dash|headstart|headend|"
+                             "headstartsize|headendsize|rotation|fliph|flipv|font|fontsize|bold|italic|"
+                             "textcolour|halign|valign|nowrap|inset|fill|line|fillkind|fill2|angle|"
+                             "pattern|shadow|shadowcolour|shadowdx|shadowdy|anchor VALUE\n");
           g_strfreev (words);
           continue;
         }
@@ -1659,9 +2451,10 @@ main (int argc, char *argv[])
               printf ("pattern %s/%06X on ", o42_pattern_name ((O42Pattern) f->pattern),
                       f->pattern_colour);
               if (f->fill == O42_FILL_NONE)
-                printf ("none\n");
+                printf ("none");
               else
-                printf ("%06X\n", f->fill);
+                printf ("%06X", f->fill);
+              printf (" %s%s\n", f->locked ? "locked" : "unlocked", f->hidden ? " hidden" : "");
             }
           continue;
         }
@@ -1942,9 +2735,162 @@ main (int argc, char *argv[])
               if (!o42_book_define_name (book, words[0], sheet, &r))
                 fprintf (stderr, "cannot use %s as a name\n", words[0]);
             }
+          else if (g_strv_length (words) >= 2)
+            {
+              /* A constant, an expression or a LAMBDA: the rest of the line. */
+              const char *formula = text + 5 + strlen (words[0]) + 1;
+
+              if (!o42_book_define_name_formula (book, words[0], formula))
+                fprintf (stderr, "cannot use %s as a name\n", words[0]);
+            }
           else
-            fprintf (stderr, "usage: name TOTAL A1:A5\n");
+            fprintf (stderr, "usage: name TOTAL A1:A5 | name RATE =0.25 | name ADD2 =LAMBDA(a,b,a+b)\n");
           g_strfreev (words);
+          continue;
+        }
+
+      /* createnames A1:D5 top,left,bottom,right and applynames [A1:B9]:
+       * Insert > Name > Create and Apply. */
+      if (g_str_has_prefix (text, "createnames "))
+        {
+          char **words = g_strsplit (text + 12, " ", -1);
+          O42Range r;
+          gsize len = 0;
+
+          if (g_strv_length (words) >= 2 &&
+              o42_ref_parse (words[0], &r.row0, &r.col0, &len) && words[0][len] == ':' &&
+              o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))
+            {
+              r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              printf ("%d names\n",
+                      o42_book_create_names (book, sheet, &r,
+                                             strstr (words[1], "top") != NULL,
+                                             strstr (words[1], "left") != NULL,
+                                             strstr (words[1], "bottom") != NULL,
+                                             strstr (words[1], "right") != NULL));
+            }
+          else
+            fprintf (stderr, "usage: createnames A1:D5 top,left\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      if (strcmp (text, "applynames") == 0 || g_str_has_prefix (text, "applynames "))
+        {
+          O42Range r;
+          gsize len = 0;
+          gboolean ranged = text[10] == ' ' &&
+                            o42_ref_parse (text + 11, &r.row0, &r.col0, &len) && text[11 + len] == ':' &&
+                            o42_ref_parse (text + 11 + len + 1, &r.row1, &r.col1, NULL);
+
+          if (ranged)
+            r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+          printf ("%d formulas\n", o42_sheet_apply_names (sheet, ranged ? &r : NULL, NULL));
+          continue;
+        }
+
+      /* background FILE|none: Format > Sheet > Background. */
+      if (g_str_has_prefix (text, "background "))
+        {
+          if (strcmp (text + 11, "none") == 0)
+            o42_sheet_set_background (sheet, NULL, NULL);
+          else
+            {
+              GFile *f = g_file_new_for_path (text + 11);
+              const char *format = NULL;
+              int w = 0, h = 0;
+              GError *err = NULL;
+              GBytes *bytes = o42_image_load_file (f, &w, &h, &format, &err);
+
+              if (bytes != NULL)
+                {
+                  o42_sheet_set_background (sheet, bytes, format);
+                  printf ("background %dx%d %s\n", w, h, format);
+                  g_bytes_unref (bytes);
+                }
+              else
+                fprintf (stderr, "cannot read %s: %s\n", text + 11, err != NULL ? err->message : "?");
+              g_clear_error (&err);
+              g_object_unref (f);
+            }
+          continue;
+        }
+      if (strcmp (text, "background") == 0)
+        {
+          const char *format = NULL;
+          GBytes *bg = o42_sheet_background (sheet, &format);
+          printf ("%s\n", bg != NULL ? format : "none");
+          continue;
+        }
+
+      /* autocorrect TEXT prints TEXT as typed; correction FROM TO adds to
+       * the list, uncorrect FROM takes one off, corrections lists it, and
+       * autocorrectopt NAME on|off sets an option. */
+      if (g_str_has_prefix (text, "autocorrect "))
+        {
+          char *fixed = o42_book_autocorrect (book, text + 12);
+          printf ("%s\n", fixed != NULL ? fixed : text + 12);
+          g_free (fixed);
+          continue;
+        }
+      if (g_str_has_prefix (text, "correction "))
+        {
+          char **words = g_strsplit (text + 11, " ", 2);
+          if (g_strv_length (words) == 2)
+            o42_book_add_autocorrection (book, words[0], words[1]);
+          else
+            fprintf (stderr, "usage: correction FROM TO\n");
+          g_strfreev (words);
+          continue;
+        }
+      if (g_str_has_prefix (text, "uncorrect "))
+        {
+          if (!o42_book_remove_autocorrection (book, text + 10))
+            fprintf (stderr, "not in the list: %s\n", text + 10);
+          continue;
+        }
+      if (strcmp (text, "corrections") == 0)
+        {
+          for (int i = 0; i < o42_book_n_autocorrections (book); i++)
+            {
+              const char *to = NULL;
+              const char *from = o42_book_autocorrection (book, i, &to);
+              printf ("%s -> %s\n", from, to);
+            }
+          continue;
+        }
+      if (g_str_has_prefix (text, "autocorrectopt "))
+        {
+          char **words = g_strsplit (text + 15, " ", -1);
+          O42AutocorrectOption which;
+          if (g_strv_length (words) == 2 && o42_autocorrect_option_parse (words[0], &which))
+            o42_book_set_autocorrect_option (book, which, strcmp (words[1], "on") == 0);
+          else
+            fprintf (stderr, "usage: autocorrectopt initials|sentences|days|replace on|off\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* prop NAME VALUE sets one of File > Properties; props lists them. */
+      if (g_str_has_prefix (text, "prop "))
+        {
+          char *rest = text + 5;
+          char *space = strchr (rest, ' ');
+          O42Property which;
+
+          if (space != NULL)
+            *space = '\0';
+          if (o42_property_parse (rest, &which))
+            o42_book_set_property (book, which, space != NULL ? g_strstrip (space + 1) : "");
+          else
+            fprintf (stderr, "usage: prop title|subject|author|manager|company|category|keywords|comments VALUE\n");
+          continue;
+        }
+      if (strcmp (text, "props") == 0)
+        {
+          for (int i = 0; i < O42_N_PROPS; i++)
+            if (*o42_book_property (book, (O42Property) i) != '\0')
+              printf ("%s = %s\n", o42_property_name ((O42Property) i), o42_book_property (book, (O42Property) i));
           continue;
         }
 
@@ -1967,6 +2913,8 @@ main (int argc, char *argv[])
                   printf ("%s = %s!%s:%s\n", (char *) l->data, o42_sheet_get_name (target), a, b);
                   g_free (a); g_free (b);
                 }
+              else if (o42_book_lookup_name_formula (book, l->data) != NULL)
+                printf ("%s = =%s\n", (char *) l->data, o42_book_lookup_name_formula (book, l->data));
             }
           g_list_free (names);
           continue;
@@ -2001,8 +2949,10 @@ main (int argc, char *argv[])
               const O42Chart *c = g_ptr_array_index (charts, i);
               char *a = o42_ref_name (c->data.row0, c->data.col0);
               char *b = o42_ref_name (c->data.row1, c->data.col1);
-              printf ("chart %u: %s of %s:%s, series in %s, labels row %d col %d, \"%s\", at %d,%d %gx%g\n",
-                      c->id, o42_chart_kind_name (c->kind), a, b,
+              printf ("chart %u: %s of %s%s%s:%s, series in %s, labels row %d col %d, \"%s\", at %d,%d %gx%g\n",
+                      c->id, o42_chart_kind_name (c->kind),
+                      c->data_sheet != NULL && *c->data_sheet != '\0' ? c->data_sheet : "",
+                      c->data_sheet != NULL && *c->data_sheet != '\0' ? "!" : "", a, b,
                       c->series_in_rows ? "rows" : "columns",
                       c->first_row_labels, c->first_col_labels,
                       c->title ? c->title : "", c->row, c->col, c->width, c->height);
@@ -2155,6 +3105,67 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* splitfixed A1:A9 guess | 5,12,20[:gtsd] cuts at those character
+       * positions (guess works them out from the text), the letters
+       * after the colon saying per column general, text, skip or
+       * date. */
+      if (g_str_has_prefix (text, "splitfixed "))
+        {
+          char **words = g_strsplit (text + 11, " ", 2);
+          O42Range r;
+          gsize len = 0;
+
+          if (words[0] != NULL && words[1] != NULL &&
+              o42_ref_parse (words[0], &r.row0, &r.col0, &len) &&
+              (words[0][len] == '\0' ||
+               (words[0][len] == ':' && o42_ref_parse (words[0] + len + 1, &r.row1, &r.col1, NULL))))
+            {
+              GArray *breaks = g_array_new (FALSE, FALSE, sizeof (int));
+              O42SplitType types[64] = { 0 };
+              gboolean typed = FALSE;
+
+              if (words[0][len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
+              if (strcmp (words[1], "guess") == 0)
+                {
+                  o42_sheet_guess_fixed_breaks (sheet, &r, breaks);
+                  printf ("breaks at");
+                  for (guint i = 0; i < breaks->len; i++)
+                    printf (" %d", g_array_index (breaks, int, i));
+                  printf ("\n");
+                }
+              else
+                {
+                  char *colon = strchr (words[1], ':');
+                  char **nums;
+
+                  if (colon != NULL)
+                    {
+                      *colon++ = '\0';
+                      typed = TRUE;
+                      for (int i = 0; colon[i] != '\0' && i < 64; i++)
+                        types[i] = colon[i] == 't' ? O42_SPLIT_TEXT : colon[i] == 's' ? O42_SPLIT_SKIP
+                                 : colon[i] == 'd' ? O42_SPLIT_DATE : O42_SPLIT_GENERAL;
+                    }
+                  nums = g_strsplit (words[1], ",", -1);
+                  for (int i = 0; nums[i] != NULL; i++)
+                    {
+                      int b = atoi (nums[i]);
+                      if (b > 0)
+                        g_array_append_val (breaks, b);
+                    }
+                  g_strfreev (nums);
+                }
+              printf ("%d rows split\n",
+                      o42_sheet_text_to_columns_fixed (sheet, &r, (const int *) breaks->data,
+                                                       (int) breaks->len, typed ? types : NULL));
+              g_array_unref (breaks);
+            }
+          else
+            fprintf (stderr, "usage: splitfixed A1:A9 guess|5,12[:gts]\n");
+          g_strfreev (words);
+          continue;
+        }
+
       /* pivot A1:C9 ROWFIELD COLFIELD|- DATAFIELD sum|count|average|min|max
        * lays a pivot table out on a new sheet; "refresh" lays the current
        * sheet's pivots out again. */
@@ -2179,22 +3190,33 @@ main (int argc, char *argv[])
               p.data_field = words[3];
               for (guint i = 0; i < G_N_ELEMENTS (aggs); i++)
                 if (strcmp (words[4], aggs[i]) == 0) p.agg = (O42PivotAgg) i;
-              if (g_strv_length (words) >= 6 && strchr (words[5], '=') != NULL)
+              for (guint k = 5; k < g_strv_length (words); k++)
                 {
-                  /* A page filter, Field=Value. */
-                  char *at = strchr (words[5], '=');
-                  *at = '\0';
-                  p.filter_field = words[5];
-                  p.filter_value = at + 1;
+                  if (g_str_has_prefix (words[k], "opts="))
+                    {
+                      /* The further parts: data=Count:Orders|Average:Price;groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=r;dataon=rows */
+                      o42_pivot_options_apply (&p, words[k] + 5);
+                    }
+                  else if (strchr (words[k], '=') != NULL)
+                    {
+                      /* A page filter, Field=Value. */
+                      char *at = strchr (words[k], '=');
+                      *at = '\0';
+                      p.filter_field = words[k];
+                      p.filter_value = at + 1;
+                    }
                 }
               o42_sheet_add_pivot (dest, &p);
               g_strfreev (p.row_fields);
               g_strfreev (p.col_fields);
+              g_strfreev (p.data_fields);
+              g_free (p.groups);
               sheet = dest;
               printf ("pivot on %s\n", o42_sheet_get_name (dest));
             }
           else
-            fprintf (stderr, "usage: pivot A1:C9 Region|Year Quarter|- Sales|=Sales-Costs sum [Field=Value]\n");
+            fprintf (stderr, "usage: pivot A1:C9 Region|Year Quarter|- Sales|=Sales-Costs sum [Field=Value] "
+                             "[opts=data=Count:Orders;groups=Date=y,q,m/Amount=n,0,100;sub=1;grand=rc;dataon=rows]\n");
           g_strfreev (words);
           continue;
         }
@@ -2202,6 +3224,71 @@ main (int argc, char *argv[])
       if (strcmp (text, "refresh") == 0)
         {
           o42_sheet_refresh_pivots (sheet);
+          continue;
+        }
+
+      /* colwidth A 120 / rowheight 3 30: in pixels, as the grid lays them out. */
+      if (g_str_has_prefix (text, "colwidth ") || g_str_has_prefix (text, "rowheight "))
+        {
+          char **w = g_strsplit (text, " ", -1);
+          if (g_strv_length (w) >= 3)
+            {
+              int size = atoi (w[2]);
+              if (text[0] == 'c')
+                {
+                  int crow, ccol;
+                  char *ref = g_strconcat (w[1], "1", NULL);
+                  if (o42_ref_parse (ref, &crow, &ccol, NULL) && size > 0)
+                    o42_sheet_set_col_width (sheet, ccol, size);
+                  g_free (ref);
+                }
+              else if (atoi (w[1]) >= 1 && size > 0)
+                o42_sheet_set_row_height (sheet, atoi (w[1]) - 1, size);
+            }
+          else
+            fprintf (stderr, "usage: colwidth A 120; rowheight 3 30\n");
+          g_strfreev (w);
+          continue;
+        }
+
+      /* euroconvert A1:A5 C1 DEM EUR [formulas] [full] [tri N] */
+      if (g_str_has_prefix (text, "euroconvert "))
+        {
+          char **w = g_strsplit (text + 12, " ", -1);
+          int n = (int) g_strv_length (w);
+          O42Range r;
+          int drow, dcol;
+          gsize len = 0;
+
+          if (n >= 4 && o42_ref_parse (w[0], &r.row0, &r.col0, &len) && w[0][len] == ':' &&
+              o42_ref_parse (w[0] + len + 1, &r.row1, &r.col1, NULL) && o42_ref_parse (w[1], &drow, &dcol, NULL))
+            {
+              gboolean formulas = FALSE, full = FALSE;
+              int tri = 0;
+              for (int i = 4; i < n; i++)
+                {
+                  if (strcmp (w[i], "formulas") == 0) formulas = TRUE;
+                  else if (strcmp (w[i], "full") == 0) full = TRUE;
+                  else if (strcmp (w[i], "tri") == 0 && i + 1 < n) tri = atoi (w[++i]);
+                }
+              printf ("%d cells converted\n", o42_sheet_euro_convert (sheet, &r, drow, dcol, w[2], w[3], formulas, full, tri));
+            }
+          else
+            fprintf (stderr, "usage: euroconvert A1:A5 C1 DEM EUR [formulas] [full] [tri N]\n");
+          g_strfreev (w);
+          continue;
+        }
+
+      /* outlinesettings above|below left|right: where the summaries stand. */
+      if (g_str_has_prefix (text, "outlinesettings"))
+        {
+          gboolean above = o42_sheet_summary_above (sheet), left = o42_sheet_summary_left (sheet);
+          if (strstr (text, "above") != NULL) above = TRUE;
+          if (strstr (text, "below") != NULL) above = FALSE;
+          if (strstr (text, "left") != NULL) left = TRUE;
+          if (strstr (text, "right") != NULL) left = FALSE;
+          o42_sheet_set_outline_settings (sheet, above, left);
+          printf ("summary rows %s, summary columns %s\n", above ? "above" : "below", left ? "left" : "right");
           continue;
         }
 
@@ -2226,6 +3313,40 @@ main (int argc, char *argv[])
             }
           else
             fprintf (stderr, "usage: group rows 2 5 | group cols B D\n");
+          g_strfreev (words);
+          continue;
+        }
+
+      /* autooutline groups what the sums add up; clearoutline takes
+       * every level away; detail show|hide rows|cols N folds or unfolds
+       * the group at row (column) N; outlinelevel rows|cols N is the
+       * level button. */
+      if (strcmp (text, "autooutline") == 0)
+        {
+          printf ("%d groups\n", o42_sheet_auto_outline (sheet));
+          continue;
+        }
+      if (strcmp (text, "clearoutline") == 0)
+        {
+          o42_sheet_clear_outline (sheet);
+          continue;
+        }
+      if (g_str_has_prefix (text, "detail ") || g_str_has_prefix (text, "outlinelevel "))
+        {
+          char **words = g_strsplit (text, " ", -1);
+          int n = g_strv_length (words);
+          gboolean ok = FALSE;
+
+          if (words[0][0] == 'd' && n == 4)
+            ok = o42_sheet_outline_detail (sheet, strcmp (words[2], "rows") == 0,
+                                           atoi (words[3]) - 1, strcmp (words[1], "show") == 0);
+          else if (words[0][0] == 'o' && n == 3)
+            {
+              o42_sheet_outline_to_level (sheet, strcmp (words[1], "rows") == 0, atoi (words[2]));
+              ok = TRUE;
+            }
+          if (!ok)
+            fprintf (stderr, "usage: detail show|hide rows|cols N; outlinelevel rows|cols N\n");
           g_strfreev (words);
           continue;
         }
@@ -2333,7 +3454,7 @@ main (int argc, char *argv[])
           int n = (int) g_strv_length (words);
           O42Validation v;
           gsize len = 0;
-          static const char *kinds[] = { "any", "whole", "decimal", "list", "date", "time", "length" };
+          static const char *kinds[] = { "any", "whole", "decimal", "list", "date", "time", "length", "custom" };
           static const char *ops[] = { "between", "!between", "=", "<>", ">", "<", ">=", "<=" };
 
           memset (&v, 0, sizeof v);
@@ -2348,7 +3469,7 @@ main (int argc, char *argv[])
               v.range = o42_range_normalise (v.range.row0, v.range.col0, v.range.row1, v.range.col1);
               for (guint i = 0; i < G_N_ELEMENTS (kinds); i++)
                 if (strcmp (words[1], kinds[i]) == 0) v.kind = (O42ValidKind) i;
-              if (v.kind == O42_VALID_LIST)
+              if (v.kind == O42_VALID_LIST || v.kind == O42_VALID_CUSTOM)
                 v.value = words[2], next = 3;
               else
                 {
@@ -2359,12 +3480,36 @@ main (int argc, char *argv[])
                   if ((v.op == O42_COND_BETWEEN || v.op == O42_COND_NOT_BETWEEN) && n > 4)
                     v.value2 = words[4], next = 5;
                 }
+              /* The message may carry title=... prompt=... prompttitle=...
+               * style=stop|warning|info words before the text. */
               for (int i = next; i < n; i++)
                 {
-                  if (msg->len > 0) g_string_append_c (msg, ' ');
-                  g_string_append (msg, words[i]);
+                  /* style=stop|warning|info title=... prompt=Title|Text nodrop noerror
+                   * noblank, or words of the message. */
+                  if (g_str_has_prefix (words[i], "style="))
+                    v.style = strcmp (words[i] + 6, "warning") == 0 ? O42_VALID_WARNING
+                            : strcmp (words[i] + 6, "info") == 0 ? O42_VALID_INFORMATION : O42_VALID_STOP;
+                  else if (g_str_has_prefix (words[i], "title="))
+                    v.title = words[i] + 6;
+                  else if (g_str_has_prefix (words[i], "prompt="))
+                    {
+                      char *bar = strchr (words[i] + 7, '|');
+                      if (bar != NULL) { *bar = '\0'; v.prompt_title = words[i] + 7; v.prompt = bar + 1; }
+                      else v.prompt = words[i] + 7;
+                    }
+                  else if (strcmp (words[i], "nodrop") == 0) v.no_dropdown = TRUE;
+                  else if (strcmp (words[i], "noerror") == 0) v.no_error = TRUE;
+                  else if (strcmp (words[i], "noblank") == 0) v.allow_blank = FALSE;
+                  else
+                    {
+                      if (msg->len > 0) g_string_append_c (msg, ' ');
+                      g_string_append (msg, words[i]);
+                    }
                 }
               v.message = msg->str;
+              for (char *q = v.prompt; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
+              for (char *q = v.prompt_title; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
+              for (char *q = v.title; q != NULL && *q != '\0'; q++) if (*q == '_') *q = ' ';
               o42_sheet_add_validation (sheet, &v);
               g_string_free (msg, TRUE);
             }
@@ -2387,6 +3532,24 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* invalid: the cells whose rule their value breaks, as Circle Invalid Data marks them. */
+      if (strcmp (text, "invalid") == 0)
+        {
+          O42Range extent;
+          int n_bad = 0;
+          o42_sheet_used_range (sheet, &extent);
+          for (int r = extent.row0; r <= extent.row1; r++)
+            for (int c = extent.col0; c <= extent.col1; c++)
+              if (o42_sheet_cell_invalid (sheet, r, c))
+                {
+                  char *ref = o42_ref_name (r, c);
+                  printf ("%s%s", n_bad++ > 0 ? " " : "", ref);
+                  g_free (ref);
+                }
+          printf ("%s\n", n_bad > 0 ? "" : "none");
+          continue;
+        }
+
       if (strcmp (text, "validations") == 0)
         {
           GArray *rules = o42_sheet_validations (sheet);
@@ -2395,8 +3558,11 @@ main (int argc, char *argv[])
               const O42Validation *v = &g_array_index (rules, O42Validation, i);
               char *a = o42_ref_name (v->range.row0, v->range.col0);
               char *b = o42_ref_name (v->range.row1, v->range.col1);
-              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\"\n",
-                      a, b, (int) v->kind, (int) v->op, v->value, v->value2, v->allow_blank, v->message);
+              static const char *const styles[] = { "stop", "warning", "info" };
+              printf ("%s:%s kind %d op %d value \"%s\" value2 \"%s\" blank %d message \"%s\" style %s title \"%s\" prompt \"%s|%s\"%s%s\n",
+                      a, b, (int) v->kind, (int) v->op, v->value, v->value2, v->allow_blank, v->message,
+                      styles[CLAMP (v->style, 0, 2)], v->title ? v->title : "", v->prompt_title ? v->prompt_title : "",
+                      v->prompt ? v->prompt : "", v->no_dropdown ? " nodrop" : "", v->no_error ? " noerror" : "");
               g_free (a);
               g_free (b);
             }
@@ -2404,6 +3570,38 @@ main (int argc, char *argv[])
         }
 
       /* cond A1:A9 > 5 [bold] [italic] [red] [fill]; uncond A1:A9 */
+      /* scale A1:A10 [2|3]: Excel's colour scale, red to green with
+       * yellow between for three stops. */
+      if (g_str_has_prefix (text, "scale "))
+        {
+          O42Condition c;
+          gsize len = 0;
+          char **words = g_strsplit (text + 6, " ", -1);
+
+          memset (&c, 0, sizeof c);
+          o42_fmt_init_default (&c.fmt);
+          if (g_strv_length (words) >= 1 &&
+              o42_ref_parse (words[0], &c.range.row0, &c.range.col0, &len) && words[0][len] == ':' &&
+              o42_ref_parse (words[0] + len + 1, &c.range.row1, &c.range.col1, NULL))
+            {
+              gboolean three = words[1] != NULL && strcmp (words[1], "3") == 0;
+
+              c.kind = O42_COND_SCALE;
+              c.stops = three ? 3 : 2;
+              c.stop_type[0] = O42_SCALE_MIN;   c.stop_colour[0] = 0xF8696B;
+              if (three)
+                { c.stop_type[1] = O42_SCALE_PERCENTILE; c.stop_value[1] = 50; c.stop_colour[1] = 0xFFEB84;
+                  c.stop_type[2] = O42_SCALE_MAX; c.stop_colour[2] = 0x63BE7B; }
+              else
+                { c.stop_type[1] = O42_SCALE_MAX; c.stop_colour[1] = 0x63BE7B; }
+              o42_sheet_add_condition (sheet, &c);
+            }
+          else
+            fprintf (stderr, "usage: scale A1:A10 [2|3]\n");
+          g_strfreev (words);
+          continue;
+        }
+
       if (g_str_has_prefix (text, "cond "))
         {
           char **words = g_strsplit (text + 5, " ", -1);
@@ -2422,10 +3620,18 @@ main (int argc, char *argv[])
               c.op = O42_COND_GREATER;
               for (int i = 0; i < 8; i++)
                 if (strcmp (words[1], ops[i]) == 0) c.op = (O42CondOp) i;
-              c.value = g_ascii_strtod (words[2], NULL);
+              /* An operand starting with = is a formula; "formula" as the
+               * operator makes the rule a formula of its own. */
+              if (strcmp (words[1], "formula") == 0)
+                { c.is_formula = TRUE; c.expr1 = g_intern_string (words[2]); }
+              else if (words[2][0] == '=')
+                c.expr1 = g_intern_string (words[2]);
+              else
+                c.value = g_ascii_strtod (words[2], NULL);
               o42_fmt_init_default (&c.fmt);
               for (int i = 3; i < n; i++)
                 {
+                  if (words[i][0] == '=' && i == 3) { c.expr2 = g_intern_string (words[i]); continue; }
                   if (strcmp (words[i], "bold") == 0)   { c.fmt.bold = 1; c.mask |= O42_FMT_BOLD; }
                   if (strcmp (words[i], "italic") == 0) { c.fmt.italic = 1; c.mask |= O42_FMT_ITALIC; }
                   if (strcmp (words[i], "red") == 0)    { c.fmt.colour = 0xC00000; c.mask |= O42_FMT_COLOUR; }
@@ -2459,8 +3665,13 @@ main (int argc, char *argv[])
             {
               const O42Condition *c = &g_array_index (conds, O42Condition, i);
               char *a = o42_ref_name (c->range.row0, c->range.col0), *b = o42_ref_name (c->range.row1, c->range.col1);
-              printf ("%s:%s op %d value %g mask %u bold %d colour %06X fill %08X\n", a, b, (int) c->op,
+              printf ("%s:%s op %d value %g mask %u bold %d colour %06X fill %08X", a, b, (int) c->op,
                       c->value, (unsigned) c->mask, c->fmt.bold, c->fmt.colour, c->fmt.fill);
+              if (c->is_formula) printf (" formula %s", c->expr1 != NULL ? c->expr1 : "");
+              else if (c->expr1 != NULL) printf (" expr1 %s", c->expr1);
+              if (c->expr2 != NULL) printf (" expr2 %s", c->expr2);
+              if (c->mask & O42_FMT_NUMBER) printf (" number %d/%s", (int) c->fmt.number, c->fmt.custom != NULL ? c->fmt.custom : "-");
+              printf ("\n");
               g_free (a); g_free (b);
             }
           continue;
@@ -2579,15 +3790,14 @@ main (int argc, char *argv[])
        * titlerows N; pdf PATH */
       if (g_str_has_prefix (text, "printarea "))
         {
-          O42Range r;
-          gsize len = 0;
+          O42Range areas[O42_PRINT_AREAS_MAX];
+          int n = 0;
           if (strcmp (text + 10, "clear") == 0)
             o42_sheet_set_print_area (sheet, NULL);
-          else if (o42_ref_parse (text + 10, &r.row0, &r.col0, &len) && text[10 + len] == ':' &&
-                   o42_ref_parse (text + 11 + len, &r.row1, &r.col1, NULL))
-            o42_sheet_set_print_area (sheet, &r);
+          else if (o42_print_areas_parse (text + 10, areas, &n) && n > 0)
+            o42_sheet_set_print_areas (sheet, areas, n);
           else
-            fprintf (stderr, "usage: printarea A1:C9|clear\n");
+            fprintf (stderr, "usage: printarea A1:C9[,E1:F9]|clear\n");
           continue;
         }
       if (g_str_has_prefix (text, "header ") || g_str_has_prefix (text, "footer "))
@@ -2595,14 +3805,30 @@ main (int argc, char *argv[])
           o42_sheet_set_header_footer (sheet, text[0] == 'h' ? text + 7 : NULL, text[0] == 'f' ? text + 7 : NULL);
           continue;
         }
-      if (g_str_has_prefix (text, "printopt ") || g_str_has_prefix (text, "titlerows "))
+      /* titlerows 2 | titlerows 5:6 | titlerows none; titlecols A:B */
+      if (g_str_has_prefix (text, "titlerows ") || g_str_has_prefix (text, "titlecols "))
+        {
+          const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+          gboolean rows = text[5] == 'r';
+          int first = 0, count = 0;
+          const char *spec = strcmp (text + 10, "none") == 0 ? "" : text + 10;
+
+          if (!o42_print_titles_parse (spec, rows, &first, &count))
+            { fprintf (stderr, "usage: titlerows 5:6|2|none; titlecols A:B|none\n"); continue; }
+          if (rows)
+            o42_sheet_set_print_title_ranges (sheet, first, first + count - 1,
+                                              ps->title_col_first, ps->title_col_first + ps->title_cols - 1);
+          else
+            o42_sheet_set_print_title_ranges (sheet, ps->title_row_first, ps->title_row_first + ps->title_rows - 1,
+                                              first, first + count - 1);
+          continue;
+        }
+      if (g_str_has_prefix (text, "printopt "))
         {
           const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
           gboolean gridlines = ps->gridlines, headings = ps->headings;
           int titles = ps->title_rows;
-          if (text[0] == 't')
-            titles = atoi (text + 10);
-          else if (g_str_has_prefix (text + 9, "gridlines "))
+          if (g_str_has_prefix (text + 9, "gridlines "))
             gridlines = strcmp (text + 19, "on") == 0;
           else if (g_str_has_prefix (text + 9, "headings "))
             headings = strcmp (text + 18, "on") == 0;
@@ -2635,19 +3861,96 @@ main (int argc, char *argv[])
           continue;
         }
 
+      /* pageopt landscape on|off; pageopt paper A4|Letter|...; pageopt margins L R T B [HEADER FOOTER];
+       * pageopt center none|h|v|both; pageopt order down|over; pageopt firstpage N;
+       * pageopt bw|draft on|off; pageopt notes none|end|inplace; pageopt errors shown|blank|dashes|na;
+       * pageopt titlecols N */
+      if (g_str_has_prefix (text, "pageopt "))
+        {
+          O42PrintSetup ps = *o42_sheet_print_setup (sheet);
+          char **w = g_strsplit (text + 8, " ", -1);
+          int n = (int) g_strv_length (w);
+          gboolean on = n >= 2 && strcmp (w[1], "on") == 0;
+          gboolean ok = n >= 2;
+
+          if (!ok)
+            ;
+          else if (strcmp (w[0], "landscape") == 0) ps.landscape = on;
+          else if (strcmp (w[0], "paper") == 0)
+            {
+              ps.paper = o42_paper_from_name (w[1]);
+              ok = ps.paper != 0;
+            }
+          else if (strcmp (w[0], "margins") == 0 && n >= 5)
+            {
+              ps.margin_left = g_ascii_strtod (w[1], NULL);
+              ps.margin_right = g_ascii_strtod (w[2], NULL);
+              ps.margin_top = g_ascii_strtod (w[3], NULL);
+              ps.margin_bottom = g_ascii_strtod (w[4], NULL);
+              if (n >= 7)
+                {
+                  ps.margin_header = g_ascii_strtod (w[5], NULL);
+                  ps.margin_footer = g_ascii_strtod (w[6], NULL);
+                }
+            }
+          else if (strcmp (w[0], "center") == 0)
+            {
+              ps.hcenter = strcmp (w[1], "h") == 0 || strcmp (w[1], "both") == 0;
+              ps.vcenter = strcmp (w[1], "v") == 0 || strcmp (w[1], "both") == 0;
+            }
+          else if (strcmp (w[0], "order") == 0) ps.down_then_over = strcmp (w[1], "down") == 0;
+          else if (strcmp (w[0], "firstpage") == 0) ps.first_page = atoi (w[1]);
+          else if (strcmp (w[0], "bw") == 0) ps.black_white = on;
+          else if (strcmp (w[0], "draft") == 0) ps.draft = on;
+          else if (strcmp (w[0], "titlecols") == 0) ps.title_cols = atoi (w[1]);
+          else if (strcmp (w[0], "notes") == 0)
+            ps.notes = strcmp (w[1], "end") == 0 ? O42_PRINT_NOTES_AT_END
+                     : strcmp (w[1], "inplace") == 0 ? O42_PRINT_NOTES_IN_PLACE : O42_PRINT_NOTES_NONE;
+          else if (strcmp (w[0], "errors") == 0)
+            ps.errors = strcmp (w[1], "blank") == 0 ? O42_PRINT_ERRORS_BLANK
+                      : strcmp (w[1], "dashes") == 0 ? O42_PRINT_ERRORS_DASHES
+                      : strcmp (w[1], "na") == 0 ? O42_PRINT_ERRORS_NA : O42_PRINT_ERRORS_SHOWN;
+          else
+            ok = FALSE;
+          if (ok)
+            o42_sheet_set_print_setup (sheet, &ps);
+          else
+            fprintf (stderr, "usage: pageopt landscape|bw|draft on|off; paper A4; margins L R T B [H F]; "
+                             "center none|h|v|both; order down|over; firstpage N; titlecols N; "
+                             "notes none|end|inplace; errors shown|blank|dashes|na\n");
+          g_strfreev (w);
+          continue;
+        }
+
       if (strcmp (text, "printsetup") == 0)
         {
           const O42PrintSetup *ps = o42_sheet_print_setup (sheet);
+          static const char *const notes[] = { "none", "end", "inplace" };
+          static const char *const errors[] = { "shown", "blank", "dashes", "na" };
           if (ps->has_area)
             {
-              char *x = o42_ref_name (ps->area.row0, ps->area.col0), *y = o42_ref_name (ps->area.row1, ps->area.col1);
-              printf ("area %s:%s\n", x, y);
-              g_free (x); g_free (y);
+              char *areas = o42_print_areas_text (ps);
+              printf ("area %s\n", areas);
+              g_free (areas);
             }
-          printf ("header \"%s\"\nfooter \"%s\"\ngridlines %s\nheadings %s\ntitlerows %d\n",
-                  ps->header ? ps->header : "", ps->footer ? ps->footer : "",
-                  ps->gridlines ? "on" : "off", ps->headings ? "on" : "off", ps->title_rows);
-          printf ("scale %d fit %dx%d margin %g\n", ps->scale, ps->fit_wide, ps->fit_tall, ps->margin);
+          {
+            char *tr = o42_print_titles_text (ps->title_row_first, ps->title_rows, TRUE);
+            char *tc = o42_print_titles_text (ps->title_col_first, ps->title_cols, FALSE);
+            printf ("header \"%s\"\nfooter \"%s\"\ngridlines %s\nheadings %s\ntitlerows %s titlecols %s\n",
+                    ps->header ? ps->header : "", ps->footer ? ps->footer : "",
+                    ps->gridlines ? "on" : "off", ps->headings ? "on" : "off",
+                    *tr ? tr : "none", *tc ? tc : "none");
+            g_free (tr); g_free (tc);
+          }
+          printf ("scale %d fit %dx%d\n", ps->scale, ps->fit_wide, ps->fit_tall);
+          printf ("paper %s %s margins %g %g %g %g header %g footer %g center %s order %s firstpage %d\n",
+                  o42_paper_name (ps->paper), ps->landscape ? "landscape" : "portrait",
+                  ps->margin_left, ps->margin_right, ps->margin_top, ps->margin_bottom,
+                  ps->margin_header, ps->margin_footer,
+                  ps->hcenter && ps->vcenter ? "both" : ps->hcenter ? "h" : ps->vcenter ? "v" : "none",
+                  ps->down_then_over ? "down" : "over", ps->first_page);
+          printf ("bw %s draft %s notes %s errors %s\n", ps->black_white ? "on" : "off",
+                  ps->draft ? "on" : "off", notes[CLAMP (ps->notes, 0, 2)], errors[CLAMP (ps->errors, 0, 3)]);
           {
             GArray *rb = o42_sheet_page_breaks (sheet, TRUE), *cb = o42_sheet_page_breaks (sheet, FALSE);
             printf ("breaks rows");
@@ -2656,18 +3959,6 @@ main (int argc, char *argv[])
             for (guint i = 0; i < cb->len; i++) printf (" %d", g_array_index (cb, int, i) + 1);
             printf ("\n");
           }
-          continue;
-        }
-      if (g_str_has_prefix (text, "pdf "))
-        {
-          GFile *file = g_file_new_for_path (text + 4);
-          GError *error = NULL;
-          if (!o42_pdf_export (sheet, file, &error))
-            {
-              fprintf (stderr, "%s\n", error ? error->message : "failed");
-              g_clear_error (&error);
-            }
-          g_object_unref (file);
           continue;
         }
 
@@ -2755,7 +4046,9 @@ main (int argc, char *argv[])
 
       if (g_str_has_prefix (text, "copy ") ||
           g_str_has_prefix (text, "filldown ") ||
-          g_str_has_prefix (text, "fillright "))
+          g_str_has_prefix (text, "fillright ") ||
+          g_str_has_prefix (text, "fillup ") ||
+          g_str_has_prefix (text, "fillleft "))
         {
           char **words = g_strsplit (text, " ", -1);
           int n = (int) g_strv_length (words);
@@ -2777,7 +4070,11 @@ main (int argc, char *argv[])
               r = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
 
               if (words[0][0] == 'f')
-                o42_sheet_fill (sheet, &r, strcmp (words[0], "filldown") == 0);
+                o42_sheet_fill_direction (sheet, &r,
+                                          strcmp (words[0], "filldown") == 0 ? O42_FILL_DOWN
+                                          : strcmp (words[0], "fillright") == 0 ? O42_FILL_RIGHT
+                                          : strcmp (words[0], "fillup") == 0 ? O42_FILL_UP
+                                          : O42_FILL_LEFT);
               else if (n >= 3 && o42_ref_parse (words[2], &trow, &tcol, NULL))
                 o42_sheet_copy_range (sheet, &r, trow, tcol);
               else
@@ -2834,7 +4131,20 @@ main (int argc, char *argv[])
                 continue;
               }
           }
-          o42_sheet_set_input (sheet, row, col, eq);
+          {
+            char *fixed = o42_sheet_typed_input (sheet, row, col, eq);
+            o42_sheet_set_input (sheet, row, col, fixed != NULL ? fixed : eq);
+            g_free (fixed);
+          }
+          {
+            /* Typed by hand, as far as a script's on_change is concerned. */
+            O42Range one = { row, col, row, col };
+            char *said = NULL;
+            o42_python_fire (book, "change", sheet, &one, &said);
+            if (said != NULL)
+              fputs (said, stdout);
+            g_free (said);
+          }
         }
       else if (*eq == '\0')
         {

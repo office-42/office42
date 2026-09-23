@@ -6,13 +6,19 @@
 
 #include "o42-window-private.h"
 
+#ifdef G_OS_WIN32
+#include <windows.h>
+#endif
+
 #include "o42-analysis.h"
 #include "o42-book.h"
 #include "o42-eval.h"
+#include "o42-eval-steps.h"
 #include "o42-formula.h"
 #include "o42-python.h"
 #include "o42-spell.h"
 #include "o42-types.h"
+#include "o42-entry.h"
 
 #include <glib/gi18n.h>
 #include <math.h>
@@ -126,6 +132,286 @@ action_goal_seek (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_grab_focus (prompt->value);
 }
 
+
+/* ---- File > New from Template ------------------------------------------ */
+
+/* The folders templates are looked for in: the one the build names,
+ * the share folder beside the program (the Windows and macOS bundles),
+ * the source tree's data folder when running from a build, and the
+ * user's own.  Each is a .gnumeric whose file name, less the
+ * extension and with dashes as spaces, is what the list shows. */
+static GPtrArray *
+template_folders (void)
+{
+  GPtrArray *folders = g_ptr_array_new_with_free_func (g_free);
+  char *exe = NULL;
+
+#ifdef O42_TEMPLATEDIR
+  g_ptr_array_add (folders, g_strdup (O42_TEMPLATEDIR));
+#endif
+#ifdef G_OS_WIN32
+  {
+    wchar_t path[MAX_PATH];
+    if (GetModuleFileNameW (NULL, path, MAX_PATH) > 0)
+      exe = g_utf16_to_utf8 (path, -1, NULL, NULL, NULL);
+  }
+#else
+  exe = g_file_read_link ("/proc/self/exe", NULL);
+#endif
+  if (exe != NULL)
+    {
+      char *bin = g_path_get_dirname (exe);
+      g_ptr_array_add (folders, g_build_filename (bin, "..", "share", "office42", "templates", NULL));
+      g_ptr_array_add (folders, g_build_filename (bin, "..", "..", "data", "templates", NULL));
+      g_free (bin);
+      g_free (exe);
+    }
+  g_ptr_array_add (folders, g_build_filename (g_get_user_data_dir (), "office42", "templates", NULL));
+  return folders;
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+  GPtrArray *paths;    /* char*, one per row */
+} TemplatePrompt;
+
+static void
+on_template_open (GtkWidget *w, gpointer data)
+{
+  TemplatePrompt *prompt = data;
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+  O42Window *self = prompt->window;
+  GtkWidget *target;
+  GFile *file;
+
+  (void) w;
+  if (row == NULL)
+    return;
+  file = g_file_new_for_path (g_ptr_array_index (prompt->paths, gtk_list_box_row_get_index (row)));
+  /* Into this window when it is still blank, else a new one; the book
+   * is untitled afterwards, as a template's copy should be. */
+  target = o42_window_is_blank (self) ? GTK_WIDGET (self)
+           : o42_window_new (gtk_window_get_application (GTK_WINDOW (self)));
+  if (o42_window_open_file (O42_WINDOW (target), file))
+    {
+      o42_window_forget_file (O42_WINDOW (target));
+      o42_book_set_scripts_trusted (O42_WINDOW (target)->book, TRUE);
+      gtk_revealer_set_reveal_child (GTK_REVEALER (O42_WINDOW (target)->scripts_bar), FALSE);
+    }
+  g_object_unref (file);
+  gtk_window_present (GTK_WINDOW (target));
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_template_row_activated (GtkListBox *box, GtkListBoxRow *row, gpointer data)
+{
+  (void) box; (void) row;
+  on_template_open (NULL, data);
+}
+
+static void
+on_template_destroy (gpointer data)
+{
+  TemplatePrompt *prompt = data;
+  g_ptr_array_unref (prompt->paths);
+  g_free (prompt);
+}
+
+static int
+compare_paths (gconstpointer a, gconstpointer b)
+{
+  return g_utf8_collate (*(const char *const *) a, *(const char *const *) b);
+}
+
+void
+action_new_from_template (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  TemplatePrompt *prompt = g_new0 (TemplatePrompt, 1);
+  GtkWidget *content, *buttons, *scroller, *ok;
+  GPtrArray *folders = template_folders ();
+  GHashTable *seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->paths = g_ptr_array_new_with_free_func (g_free);
+  prompt->dialog = dialog_frame (self, _("New from Template"), TRUE, &content, &buttons);
+
+  for (guint i = 0; i < folders->len; i++)
+    {
+      GDir *dir = g_dir_open (g_ptr_array_index (folders, i), 0, NULL);
+      const char *name;
+
+      if (dir == NULL)
+        continue;
+      while ((name = g_dir_read_name (dir)) != NULL)
+        {
+          if (!g_str_has_suffix (name, ".gnumeric") || g_hash_table_contains (seen, name))
+            continue;
+          g_hash_table_add (seen, g_strdup (name));
+          g_ptr_array_add (prompt->paths, g_build_filename (g_ptr_array_index (folders, i), name, NULL));
+        }
+      g_dir_close (dir);
+    }
+  g_ptr_array_sort (prompt->paths, compare_paths);
+
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  for (guint i = 0; i < prompt->paths->len; i++)
+    {
+      char *base = g_path_get_basename (g_ptr_array_index (prompt->paths, i));
+      char *dot = strrchr (base, '.');
+      GtkWidget *label;
+
+      if (dot != NULL) *dot = '\0';
+      for (char *q = base; *q != '\0'; q++)
+        if (*q == '-' || *q == '_') *q = ' ';
+      if (g_ascii_islower (base[0])) base[0] = g_ascii_toupper (base[0]);
+      label = gtk_label_new (base);
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_widget_set_margin_top (label, 4);
+      gtk_widget_set_margin_bottom (label, 4);
+      gtk_widget_set_margin_start (label, 8);
+      gtk_list_box_append (GTK_LIST_BOX (prompt->list), label);
+      g_free (base);
+    }
+  if (prompt->paths->len > 0)
+    gtk_list_box_select_row (GTK_LIST_BOX (prompt->list), gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), 0));
+  g_signal_connect (prompt->list, "row-activated", G_CALLBACK (on_template_row_activated), prompt);
+
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_widget_set_size_request (scroller, 360, 220);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_box_append (GTK_BOX (content), scroller);
+  {
+    char *own = g_build_filename (g_get_user_data_dir (), "office42", "templates", NULL);
+    char *hint = g_strdup_printf (_("A .gnumeric in %s is offered here too."), own);
+    GtkWidget *label = gtk_label_new (hint);
+    gtk_label_set_wrap (GTK_LABEL (label), TRUE);
+    gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+    gtk_label_set_max_width_chars (GTK_LABEL (label), 50);
+    gtk_widget_add_css_class (label, "dim-label");
+    gtk_box_append (GTK_BOX (content), label);
+    g_free (hint);
+    g_free (own);
+  }
+
+  ok = dialog_button (buttons, _("_Open"), G_CALLBACK (on_template_open), prompt);
+  dialog_button (buttons, _("Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  gtk_widget_set_sensitive (ok, prompt->paths->len > 0);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (on_template_destroy), prompt);
+  g_ptr_array_unref (folders);
+  g_hash_table_unref (seen);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Tools > Euro Conversion ------------------------------------------ */
+
+/* Excel's Euro Currency Tools: a range of sums in one member currency
+ * written out in another, as values or as EUROCONVERT formulas. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *source, *dest, *from, *to, *formulas, *full, *tri, *status;
+} EuroPrompt;
+
+static void
+on_euro_ok (GtkWidget *w, gpointer data)
+{
+  EuroPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const char *st = gtk_editable_get_text (GTK_EDITABLE (prompt->source));
+  const char *dt = gtk_editable_get_text (GTK_EDITABLE (prompt->dest));
+  const char **codes;
+  O42Range r;
+  int drow, dcol, n;
+  gsize len = 0;
+
+  (void) w;
+  o42_euro_members (&codes);
+  if (!(o42_ref_parse (st, &r.row0, &r.col0, &len) &&
+        (st[len] == '\0' || (st[len] == ':' && o42_ref_parse (st + len + 1, &r.row1, &r.col1, NULL)))) ||
+      !o42_ref_parse (dt, &drow, &dcol, NULL))
+    {
+      gtk_label_set_text (GTK_LABEL (prompt->status), _("Give a source range and a destination cell."));
+      return;
+    }
+  if (st[len] == '\0') { r.row1 = r.row0; r.col1 = r.col0; }
+  n = o42_sheet_euro_convert (self->sheet, &r, drow, dcol,
+                              codes[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->from))],
+                              codes[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->to))],
+                              gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->formulas)),
+                              gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->full)),
+                              gtk_spin_button_get_value_as_int (GTK_SPIN_BUTTON (prompt->tri)));
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  {
+    char *msg = g_strdup_printf (n == 1 ? _("%d cell converted.") : _("%d cells converted."), n);
+    gtk_label_set_text (GTK_LABEL (prompt->status), msg);
+    g_free (msg);
+  }
+}
+
+void
+action_euro_convert (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  EuroPrompt *prompt = g_new0 (EuroPrompt, 1);
+  GtkWidget *content, *buttons, *grid, *ok;
+  const char **codes;
+  O42Range sel;
+  char *x, *y, *text;
+
+  (void) a; (void) p;
+  o42_euro_members (&codes);
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Euro Conversion"), FALSE, &content, &buttons);
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->source = labelled (grid, 0, _("Source range:"), gtk_entry_new ());
+  prompt->dest = labelled (grid, 1, _("Destination range:"), gtk_entry_new ());
+  prompt->from = labelled (grid, 2, _("From:"), gtk_drop_down_new_from_strings (codes));
+  prompt->to = labelled (grid, 3, _("To:"), gtk_drop_down_new_from_strings (codes));
+  prompt->tri = labelled (grid, 4, _("Triangulation precision:"), gtk_spin_button_new_with_range (0, 15, 1));
+  gtk_box_append (GTK_BOX (content), grid);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->from), 3);   /* DEM */
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->to), 0);     /* EUR */
+
+  o42_grid_get_selection (self->grid, &sel);
+  x = o42_ref_name (sel.row0, sel.col0);
+  y = o42_ref_name (sel.row1, sel.col1);
+  text = g_strdup_printf ("%s:%s", x, y);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->source), text);
+  g_free (text); g_free (y);
+  y = o42_ref_name (sel.row0, MIN (sel.col1 + 2, O42_MAX_COLS - 1));
+  gtk_editable_set_text (GTK_EDITABLE (prompt->dest), y);
+  g_free (x); g_free (y);
+
+  prompt->formulas = gtk_check_button_new_with_mnemonic (_("Write EUROCONVERT _formulas rather than values"));
+  gtk_box_append (GTK_BOX (content), prompt->formulas);
+  prompt->full = gtk_check_button_new_with_mnemonic (_("Full _precision (no rounding to the currency's decimals)"));
+  gtk_box_append (GTK_BOX (content), prompt->full);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Triangulation 0 leaves the euro amount unrounded; 3 to 15 round it on the way.")));
+
+  prompt->status = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->status), 0.0);
+  gtk_box_append (GTK_BOX (content), prompt->status);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_euro_ok), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
 
 /* ---- Tools > Python Console ------------------------------------------- */
 
@@ -368,14 +654,11 @@ o42_scripts_bar_hide (O42Window *self)
 
 /* Runs code the book holds, telling the console if there is one and
  * a message otherwise; TRUE if it got through. */
-gboolean
-o42_window_run_script (O42Window *self, const char *name, const char *code)
+/* What a script (or an event handler) printed, shown in the console
+ * when there is one and in a message otherwise. */
+static void
+script_said (O42Window *self, const char *name, const char *output, gboolean ok)
 {
-  char *output = NULL;
-  gboolean ok = o42_python_run (self->book, self->sheet, code, name, &output);
-
-  o42_grid_refresh (self->grid);
-  window_sync (self);
   if (self->python_console != NULL)
     {
       PyConsole *console = self->python_console;
@@ -392,8 +675,39 @@ o42_window_run_script (O42Window *self, const char *name, const char *code)
       gtk_alert_dialog_show (alert, GTK_WINDOW (self));
       g_object_unref (alert);
     }
+}
+
+gboolean
+o42_window_run_script (O42Window *self, const char *name, const char *code)
+{
+  char *output = NULL;
+  gboolean ok = o42_python_run (self->book, self->sheet, code, name, &output);
+
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  script_said (self, name, output, ok);
   g_free (output);
   return ok;
+}
+
+/* An event a book's script may listen for: "change" of a range,
+ * "selection", "before_save", "open", "close".  Costs nothing when no
+ * handler is registered. */
+void
+o42_window_fire_event (O42Window *self, const char *event, const O42Range *range)
+{
+  char *output = NULL;
+
+  if (!o42_python_available () || self->book == NULL)
+    return;
+  o42_python_fire (self->book, event, range != NULL ? self->sheet : NULL, range, &output);
+  if (output != NULL)
+    {
+      o42_grid_refresh (self->grid);
+      window_sync (self);
+      script_said (self, event, output, strstr (output, "Traceback") == NULL);
+      g_free (output);
+    }
 }
 
 void
@@ -407,9 +721,14 @@ action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data)
   /* This is the user saying the book's Python may run: the scripts
    * now, and the =PY() cells, which are worked out again. */
   o42_book_set_scripts_trusted (self->book, TRUE);
-  /* The names first: a script may add or remove scripts. */
-  for (int i = 0; i < n; i++)
-    g_ptr_array_add (names, g_strdup (o42_book_script_name (self->book, i)));
+  /* A book with an Auto_Open runs that and nothing else, as Excel
+   * does; otherwise every script, in the order they are kept.  The
+   * names first: a script may add or remove scripts. */
+  if (o42_book_script_code (self->book, "Auto_Open") != NULL)
+    g_ptr_array_add (names, g_strdup ("Auto_Open"));
+  else
+    for (int i = 0; i < n; i++)
+      g_ptr_array_add (names, g_strdup (o42_book_script_name (self->book, i)));
   for (guint i = 0; i < names->len; i++)
     {
       const char *code = o42_book_script_code (self->book, g_ptr_array_index (names, i));
@@ -421,6 +740,9 @@ action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data)
     o42_sheet_touch_volatiles (o42_book_sheet (self->book, i));
   o42_window_tell_book (self, "cells");
   scripts_bar_hide (self);
+  /* The scripts have run, so their handlers are registered: the book
+   * is open, as far as a Workbook_Open is concerned. */
+  o42_window_fire_event (self, "open", NULL);
 }
 
 typedef struct {
@@ -429,8 +751,24 @@ typedef struct {
   GtkWidget *list;      /* GtkListBox of names */
   GtkWidget *name;      /* GtkEntry */
   GtkWidget *view;      /* GtkTextView with the code */
+  GtkWidget *output;    /* GtkTextView: what the script printed */
+  GtkWidget *variables; /* GtkTextView: the paused frame's locals */
+  GtkWidget *step, *go, *stop, *run;
+  GtkTextTag *current_tag, *breakpoint_tag;
+  GArray    *breakpoints;   /* int, line numbers from 1, of the script on show */
   gboolean   filling;
+
+  /* The debugger: a script is running under the tracer, and may be
+   * paused waiting for a button. */
+  gboolean   running;
+  gboolean   paused;
+  int        command;       /* 0 none yet; 1 go on, 2 step, 3 stop */
+  gboolean   closed;        /* the dialog went while the script ran */
 } ScriptsPrompt;
+
+static void scripts_show_output (ScriptsPrompt *prompt, const char *text, gboolean ok);
+static void scripts_mark_breakpoints (ScriptsPrompt *prompt);
+static gboolean scripts_save (ScriptsPrompt *prompt);
 
 static char *
 scripts_view_text (ScriptsPrompt *prompt)
@@ -472,22 +810,285 @@ on_scripts_row_selected (GtkListBox *list, GtkListBoxRow *row, gpointer data)
   const char *sname, *code;
   (void) list;
 
-  if (prompt->filling || row == NULL)
+  if (prompt->filling || row == NULL || prompt->running)
     return;
   sname = o42_book_script_name (prompt->window->book, gtk_list_box_row_get_index (row));
   code = sname != NULL ? o42_book_script_code (prompt->window->book, sname) : NULL;
   gtk_editable_set_text (GTK_EDITABLE (prompt->name), sname != NULL ? sname : "");
   gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view)), code != NULL ? code : "", -1);
+  g_array_set_size (prompt->breakpoints, 0);
+  scripts_show_output (prompt, "", TRUE);
+}
+
+/* ---- The step debugger ---- */
+
+static void
+scripts_show_output (ScriptsPrompt *prompt, const char *text, gboolean ok)
+{
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->output));
+
+  gtk_text_buffer_set_text (buffer, text != NULL ? text : "", -1);
+  if (ok)
+    gtk_widget_remove_css_class (prompt->output, "error");
+  else
+    gtk_widget_add_css_class (prompt->output, "error");
+}
+
+/* The breakpoints' lines tinted, and the paused line (0 for none)
+ * highlighted. */
+static void
+scripts_mark_lines (ScriptsPrompt *prompt, int current)
+{
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  GtkTextIter a, b;
+
+  gtk_text_buffer_get_bounds (buffer, &a, &b);
+  gtk_text_buffer_remove_tag (buffer, prompt->current_tag, &a, &b);
+  gtk_text_buffer_remove_tag (buffer, prompt->breakpoint_tag, &a, &b);
+  for (guint i = 0; i < prompt->breakpoints->len; i++)
+    {
+      int line = g_array_index (prompt->breakpoints, int, i);
+
+      if (gtk_text_buffer_get_iter_at_line (buffer, &a, line - 1))
+        {
+          b = a;
+          if (!gtk_text_iter_ends_line (&b))
+            gtk_text_iter_forward_to_line_end (&b);
+          gtk_text_buffer_apply_tag (buffer, prompt->breakpoint_tag, &a, &b);
+        }
+    }
+  if (current > 0 && gtk_text_buffer_get_iter_at_line (buffer, &a, current - 1))
+    {
+      b = a;
+      if (!gtk_text_iter_ends_line (&b))
+        gtk_text_iter_forward_to_line_end (&b);
+      gtk_text_buffer_apply_tag (buffer, prompt->current_tag, &a, &b);
+      gtk_text_view_scroll_to_iter (GTK_TEXT_VIEW (prompt->view), &a, 0.2, FALSE, 0, 0);
+    }
+}
+
+static void
+scripts_mark_breakpoints (ScriptsPrompt *prompt)
+{
+  scripts_mark_lines (prompt, 0);
+}
+
+/* Ctrl+B: a breakpoint on the caret's line, or off again. */
+static void
+scripts_toggle_breakpoint (ScriptsPrompt *prompt)
+{
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  GtkTextIter at;
+  int line;
+
+  gtk_text_buffer_get_iter_at_mark (buffer, &at, gtk_text_buffer_get_insert (buffer));
+  line = gtk_text_iter_get_line (&at) + 1;
+  for (guint i = 0; i < prompt->breakpoints->len; i++)
+    if (g_array_index (prompt->breakpoints, int, i) == line)
+      {
+        g_array_remove_index (prompt->breakpoints, i);
+        scripts_mark_breakpoints (prompt);
+        return;
+      }
+  g_array_append_val (prompt->breakpoints, line);
+  scripts_mark_breakpoints (prompt);
+}
+
+static gboolean
+on_scripts_key (GtkEventControllerKey *controller, guint keyval, guint keycode,
+                GdkModifierType state, gpointer data)
+{
+  (void) controller; (void) keycode;
+  if ((state & GDK_CONTROL_MASK) && (keyval == GDK_KEY_b || keyval == GDK_KEY_B))
+    {
+      scripts_toggle_breakpoint (data);
+      return TRUE;
+    }
+  return FALSE;
+}
+
+static void
+scripts_set_debug_buttons (ScriptsPrompt *prompt)
+{
+  gboolean python = o42_python_available ();
+
+  gtk_widget_set_sensitive (prompt->run, python && !prompt->running);
+  gtk_widget_set_sensitive (prompt->step, python && (!prompt->running || prompt->paused));
+  gtk_widget_set_sensitive (prompt->go, python && (!prompt->running || prompt->paused));
+  gtk_widget_set_sensitive (prompt->stop, prompt->running);
+  gtk_widget_set_sensitive (prompt->list, !prompt->running);
+  gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->view), !prompt->running);
+}
+
+/* The script is on a line and waits: the window's side of the seam. */
+int
+o42_window_debug_pause (O42Window *self, const char *filename, int line, const char *variables)
+{
+  ScriptsPrompt *prompt = self->scripts_prompt;
+  int command;
+
+  (void) filename;
+  if (prompt == NULL || !prompt->running)
+    return 0;
+  prompt->paused = TRUE;
+  prompt->command = 0;
+  scripts_mark_lines (prompt, line);
+  gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->variables)),
+                            variables != NULL ? variables : "", -1);
+  scripts_set_debug_buttons (prompt);
+  o42_grid_refresh (self->grid);
+  /* The dialog's loop, run from here until a button says: the grid
+   * shows what the script has done so far. */
+  while (prompt->command == 0 && !prompt->closed)
+    g_main_context_iteration (NULL, TRUE);
+  command = prompt->closed ? 3 : prompt->command;
+  prompt->paused = FALSE;
+  if (!prompt->closed)
+    {
+      scripts_mark_lines (prompt, 0);
+      scripts_set_debug_buttons (prompt);
+    }
+  return command == 1 ? 0 : command == 2 ? 1 : 2;
+}
+
+/* Runs the script on show under the tracer: stepping from its first
+ * line, or running to the first breakpoint. */
+static void
+scripts_debug (ScriptsPrompt *prompt, gboolean step_first)
+{
+  O42Window *self = prompt->window;
+  char *code, *output = NULL, *sname;
+  gboolean ok;
+
+  if (prompt->running || !scripts_save (prompt))
+    return;
+  code = scripts_view_text (prompt);
+  /* A copy: the entry's own text moves when the list is refilled. */
+  sname = g_strdup (gtk_editable_get_text (GTK_EDITABLE (prompt->name)));
+  prompt->running = TRUE;
+  prompt->closed = FALSE;
+  scripts_set_debug_buttons (prompt);
+  scripts_show_output (prompt, "", TRUE);
+  ok = o42_python_debug (self->book, self->sheet, code, sname,
+                         (const int *) prompt->breakpoints->data, (int) prompt->breakpoints->len,
+                         step_first, &output);
+  if (prompt->closed)
+    {
+      /* The dialog went while the script ran; it waited for this. */
+      g_free (output);
+      g_free (code);
+      g_free (sname);
+      g_array_unref (prompt->breakpoints);
+      g_free (prompt);
+      return;
+    }
+  g_free (sname);
+  prompt->running = FALSE;
+  scripts_mark_lines (prompt, 0);
+  scripts_set_debug_buttons (prompt);
+  scripts_show_output (prompt, output, ok);
+  gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->variables)), "", -1);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  g_free (output);
+  g_free (code);
+}
+
+static void
+on_scripts_step (GtkWidget *w, gpointer data)
+{
+  ScriptsPrompt *prompt = data;
+  (void) w;
+  if (prompt->paused)
+    prompt->command = 2;
+  else
+    scripts_debug (prompt, TRUE);
+}
+
+static void
+on_scripts_go (GtkWidget *w, gpointer data)
+{
+  ScriptsPrompt *prompt = data;
+  (void) w;
+  if (prompt->paused)
+    prompt->command = 1;
+  else
+    scripts_debug (prompt, FALSE);
+}
+
+static void
+on_scripts_stop (GtkWidget *w, gpointer data)
+{
+  ScriptsPrompt *prompt = data;
+  (void) w;
+  if (prompt->paused)
+    prompt->command = 3;
+}
+
+/* Step, Continue and Stop as window actions, so F8 and Shift+F8 work
+ * as they do in Excel's editor, and a script can be driven from the
+ * command line; they open the dialog when it is not. */
+void
+action_script_step (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  if (self->scripts_prompt == NULL)
+    o42_window_edit_script (self, NULL);
+  if (self->scripts_prompt != NULL)
+    on_scripts_step (NULL, self->scripts_prompt);
+}
+
+void
+action_script_continue (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  if (self->scripts_prompt == NULL)
+    o42_window_edit_script (self, NULL);
+  if (self->scripts_prompt != NULL)
+    on_scripts_go (NULL, self->scripts_prompt);
+}
+
+void
+action_script_stop (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  (void) a; (void) p;
+  if (self->scripts_prompt != NULL)
+    on_scripts_stop (NULL, self->scripts_prompt);
+}
+
+static void
+on_scripts_destroy (GtkWidget *w, gpointer data)
+{
+  ScriptsPrompt *prompt = data;
+
+  (void) w;
+  prompt->window->scripts_prompt = NULL;
+  if (prompt->running)
+    {
+      /* A stepped script is still on its line: it is told to stop, and
+       * frees the prompt when it has. */
+      prompt->closed = TRUE;
+      return;
+    }
+  g_array_unref (prompt->breakpoints);
+  g_free (prompt);
 }
 
 static gboolean
 scripts_save (ScriptsPrompt *prompt)
 {
-  const char *sname = gtk_editable_get_text (GTK_EDITABLE (prompt->name));
+  /* A copy of the name: refilling the list selects a row, and that
+   * sets the entry's text, which must not come from the entry's own
+   * buffer. */
+  char *sname = g_strdup (gtk_editable_get_text (GTK_EDITABLE (prompt->name)));
   char *code;
 
   if (*sname == '\0')
     {
+      g_free (sname);
       gtk_widget_grab_focus (prompt->name);
       return FALSE;
     }
@@ -496,6 +1097,7 @@ scripts_save (ScriptsPrompt *prompt)
   g_free (code);
   scripts_fill_list (prompt, sname);
   window_sync (prompt->window);
+  g_free (sname);
   return TRUE;
 }
 
@@ -510,12 +1112,21 @@ static void
 on_scripts_run (GtkWidget *w, gpointer data)
 {
   ScriptsPrompt *prompt = data;
-  char *code;
+  char *code, *output = NULL;
+  gboolean ok;
   (void) w;
-  if (!scripts_save (prompt))
+  if (prompt->running || !scripts_save (prompt))
     return;
   code = scripts_view_text (prompt);
-  window_run_script (prompt->window, gtk_editable_get_text (GTK_EDITABLE (prompt->name)), code);
+  {
+    char *sname = g_strdup (gtk_editable_get_text (GTK_EDITABLE (prompt->name)));
+    ok = o42_python_run (prompt->window->book, prompt->window->sheet, code, sname, &output);
+    g_free (sname);
+  }
+  o42_grid_refresh (prompt->window->grid);
+  window_sync (prompt->window);
+  scripts_show_output (prompt, output, ok);
+  g_free (output);
   g_free (code);
 }
 
@@ -525,10 +1136,13 @@ on_scripts_new (GtkWidget *w, gpointer data)
   ScriptsPrompt *prompt = data;
   char *sname = g_strdup_printf ("Script%d", o42_book_n_scripts (prompt->window->book) + 1);
   (void) w;
+  if (prompt->running)
+    { g_free (sname); return; }
   gtk_list_box_unselect_all (GTK_LIST_BOX (prompt->list));
   gtk_editable_set_text (GTK_EDITABLE (prompt->name), sname);
   gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view)),
                             "import office42\n\n", -1);
+  g_array_set_size (prompt->breakpoints, 0);
   gtk_widget_grab_focus (prompt->view);
   g_free (sname);
 }
@@ -538,6 +1152,8 @@ on_scripts_delete (GtkWidget *w, gpointer data)
 {
   ScriptsPrompt *prompt = data;
   (void) w;
+  if (prompt->running)
+    return;
   if (o42_book_remove_script (prompt->window->book, gtk_editable_get_text (GTK_EDITABLE (prompt->name))))
     {
       gtk_editable_set_text (GTK_EDITABLE (prompt->name), "");
@@ -550,15 +1166,32 @@ on_scripts_delete (GtkWidget *w, gpointer data)
 void
 action_scripts (GSimpleAction *a, GVariant *p, gpointer data)
 {
-  O42Window *self = data;
-  ScriptsPrompt *prompt = g_new0 (ScriptsPrompt, 1);
-  GtkWidget *content, *buttons, *columns, *left, *scroller, *row, *new_button, *run;
-
   (void) a; (void) p;
+  o42_window_edit_script (data, NULL);
+}
+
+/* The Scripts dialog, opened on `which` (or the first script). */
+void
+o42_window_edit_script (O42Window *self, const char *which)
+{
+  ScriptsPrompt *prompt;
+  GtkWidget *content, *buttons, *columns, *left, *scroller, *row, *new_button;
+  int index = 0;
+
+  if (self->scripts_prompt != NULL)
+    {
+      /* One at a time: the open one comes forward. */
+      prompt = self->scripts_prompt;
+      gtk_window_present (GTK_WINDOW (prompt->dialog));
+      return;
+    }
+  prompt = g_new0 (ScriptsPrompt, 1);
+  prompt->breakpoints = g_array_new (FALSE, FALSE, sizeof (int));
+  self->scripts_prompt = prompt;
   prompt->window = self;
   prompt->dialog = dialog_frame (self, _("Scripts in this Book"), FALSE, &content, &buttons);
   gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
-  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 720, 460);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 860, 560);
 
   columns = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_widget_set_vexpand (columns, TRUE);
@@ -594,23 +1227,82 @@ action_scripts (GSimpleAction *a, GVariant *p, gpointer data)
     gtk_widget_set_vexpand (code_scroller, TRUE);
     gtk_widget_set_hexpand (code_scroller, TRUE);
     gtk_widget_add_css_class (code_scroller, "frame");
-    gtk_box_append (GTK_BOX (right), code_scroller);
+    {
+      /* The code with the variables beside it, the output under both:
+       * the debugger's three panes. */
+      GtkWidget *panes = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+      GtkWidget *vars_scroller = gtk_scrolled_window_new ();
+      GtkWidget *out_scroller = gtk_scrolled_window_new ();
+      GtkWidget *upper = gtk_paned_new (GTK_ORIENTATION_VERTICAL);
+      GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+      GtkEventController *keys = gtk_event_controller_key_new ();
+
+      prompt->variables = gtk_text_view_new ();
+      gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->variables), TRUE);
+      gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->variables), FALSE);
+      gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->variables), 6);
+      gtk_text_view_set_top_margin (GTK_TEXT_VIEW (prompt->variables), 4);
+      gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (vars_scroller), prompt->variables);
+      gtk_widget_add_css_class (vars_scroller, "frame");
+      gtk_widget_set_size_request (vars_scroller, 200, -1);
+      gtk_paned_set_start_child (GTK_PANED (panes), code_scroller);
+      gtk_paned_set_end_child (GTK_PANED (panes), vars_scroller);
+      gtk_paned_set_resize_start_child (GTK_PANED (panes), TRUE);
+      gtk_paned_set_resize_end_child (GTK_PANED (panes), FALSE);
+      gtk_paned_set_position (GTK_PANED (panes), 440);
+
+      prompt->output = gtk_text_view_new ();
+      gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->output), TRUE);
+      gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->output), FALSE);
+      gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->output), 6);
+      gtk_text_view_set_top_margin (GTK_TEXT_VIEW (prompt->output), 4);
+      gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (out_scroller), prompt->output);
+      gtk_widget_add_css_class (out_scroller, "frame");
+      gtk_widget_set_size_request (out_scroller, -1, 80);
+      gtk_paned_set_start_child (GTK_PANED (upper), panes);
+      gtk_paned_set_end_child (GTK_PANED (upper), out_scroller);
+      gtk_paned_set_resize_start_child (GTK_PANED (upper), TRUE);
+      gtk_paned_set_resize_end_child (GTK_PANED (upper), FALSE);
+      gtk_paned_set_position (GTK_PANED (upper), 340);
+      gtk_widget_set_vexpand (upper, TRUE);
+      gtk_box_append (GTK_BOX (right), upper);
+
+      prompt->current_tag = gtk_text_buffer_create_tag (buffer, "current", "background", "#FFF3A0",
+                                                        "paragraph-background", "#FFF3A0", NULL);
+      prompt->breakpoint_tag = gtk_text_buffer_create_tag (buffer, "breakpoint", "paragraph-background", "#FFD6D6", NULL);
+      g_signal_connect (keys, "key-pressed", G_CALLBACK (on_scripts_key), prompt);
+      gtk_widget_add_controller (prompt->view, keys);
+    }
+    {
+      GtkWidget *hint = gtk_label_new (_("Ctrl+B sets a breakpoint on the caret's line. Step runs to the next line, "
+                                         "Continue to the next breakpoint; the variables show while the script waits."));
+      gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
+      gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
+      gtk_widget_add_css_class (hint, "dim-label");
+      gtk_box_append (GTK_BOX (right), hint);
+    }
     gtk_box_append (GTK_BOX (columns), right);
   }
   gtk_box_append (GTK_BOX (content), columns);
 
   dialog_button (buttons, _("_Save"), G_CALLBACK (on_scripts_save), prompt);
-  run = dialog_button (buttons, _("_Run"), G_CALLBACK (on_scripts_run), prompt);
-  gtk_widget_set_sensitive (run, o42_python_available ());
+  prompt->run = dialog_button (buttons, _("_Run"), G_CALLBACK (on_scripts_run), prompt);
+  prompt->step = dialog_button (buttons, _("S_tep"), G_CALLBACK (on_scripts_step), prompt);
+  prompt->go = dialog_button (buttons, _("_Continue"), G_CALLBACK (on_scripts_go), prompt);
+  prompt->stop = dialog_button (buttons, _("St_op"), G_CALLBACK (on_scripts_stop), prompt);
+  scripts_set_debug_buttons (prompt);
   dialog_button (buttons, _("_Delete"), G_CALLBACK (on_scripts_delete), prompt);
   dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
-  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_scripts_destroy), prompt);
 
-  scripts_fill_list (prompt, o42_book_script_name (self->book, 0));
+  for (int i = 0; which != NULL && i < o42_book_n_scripts (self->book); i++)
+    if (strcmp (o42_book_script_name (self->book, i), which) == 0)
+      index = i;
+  scripts_fill_list (prompt, o42_book_script_name (self->book, index));
   if (o42_book_n_scripts (self->book) > 0)
     on_scripts_row_selected (GTK_LIST_BOX (prompt->list),
-                             gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), 0), prompt);
+                             gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), index), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
@@ -1189,6 +1881,480 @@ action_clear_arrows (GSimpleAction *a, GVariant *p, gpointer data)
 }
 
 void
+action_trace_error (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+
+  (void) a; (void) p;
+  if (!o42_grid_trace_error (self->grid))
+    gtk_label_set_text (GTK_LABEL (self->status_label),
+                        _("Trace Error wants a cell that shows an error."));
+}
+
+/* ---- Tools > Auditing > Watch Window ----------------------------------- */
+
+/* Excel's Watch Window: a list of cells, wherever they are in the book,
+ * with what they hold, kept up to date as the sheet is worked out.  One
+ * per window, not modal, rebuilt from the book's watches each time the
+ * window syncs. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+} WatchPrompt;
+
+static const char *const WATCH_HEADINGS[] = {
+  N_("Book"), N_("Sheet"), N_("Name"), N_("Cell"), N_("Value"), N_("Formula")
+};
+static const int WATCH_WIDTHS[] = { 90, 90, 90, 60, 110, 220 };
+
+static GtkWidget *
+watch_row (const char *const *cells, gboolean heading)
+{
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+
+  for (int i = 0; i < 6; i++)
+    {
+      GtkWidget *label = gtk_label_new (cells[i]);
+
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
+      gtk_widget_set_size_request (label, WATCH_WIDTHS[i], -1);
+      if (i == 5)
+        gtk_widget_set_hexpand (label, TRUE);
+      if (heading)
+        gtk_widget_add_css_class (label, "heading");
+      gtk_box_append (GTK_BOX (box), label);
+    }
+  gtk_widget_set_margin_start (box, 4);
+  gtk_widget_set_margin_end (box, 4);
+  return box;
+}
+
+/* The name defined for exactly this cell, if any. */
+static char *
+watch_name_of (O42Book *book, O42Sheet *sheet, int row, int col)
+{
+  GList *names = o42_book_names (book);
+  char *found = NULL;
+
+  for (GList *l = names; l != NULL && found == NULL; l = l->next)
+    {
+      O42Sheet *on = NULL;
+      O42Range range;
+
+      if (o42_book_lookup_name (book, l->data, &on, &range) && on == sheet &&
+          range.row0 == row && range.row1 == row && range.col0 == col && range.col1 == col)
+        found = g_strdup (l->data);
+    }
+  g_list_free (names);
+  return found;
+}
+
+static void
+watch_refresh (WatchPrompt *prompt)
+{
+  O42Window *self = prompt->window;
+  GtkWidget *child;
+  int selected = -1;
+  char *book_name = self->file != NULL ? g_file_get_basename (self->file) : g_strdup ("Book1");
+
+  {
+    GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+    if (row != NULL)
+      selected = gtk_list_box_row_get_index (row);
+  }
+  while ((child = gtk_widget_get_first_child (prompt->list)) != NULL)
+    gtk_list_box_remove (GTK_LIST_BOX (prompt->list), child);
+
+  for (int i = 0; i < o42_book_n_watches (self->book); i++)
+    {
+      const O42Watch *watch = o42_book_watch_at (self->book, i);
+      O42Sheet *sheet = o42_book_find_sheet (self->book, watch->sheet);
+      char *cell = o42_ref_name (watch->row, watch->col);
+      char *value = sheet != NULL ? o42_sheet_get_display (sheet, watch->row, watch->col) : g_strdup ("");
+      char *input = sheet != NULL ? o42_sheet_get_input (sheet, watch->row, watch->col) : NULL;
+      char *name = sheet != NULL ? watch_name_of (self->book, sheet, watch->row, watch->col) : NULL;
+      const char *cells[6];
+
+      cells[0] = book_name;
+      cells[1] = watch->sheet;
+      cells[2] = name != NULL ? name : "";
+      cells[3] = cell;
+      cells[4] = value;
+      cells[5] = input != NULL && input[0] == '=' ? input : "";
+      gtk_list_box_append (GTK_LIST_BOX (prompt->list), watch_row (cells, FALSE));
+      g_free (cell);
+      g_free (value);
+      g_free (input);
+      g_free (name);
+    }
+  if (selected >= 0)
+    {
+      GtkListBoxRow *row = gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list),
+                                                          MIN (selected, o42_book_n_watches (self->book) - 1));
+      if (row != NULL)
+        gtk_list_box_select_row (GTK_LIST_BOX (prompt->list), row);
+    }
+  g_free (book_name);
+}
+
+static void
+on_watch_add (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  O42Range sel;
+  const char *sheet = o42_sheet_get_name (self->sheet);
+
+  (void) w;
+  o42_grid_get_selection (self->grid, &sel);
+  /* The selection's cells, within reason: a whole column watched would
+   * be a million rows of nothing. */
+  for (int r = sel.row0; r <= sel.row1 && r < sel.row0 + 100; r++)
+    for (int c = sel.col0; c <= sel.col1 && c < sel.col0 + 100; c++)
+      o42_book_add_watch (self->book, sheet, r, c);
+  watch_refresh (prompt);
+}
+
+static void
+on_watch_delete (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+
+  (void) w;
+  if (row == NULL)
+    return;
+  o42_book_remove_watch (prompt->window->book, gtk_list_box_row_get_index (row));
+  watch_refresh (prompt);
+}
+
+/* Double-clicking a watch goes to its cell, as Excel does. */
+static void
+on_watch_activated (GtkListBox *list, GtkListBoxRow *row, gpointer data)
+{
+  WatchPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const O42Watch *watch = o42_book_watch_at (self->book, gtk_list_box_row_get_index (row));
+  O42Sheet *sheet;
+
+  (void) list;
+  if (watch == NULL)
+    return;
+  sheet = o42_book_find_sheet (self->book, watch->sheet);
+  if (sheet == NULL)
+    return;
+  window_show_sheet (self, o42_book_sheet_index (self->book, sheet));
+  o42_grid_set_active (self->grid, watch->row, watch->col);
+  window_sync (self);
+}
+
+static void
+on_watch_destroy (GtkWidget *w, gpointer data)
+{
+  WatchPrompt *prompt = data;
+
+  (void) w;
+  g_object_set_data (G_OBJECT (prompt->window), "o42-watch-window", NULL);
+  g_free (prompt);
+}
+
+void
+o42_watch_window_refresh (O42Window *self)
+{
+  WatchPrompt *prompt = g_object_get_data (G_OBJECT (self), "o42-watch-window");
+
+  if (prompt != NULL)
+    watch_refresh (prompt);
+}
+
+void
+action_watch_window (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  WatchPrompt *prompt = g_object_get_data (G_OBJECT (self), "o42-watch-window");
+  GtkWidget *content, *buttons, *scroller;
+
+  (void) a; (void) p;
+  if (prompt != NULL)
+    {
+      gtk_window_present (GTK_WINDOW (prompt->dialog));
+      return;
+    }
+
+  prompt = g_new0 (WatchPrompt, 1);
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Watch Window"), FALSE, &content, &buttons);
+  gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 720, 240);
+
+  gtk_box_append (GTK_BOX (content), watch_row (WATCH_HEADINGS, TRUE));
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  gtk_list_box_set_activate_on_single_click (GTK_LIST_BOX (prompt->list), FALSE);
+  g_signal_connect (prompt->list, "row-activated", G_CALLBACK (on_watch_activated), prompt);
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_scrolled_window_set_has_frame (GTK_SCROLLED_WINDOW (scroller), TRUE);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_widget_set_hexpand (scroller, TRUE);
+  gtk_box_append (GTK_BOX (content), scroller);
+
+  dialog_button (buttons, _("_Add Watch"), G_CALLBACK (on_watch_add), prompt);
+  dialog_button (buttons, _("_Delete Watch"), G_CALLBACK (on_watch_delete), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_watch_destroy), prompt);
+  g_object_set_data (G_OBJECT (self), "o42-watch-window", prompt);
+
+  watch_refresh (prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Tools > Auditing > Evaluate Formula ------------------------------- */
+
+/* Excel's Evaluate Formula: the formula with the part that goes next
+ * underlined, and a button that works that part out.  Step In opens the
+ * formula of the cell about to be read, in the same box, and Step Out
+ * comes back with what it came to.  The levels are a stack of steppers,
+ * the top one on show. */
+typedef struct {
+  O42Stepper *stepper;
+  O42Sheet   *sheet;
+  int         row, col;
+  O42Node    *tree;
+} EvalLevel;
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *where;          /* "Sheet1!B4" */
+  GtkWidget *view;
+  GtkWidget *evaluate, *step_in, *step_out, *restart;
+  GPtrArray *levels;         /* EvalLevel*, the innermost last */
+} EvalPrompt;
+
+static void
+eval_level_free (gpointer data)
+{
+  EvalLevel *level = data;
+
+  o42_stepper_free (level->stepper);
+  o42_node_free (level->tree);
+  g_free (level);
+}
+
+static EvalLevel *
+eval_level_new (O42Sheet *sheet, int row, int col)
+{
+  EvalLevel *level = g_new0 (EvalLevel, 1);
+  char *input = o42_sheet_get_input (sheet, row, col);
+
+  level->sheet = sheet;
+  level->row = row;
+  level->col = col;
+  level->tree = o42_formula_parse (input != NULL && input[0] == '=' ? input + 1 : input != NULL ? input : "");
+  level->stepper = o42_stepper_new (o42_sheet_eval_context (sheet), level->tree, row, col);
+  g_free (input);
+  return level;
+}
+
+static void
+eval_show (EvalPrompt *prompt)
+{
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  GtkTextBuffer *buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  int start = -1, length = 0;
+  char *text = o42_stepper_text (level->stepper, &start, &length);
+  char *shown = g_strconcat ("= ", text, NULL);
+  gboolean done = o42_stepper_done (level->stepper);
+  const char *sheet = NULL;
+  int row, col;
+  gboolean can_step_in = FALSE;
+
+  gtk_text_buffer_set_text (buffer, shown, -1);
+  if (start >= 0)
+    {
+      GtkTextIter a, b;
+
+      gtk_text_buffer_get_iter_at_offset (buffer, &a, g_utf8_strlen (shown, start + 2));
+      gtk_text_buffer_get_iter_at_offset (buffer, &b, g_utf8_strlen (shown, start + 2 + length));
+      gtk_text_buffer_apply_tag_by_name (buffer, "next", &a, &b);
+    }
+
+  {
+    char *name = o42_ref_name (level->row, level->col);
+    char *quoted = o42_sheet_name_quote (o42_sheet_get_name (level->sheet));
+    char *where = g_strdup_printf ("%s!%s", quoted, name);
+
+    gtk_label_set_text (GTK_LABEL (prompt->where), where);
+    g_free (where);
+    g_free (quoted);
+    g_free (name);
+  }
+
+  if (!done && o42_stepper_next_is_cell (level->stepper, &sheet, &row, &col))
+    {
+      O42Sheet *target = sheet != NULL ? o42_book_find_sheet (prompt->window->book, sheet) : level->sheet;
+
+      can_step_in = target != NULL && o42_sheet_has_formula (target, row, col);
+    }
+
+  gtk_widget_set_sensitive (prompt->evaluate, !done);
+  gtk_widget_set_sensitive (prompt->step_in, can_step_in);
+  gtk_widget_set_sensitive (prompt->step_out, prompt->levels->len > 1);
+  {
+    char *original = o42_node_to_string (level->tree);
+
+    gtk_widget_set_sensitive (prompt->restart, done || prompt->levels->len > 1 ||
+                              strcmp (text, original) != 0);
+    g_free (original);
+  }
+  g_free (shown);
+  g_free (text);
+}
+
+static void
+on_eval_evaluate (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+
+  (void) w;
+  o42_stepper_step (level->stepper);
+  eval_show (prompt);
+}
+
+static void
+on_eval_step_in (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  const char *sheet = NULL;
+  int row, col;
+  O42Sheet *target;
+
+  (void) w;
+  if (!o42_stepper_next_is_cell (level->stepper, &sheet, &row, &col))
+    return;
+  target = sheet != NULL ? o42_book_find_sheet (prompt->window->book, sheet) : level->sheet;
+  if (target == NULL || !o42_sheet_has_formula (target, row, col))
+    return;
+  g_ptr_array_add (prompt->levels, eval_level_new (target, row, col));
+  eval_show (prompt);
+}
+
+/* Back out with the inner formula's answer: the cell's value, which is
+ * what the steps would have come to. */
+static void
+on_eval_step_out (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *inner, *outer;
+  O42Value value;
+
+  (void) w;
+  if (prompt->levels->len < 2)
+    return;
+  inner = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  o42_sheet_get_value (inner->sheet, inner->row, inner->col, &value);
+  g_ptr_array_remove_index (prompt->levels, prompt->levels->len - 1);
+  outer = g_ptr_array_index (prompt->levels, prompt->levels->len - 1);
+  o42_stepper_substitute (outer->stepper, &value);
+  o42_value_clear (&value);
+  eval_show (prompt);
+}
+
+static void
+on_eval_restart (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+  EvalLevel *level;
+
+  (void) w;
+  while (prompt->levels->len > 1)
+    g_ptr_array_remove_index (prompt->levels, prompt->levels->len - 1);
+  level = g_ptr_array_index (prompt->levels, 0);
+  o42_stepper_restart (level->stepper);
+  eval_show (prompt);
+}
+
+static void
+on_eval_destroy (GtkWidget *w, gpointer data)
+{
+  EvalPrompt *prompt = data;
+
+  (void) w;
+  g_ptr_array_unref (prompt->levels);
+  g_free (prompt);
+}
+
+void
+action_evaluate_formula (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  EvalPrompt *prompt;
+  GtkWidget *content, *buttons, *scroller;
+  GtkTextBuffer *buffer;
+  int row, col;
+
+  (void) a; (void) p;
+
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  o42_grid_get_active (self->grid, &row, &col);
+  if (!o42_sheet_has_formula (self->sheet, row, col))
+    {
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("Evaluate Formula wants a cell that holds a formula."));
+      return;
+    }
+
+  prompt = g_new0 (EvalPrompt, 1);
+  prompt->window = self;
+  prompt->levels = g_ptr_array_new_with_free_func (eval_level_free);
+  g_ptr_array_add (prompt->levels, eval_level_new (self->sheet, row, col));
+  prompt->dialog = dialog_frame (self, _("Evaluate Formula"), FALSE, &content, &buttons);
+  gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 560, 260);
+
+  prompt->where = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->where), 0.0);
+  gtk_widget_add_css_class (prompt->where, "dim-label");
+  gtk_box_append (GTK_BOX (content), prompt->where);
+
+  prompt->view = gtk_text_view_new ();
+  gtk_text_view_set_editable (GTK_TEXT_VIEW (prompt->view), FALSE);
+  gtk_text_view_set_cursor_visible (GTK_TEXT_VIEW (prompt->view), FALSE);
+  gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->view), TRUE);
+  gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (prompt->view), GTK_WRAP_WORD_CHAR);
+  gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->view), 6);
+  gtk_text_view_set_top_margin (GTK_TEXT_VIEW (prompt->view), 6);
+  buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->view));
+  gtk_text_buffer_create_tag (buffer, "next", "underline", PANGO_UNDERLINE_SINGLE,
+                              "weight", PANGO_WEIGHT_BOLD, NULL);
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->view);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_widget_set_hexpand (scroller, TRUE);
+  gtk_scrolled_window_set_has_frame (GTK_SCROLLED_WINDOW (scroller), TRUE);
+  gtk_box_append (GTK_BOX (content), scroller);
+
+  prompt->evaluate = dialog_button (buttons, _("_Evaluate"), G_CALLBACK (on_eval_evaluate), prompt);
+  prompt->step_in = dialog_button (buttons, _("Step _In"), G_CALLBACK (on_eval_step_in), prompt);
+  prompt->step_out = dialog_button (buttons, _("Step _Out"), G_CALLBACK (on_eval_step_out), prompt);
+  prompt->restart = dialog_button (buttons, _("_Restart"), G_CALLBACK (on_eval_restart), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), prompt->evaluate);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_eval_destroy), prompt);
+
+  eval_show (prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+void
 action_analysis (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
@@ -1279,7 +2445,36 @@ action_ungroup_objects (GSimpleAction *a, GVariant *p, gpointer data)
 
 /* Excel records a macro by writing down what you do; office42 writes
  * the Python that does it again.  Recording stops into a script in the
- * book, where Tools > Scripts can run or edit it. */
+ * book, where Tools > Macro > Macros can run, edit or key it. */
+void
+action_stop_recording (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  char *script, *name = NULL, *said;
+
+  (void) a; (void) p;
+  if (!o42_book_recording (self->book))
+    return;
+  script = o42_book_record_stop (self->book);
+  for (int i = 1; name == NULL; i++)
+    {
+      char *candidate = g_strdup_printf ("Macro%d", i);
+
+      if (o42_book_script_code (self->book, candidate) == NULL)
+        name = candidate;
+      else
+        g_free (candidate);
+    }
+  o42_book_set_script (self->book, name, script != NULL ? script : "");
+  said = g_strdup_printf (_("Recorded %s: Tools > Macro > Macros runs it."), name);
+  o42_book_set_modified (self->book, TRUE);
+  window_sync (self);
+  gtk_label_set_text (GTK_LABEL (self->status_label), said);
+  g_free (said);
+  g_free (name);
+  g_free (script);
+}
+
 void
 action_record_macro (GSimpleAction *a, GVariant *p, gpointer data)
 {
@@ -1287,39 +2482,369 @@ action_record_macro (GSimpleAction *a, GVariant *p, gpointer data)
 
   (void) a; (void) p;
 
-  if (!o42_book_recording (self->book))
+  if (o42_book_recording (self->book))
     {
-      o42_book_record_start (self->book);
-      window_sync (self);
-      gtk_label_set_text (GTK_LABEL (self->status_label), _("Recording. Tools > Record Macro again to stop."));
+      /* Asked again while recording, as the old single item was. */
+      action_stop_recording (a, p, data);
       return;
     }
-  else
-    {
-      char *script = o42_book_record_stop (self->book);
-      char *name = NULL;
-      char *said;
-
-      for (int i = 1; name == NULL; i++)
-        {
-          char *candidate = g_strdup_printf ("Macro%d", i);
-
-          if (o42_book_script_code (self->book, candidate) == NULL)
-            name = candidate;
-          else
-            g_free (candidate);
-        }
-      o42_book_set_script (self->book, name, script != NULL ? script : "");
-      said = g_strdup_printf ("Recorded %s: Tools > Scripts runs it.", name);
-      o42_book_set_modified (self->book, TRUE);
-      window_sync (self);
-      gtk_label_set_text (GTK_LABEL (self->status_label), said);
-      g_free (said);
-      g_free (name);
-      g_free (script);
-      return;
-    }
+  o42_book_record_start (self->book);
+  {
+    /* The active cell is what a relative recording measures from. */
+    int row, col;
+    o42_grid_get_active (self->grid, &row, &col);
+    o42_book_record_set_relative (self->book, o42_book_record_relative (self->book), row, col);
+  }
   window_sync (self);
+  gtk_label_set_text (GTK_LABEL (self->status_label), _("Recording. Tools > Macro > Stop Recording ends it."));
+}
+
+/* Excel's Relative References button: a check item that outlives the
+ * recording, and takes the active cell as its base when turned on. */
+void
+action_relative_refs (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  gboolean now = !g_variant_get_boolean (g_action_get_state (G_ACTION (a)));
+  int row, col;
+
+  (void) p;
+  g_simple_action_set_state (a, g_variant_new_boolean (now));
+  o42_grid_get_active (self->grid, &row, &col);
+  o42_book_record_set_relative (self->book, now, row, col);
+  gtk_label_set_text (GTK_LABEL (self->status_label),
+                      now ? _("Recording writes cells relative to the active cell.")
+                          : _("Recording writes cells by their addresses."));
+}
+
+/* ---- Tools > Macro > Macros (Alt+F8) --------------------------------- */
+
+/* Excel's Macro dialog: the book's macros by name, and Run, Edit,
+ * Delete and Options -- the shortcut key and a line about it. */
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *list;
+  GtkWidget *about;       /* the chosen macro's description and key */
+} MacrosPrompt;
+
+static const char *
+macros_chosen (MacrosPrompt *prompt)
+{
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+  return row != NULL ? g_object_get_data (G_OBJECT (row), "o42-script") : NULL;
+}
+
+/* The path of the chosen personal script, or NULL for one of the book's. */
+static const char *
+macros_chosen_personal (MacrosPrompt *prompt)
+{
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+  return row != NULL ? g_object_get_data (G_OBJECT (row), "o42-personal") : NULL;
+}
+
+/* One row of the list: a name, and a note at the right. */
+static GtkWidget *
+macros_row (MacrosPrompt *prompt, const char *sname, const char *note)
+{
+  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget *name = gtk_label_new (sname);
+  GtkWidget *key = gtk_label_new (note != NULL ? note : "");
+
+  gtk_label_set_xalign (GTK_LABEL (name), 0.0);
+  gtk_widget_set_hexpand (name, TRUE);
+  gtk_box_append (GTK_BOX (row), name);
+  gtk_widget_add_css_class (key, "dim-label");
+  gtk_box_append (GTK_BOX (row), key);
+  gtk_widget_set_margin_start (row, 6);
+  gtk_widget_set_margin_end (row, 6);
+  gtk_widget_set_margin_top (row, 3);
+  gtk_widget_set_margin_bottom (row, 3);
+  gtk_list_box_append (GTK_LIST_BOX (prompt->list), row);
+  return gtk_widget_get_parent (row);
+}
+
+static void
+macros_fill (MacrosPrompt *prompt, const char *choose)
+{
+  GtkWidget *child;
+  int chosen = -1;
+
+  while ((child = gtk_widget_get_first_child (prompt->list)) != NULL)
+    gtk_list_box_remove (GTK_LIST_BOX (prompt->list), child);
+  for (int i = 0; i < o42_book_n_scripts (prompt->window->book); i++)
+    {
+      const char *sname = o42_book_script_name (prompt->window->book, i);
+      char letter = o42_book_script_shortcut (prompt->window->book, sname);
+      char *note = letter != 0 ? g_strdup_printf ("Ctrl+Shift+%c", letter) : NULL;
+      GtkWidget *list_row = macros_row (prompt, sname, note);
+
+      g_object_set_data_full (G_OBJECT (list_row), "o42-script", g_strdup (sname), g_free);
+      if (choose != NULL && strcmp (choose, sname) == 0)
+        chosen = i;
+      g_free (note);
+    }
+  /* The personal scripts after the book's: the files in the user's
+   * folder, run at start, and run again from here. */
+  {
+    char **paths = o42_python_personal_scripts ();
+
+    for (int i = 0; paths[i] != NULL; i++)
+      {
+        char *base = g_path_get_basename (paths[i]);
+        GtkWidget *list_row = macros_row (prompt, base, _("personal"));
+
+        g_object_set_data_full (G_OBJECT (list_row), "o42-script", g_strdup (base), g_free);
+        g_object_set_data_full (G_OBJECT (list_row), "o42-personal", g_strdup (paths[i]), g_free);
+        g_free (base);
+      }
+    g_strfreev (paths);
+  }
+  if (chosen < 0 && gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), 0) != NULL)
+    chosen = 0;
+  if (chosen >= 0)
+    gtk_list_box_select_row (GTK_LIST_BOX (prompt->list),
+                             gtk_list_box_get_row_at_index (GTK_LIST_BOX (prompt->list), chosen));
+}
+
+static void
+on_macros_row_selected (GtkListBox *list, GtkListBoxRow *row, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  const char *sname = row != NULL ? g_object_get_data (G_OBJECT (row), "o42-script") : NULL;
+  const char *path = row != NULL ? g_object_get_data (G_OBJECT (row), "o42-personal") : NULL;
+  (void) list;
+  gtk_label_set_text (GTK_LABEL (prompt->about),
+                      path != NULL ? path
+                      : sname != NULL ? o42_book_script_description (prompt->window->book, sname) : "");
+}
+
+static void
+on_macros_run (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  const char *sname = macros_chosen (prompt);
+  const char *path = macros_chosen_personal (prompt);
+  const char *code = sname != NULL && path == NULL ? o42_book_script_code (prompt->window->book, sname) : NULL;
+  O42Window *self = prompt->window;
+  (void) w;
+  if (path != NULL)
+    {
+      GFile *file = g_file_new_for_path (path);
+      char *output = NULL;
+      gboolean ok;
+
+      gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+      ok = o42_python_run_file (self->book, self->sheet, file, &output);
+      o42_grid_refresh (self->grid);
+      window_sync (self);
+      if (!ok || (output != NULL && *output != '\0'))
+        {
+          GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", ok ? "The script said:" : "The script failed.");
+          gtk_alert_dialog_set_detail (alert, output != NULL ? output : "");
+          gtk_alert_dialog_show (alert, GTK_WINDOW (self));
+          g_object_unref (alert);
+        }
+      g_free (output);
+      g_object_unref (file);
+      return;
+    }
+  if (code == NULL)
+    return;
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+  window_run_script (self, sname, code);
+}
+
+/* Personal scripts are files: Edit opens one in whatever edits .py. */
+static void
+macros_launch (O42Window *self, const char *path)
+{
+  GFile *file = g_file_new_for_path (path);
+  GtkFileLauncher *launcher = gtk_file_launcher_new (file);
+
+  gtk_file_launcher_launch (launcher, GTK_WINDOW (self), NULL, NULL, NULL);
+  g_object_unref (launcher);
+  g_object_unref (file);
+}
+
+static void
+on_macros_folder (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  char *folder = o42_python_personal_folder ();
+  (void) w;
+  macros_launch (prompt->window, folder);
+  g_free (folder);
+}
+
+static void
+on_macros_edit (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  char *sname = g_strdup (macros_chosen (prompt));
+  char *path = g_strdup (macros_chosen_personal (prompt));
+  (void) w;
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+  if (path != NULL)
+    macros_launch (self, path);
+  else
+    o42_window_edit_script (self, sname);
+  g_free (sname);
+  g_free (path);
+}
+
+static void
+on_macros_delete (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *prompt = data;
+  const char *sname = macros_chosen (prompt);
+  (void) w;
+  if (macros_chosen_personal (prompt) != NULL)
+    return;   /* a file of the user's: not ours to delete */
+  if (sname != NULL && o42_book_remove_script (prompt->window->book, sname))
+    {
+      macros_fill (prompt, NULL);
+      window_sync (prompt->window);
+    }
+}
+
+/* Options: the key and the description. */
+typedef struct {
+  MacrosPrompt *macros;
+  GtkWidget    *dialog;
+  GtkWidget    *key;
+  GtkWidget    *about;
+  char         *name;
+} MacroOptionsPrompt;
+
+static void
+on_macro_options_ok (GtkWidget *w, gpointer data)
+{
+  MacroOptionsPrompt *prompt = data;
+  const char *key = gtk_editable_get_text (GTK_EDITABLE (prompt->key));
+  (void) w;
+  o42_book_set_script_options (prompt->macros->window->book, prompt->name,
+                               key[0], gtk_editable_get_text (GTK_EDITABLE (prompt->about)));
+  o42_book_set_modified (prompt->macros->window->book, TRUE);
+  o42_window_bind_macro_keys (prompt->macros->window);
+  macros_fill (prompt->macros, prompt->name);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+static void
+on_macro_options_free (GtkWidget *w, gpointer data)
+{
+  MacroOptionsPrompt *prompt = data;
+  (void) w;
+  g_free (prompt->name);
+  g_free (prompt);
+}
+
+static void
+on_macros_options (GtkWidget *w, gpointer data)
+{
+  MacrosPrompt *macros = data;
+  const char *sname = macros_chosen (macros);
+  MacroOptionsPrompt *prompt;
+  GtkWidget *content, *buttons, *grid, *ok, *hint;
+  char letter;
+  (void) w;
+
+  if (sname == NULL || macros_chosen_personal (macros) != NULL)
+    return;
+  prompt = g_new0 (MacroOptionsPrompt, 1);
+  prompt->macros = macros;
+  prompt->name = g_strdup (sname);
+  prompt->dialog = dialog_frame (macros->window, _("Macro Options"), TRUE, &content, &buttons);
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  labelled (grid, 0, _("Macro name:"), gtk_label_new (sname));
+  prompt->key = labelled (grid, 1, _("Shortcut key:  Ctrl+Shift+"), gtk_entry_new ());
+  gtk_entry_set_max_length (GTK_ENTRY (prompt->key), 1);
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->key), 3);
+  gtk_widget_set_halign (prompt->key, GTK_ALIGN_START);
+  letter = o42_book_script_shortcut (macros->window->book, sname);
+  if (letter != 0)
+    {
+      char text[2] = { letter, 0 };
+      gtk_editable_set_text (GTK_EDITABLE (prompt->key), text);
+    }
+  prompt->about = labelled (grid, 2, _("Description:"), gtk_entry_new ());
+  gtk_widget_set_size_request (prompt->about, 300, -1);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->about), o42_book_script_description (macros->window->book, sname));
+  gtk_box_append (GTK_BOX (content), grid);
+  hint = gtk_label_new (_("A letter, or nothing for no key.  The key is the book's, and saved with it."));
+  gtk_widget_add_css_class (hint, "dim-label");
+  gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
+  gtk_box_append (GTK_BOX (content), hint);
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_macro_options_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_macro_options_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_macros (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  MacrosPrompt *prompt = g_new0 (MacrosPrompt, 1);
+  GtkWidget *content, *buttons, *scroller, *run;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Macro"), FALSE, &content, &buttons);
+  gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 460, 380);
+
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Macros in this book, and the personal scripts:")));
+  prompt->list = gtk_list_box_new ();
+  gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
+  g_signal_connect (prompt->list, "row-selected", G_CALLBACK (on_macros_row_selected), prompt);
+  g_signal_connect (prompt->list, "row-activated", G_CALLBACK (on_macros_run), prompt);
+  scroller = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroller), prompt->list);
+  gtk_widget_set_vexpand (scroller, TRUE);
+  gtk_widget_set_hexpand (scroller, TRUE);
+  gtk_widget_add_css_class (scroller, "frame");
+  gtk_box_append (GTK_BOX (content), scroller);
+  prompt->about = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->about), 0.0);
+  gtk_label_set_wrap (GTK_LABEL (prompt->about), TRUE);
+  gtk_widget_add_css_class (prompt->about, "dim-label");
+  gtk_box_append (GTK_BOX (content), prompt->about);
+
+  run = dialog_button (buttons, _("_Run"), G_CALLBACK (on_macros_run), prompt);
+  gtk_widget_set_sensitive (run, o42_python_available ());
+  dialog_button (buttons, _("_Edit"), G_CALLBACK (on_macros_edit), prompt);
+  dialog_button (buttons, _("_Delete"), G_CALLBACK (on_macros_delete), prompt);
+  dialog_button (buttons, _("_Options..."), G_CALLBACK (on_macros_options), prompt);
+  dialog_button (buttons, _("_Folder"), G_CALLBACK (on_macros_folder), prompt);
+  dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), run);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+
+  macros_fill (prompt, NULL);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* Ctrl+Shift+letter, bound by o42_window_bind_macro_keys. */
+void
+action_run_macro (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  const char *sname = p != NULL ? g_variant_get_string (p, NULL) : NULL;
+  const char *code = sname != NULL ? o42_book_script_code (self->book, sname) : NULL;
+
+  (void) a;
+  if (code == NULL)
+    return;
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  window_run_script (self, sname, code);
 }
 
 /* ---- Tools > Protection ------------------------------------------------ */
@@ -1363,6 +2888,531 @@ on_protect_ok (GtkWidget *w, gpointer data)
     }
   window_sync (self);
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Tools > Wizards ---------------------------------------------------- */
+
+/* Excel 97's two formula wizards, which were add-ins: Conditional Sum
+ * writes a SUMIF over a list, Lookup an INDEX/MATCH into a table.  Each
+ * asks for the ranges as text, offers what the selection holds, and
+ * puts one formula in a cell. */
+
+static gboolean
+parse_range_text (const char *text, O42Range *out)
+{
+  gsize len = 0;
+
+  while (*text == '=' || *text == ' ')
+    text++;
+  if (!o42_ref_parse (text, &out->row0, &out->col0, &len))
+    return FALSE;
+  if (text[len] == ':')
+    {
+      if (!o42_ref_parse (text + len + 1, &out->row1, &out->col1, NULL))
+        return FALSE;
+    }
+  else if (text[len] == '\0')
+    {
+      out->row1 = out->row0;
+      out->col1 = out->col0;
+    }
+  else
+    return FALSE;
+  *out = o42_range_normalise (out->row0, out->col0, out->row1, out->col1);
+  return TRUE;
+}
+
+static char *
+range_text (const O42Range *r)
+{
+  char *a = o42_ref_name (r->row0, r->col0), *b = o42_ref_name (r->row1, r->col1);
+  char *text = g_strdup_printf ("%s:%s", a, b);
+  g_free (a); g_free (b);
+  return text;
+}
+
+/* The selection, or the used range when only one cell is selected. */
+static void
+wizard_list_range (O42Window *self, O42Range *out)
+{
+  o42_grid_get_selection (self->grid, out);
+  if (out->row0 == out->row1 && out->col0 == out->col1)
+    o42_sheet_used_range (self->sheet, out);
+}
+
+/* A value typed into a wizard as it goes into a formula: a reference
+ * or a number as it is, anything else in quotes. */
+static char *
+wizard_operand (const char *text)
+{
+  O42Entry entry;
+  int row, col;
+  gsize len = 0;
+
+  if (o42_ref_parse (text, &row, &col, &len) && text[len] == '\0')
+    return g_strdup (text);
+  if (o42_entry_parse (text, &entry) && entry.format == O42_NUM_GENERAL)
+    return g_strdup (text);
+  return g_strdup_printf ("\"%s\"", text);
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *range, *sum_col, *cond_col, *op, *value, *result;
+  GtkStringList *headings;
+} CondSumPrompt;
+
+static const char *const COND_SUM_OPS[] = { "=", "<>", ">", "<", ">=", "<=", NULL };
+
+/* The headings of the list's first row, which the two drop-downs offer. */
+static void
+cond_sum_fill_headings (CondSumPrompt *prompt)
+{
+  O42Range r;
+
+  gtk_string_list_splice (prompt->headings, 0, g_list_model_get_n_items (G_LIST_MODEL (prompt->headings)), NULL);
+  if (!parse_range_text (gtk_editable_get_text (GTK_EDITABLE (prompt->range)), &r))
+    return;
+  for (int col = r.col0; col <= r.col1 && col - r.col0 < 64; col++)
+    {
+      char *heading = o42_sheet_get_display (prompt->window->sheet, r.row0, col);
+      char letters[8];
+
+      o42_col_name (col, letters, sizeof letters);
+      gtk_string_list_append (prompt->headings, heading != NULL && *heading != '\0' ? heading : letters);
+      g_free (heading);
+    }
+}
+
+static void
+on_cond_sum_range_changed (GtkEditable *editable, gpointer data)
+{
+  (void) editable;
+  cond_sum_fill_headings (data);
+}
+
+static void
+on_cond_sum_ok (GtkWidget *w, gpointer data)
+{
+  CondSumPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  O42Range list, sum, cond;
+  guint sum_i = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->sum_col));
+  guint cond_i = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->cond_col));
+  const char *op = COND_SUM_OPS[gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->op))];
+  const char *value = gtk_editable_get_text (GTK_EDITABLE (prompt->value));
+  int row, col;
+  char *sum_text, *cond_text, *operand, *criterion, *formula;
+
+  (void) w;
+  if (!parse_range_text (gtk_editable_get_text (GTK_EDITABLE (prompt->range)), &list) || list.row1 <= list.row0 ||
+      sum_i == GTK_INVALID_LIST_POSITION || cond_i == GTK_INVALID_LIST_POSITION)
+    {
+      show_error (self, _("The list needs a row of headings with its rows below, as A1:D9."), NULL);
+      return;
+    }
+  if (!o42_ref_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->result)), &row, &col, NULL))
+    {
+      show_error (self, _("Say which cell the formula goes in, as F1."), NULL);
+      return;
+    }
+  sum = cond = list;
+  sum.row0++; cond.row0++;
+  sum.col0 = sum.col1 = list.col0 + (int) sum_i;
+  cond.col0 = cond.col1 = list.col0 + (int) cond_i;
+  sum_text = range_text (&sum);
+  cond_text = range_text (&cond);
+  operand = wizard_operand (value);
+  /* SUMIF's criterion: a bare value for equality, else the operator
+   * and the value joined -- ">"&F1 for a reference, ">100" for a number. */
+  if (strcmp (op, "=") == 0)
+    criterion = g_strdup (operand);
+  else if (operand[0] == '"')
+    criterion = g_strdup_printf ("\"%s%s", op, operand + 1);
+  else if (g_ascii_isalpha (operand[0]) || operand[0] == '$')
+    criterion = g_strdup_printf ("\"%s\"&%s", op, operand);
+  else
+    criterion = g_strdup_printf ("\"%s%s\"", op, operand);
+  formula = g_strdup_printf ("=SUMIF(%s,%s,%s)", cond_text, criterion, sum_text);
+  o42_sheet_set_input (self->sheet, row, col, formula);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  g_free (formula); g_free (criterion); g_free (operand); g_free (sum_text); g_free (cond_text);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_conditional_sum (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  CondSumPrompt *prompt = g_new0 (CondSumPrompt, 1);
+  GtkWidget *content, *buttons, *grid, *ok;
+  O42Range list;
+  char *text;
+  int row, col;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Conditional Sum Wizard"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Adds the values in one column of a list for the rows that meet a condition.")));
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->range = labelled (grid, 0, _("List, headings first:"), gtk_entry_new ());
+  wizard_list_range (self, &list);
+  text = range_text (&list);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->range), text);
+  g_free (text);
+  prompt->headings = gtk_string_list_new (NULL);
+  prompt->sum_col = labelled (grid, 1, _("Column to sum:"), gtk_drop_down_new (G_LIST_MODEL (prompt->headings), NULL));
+  prompt->cond_col = labelled (grid, 2, _("Column to test:"), gtk_drop_down_new (G_LIST_MODEL (g_object_ref (prompt->headings)), NULL));
+  prompt->op = labelled (grid, 3, _("Is:"), drop_down_of (COND_SUM_OPS));
+  prompt->value = labelled (grid, 4, _("This value:"), gtk_entry_new ());
+  prompt->result = labelled (grid, 5, _("Put the formula in:"), gtk_entry_new ());
+  o42_grid_get_active (self->grid, &row, &col);
+  text = o42_ref_name (row, col);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->result), text);
+  g_free (text);
+  gtk_box_append (GTK_BOX (content), grid);
+  cond_sum_fill_headings (prompt);
+  g_signal_connect (prompt->range, "changed", G_CALLBACK (on_cond_sum_range_changed), prompt);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_cond_sum_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *range, *row_label, *col_label, *result;
+} LookupPrompt;
+
+static void
+on_lookup_ok (GtkWidget *w, gpointer data)
+{
+  LookupPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  O42Range table, first_col, first_row;
+  int row, col;
+  char *table_text, *col_text, *row_text, *rl, *cl, *formula;
+
+  (void) w;
+  if (!parse_range_text (gtk_editable_get_text (GTK_EDITABLE (prompt->range)), &table) ||
+      table.row1 <= table.row0 || table.col1 <= table.col0)
+    {
+      show_error (self, _("The table needs a row of labels across the top and a column of them down the left, as A1:E9."), NULL);
+      return;
+    }
+  if (!o42_ref_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->result)), &row, &col, NULL))
+    {
+      show_error (self, _("Say which cell the formula goes in, as G1."), NULL);
+      return;
+    }
+  first_col = table; first_col.col1 = first_col.col0;
+  first_row = table; first_row.row1 = first_row.row0;
+  table_text = range_text (&table);
+  col_text = range_text (&first_col);
+  row_text = range_text (&first_row);
+  rl = wizard_operand (gtk_editable_get_text (GTK_EDITABLE (prompt->row_label)));
+  cl = wizard_operand (gtk_editable_get_text (GTK_EDITABLE (prompt->col_label)));
+  formula = g_strdup_printf ("=INDEX(%s,MATCH(%s,%s,0),MATCH(%s,%s,0))", table_text, rl, col_text, cl, row_text);
+  o42_sheet_set_input (self->sheet, row, col, formula);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  g_free (formula); g_free (rl); g_free (cl); g_free (table_text); g_free (col_text); g_free (row_text);
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_lookup_wizard (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  LookupPrompt *prompt = g_new0 (LookupPrompt, 1);
+  GtkWidget *content, *buttons, *grid, *ok;
+  O42Range table;
+  char *text;
+  int row, col;
+
+  (void) a; (void) p;
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("Lookup Wizard"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Finds the value where a row and a column of a table meet.")));
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->range = labelled (grid, 0, _("Table, labels on top and left:"), gtk_entry_new ());
+  wizard_list_range (self, &table);
+  text = range_text (&table);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->range), text);
+  g_free (text);
+  prompt->row_label = labelled (grid, 1, _("Row label, or a cell holding it:"), gtk_entry_new ());
+  prompt->col_label = labelled (grid, 2, _("Column label, or a cell holding it:"), gtk_entry_new ());
+  prompt->result = labelled (grid, 3, _("Put the formula in:"), gtk_entry_new ());
+  o42_grid_get_active (self->grid, &row, &col);
+  text = o42_ref_name (row, col);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->result), text);
+  g_free (text);
+  gtk_box_append (GTK_BOX (content), grid);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_lookup_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Tools > AutoCorrect ----------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *option[O42_N_AUTOCORRECT_OPTIONS];
+  GtkStringList *entries;
+  GtkWidget *list;
+  GtkWidget *replace_entry, *with_entry;
+} AutoCorrectPrompt;
+
+static void
+autocorrect_fill (AutoCorrectPrompt *prompt)
+{
+  O42Book *book = prompt->window->book;
+
+  gtk_string_list_splice (prompt->entries, 0,
+                          g_list_model_get_n_items (G_LIST_MODEL (prompt->entries)), NULL);
+  for (int i = 0; i < o42_book_n_autocorrections (book); i++)
+    {
+      const char *to = NULL;
+      const char *from = o42_book_autocorrection (book, i, &to);
+      char *line = g_strdup_printf ("%s \342\206\222 %s", from, to);
+
+      gtk_string_list_append (prompt->entries, line);
+      g_free (line);
+    }
+}
+
+static void
+on_autocorrect_option (GtkCheckButton *button, gpointer data)
+{
+  AutoCorrectPrompt *prompt = data;
+
+  for (int i = 0; i < O42_N_AUTOCORRECT_OPTIONS; i++)
+    if (GTK_WIDGET (button) == prompt->option[i])
+      o42_book_set_autocorrect_option (prompt->window->book, (O42AutocorrectOption) i,
+                                       gtk_check_button_get_active (button));
+}
+
+static void
+on_autocorrect_add (GtkWidget *w, gpointer data)
+{
+  AutoCorrectPrompt *prompt = data;
+  const char *from = gtk_editable_get_text (GTK_EDITABLE (prompt->replace_entry));
+  const char *to = gtk_editable_get_text (GTK_EDITABLE (prompt->with_entry));
+
+  (void) w;
+  if (*from == '\0')
+    return;
+  o42_book_add_autocorrection (prompt->window->book, from, to);
+  autocorrect_fill (prompt);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->replace_entry), "");
+  gtk_editable_set_text (GTK_EDITABLE (prompt->with_entry), "");
+  gtk_widget_grab_focus (prompt->replace_entry);
+}
+
+static void
+on_autocorrect_delete (GtkWidget *w, gpointer data)
+{
+  AutoCorrectPrompt *prompt = data;
+  GtkSelectionModel *model = gtk_list_view_get_model (GTK_LIST_VIEW (prompt->list));
+  guint pos = gtk_single_selection_get_selected (GTK_SINGLE_SELECTION (model));
+  const char *from;
+
+  (void) w;
+  if (pos == GTK_INVALID_LIST_POSITION)
+    return;
+  from = o42_book_autocorrection (prompt->window->book, (int) pos, NULL);
+  if (from != NULL)
+    o42_book_remove_autocorrection (prompt->window->book, from);
+  autocorrect_fill (prompt);
+}
+
+static void
+on_autocorrect_selected (GObject *model, GParamSpec *pspec, gpointer data)
+{
+  AutoCorrectPrompt *prompt = data;
+  guint pos = gtk_single_selection_get_selected (GTK_SINGLE_SELECTION (model));
+  const char *to = NULL, *from;
+
+  (void) pspec;
+  if (pos == GTK_INVALID_LIST_POSITION)
+    return;
+  from = o42_book_autocorrection (prompt->window->book, (int) pos, &to);
+  if (from != NULL)
+    {
+      gtk_editable_set_text (GTK_EDITABLE (prompt->replace_entry), from);
+      gtk_editable_set_text (GTK_EDITABLE (prompt->with_entry), to != NULL ? to : "");
+    }
+}
+
+void
+action_autocorrect (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  static const char *const OPTIONS[O42_N_AUTOCORRECT_OPTIONS] = {
+    N_("Correct _TWo INitial CApitals"), N_("Capitalize first letter of _sentences"),
+    N_("Capitalize names of _days"), N_("_Replace text as you type")
+  };
+  O42Window *self = data;
+  AutoCorrectPrompt *prompt = g_new0 (AutoCorrectPrompt, 1);
+  GtkWidget *content, *buttons, *scrolled, *grid;
+  GtkListItemFactory *factory;
+  GtkSingleSelection *selection;
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = dialog_frame (self, _("AutoCorrect"), TRUE, &content, &buttons);
+
+  for (int i = 0; i < O42_N_AUTOCORRECT_OPTIONS; i++)
+    {
+      prompt->option[i] = gtk_check_button_new_with_mnemonic (_(OPTIONS[i]));
+      gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->option[i]),
+                                   o42_book_autocorrect_option (self->book, (O42AutocorrectOption) i));
+      g_signal_connect (prompt->option[i], "toggled", G_CALLBACK (on_autocorrect_option), prompt);
+      gtk_box_append (GTK_BOX (content), prompt->option[i]);
+    }
+
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->replace_entry = labelled (grid, 0, _("Replace:"), gtk_entry_new ());
+  prompt->with_entry = labelled (grid, 1, _("With:"), gtk_entry_new ());
+  gtk_box_append (GTK_BOX (content), grid);
+
+  prompt->entries = gtk_string_list_new (NULL);
+  autocorrect_fill (prompt);
+  factory = gtk_signal_list_item_factory_new ();
+  g_signal_connect (factory, "setup", G_CALLBACK (wizard_setup_item), prompt);
+  g_signal_connect (factory, "bind", G_CALLBACK (wizard_bind_item), prompt);
+  selection = gtk_single_selection_new (G_LIST_MODEL (prompt->entries));
+  gtk_single_selection_set_autoselect (selection, FALSE);
+  g_signal_connect (selection, "notify::selected", G_CALLBACK (on_autocorrect_selected), prompt);
+  prompt->list = gtk_list_view_new (GTK_SELECTION_MODEL (selection), factory);
+  scrolled = gtk_scrolled_window_new ();
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), prompt->list);
+  gtk_widget_set_size_request (scrolled, 360, 160);
+  gtk_box_append (GTK_BOX (content), scrolled);
+
+  dialog_button (buttons, _("_Add"), G_CALLBACK (on_autocorrect_add), prompt);
+  dialog_button (buttons, _("_Delete"), G_CALLBACK (on_autocorrect_delete), prompt);
+  dialog_button (buttons, _("_Close"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* ---- Tools > Protection > Protect Workbook ----------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *entry;
+  GtkWidget *status;
+  gboolean   locking;
+} ProtectBookPrompt;
+
+static void
+on_protect_book_ok (GtkWidget *w, gpointer data)
+{
+  ProtectBookPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  const char *typed = gtk_editable_get_text (GTK_EDITABLE (prompt->entry));
+
+  (void) w;
+  if (prompt->locking)
+    {
+      o42_book_set_password_hash (self->book, *typed != '\0' ? o42_password_hash (typed) : 0);
+      o42_book_set_protected (self->book, TRUE);
+      gtk_label_set_text (GTK_LABEL (self->status_label),
+                          _("The workbook is protected: its sheets cannot be added, deleted, renamed or moved."));
+    }
+  else
+    {
+      guint16 hash = o42_book_password_hash (self->book);
+
+      if (hash != 0 && o42_password_hash (typed) != hash)
+        {
+          gtk_label_set_text (GTK_LABEL (prompt->status), _("That is not the password."));
+          return;
+        }
+      o42_book_set_protected (self->book, FALSE);
+      o42_book_set_password_hash (self->book, 0);
+      gtk_label_set_text (GTK_LABEL (self->status_label), _("The workbook is no longer protected."));
+    }
+  window_sync (self);
+  window_tell_book (self, "sheets");
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_protect_book (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  O42Window *self = data;
+  gboolean now = !o42_book_protected (self->book);
+  ProtectBookPrompt *prompt;
+  GtkWidget *content, *buttons, *grid, *ok;
+
+  (void) a; (void) p;
+
+  if (!now && o42_book_password_hash (self->book) == 0)
+    {
+      o42_book_set_protected (self->book, FALSE);
+      window_sync (self);
+      gtk_label_set_text (GTK_LABEL (self->status_label), _("The workbook is no longer protected."));
+      return;
+    }
+
+  prompt = g_new0 (ProtectBookPrompt, 1);
+  prompt->window = self;
+  prompt->locking = now;
+  prompt->dialog = dialog_frame (self, now ? _("Protect Workbook") : _("Unprotect Workbook"),
+                                 TRUE, &content, &buttons);
+  grid = gtk_grid_new ();
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
+  prompt->entry = labelled (grid, 0, _("Password:"), gtk_entry_new ());
+  gtk_entry_set_visibility (GTK_ENTRY (prompt->entry), FALSE);
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt->entry), TRUE);
+  if (now)
+    gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->entry), _("leave empty for none"));
+  gtk_box_append (GTK_BOX (content), grid);
+  if (now)
+    {
+      GtkWidget *hint = gtk_label_new (
+        _("Protecting the workbook keeps its sheets as they are: none can be "
+          "added, deleted, renamed, moved, copied, hidden or unhidden.  The "
+          "cells stay as editable as their sheets allow."));
+      gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
+      gtk_label_set_max_width_chars (GTK_LABEL (hint), 48);
+      gtk_box_append (GTK_BOX (content), hint);
+    }
+  prompt->status = gtk_label_new ("");
+  gtk_box_append (GTK_BOX (content), prompt->status);
+
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_protect_book_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
+  gtk_widget_grab_focus (prompt->entry);
 }
 
 void
@@ -1432,6 +3482,7 @@ typedef struct {
   O42Window *window;
   GtkWidget *dialog;
   GtkWidget *target, *goal, *value, *changing, *bounds, *status;
+  GtkWidget *nonneg, *report;
 } SolverPrompt;
 
 static const char *SOLVER_GOALS[] = { N_("Max"), N_("Min"), N_("Value of"), NULL };
@@ -1440,9 +3491,8 @@ static void
 on_solver_solve (GtkWidget *w, gpointer data)
 {
   SolverPrompt *prompt = data;
-  O42Ref changing[16];
-  O42SolverBound bounds[16];
-  int n_changing = 0, n_bounds = 0;
+  GArray *changing = g_array_new (FALSE, FALSE, sizeof (O42Ref));
+  GArray *bounds = g_array_new (FALSE, FALSE, sizeof (O42SolverBound));
   int trow, tcol;
   guint goal = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->goal));
   double reached = 0;
@@ -1454,15 +3504,18 @@ on_solver_solve (GtkWidget *w, gpointer data)
   if (!o42_ref_parse (gtk_editable_get_text (GTK_EDITABLE (prompt->target)), &trow, &tcol, NULL))
     {
       gtk_label_set_text (GTK_LABEL (prompt->status), _("That is not a cell to aim at."));
+      g_array_unref (changing);
+      g_array_unref (bounds);
       return;
     }
 
   cells = g_strsplit_set (gtk_editable_get_text (GTK_EDITABLE (prompt->changing)), ",; ", -1);
-  for (int i = 0; cells[i] != NULL && n_changing < 16; i++)
+  for (int i = 0; cells[i] != NULL; i++)
     {
       char *cell = g_strstrip (cells[i]);
       gsize len = 0;
       int row, col, row1, col1;
+      O42Ref ref;
 
       if (*cell == '\0')
         continue;
@@ -1471,17 +3524,19 @@ on_solver_solve (GtkWidget *w, gpointer data)
         {
           /* A range of changing cells, cell by cell. */
           O42Range r = o42_range_normalise (row, col, row1, col1);
-          for (int rr = r.row0; rr <= r.row1 && n_changing < 16; rr++)
-            for (int cc = r.col0; cc <= r.col1 && n_changing < 16; cc++)
-              { changing[n_changing].row = rr; changing[n_changing].col = cc; n_changing++; }
+          for (int rr = r.row0; rr <= r.row1; rr++)
+            for (int cc = r.col0; cc <= r.col1; cc++)
+              { ref.row = rr; ref.col = cc; g_array_append_val (changing, ref); }
         }
       else if (o42_ref_parse (cell, &row, &col, NULL))
-        { changing[n_changing].row = row; changing[n_changing].col = col; n_changing++; }
+        { ref.row = row; ref.col = col; g_array_append_val (changing, ref); }
     }
   g_strfreev (cells);
-  if (n_changing == 0)
+  if (changing->len == 0)
     {
       gtk_label_set_text (GTK_LABEL (prompt->status), _("Name at least one cell to change."));
+      g_array_unref (changing);
+      g_array_unref (bounds);
       return;
     }
 
@@ -1489,11 +3544,12 @@ on_solver_solve (GtkWidget *w, gpointer data)
   lines = gtk_text_buffer_get_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (prompt->bounds)), &a, &b, FALSE);
   {
     char **each = g_strsplit (lines, "\n", -1);
-    for (int i = 0; each[i] != NULL && n_bounds < 16; i++)
+    for (int i = 0; each[i] != NULL; i++)
       {
         char *line = g_strstrip (each[i]);
         const char *op = strstr (line, "<=");
         O42SolverOp which = O42_SOLVER_LE;
+        O42SolverBound bound;
         char *cell;
 
         if (*line == '\0')
@@ -1503,11 +3559,20 @@ on_solver_solve (GtkWidget *w, gpointer data)
         if (op == NULL)
           continue;
         cell = g_strstrip (g_strndup (line, (gsize) (op - line)));
-        if (o42_ref_parse (cell, &bounds[n_bounds].row, &bounds[n_bounds].col, NULL))
+        if (o42_ref_parse (cell, &bound.row, &bound.col, NULL))
           {
-            bounds[n_bounds].op = which;
-            bounds[n_bounds].value = g_strtod (op + (which == O42_SOLVER_EQ ? 1 : 2), NULL);
-            n_bounds++;
+            char *rhs = g_strstrip (g_strdup (op + (which == O42_SOLVER_EQ ? 1 : 2)));
+
+            bound.op = which;
+            bound.value = 0;
+            if (which == O42_SOLVER_EQ && (g_ascii_strcasecmp (rhs, "int") == 0 || g_ascii_strcasecmp (rhs, "integer") == 0))
+              bound.op = O42_SOLVER_INT;
+            else if (which == O42_SOLVER_EQ && (g_ascii_strcasecmp (rhs, "bin") == 0 || g_ascii_strcasecmp (rhs, "binary") == 0))
+              bound.op = O42_SOLVER_BIN;
+            else
+              bound.value = g_strtod (rhs, NULL);
+            g_array_append_val (bounds, bound);
+            g_free (rhs);
           }
         g_free (cell);
       }
@@ -1515,15 +3580,62 @@ on_solver_solve (GtkWidget *w, gpointer data)
   }
   g_free (lines);
 
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->nonneg)))
+    for (guint i = 0; i < changing->len; i++)
+      {
+        const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+        O42SolverBound bound = { ref->row, ref->col, O42_SOLVER_GE, 0 };
+        g_array_append_val (bounds, bound);
+      }
+
   {
-    gboolean ok = o42_sheet_solve (prompt->window->sheet, trow, tcol,
-                                   goal == 1 ? O42_SOLVER_MIN : goal == 2 ? O42_SOLVER_VALUE : O42_SOLVER_MAX,
-                                   g_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->value)), NULL),
-                                   changing, n_changing, bounds, n_bounds, &reached);
-    char *message = g_strdup_printf (ok ? "The target reached %g." : "The search gave up at %g.", reached);
+    O42Sheet *sheet = prompt->window->sheet;
+    O42SolverGoal which = goal == 1 ? O42_SOLVER_MIN : goal == 2 ? O42_SOLVER_VALUE : O42_SOLVER_MAX;
+    double goal_value = g_strtod (gtk_editable_get_text (GTK_EDITABLE (prompt->value)), NULL);
+    double *original = g_new0 (double, changing->len);
+    double original_target = 0;
+    gboolean ok;
+    char *message;
+
+    for (guint i = 0; i < changing->len; i++)
+      {
+        const O42Ref *ref = &g_array_index (changing, O42Ref, i);
+        O42Value v;
+        O42ErrorCode e;
+
+        o42_sheet_get_value (sheet, ref->row, ref->col, &v);
+        if (v.type == O42_VALUE_NUMBER)
+          o42_value_to_number (&v, &original[i], &e);
+        o42_value_clear (&v);
+      }
+    {
+      O42Value v;
+      O42ErrorCode e;
+
+      o42_sheet_get_value (sheet, trow, tcol, &v);
+      if (v.type == O42_VALUE_NUMBER)
+        o42_value_to_number (&v, &original_target, &e);
+      o42_value_clear (&v);
+    }
+    ok = o42_sheet_solve (sheet, trow, tcol, which, goal_value,
+                          (const O42Ref *) changing->data, (int) changing->len,
+                          (const O42SolverBound *) bounds->data, (int) bounds->len, &reached);
+    message = g_strdup_printf (ok ? "The target reached %g." : "The search gave up at %g.", reached);
     gtk_label_set_text (GTK_LABEL (prompt->status), message);
     g_free (message);
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->report)))
+      {
+        O42Sheet *made = o42_sheet_solver_report (sheet, trow, tcol, which, goal_value,
+                                                  (const O42Ref *) changing->data, (int) changing->len,
+                                                  (const O42SolverBound *) bounds->data, (int) bounds->len,
+                                                  original, original_target);
+        if (made != NULL)
+          window_show_sheet (prompt->window, o42_book_sheet_index (prompt->window->book, made));
+      }
+    g_free (original);
   }
+  g_array_unref (changing);
+  g_array_unref (bounds);
   o42_grid_refresh (prompt->window->grid);
   window_sync (prompt->window);
 }
@@ -1557,7 +3669,7 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_editable_set_text (GTK_EDITABLE (prompt->target), name);
   g_free (name);
 
-  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Keeping these in bounds, one to a line:")));
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Subject to the constraints, one to a line:")));
   prompt->bounds = gtk_text_view_new ();
   gtk_text_view_set_monospace (GTK_TEXT_VIEW (prompt->bounds), TRUE);
   gtk_text_view_set_left_margin (GTK_TEXT_VIEW (prompt->bounds), 4);
@@ -1567,15 +3679,20 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_add_css_class (scrolled, "frame");
   gtk_box_append (GTK_BOX (content), scrolled);
   {
-    GtkWidget *hint = gtk_label_new ("D1<=10, A1>=0, B2=5. The search is a downhill simplex with the "
-                                     "broken bounds counted against it: it finds a good answer, not "
-                                     "always the best one.");
+    GtkWidget *hint = gtk_label_new ("D1<=10, A1>=0, B2=5, C1=int, C2=bin. The search is a downhill "
+                                     "simplex with the broken constraints counted against it, branching "
+                                     "on the whole-number cells: it finds a good answer, not always the "
+                                     "best one.");
     gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (hint), 46);
     gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
     gtk_widget_add_css_class (hint, "dim-label");
     gtk_box_append (GTK_BOX (content), hint);
   }
+  prompt->nonneg = gtk_check_button_new_with_mnemonic ( _("Assume _non-negative"));
+  gtk_box_append (GTK_BOX (content), prompt->nonneg);
+  prompt->report = gtk_check_button_new_with_mnemonic ( _("Write an Answer _Report"));
+  gtk_box_append (GTK_BOX (content), prompt->report);
   prompt->status = gtk_label_new ("");
   gtk_label_set_xalign (GTK_LABEL (prompt->status), 0.0);
   gtk_box_append (GTK_BOX (content), prompt->status);
@@ -1587,4 +3704,104 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
   gtk_widget_grab_focus (prompt->changing);
+}
+
+/* ---- View > Zoom... ----------------------------------------------------- */
+
+typedef struct {
+  O42Window *window;
+  GtkWidget *dialog;
+  GtkWidget *choice[7];    /* 200, 100, 75, 50, 25, fit selection, custom */
+  GtkWidget *custom;
+} ZoomPrompt;
+
+static void
+on_zoom_ok (GtkWidget *w, gpointer data)
+{
+  static const int PERCENTS[] = { 200, 100, 75, 50, 25 };
+  ZoomPrompt *prompt = data;
+  O42Window *self = prompt->window;
+  int percent = -1;
+
+  (void) w;
+  for (int i = 0; i < 5; i++)
+    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->choice[i])))
+      percent = PERCENTS[i];
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->choice[5])))
+    {
+      O42Range sel;
+
+      o42_grid_get_selection (self->grid, &sel);
+      percent = (int) (o42_grid_fit_zoom (self->grid, &sel) * 100 + 0.5);
+    }
+  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->choice[6])))
+    {
+      const char *text = gtk_editable_get_text (GTK_EDITABLE (prompt->custom));
+      char *end = NULL;
+      double value = g_ascii_strtod (text, &end);
+
+      if (end == text || value < 10 || value > 400)
+        {
+          o42_window_show_error (self, _("The zoom is a number from 10 to 400."), NULL);
+          return;
+        }
+      percent = (int) (value + 0.5);
+    }
+  if (percent > 0)
+    g_action_group_activate_action (G_ACTION_GROUP (self), "zoom", g_variant_new_int32 (percent));
+  gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+}
+
+void
+action_zoom_dialog (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  static const char *const NAMES[] = { N_("_200%"), N_("_100%"), N_("_75%"), N_("_50%"), N_("2_5%"),
+                                       N_("_Fit selection"), N_("_Custom:") };
+  O42Window *self = data;
+  ZoomPrompt *prompt = g_new0 (ZoomPrompt, 1);
+  GtkWidget *content, *buttons, *row, *ok;
+  int now = (int) (o42_grid_get_zoom (self->grid) * 100 + 0.5);
+  char text[16];
+
+  (void) a; (void) p;
+
+  prompt->window = self;
+  prompt->dialog = o42_dialog_frame (self, _("Zoom"), TRUE, &content, &buttons);
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Magnification")));
+  for (int i = 0; i < 7; i++)
+    {
+      prompt->choice[i] = gtk_check_button_new_with_mnemonic (_(NAMES[i]));
+      if (i > 0)
+        gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->choice[i]), GTK_CHECK_BUTTON (prompt->choice[0]));
+      if (i < 6)
+        gtk_box_append (GTK_BOX (content), prompt->choice[i]);
+    }
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_append (GTK_BOX (row), prompt->choice[6]);
+  prompt->custom = gtk_entry_new ();
+  g_snprintf (text, sizeof text, "%d", now);
+  gtk_editable_set_text (GTK_EDITABLE (prompt->custom), text);
+  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->custom), 5);
+  gtk_entry_set_activates_default (GTK_ENTRY (prompt->custom), TRUE);
+  gtk_box_append (GTK_BOX (row), prompt->custom);
+  gtk_box_append (GTK_BOX (row), gtk_label_new ("%"));
+  gtk_box_append (GTK_BOX (content), row);
+
+  /* The zoom now is the one ticked; one of the presets, or Custom. */
+  {
+    static const int PERCENTS[] = { 200, 100, 75, 50, 25 };
+    int which = 6;
+
+    for (int i = 0; i < 5; i++)
+      if (PERCENTS[i] == now)
+        which = i;
+    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->choice[which]), TRUE);
+  }
+
+  ok = o42_dialog_button (buttons, _("_OK"), G_CALLBACK (on_zoom_ok), prompt);
+  o42_dialog_button (buttons, _("_Cancel"), G_CALLBACK (o42_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
+  g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (o42_dialog_destroy_refocus), self->grid);
+  g_signal_connect_swapped (prompt->dialog, "destroy", G_CALLBACK (g_free), prompt);
+  gtk_window_present (GTK_WINDOW (prompt->dialog));
 }

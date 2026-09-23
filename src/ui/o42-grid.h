@@ -26,6 +26,9 @@ void o42_grid_get_active    (O42Grid *self, int *row, int *col);
 void o42_grid_set_active    (O42Grid *self, int row, int col);
 void o42_grid_get_selection (O42Grid *self, O42Range *range);
 void o42_grid_select_range  (O42Grid *self, const O42Range *range);
+/* The selection and the active cell as a file left them, without
+ * scrolling: the window is not laid out yet when a book opens. */
+void o42_grid_set_cursor    (O42Grid *self, const O42Range *range, int active_row, int active_col);
 
 /* ---- Editing ---------------------------------------------------------- */
 
@@ -62,8 +65,22 @@ void o42_grid_paste_special (O42Grid *self, O42PasteMode mode, gboolean transpos
 gboolean o42_grid_has_own_copy (O42Grid *self);
 
 /* Fill Down copies the selection's top row into the rows below it; Fill
- * Right its left column into the columns to the right. */
-void o42_grid_fill (O42Grid *self, gboolean down);
+ * Right its left column into the columns to the right; Up and Left the
+ * other way about.  Series and Justify are Edit > Fill's dialogs. */
+void o42_grid_fill           (O42Grid *self, gboolean down);
+void o42_grid_fill_direction (O42Grid *self, O42FillDirection direction);
+void o42_grid_fill_series    (O42Grid *self, const O42Series *series);
+void o42_grid_fill_justify   (O42Grid *self);
+
+/* Edit > Clear: the contents (what Delete does), the formats, the
+ * notes, or all three. */
+typedef enum {
+  O42_CLEAR_CONTENTS,
+  O42_CLEAR_FORMATS,
+  O42_CLEAR_NOTES,
+  O42_CLEAR_ALL
+} O42ClearWhat;
+void o42_grid_clear_selection (O42Grid *self, O42ClearWhat what);
 
 /* Inserts as many rows (columns) as the selection spans, above (left of)
  * it; deletes the rows (columns) it spans. */
@@ -78,6 +95,12 @@ void o42_grid_delete_columns (O42Grid *self);
 void o42_grid_set_column_width (O42Grid *self, int width);
 void o42_grid_set_row_height   (O42Grid *self, int height);
 void o42_grid_autofit_columns  (O42Grid *self);
+/* Format > Row > AutoFit: each selected row as tall as its tallest
+ * text, wrapped text laid out at the column's width. */
+void o42_grid_autofit_rows     (O42Grid *self);
+/* The zoom at which `range` just fits the cells on show: View > Zoom's
+ * "Fit selection". */
+double o42_grid_fit_zoom       (O42Grid *self, const O42Range *range);
 
 /* ---- Pictures --------------------------------------------------------- */
 
@@ -94,13 +117,30 @@ void o42_grid_insert_chart (O42Grid *self, O42ChartKind kind, const char *title,
                             gboolean first_row_labels, gboolean first_col_labels);
 
 /* Puts a shape near the active cell and selects it. */
-void o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, const char *text);
+void o42_grid_insert_shape (O42Grid *self, O42ShapeKind kind, O42ShapeGeom geom, const char *text);
+
+/* Insert > Shape > Freeform: from now until a double-click (or Escape,
+ * or a point back on the first), every click adds a point of the
+ * outline, and the shape is made of them; one that ends where it began
+ * is closed and filled. */
+void o42_grid_begin_freeform (O42Grid *self);
+gboolean o42_grid_drawing_freeform (O42Grid *self);
 
 /* The shape selected by clicking it, or NULL. */
 O42Shape *o42_grid_selected_shape (O42Grid *self);
 
+/* Format > Order on the selected object.  FALSE if there is none or
+ * it did not move. */
+gboolean  o42_grid_reorder_selected (O42Grid *self, O42Order how);
+
+/* Whether any object -- a picture too -- is selected. */
+gboolean  o42_grid_has_selected_object (O42Grid *self);
+
 /* The chart selected by clicking it, or NULL. */
 O42Chart *o42_grid_selected_chart (O42Grid *self);
+
+/* The picture selected by clicking it, or NULL. */
+O42Picture *o42_grid_selected_picture (O42Grid *self);
 
 /* The guess the chart would make about the selection's labels. */
 void o42_grid_guess_chart_labels (O42Grid *self, gboolean *first_row,
@@ -158,6 +198,9 @@ gboolean o42_grid_has_frozen_panes (O42Grid *self);
  * they are a way of looking, not part of the book. */
 void     o42_grid_trace            (O42Grid *self, gboolean precedents);
 void     o42_grid_clear_arrows     (O42Grid *self);
+/* Red arrows from where an error comes; FALSE when the active cell
+ * shows none. */
+gboolean o42_grid_trace_error      (O42Grid *self);
 gboolean o42_grid_has_arrows       (O42Grid *self);
 
 void     o42_grid_show_page_breaks  (O42Grid *self, gboolean show);
@@ -180,5 +223,22 @@ void     o42_grid_set_show_gridlines (O42Grid *self, gboolean show);
 gboolean o42_grid_get_show_gridlines (O42Grid *self);
 void     o42_grid_set_show_zeros     (O42Grid *self, gboolean show);
 gboolean o42_grid_get_show_zeros     (O42Grid *self);
+/* The green corner on cells the error checking doubts. */
+void     o42_grid_set_show_checks    (O42Grid *self, gboolean show);
+gboolean o42_grid_get_show_checks    (O42Grid *self);
+
+/* Data > Validation > Circle Invalid Data: red rings around the cells
+ * whose value breaks their rule, until cleared. */
+void     o42_grid_set_circle_invalid (O42Grid *self, gboolean on);
+
+/* View > Comments: every note on the sheet shown beside its cell, not
+ * only the one under the pointer. */
+void     o42_grid_set_show_notes (O42Grid *self, gboolean show);
+gboolean o42_grid_get_show_notes (O42Grid *self);
+
+/* Edit > Paste as Hyperlink: the copied cells' text, each a link back
+ * to the cell it came from. */
+void     o42_grid_paste_as_link (O42Grid *self);
+gboolean o42_grid_get_circle_invalid (O42Grid *self);
 
 G_END_DECLS

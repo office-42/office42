@@ -30,3 +30,6 @@ compile_commands.json
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Worktrees the agents work in
+/.claude/worktrees/

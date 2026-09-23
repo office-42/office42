@@ -6,7 +6,7 @@
  * A chart is a picture of some cells: it names a range and is redrawn
  * from the cells' current values every time it is painted, so it is never
  * out of date.  It floats over the grid anchored to a cell, as a picture
- * does.  Three kinds, the ones Excel 5's ChartWizard offered first:
+ * does.  Three kinds, the ones Excel 97's ChartWizard offered first:
  * column, line and pie.  Cairo draws them, so the same code paints the
  * grid, the PDF and the printed page.
  */
@@ -82,6 +82,7 @@ typedef enum {
 typedef struct {
   guint         id;
   guint         group;       /* objects grouped together share one; 0 for none */
+  guint         z;           /* the painting order: higher is nearer the front */
   O42ChartKind  kind;
   O42Range      data;          /* the source cells */
   char         *data_sheet;    /* owned: the sheet they are on, "" for the
@@ -117,6 +118,10 @@ typedef struct {
   double        marker_size;   /* across, in pixels; 0 for the default */
   guint         marker_picture; /* the picture's id on the sheet, for O42_MARKER_PICTURE */
   gboolean      three_d;       /* drawn with depth, as Excel's 3-D types are */
+  int           of_pie;        /* a pie's last slices shown again in a second
+                                * plot: 0 for none, 1 for Excel 97's pie-of-pie,
+                                * 2 for its bar-of-pie */
+  int           of_pie_count;  /* how many of the last slices go there */
   gboolean      gridlines;     /* horizontal gridlines at the value axis' ticks */
   gboolean      has_min;       /* the value axis starts at `min` rather than a round number */
   gboolean      has_max;
@@ -126,8 +131,13 @@ typedef struct {
   double        dx;            /* offset inside the anchor cell, pixels */
   double        dy;
   double        width;         /* pixels */
+  O42AnchorMode anchor;        /* how it follows the cells */
   double        height;
 } O42Chart;
+
+/* The colour the series at `index` is drawn in: Excel 97's chart fills
+ * for a filled series, its chart lines for a drawn one. */
+guint32   o42_chart_series_colour (const O42Chart *chart, int index);
 
 O42Chart *o42_chart_new  (O42ChartKind kind, const O42Range *data);
 void      o42_chart_free (O42Chart *chart);

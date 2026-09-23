@@ -55,6 +55,8 @@ typedef struct {
   guint            underline : 1;
   guint            strikeout : 1;
   guint            wrap      : 1;
+  guint            shrink    : 1;       /* shrink to fit: the text set smaller
+                                         * until it fits the cell's width */
   guint            border_top : 1;      /* these four say whether a side is
                                           * drawn; border_style says how */
   guint            border_bottom : 1;
@@ -121,7 +123,7 @@ typedef enum {
   O42_FMT_VALIGN     = 1 << 9,
   O42_FMT_NUMBER     = 1 << 10,
   O42_FMT_DECIMALS   = 1 << 11,
-  O42_FMT_WRAP       = 1 << 12,
+  O42_FMT_WRAP       = 1 << 12,      /* wrap and shrink to fit: the text's fit */
   O42_FMT_BORDERS    = 1 << 13,      /* the four sides: drawn, style and colour */
   O42_FMT_INDENT     = 1 << 14,
   O42_FMT_ROTATION   = 1 << 15,
@@ -157,6 +159,12 @@ O42FmtIdx      o42_fmt_table_default (O42FmtTable *table);
  * errors ignore the number format entirely: there is no sense in which
  * "hello" has two decimal places. */
 char *o42_fmt_display (const O42Fmt *fmt, const O42Value *value);
+
+/* The same, with what the format asks of the painter -- Accounting's
+ * fill between the symbol and the number, the "_x" gaps -- reported in
+ * `layout`; see O42FormatLayout. */
+char *o42_fmt_display_layout (const O42Fmt *fmt, const O42Value *value,
+                              O42FormatLayout *layout);
 
 /* Which way a value leans when the format says "General": numbers to the
  * right, text to the left, errors and booleans centred, as Excel does. */

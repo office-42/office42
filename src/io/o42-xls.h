@@ -3,12 +3,12 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * The .xls of Excel 5 through 2003: a "Workbook" stream of BIFF
+ * The .xls of Excel 97 through 2003: a "Workbook" stream of BIFF
  * records -- fonts, formats, XFs, bound sheets, a shared string table,
  * then per sheet the rows, cells and formulas as token streams.  The
  * writer produces BIFF8 (Excel 97-2003), which every later Excel, Calc
  * and Gnumeric read.  The reader takes BIFF8 and, for cells and
- * formulas, Excel 5's BIFF5 too.
+ * formulas, the older BIFF5 too.
  *
  * Formulas are compiled to Excel's parsed tokens and back, with the
  * function table Excel numbered; functions Excel 97 did not have go

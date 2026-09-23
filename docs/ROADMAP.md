@@ -8,12 +8,20 @@ section spelled out.
 
 ## Next
 
-**Splitting `o42-sheet.c`.** It is 9,197 lines, the biggest file but
-the evaluator now that the window has come apart: cells and their
-formats, recalculation and the dependency graph, and the objects that
-float over the grid are three subjects in one file.
+**The last of Excel 97's menus.** Excel 97 is the target for feature
+parity, and after the seventh pass what its menu bar has that this one
+has not is: Edit ▸ Links and Insert ▸ Object and WordArt, which link
+to OLE objects this desktop has not; File ▸ Save Workspace; and
+Window ▸ Arrange, which GTK 4 gives a program no way to do.  None of
+the four is planned: the first three want a thing that is not there,
+and the last is not ours to fix.
 
-**Splitting `o42-grid.c`.** 6,948 lines: drawing, editing, selection
+**Splitting `o42-sheet.c`.** It is 14,013 lines, the biggest file of
+all: cells and their formats, recalculation and the dependency graph,
+and the objects that float over the grid are three subjects in one
+file.
+
+**Splitting `o42-grid.c`.** 8,448 lines: drawing, editing, selection
 and dragging objects.
 
 ## Not planned
@@ -26,11 +34,10 @@ unverified; Lotus 1-2-3 could be done because LibreOffice reads it.
 **Miltersen and Schwartz on commodity options.** It prices against a
 three-factor model, and there is nothing here to check it against.
 
-**Macros in Visual Basic.** Excel 5 had Excel 4 macros and the first
-Visual Basic. office42 runs Python instead, records it, and keeps it in
+**Macros in Visual Basic.** Excel 97 had Visual Basic and its editor. office42 runs Python instead, records it, and keeps it in
 the file; see [PYTHON.md](PYTHON.md).
 
-**The ribbon.** The shape of this program is Excel 5's: a menu bar and
+**The ribbon.** The shape of this program is Excel 97's: a menu bar and
 two toolbars.
 
 **Co-authoring, track changes, sharing.** A spreadsheet on one machine
@@ -39,3 +46,13 @@ is what this is.
 **Power Query, the modern pivot engine, slicers, sparklines.** A book
 can hold a SQLite database instead, and ask it from a cell; see
 [DATABASE.md](DATABASE.md).
+
+**Excel 97's Office Assistant, Data Map, Web Query and Template
+Wizard.** The first was a paperclip; the map needed data Microsoft
+licensed and later dropped; a web query is a database query here; and
+a template is a `.gnumeric` in the templates folder.
+
+**Natural-language labels in formulas** -- `=Sales Total` meaning the
+cell under "Sales" and beside "Total" -- which Excel 97 introduced and
+Excel 2007 removed.  Insert ▸ Name ▸ Create makes the same names
+explicitly, and they stay where a formula can see them.

@@ -1,9 +1,9 @@
-# office42 - a spreadsheet in the shape of Excel 5
+# office42 - a spreadsheet in the shape of Excel 97
 # Copyright (C) 2026 The office42 authors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 project('office42', 'c',
-  version: '1.0.0',
+  version: '1.0.3-dev',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 1.3',
   default_options: [
@@ -22,6 +22,7 @@ add_project_arguments(
   '-DG_LOG_DOMAIN="office42"',
   '-DGETTEXT_PACKAGE="office42"',
   '-DO42_LOCALEDIR="' + get_option('prefix') / get_option('localedir') + '"',
+  '-DO42_TEMPLATEDIR="' + get_option('prefix') / get_option('datadir') / 'office42' / 'templates' + '"',
   language: 'c',
 )
 

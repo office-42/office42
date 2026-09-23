@@ -8,6 +8,9 @@
 
 #include "o42-window.h"
 #include "o42-types.h"
+#include "o42-numfmt.h"
+#include "o42-entry.h"
+#include "o42-python.h"
 
 #include <glib/gi18n.h>
 #include <stdlib.h>
@@ -17,6 +20,7 @@ struct _O42Application {
   GtkApplication parent_instance;
 
   char *screenshot;      /* --screenshot FILE: render the window and exit */
+  char *py_code;         /* --py CODE: Python run against the window's book */
   char *activate;        /* --activate ACTION: fire a window action first */
   char *select;          /* --select B3: make a cell active first */
   char *type_text;       /* --type "=SUM(": start typing into the cell */
@@ -27,7 +31,7 @@ struct _O42Application {
 
 G_DEFINE_FINAL_TYPE (O42Application, o42_application, GTK_TYPE_APPLICATION)
 
-/* Excel 5's shortcuts, as far as they still make sense. */
+/* Excel 97's shortcuts, as far as they still make sense. */
 static const struct {
   const char *action;
   const char *accels[3];
@@ -61,7 +65,20 @@ static const struct {
   { "win.prev-sheet", { "<Control>Page_Up", NULL } },
   { "win.replace",    { "<Control>h", NULL } },
   { "win.calculate",  { "F9", NULL } },
+  /* Ctrl+Shift and a digit puts on a number format, as Excel has it;
+   * the shifted symbol is listed too, for the keyboards where the
+   * shifted key reads as the symbol. */
+  { "win.number::general",    { "<Control><Shift>grave", "<Control>asciitilde", NULL } },
+  { "win.number::comma",      { "<Control><Shift>1", "<Control>exclam", NULL } },
+  { "win.number::time",       { "<Control><Shift>2", "<Control>at", NULL } },
+  { "win.number::date",       { "<Control><Shift>3", "<Control>numbersign", NULL } },
+  { "win.number::currency",   { "<Control><Shift>4", "<Control>dollar", NULL } },
+  { "win.number::percent",    { "<Control><Shift>5", "<Control>percent", NULL } },
+  { "win.number::scientific", { "<Control><Shift>6", "<Control>asciicircum", NULL } },
   { "win.full-screen", { "F11", NULL } },
+  { "win.macros",     { "<Alt>F8", NULL } },
+  { "win.script-step",     { "F8", NULL } },
+  { "win.script-continue", { "<Shift>F8", NULL } },
   { "app.quit",       { "<Control>q", NULL } },
 };
 
@@ -83,6 +100,64 @@ action_quit (GSimpleAction *action, GVariant *param, gpointer data)
 static const GActionEntry APP_ACTIONS[] = {
   { "quit", action_quit, NULL, NULL, NULL, { 0 } },
 };
+
+/* ---- Options that outlive the book ------------------------------------ */
+
+static char *
+prefs_path (void)
+{
+  return g_build_filename (g_get_user_config_dir (), "office42", "options.ini", NULL);
+}
+
+char *
+o42_prefs_get (const char *key)
+{
+  GKeyFile *file = g_key_file_new ();
+  char *path = prefs_path ();
+  char *value = NULL;
+
+  if (g_key_file_load_from_file (file, path, G_KEY_FILE_NONE, NULL))
+    value = g_key_file_get_string (file, "Options", key, NULL);
+  g_key_file_unref (file);
+  g_free (path);
+  return value;
+}
+
+void
+o42_prefs_set (const char *key, const char *value)
+{
+  GKeyFile *file = g_key_file_new ();
+  char *path = prefs_path ();
+  char *dir = g_path_get_dirname (path);
+
+  g_key_file_load_from_file (file, path, G_KEY_FILE_KEEP_COMMENTS, NULL);
+  if (value != NULL)
+    g_key_file_set_string (file, "Options", key, value);
+  else
+    g_key_file_remove_key (file, "Options", key, NULL);
+  g_mkdir_with_parents (dir, 0700);
+  g_key_file_save_to_file (file, path, NULL);
+  g_key_file_unref (file);
+  g_free (dir);
+  g_free (path);
+}
+
+/* What the options file says at start-up: the currency symbol the
+ * Currency and Accounting formats show, if the user chose one. */
+static void
+apply_prefs (void)
+{
+  char *currency = o42_prefs_get ("currency");
+
+  char *fixed = o42_prefs_get ("fixed_decimals");
+
+  if (currency != NULL && *currency != '\0')
+    o42_numfmt_set_currency (currency);
+  if (fixed != NULL && *fixed != '\0')
+    o42_entry_set_fixed_decimals (atoi (fixed));
+  g_free (currency);
+  g_free (fixed);
+}
 
 static void
 load_css (void)
@@ -121,6 +196,10 @@ o42_application_startup (GApplication *app)
 
   load_css ();
   load_icons ();
+  apply_prefs ();
+  /* The user's personal scripts define functions every book may use;
+   * they are run now so that a file's formulas find them. */
+  o42_python_start ();
 
   for (guint i = 0; i < G_N_ELEMENTS (ACCELS); i++)
     gtk_application_set_accels_for_action (GTK_APPLICATION (app),
@@ -239,6 +318,34 @@ render_all (O42Application *self)
   g_array_free (sizes, TRUE);
   g_list_free (toplevels);
 
+  /* The windows go first, as they do when the user quits: a dialog
+   * waiting in a loop of its own -- a script paused in the debugger --
+   * sees its window destroyed and lets go. */
+  {
+    GListModel *tops = gtk_window_get_toplevels ();
+    GList *open = NULL;
+
+    /* Dialogs before the windows they belong to, so that none is left
+     * pointing at a grid that has gone. */
+    for (guint i = 0; i < g_list_model_get_n_items (tops); i++)
+      {
+        GtkWindow *top = g_list_model_get_item (tops, i);
+        if (!GTK_IS_APPLICATION_WINDOW (top))
+          open = g_list_prepend (open, top);
+        else
+          g_object_unref (top);
+      }
+    for (GList *l = open; l != NULL; l = l->next)
+      {
+        gtk_window_destroy (GTK_WINDOW (l->data));
+        g_object_unref (l->data);
+      }
+    g_list_free (open);
+    open = g_list_copy (gtk_application_get_windows (GTK_APPLICATION (self)));
+    for (GList *l = open; l != NULL; l = l->next)
+      gtk_window_destroy (GTK_WINDOW (l->data));
+    g_list_free (open);
+  }
   g_application_quit (G_APPLICATION (self));
 }
 
@@ -298,6 +405,49 @@ take_screenshot (gpointer data)
   return G_SOURCE_REMOVE;
 }
 
+/* One action by name, with its parameter, on the first window. */
+static void
+fire_one_action (O42Application *self, const char *spec)
+{
+  GList *windows = gtk_application_get_windows (GTK_APPLICATION (self));
+  char *name = g_strdup (spec);
+  char *paren;
+  GVariant *param = NULL;
+
+  g_strstrip (name);
+  paren = strchr (name, '(');
+  if (*name == '\0' || windows == NULL)
+    { g_free (name); return; }
+  if (paren != NULL)
+    {
+      char *end;
+      char *inside;
+
+      *paren = '\0';
+      inside = g_strdup (paren + 1);
+      end = strchr (inside, ')');
+      if (end != NULL)
+        *end = '\0';
+      if (inside[0] != '\0' && strspn (inside, "-0123456789") == strlen (inside))
+        param = g_variant_new_int32 (atoi (inside));
+      else
+        param = g_variant_new_string (inside);
+      g_free (inside);
+    }
+  g_action_group_activate_action (G_ACTION_GROUP (windows->data), name, param);
+  g_free (name);
+}
+
+static gboolean
+fire_one_action_later (gpointer data)
+{
+  GApplication *app = g_application_get_default ();
+
+  if (O42_IS_APPLICATION (app))
+    fire_one_action (O42_APPLICATION (app), data);
+  return G_SOURCE_REMOVE;
+}
+
 static gboolean
 fire_activate (gpointer data)
 {
@@ -327,33 +477,21 @@ fire_activate (gpointer data)
   if (windows != NULL && self->activate != NULL)
     {
       /* "zoom(150)" carries an integer parameter and "shape(checkbox)" a
-       * string one; a bare name has none. */
-      char *name = g_strdup (self->activate);
-      char *paren = strchr (name, '(');
-      GVariant *param = NULL;
-
-      if (paren != NULL)
-        {
-          char *end = strchr (paren, ')');
-          char *inside;
-
-          *paren = '\0';
-          inside = g_strdup (paren + 1);
-          end = strchr (inside, ')');
-          if (end != NULL)
-            *end = '\0';
-          if (inside[0] != '\0' && strspn (inside, "-0123456789") == strlen (inside))
-            param = g_variant_new_int32 (atoi (inside));
-          else
-            param = g_variant_new_string (inside);
-          g_free (inside);
-        }
+       * string one; a bare name has none.  Several actions may be given
+       * with semicolons between them, in the order they are to fire:
+       * "record-macro;shape(star5);record-macro".  The first fires now
+       * and the rest from timers a little apart, so that an action which
+       * waits in a loop of its own -- a script paused in the debugger --
+       * still lets the next one reach it. */
+      char **actions = g_strsplit (self->activate, ";", -1);
 
       o42_window_set_dialogs_modal (FALSE);
-      g_action_group_activate_action (G_ACTION_GROUP (windows->data), name, param);
-      g_free (name);
-      /* The action may have closed the window: the list is asked for
-       * again rather than read after the fact. */
+      for (int i = 1; actions[i] != NULL; i++)
+        g_timeout_add_full (G_PRIORITY_DEFAULT, 150 * i, fire_one_action_later,
+                            g_strdup (actions[i]), g_free);
+      if (actions[0] != NULL)
+        fire_one_action (self, actions[0]);   /* last: it may not return for a while */
+      g_strfreev (actions);
       windows = gtk_application_get_windows (GTK_APPLICATION (self));
     }
 
@@ -397,6 +535,12 @@ fire_activate (gpointer data)
         o42_window_select_cell (O42_WINDOW (windows->data), row, col);
     }
 
+  /* --py "print(office42.selection)" runs in the window, as the console
+   * would, and prints what it printed: how the window's side of the
+   * Python API is checked from a script. */
+  if (windows != NULL && self->py_code != NULL)
+    o42_window_run_python (O42_WINDOW (windows->data), self->py_code);
+
   return G_SOURCE_REMOVE;
 }
 
@@ -407,14 +551,14 @@ arm_screenshot (O42Application *self)
    * and half of one for a dialog to follow. */
   if (self->activate != NULL || self->select != NULL ||
       self->type_text != NULL || self->point != NULL || self->keys != NULL ||
-      self->bar_text != NULL)
+      self->bar_text != NULL || self->py_code != NULL)
     g_timeout_add (500, fire_activate, self);
   if (self->screenshot != NULL)
     g_timeout_add (1000, take_screenshot, self);
 }
 
 /* The splash: the logo in a small undecorated window over the first
- * window, gone after six tenths of a second, as Excel 5 did it.  Not
+ * window, gone after six tenths of a second, as Excel 97 did it.  Not
  * in screenshot mode, whose picture would be of the splash. */
 static gboolean
 splash_done (gpointer data)
@@ -540,6 +684,14 @@ o42_application_handle_local_options (GApplication *app, GVariantDict *options)
       self->select = g_strdup (path);
     }
 
+  if (g_variant_dict_lookup (options, "py", "&s", &path))
+    {
+      g_free (self->py_code);
+      self->py_code = g_strdup (path);
+      g_application_set_flags (app, g_application_get_flags (app) |
+                                    G_APPLICATION_NON_UNIQUE);
+    }
+
   return -1;
 }
 
@@ -553,6 +705,7 @@ o42_application_finalize (GObject *object)
   g_free (O42_APPLICATION (object)->point);
   g_free (O42_APPLICATION (object)->bar_text);
   g_free (O42_APPLICATION (object)->keys);
+  g_free (O42_APPLICATION (object)->py_code);
   G_OBJECT_CLASS (o42_application_parent_class)->finalize (object);
 }
 
@@ -596,6 +749,9 @@ o42_application_init (O42Application *self)
   g_application_add_main_option (G_APPLICATION (self), "select", 0,
                                  G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
                                  "Make a cell active (e.g. B3) before the screenshot", "CELL");
+  g_application_add_main_option (G_APPLICATION (self), "py", 0,
+                                 G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+                                 "Run Python in the window and print what it prints", "CODE");
 }
 
 O42Application *

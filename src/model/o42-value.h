@@ -37,7 +37,8 @@ typedef enum {
   O42_ERR_NA,        /* #N/A     */
   O42_ERR_CIRCULAR,  /* a circular reference; Excel says #REF! but saying so
                       * outright is more use than being compatible about it */
-  O42_ERR_SPILL      /* a formula's array result has no room to spill into */
+  O42_ERR_SPILL,     /* a formula's array result has no room to spill into */
+  O42_ERR_CALC       /* an array with nothing in it: FILTER that kept no row */
 } O42ErrorCode;
 
 typedef struct {
@@ -63,6 +64,10 @@ O42Value  o42_value_bool   (gboolean boolean);
 O42Value  o42_value_error  (O42ErrorCode code);
 
 gboolean  o42_value_is_error (const O42Value *value);
+
+/* "#N/A", "#DIV/0!" and the rest, as typed into a cell or written in a
+ * formula, to the code they name; FALSE for anything else. */
+gboolean  o42_error_code_parse (const char *text, O42ErrorCode *out);
 const char *o42_error_name (O42ErrorCode code);
 
 /* ---- Coercion --------------------------------------------------------- */
