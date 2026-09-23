@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Office42 Spreadsheet — a spreadsheet in the shape of Excel 5</title>
-<meta name="description" content="Office42 Spreadsheet is a spreadsheet in the shape of Excel 5 and at parity with Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. 610 functions, charts, pivot tables, Python scripting, and .gnumeric, .xlsx, .xls, .ods and CSV files. Free software, GPL-3.0-or-later.">
+<title>Office42 Spreadsheet — a spreadsheet in the shape of Excel 97</title>
+<meta name="description" content="Office42 Spreadsheet is a spreadsheet in the shape of Excel 97, at feature parity with it and with Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. 637 functions, charts, pivot tables, Python scripting, and .gnumeric, .xlsx, .xls, .ods and CSV files. Free software, GPL-3.0-or-later.">
 <link rel="canonical" href="https://office42.net/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Office42 Spreadsheet — a spreadsheet in the shape of Excel 5">
-<meta property="og:description" content="A spreadsheet in the shape of Excel 5 and at parity with Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. Free software, GPL-3.0-or-later.">
+<meta property="og:title" content="Office42 Spreadsheet — a spreadsheet in the shape of Excel 97">
+<meta property="og:description" content="A spreadsheet in the shape of Excel 97, at feature parity with it and with Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. Free software, GPL-3.0-or-later.">
 <meta property="og:url" content="https://office42.net/">
 <meta property="og:image" content="https://office42.net/images/screenshot.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -212,20 +212,21 @@
           <img class="logo" src="images/logo.svg" width="520" height="150"
                alt="Office42 Spreadsheet: a sheet of cells marked 42, beside the name in light blue with one rule under it">
         </h1>
-        <p class="lead">A spreadsheet in the shape of Excel&nbsp;5 and at parity with Gnumeric,
-        written from scratch in C on GTK&nbsp;4, Pango and Cairo. A grid, a formula bar, a name
-        box, two toolbars and sheet tabs along the bottom. No ribbon.</p>
+        <p class="lead">A spreadsheet in the shape of Excel&nbsp;97, at feature parity with it
+        and with Gnumeric, written from scratch in C on GTK&nbsp;4, Pango and Cairo. A grid, a
+        formula bar, a name box, two toolbars and sheet tabs along the bottom. No ribbon.</p>
         <p>The sister project of <a href="https://word42.org/">Word42</a>, built on the same
-        principles: a small, honest codebase that does one thing well.</p>
+        principles: a small, honest codebase that does one thing well. Numbers42 is its other
+        name, and means the same program.</p>
         <p style="margin-top:1.5rem">
           <a class="btn btn-solid" href="#download">Get it</a>
           <a class="btn btn-outline" href="https://github.com/office-42/office42">View on GitHub</a>
         </p>
       </div>
       <figure>
-        <img class="screenshot" src="images/screenshot.png" width="960" height="700"
-             alt="Office42 Spreadsheet showing a regional sales sheet: a title set in two fonts in one cell, a styled heading row, currency and percent formats, a total row with SUM and INDEX/MATCH formulas, conditional formats on the growth column, a note, a text box, frozen panes, a three-dimensional column chart, a pie chart with labels, and three sheet tabs">
-        <figcaption class="muted small"><em>A regional sales book: conditional formats, a note, frozen panes, a three-dimensional column chart, a pie chart and three sheet tabs.</em></figcaption>
+        <img class="screenshot" src="images/screenshot.png" width="950" height="690"
+             alt="Office42 Spreadsheet 1.0.2 showing the dashboard of a set of accounts: a title set in two fonts in one cell, a strip of four merged key figures — revenue, gross margin, operating profit and cash — over a quarterly table in the Accounting number format, an operating margin row with a conditional format on the weakest quarter and a note attached, the formula bar showing the cross-sheet formula =Profit!B8, a column chart of revenue and operating profit by quarter with its axis in thousands, a pie chart of operating expenses with labels and a legend, and seven coloured sheet tabs — Dashboard, Profit, Balance, Cashflow, Trial, Journal and Accounts">
+        <figcaption class="muted small"><em>A year of a trading company's accounts on seven sheets, every figure drawn from one journal: this is the dashboard, with a cross-sheet formula in the formula bar.</em></figcaption>
       </figure>
     </div>
   </div>
@@ -233,8 +234,8 @@
 
 <div class="numbers">
   <div class="container">
-    <div><strong>610</strong><span>functions, every one Excel 2003 has and Gnumeric's own besides</span></div>
-    <div><strong>1,048,576 × 16,384</strong><span>rows by columns, and an empty cell costs nothing</span></div>
+    <div><strong>637</strong><span>functions, every one Excel 2003 has and Gnumeric's own besides</span></div>
+    <div><strong>16,777,216 × 16,384</strong><span>rows by columns, Gnumeric's grid, and an empty cell costs nothing</span></div>
     <div><strong>17</strong><span>kinds of chart, in two or three dimensions</span></div>
     <div><strong>3</strong><span>platforms built on every push: Linux, macOS and Windows</span></div>
   </div>
@@ -245,7 +246,8 @@
     <h2>What it does</h2>
     <p class="muted">A working spreadsheet, not a demo. Everything below ships today, and
     <a href="https://github.com/office-42/office42/blob/main/docs/PARITY.md">docs/PARITY.md</a>
-    is an honest estimate of how far it is from Excel and from Gnumeric.</p>
+    keeps the score menu by menu: an honest estimate of over 99% of Excel&nbsp;97, and about
+    98% of Gnumeric.</p>
     <div class="grid">
       <div>
         <h3>The window</h3>
@@ -253,82 +255,118 @@
           <li>Excel's keys: Enter steps down, Tab steps right, Tab-Tab-Enter returns to the column the row began in</li>
           <li>The formula bar is the same edit as the cell, every reference in its own colour</li>
           <li>Function names offered as you type, and the signature of the call the caret is in</li>
-          <li>Point mode, F4 on the dollars, the fill handle, drag-and-drop, AutoComplete</li>
-          <li>Zoom, freeze and split panes, custom views, outline groups, a second window on the same book</li>
+          <li>Point mode, F4 on the dollars, the fill handle, drag-and-drop, AutoComplete and AutoCorrect</li>
+          <li>Edit ▸ Fill up, left, a series, justified text and across worksheets; Move or Copy Sheet</li>
+          <li>Zoom, freeze and split panes, custom views, a second window on the same book</li>
           <li>Undo of everything, deleting a sheet included</li>
         </ul>
       </div>
       <div>
         <h3>Formatting</h3>
         <ul>
-          <li>Excel 5's tabbed Format Cells dialog</li>
-          <li>Number formats in Excel's own code language: <code>#,##0.00;[Red](#,##0.00)</code>, <code>[h]:mm</code></li>
+          <li>Excel 97's Format Cells dialog, with its six tabs</li>
+          <li>Number formats in Excel's own code language: <code>#,##0.00;[Red](#,##0.00)</code>, <code>[h]:mm</code>, and the Accounting format</li>
           <li>Rich text with several fonts in one cell</li>
-          <li>Borders of every style and colour, pattern fills, indent, rotation, merged cells</li>
-          <li>Named cell styles that restyle every cell wearing them, and conditional formats</li>
+          <li>Borders of every style and colour, Excel's eighteen patterns, indent, rotation, shrink to fit, merged cells</li>
+          <li>Named cell styles that restyle every cell wearing them, and conditional formats with formulas in them</li>
+          <li>Tab colours, sheet backgrounds, hidden sheets</li>
           <li>Formats are interned, so a thousand bold cells share one record</li>
         </ul>
       </div>
       <div>
         <h3>Formulas</h3>
         <ul>
-          <li>Excel's precedence, <code>A1</code> and <code>$A$1</code>, whole rows and columns, 3-D references, names</li>
-          <li>Structured references into tables, array constants, <code>LET</code> and <code>LAMBDA</code></li>
+          <li>Excel's precedence, <code>A1</code> and <code>$A$1</code>, whole rows and columns, 3-D references, the union, the intersection and <code>@</code></li>
+          <li>Names defined, pasted, created from a table's labels and applied; structured references into tables</li>
+          <li>Array constants, <code>LET</code>, and <code>LAMBDA</code> kept under a name</li>
           <li>Array formulas with Ctrl+Shift+Enter, and dynamic arrays that spill</li>
-          <li>Demand-driven recalculation with dirty flags; circular references reported, not followed</li>
-          <li>Statistics in two passes so they are accurate; the distributions on regularised incomplete gamma and beta functions</li>
-          <li>Bond arithmetic on the five day-count bases, the <code>.INTL</code> dates, the Excel 365 text and array functions</li>
+          <li>Demand-driven recalculation with dirty flags; circular references reported, or gone round when asked</li>
+          <li>Trace precedents, dependents and errors, Evaluate Formula a step at a time, a Watch Window, and the green corner on a cell the error checking doubts</li>
         </ul>
       </div>
       <div>
-        <h3>Charts and objects</h3>
+        <h3>Functions</h3>
+        <ul>
+          <li>637 of them: every one Excel 2003 has, and the Excel 365 text, array and regular-expression functions</li>
+          <li>Statistics in two passes so they are accurate; the distributions on regularised incomplete gamma and beta functions</li>
+          <li>Bond arithmetic on the five day-count bases, and the <code>.INTL</code> dates</li>
+          <li>Gnumeric's functions that Excel leaves out: the complex functions, twenty-eight random distributions, number theory</li>
+          <li><code>FOURIER</code>, <code>HPFILTER</code>, <code>INTERPOLATION</code>, <code>PERIODOGRAM</code>, the movable feasts, the Hebrew calendar, and Black and Scholes with its Greeks</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Charts</h3>
         <ul>
           <li>Column, bar, line, area, pie, doughnut, radar, bubble, stock, surface, box and whiskers, histogram, polar, contour and XY scatter</li>
-          <li>Trendlines, error bars, a second value axis, chart sheets</li>
+          <li>Pie of pie and bar of pie</li>
+          <li>Trendlines, error bars, markers or a picture at each point, a second value axis, chart sheets</li>
+          <li>Excel 97's own colours: its chart fills, its chart lines and its grey plot area</li>
           <li>Redrawn from the cells every time they are painted</li>
-          <li>Pictures, shapes, text boxes, grouped objects, notes and hyperlinks</li>
-          <li>The nine form controls of Excel's Forms toolbar, each bound to a cell</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Pictures and shapes</h3>
+        <ul>
+          <li>Pictures from a file, or from the scanner or the camera; cropped, with brightness and contrast</li>
+          <li>Excel's AutoShapes — stars, block arrows, callouts, flowchart symbols — and freeforms drawn point by point</li>
+          <li>Gradient and pattern fills, shadows, dashed lines and a head of any kind at either end</li>
+          <li>Turned to any angle and mirrored, grouped, ordered, and moving and sizing with the cells under them</li>
+          <li>Notes, hyperlinks, and the nine form controls of Excel's Forms toolbar, each bound to a cell</li>
         </ul>
       </div>
       <div>
         <h3>Data</h3>
         <ul>
-          <li>Sort, Find and Replace, AutoFilter and Advanced Filter, Text to Columns, Remove Duplicates</li>
-          <li>Subtotals, Consolidate, Scenarios, Data Validation, Tables</li>
-          <li>Pivot Tables with calculated fields and page filters</li>
-          <li>Goal Seek and a Solver</li>
-          <li>Descriptive statistics, correlation, covariance, regression, histogram, ANOVA, rank and percentile, moving average</li>
-          <li>Each one is a single undo step</li>
+          <li>Sort, the data form, Find and Replace, AutoFilter and Advanced Filter, Remove Duplicates</li>
+          <li>Text to Columns, at a separator or at fixed widths on a ruler</li>
+          <li>Validation with an input message, Excel's three error styles and circles round what breaks the rule</li>
+          <li>Subtotals, an outline worked out from the sums, Consolidate, Tables</li>
+          <li>Pivot Tables with calculated fields, page filters, and dates grouped by years and quarters</li>
+          <li>What-If tables that stay live, Scenarios with a summary sheet, Goal Seek, and a Solver that takes whole numbers and writes its report</li>
+          <li>The statistical analysis tools: descriptive statistics to moving averages</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Money and dates</h3>
+        <ul>
+          <li>The Accounting format, with the symbol at one edge and the number at the other</li>
+          <li>The machine's currency, or the one Options is told, and Format Cells offers the rest</li>
+          <li><code>EUROCONVERT</code> and Tools ▸ Euro Conversion, at the rates the euro's members fixed</li>
+          <li>The 1904 date system, precision as displayed, and a fixed decimal for what is typed</li>
+          <li>Templates an accountant would reach for: a loan schedule, an invoice, an expense report, a balance sheet</li>
+          <li>The Conditional Sum and Lookup wizards</li>
         </ul>
       </div>
       <div>
         <h3>Files</h3>
         <ul>
           <li>Gnumeric's <code>.gnumeric</code>, which carries everything</li>
-          <li>Excel's <code>.xlsx</code> and <code>.xls</code>, with formulas, styles, charts, shapes, tables, names and notes</li>
-          <li>OpenDocument <code>.ods</code>, checked against LibreOffice both ways</li>
-          <li>HTML, CSV, DIF, SYLK, LaTeX and Lotus 1-2-3</li>
-          <li>Printing, print preview, page setup with headers and footers, PDF out and in</li>
-          <li>The zip and OLE2 containers are a few hundred lines each; no library was added</li>
+          <li>Excel's <code>.xlsx</code>, the Strict form too, and <code>.xls</code>, with formulas, styles, charts, shapes, tables, names and notes, opening in Excel, LibreOffice and Gnumeric</li>
+          <li>An <code>.xlsm</code> keeps its Visual Basic for Excel</li>
+          <li>OpenDocument <code>.ods</code> and <code>.fods</code>, checked against LibreOffice both ways</li>
+          <li>HTML, CSV, DIF, SYLK, LaTeX and Lotus 1-2-3; PDF out and in</li>
+          <li>A big book reads in seconds; the zip and OLE2 containers are a few hundred lines each, and no library was added</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Printing</h3>
+        <ul>
+          <li>Page Setup with Excel's four tabs, kept in every file format</li>
+          <li>Headers and footers in Excel's notation, and its Custom Header and Custom Footer dialog</li>
+          <li>Several print areas, and rows and columns repeated on every page</li>
+          <li>Page Break Preview with breaks to drag, and a print preview whose margins drag too</li>
+          <li>PDF of the sheet or the book, drawn exactly as the printer would</li>
         </ul>
       </div>
       <div>
         <h3>Automation</h3>
         <ul>
           <li>Python instead of Visual Basic: a console with <code>book</code> and <code>sheet</code> bound</li>
-          <li>Scripts kept in the file, and a macro recorder that writes Python</li>
+          <li>The Macros dialog on Alt+F8, shortcuts on Ctrl+Shift+letter, and a recorder that writes Python</li>
+          <li>Scripts kept in the file, a step debugger, and events for a change, a selection, opening, closing and saving</li>
           <li><code>=PY("expression")</code> in a cell; functions defined in Python appear in the Function Wizard</li>
           <li>A book that arrives with scripts offers to run them and never runs them by itself</li>
           <li>A SQLite database beside the book or inside it, asked from Data ▸ Get Data or <code>=SQLVALUE(...)</code></li>
-        </ul>
-      </div>
-      <div>
-        <h3>Beyond Excel</h3>
-        <ul>
-          <li>Gnumeric's functions that Excel leaves out: the complex functions, twenty-eight random distributions, number theory</li>
-          <li><code>FOURIER</code>, <code>HPFILTER</code>, <code>INTERPOLATION</code>, <code>PERIODOGRAM</code></li>
-          <li>The movable feasts, and Black and Scholes with its Greeks</li>
-          <li>Spelling with Hunspell</li>
         </ul>
       </div>
       <div>
@@ -336,8 +374,9 @@
         <ul>
           <li><code>office42-calc</code> drives the whole engine from standard input</li>
           <li>The model and the formula engine never include GTK, so the engine builds as a library of its own</li>
-          <li><code>office42 --screenshot</code> renders the window to a PNG with nobody at the keyboard</li>
-          <li>It is how every change is checked</li>
+          <li><code>office42 --screenshot</code> renders the window to a PNG with nobody at the keyboard; the picture above was taken that way</li>
+          <li>One smoke test that the three platforms' builds all run</li>
+          <li>Spelling with Hunspell</li>
         </ul>
       </div>
     </div>
@@ -394,15 +433,19 @@ docs/          the guide, the architecture, the parity review</code></pre>
     <h2>Two programs to aim at</h2>
     <div class="goals">
       <div class="goal">
-        <h3>Gnumeric</h3>
-        <p>For what a free spreadsheet should be able to do and for how to do it right. Gnumeric was
-        built by people who cared about numerical correctness more than about features, and that
-        is the standard to hold to.</p>
+        <h3>Microsoft Excel 97</h3>
+        <p>For what it should do and how it should look. Excel&nbsp;97 is the target for feature
+        parity: every menu, every dialog and every command it had is meant to be here and to
+        behave as it did there, and its shape is this program's shape: a grid, a formula bar, a
+        name box, two toolbars and sheet tabs along the bottom. No ribbon.</p>
+        <p>Later Excels are drawn on where they got something right: dynamic arrays,
+        <code>LET</code> and <code>LAMBDA</code>, the <code>.xlsx</code> file.</p>
       </div>
       <div class="goal">
-        <h3>Microsoft Excel 5 (1993)</h3>
-        <p>For what it should look like and how it should behave: a grid, a formula bar, a name box,
-        two toolbars and sheet tabs along the bottom. No ribbon.</p>
+        <h3>Gnumeric</h3>
+        <p>For how to do it right. Gnumeric was built by people who cared about numerical
+        correctness more than about features, and that is the standard the arithmetic is held
+        to. Its grid of 16,777,216 rows is this one's too.</p>
       </div>
     </div>
     <p style="margin-top:1.5rem">Not planned: the ribbon, Visual Basic, co-authoring, Power Query and
@@ -415,9 +458,10 @@ docs/          the guide, the architecture, the parity review</code></pre>
 <section class="alt" id="download">
   <div class="container">
     <h2>Get Office42</h2>
-    <p class="muted">Version 1.0.0. On Windows it is in the Microsoft Store; on Linux, macOS and
-    Windows it builds from source, and every push to <code>main</code> is built and smoke-tested
-    on all three.</p>
+    <p class="muted">Version 1.0.2, released 21 September 2026; the
+    <a href="https://github.com/office-42/office42/releases">release notes</a> are on GitHub.
+    On Windows it is in the Microsoft Store; on Linux, macOS and Windows it builds from source,
+    and every push to <code>main</code> is built and smoke-tested on all three.</p>
     <div class="two">
       <div>
         <h3>Building</h3>
@@ -429,7 +473,10 @@ meson setup builddir
 meson compile -C builddir
 ./builddir/src/office42        # the window
 ./builddir/src/office42-calc   # the engine, from a terminal</code></pre>
-        <p class="small muted" style="margin-top:1rem">Per-platform dependency lists are the same as
+        <p class="small muted" style="margin-top:1rem"><code>sh build-aux/smoke-test.sh
+        builddir/src/office42-calc</code> puts the engine through its paces afterwards: formulas,
+        recalculation, undo, the five file formats, Python and the database.</p>
+        <p class="small muted">Per-platform dependency lists are the same as
         Word42's; see its
         <a href="https://github.com/office-42/word42/blob/main/docs/BUILD.md">docs/BUILD.md</a>.
         The toolbar icons are SVG, so gdk-pixbuf wants its SVG loader at run time
@@ -446,13 +493,18 @@ meson compile -C builddir
         <a href="https://github.com/office-42/office42/actions/workflows/linux.yml">Linux</a>,
         <a href="https://github.com/office-42/office42/actions/workflows/macos.yml">macOS</a> and
         <a href="https://github.com/office-42/office42/actions/workflows/windows.yml">Windows</a>
-        workflows build every push with <code>--werror</code> and smoke-test the engine. The
-        Windows job also uploads a bundle that runs without MSYS2, and the Store package made
-        from it, as artifacts of each run.</p>
+        workflows build every push and run the same smoke test, and the Linux and Windows builds
+        treat a warning as an error; Linux builds on the newest Ubuntu GitHub keeps. The Windows
+        job also makes a
+        bundle that runs without MSYS2, smoke-tests it again, and uploads it and the Store
+        package made from it as artifacts of each run.</p>
         <h3 style="margin-top:1.5rem">Sample books</h3>
         <p>The repository's <a href="https://github.com/office-42/office42/tree/main/samples"><code>samples/</code></a>
         folder holds books that exercise the formats and the function library in
-        <code>.xlsx</code>, <code>.xls</code> and <code>.fods</code>.</p>
+        <code>.xlsx</code>, <code>.xls</code> and <code>.fods</code>, and two that office42 writes
+        itself from <code>office42-calc</code> scripts: an income statement, and the year of
+        accounts in the picture above. Nothing in the accounts is typed twice, and four of its
+        sheets end in a line that says in words whether the sums still tie up.</p>
         <p><a class="btn btn-solid" href="https://github.com/office-42/office42">Source on GitHub</a></p>
       </div>
     </div>
@@ -469,7 +521,7 @@ meson compile -C builddir
       </div>
       <div>
         <h3><a href="https://github.com/office-42/office42/blob/main/docs/PARITY.md">The parity review</a></h3>
-        <p>A review of the code, module by module, and an honest estimate of how far it is from Excel and from Gnumeric.</p>
+        <p>A review of the code, module by module, and the score against Excel&nbsp;97, menu by menu, and against Gnumeric.</p>
       </div>
       <div>
         <h3><a href="https://github.com/office-42/office42/blob/main/docs/ARCHITECTURE.md">Architecture</a></h3>
@@ -477,7 +529,7 @@ meson compile -C builddir
       </div>
       <div>
         <h3><a href="https://github.com/office-42/office42/blob/main/docs/PYTHON.md">Python</a></h3>
-        <p>The console, the <code>office42</code> module, the macro recorder and <code>=PY()</code>.</p>
+        <p>The console, the <code>office42</code> module, events, the step debugger, the macro recorder and <code>=PY()</code>.</p>
       </div>
       <div>
         <h3><a href="https://github.com/office-42/office42/blob/main/docs/DATABASE.md">The database</a></h3>
