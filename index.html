@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Office42 Spreadsheet — a spreadsheet in the shape of Excel 97</title>
-<meta name="description" content="Office42 Spreadsheet is a spreadsheet in the shape of Excel 97, at feature parity with it and with Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. 637 functions, charts, pivot tables, Python scripting, and .gnumeric, .xlsx, .xls, .ods and CSV files. Free software, GPL-3.0-or-later.">
+<title>Office42 Spreadsheet — Excel 2007’s files and functions, without the ribbon</title>
+<meta name="description" content="Office42 Spreadsheet is a free spreadsheet with Excel 2007’s .xlsx files, tables and functions, and a menu bar and toolbars instead of a ribbon, written from scratch in C on GTK 4, Pango and Cairo. 637 functions, charts, pivot tables, Python scripting, and .gnumeric, .xlsx, .xls, .ods and CSV files. Free software, GPL-3.0-or-later.">
 <link rel="canonical" href="https://office42.net/">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Office42 Spreadsheet — a spreadsheet in the shape of Excel 97">
-<meta property="og:description" content="A spreadsheet in the shape of Excel 97, at feature parity with it and with Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. Free software, GPL-3.0-or-later.">
+<meta property="og:title" content="Office42 Spreadsheet — Excel 2007’s files and functions, without the ribbon">
+<meta property="og:description" content="Excel 2007’s .xlsx files, tables and functions, with a menu bar and toolbars instead of a ribbon, written from scratch in C on GTK 4, Pango and Cairo. Free software, GPL-3.0-or-later.">
 <meta property="og:url" content="https://office42.net/">
 <meta property="og:image" content="https://office42.net/images/screenshot.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -212,9 +212,10 @@
           <img class="logo" src="images/logo.svg" width="520" height="150"
                alt="Office42 Spreadsheet: a sheet of cells marked 42, beside the name in light blue with one rule under it">
         </h1>
-        <p class="lead">A spreadsheet in the shape of Excel&nbsp;97, at feature parity with it
-        and with Gnumeric, written from scratch in C on GTK&nbsp;4, Pango and Cairo. A grid, a
-        formula bar, a name box, two toolbars and sheet tabs along the bottom. No ribbon.</p>
+        <p class="lead">A spreadsheet with Excel&nbsp;2007’s files, tables and functions,
+        written from scratch in C on GTK&nbsp;4, Pango and Cairo and held to Gnumeric’s standard
+        of correctness. A grid, a formula bar, a name box, two toolbars and sheet tabs along the
+        bottom: Excel without the ribbon.</p>
         <p>The sister project of <a href="https://word42.org/">Word42</a>, built on the same
         principles: a small, honest codebase that does one thing well. Numbers42 is its other
         name, and means the same program.</p>
@@ -234,20 +235,59 @@
 
 <div class="numbers">
   <div class="container">
-    <div><strong>637</strong><span>functions, every one Excel 2003 has and Gnumeric's own besides</span></div>
-    <div><strong>16,777,216 × 16,384</strong><span>rows by columns, Gnumeric's grid, and an empty cell costs nothing</span></div>
+    <div><strong>637</strong><span>functions, every one Excel 2007 has but the cube functions, and Gnumeric's own besides</span></div>
+    <div><strong>16,777,216 × 16,384</strong><span>rows by columns, sixteen times Excel 2007's rows, and an empty cell costs nothing</span></div>
     <div><strong>17</strong><span>kinds of chart, in two or three dimensions</span></div>
     <div><strong>3</strong><span>platforms built on every push: Linux, macOS and Windows</span></div>
   </div>
 </div>
+
+<section class="alt" id="excel2007">
+  <div class="container">
+    <h2>Excel 2007, without the ribbon</h2>
+    <p class="muted">Excel&nbsp;2007 changed the file, the size of the grid and a good deal of what
+    a formula can say, and it brought the ribbon. Office42 takes the first three and leaves the
+    ribbon out: a book made in Excel&nbsp;2007 or any Excel since opens here, and saves back as
+    <code>.xlsx</code>.</p>
+    <div class="two">
+      <div>
+        <h3>What Excel 2007 brought, and Office42 has</h3>
+        <ul>
+          <li>The <code>.xlsx</code> file, read and written, and the one a new book is saved as; an <code>.xlsm</code> keeps its Visual Basic for Excel</li>
+          <li>A grid bigger than Excel 2007's 1,048,576 rows by 16,384 columns, so any <code>.xlsx</code> comes in whole</li>
+          <li>Tables, with banded rows, filter buttons, a total row and structured references: <code>=SUM(Sales[Qty])</code>, <code>=[@Qty]*[@Price]</code></li>
+          <li><code>IFERROR</code>, <code>SUMIFS</code>, <code>COUNTIFS</code>, <code>AVERAGEIF</code> and <code>AVERAGEIFS</code>, and the Analysis ToolPak's functions built in, as Excel&nbsp;2007 made them</li>
+          <li>Function names offered as a formula is typed, as Formula AutoComplete offers them</li>
+          <li>Conditional formats with as many rules to a range as you need; colour scales from an <code>.xlsx</code> drawn and kept, and its top-ten, above-average and duplicate rules read as the formulas that say the same</li>
+          <li>Theme colours in an <code>.xlsx</code>, tinted as Excel tints them</li>
+          <li>The Good, Bad and Neutral cell styles, Title and the headings, and Data ▸ Remove Duplicates</li>
+        </ul>
+      </div>
+      <div>
+        <h3>What it leaves out</h3>
+        <ul>
+          <li>The ribbon and the Office button, by choice: the menus and toolbars reach everything</li>
+          <li>Data bars and icon sets, which are not there yet</li>
+          <li>The seven <code>CUBE</code> functions, which ask an OLAP server</li>
+          <li>SmartArt, and themes as something to apply</li>
+          <li>Sorting by more than three keys, and filtering by colour</li>
+        </ul>
+        <p>Later Excels are drawn on as well: dynamic arrays that spill, <code>XLOOKUP</code>,
+        <code>LET</code> and <code>LAMBDA</code>, and the text-splitting and regular-expression
+        functions of Excel&nbsp;365.</p>
+        <p class="small muted"><a href="https://github.com/office-42/office42/blob/main/docs/PARITY.md">docs/PARITY.md</a>
+        keeps the score, and says what is missing and why.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
 <section id="features">
   <div class="container">
     <h2>What it does</h2>
     <p class="muted">A working spreadsheet, not a demo. Everything below ships today, and
     <a href="https://github.com/office-42/office42/blob/main/docs/PARITY.md">docs/PARITY.md</a>
-    keeps the score menu by menu: an honest estimate of over 99% of Excel&nbsp;97, and about
-    98% of Gnumeric.</p>
+    keeps an honest score, area by area, of what is there and what is missing.</p>
     <div class="grid">
       <div>
         <h3>The window</h3>
@@ -264,11 +304,12 @@
       <div>
         <h3>Formatting</h3>
         <ul>
-          <li>Excel 97's Format Cells dialog, with its six tabs</li>
+          <li>Excel's Format Cells dialog, with its six tabs</li>
           <li>Number formats in Excel's own code language: <code>#,##0.00;[Red](#,##0.00)</code>, <code>[h]:mm</code>, and the Accounting format</li>
           <li>Rich text with several fonts in one cell</li>
           <li>Borders of every style and colour, Excel's eighteen patterns, indent, rotation, shrink to fit, merged cells</li>
-          <li>Named cell styles that restyle every cell wearing them, and conditional formats with formulas in them</li>
+          <li>Named cell styles, Good, Bad and Neutral among them, that restyle every cell wearing them</li>
+          <li>Conditional formats, as many rules to a range as you need, formulas and colour scales among them</li>
           <li>Tab colours, sheet backgrounds, hidden sheets</li>
           <li>Formats are interned, so a thousand bold cells share one record</li>
         </ul>
@@ -287,7 +328,7 @@
       <div>
         <h3>Functions</h3>
         <ul>
-          <li>637 of them: every one Excel 2003 has, and the Excel 365 text, array and regular-expression functions</li>
+          <li>637 of them: every one Excel 2007 has but the seven that ask an OLAP cube, and the Excel 365 text, array and regular-expression functions</li>
           <li>Statistics in two passes so they are accurate; the distributions on regularised incomplete gamma and beta functions</li>
           <li>Bond arithmetic on the five day-count bases, and the <code>.INTL</code> dates</li>
           <li>Gnumeric's functions that Excel leaves out: the complex functions, twenty-eight random distributions, number theory</li>
@@ -300,7 +341,6 @@
           <li>Column, bar, line, area, pie, doughnut, radar, bubble, stock, surface, box and whiskers, histogram, polar, contour and XY scatter</li>
           <li>Pie of pie and bar of pie</li>
           <li>Trendlines, error bars, markers or a picture at each point, a second value axis, chart sheets</li>
-          <li>Excel 97's own colours: its chart fills, its chart lines and its grey plot area</li>
           <li>Redrawn from the cells every time they are painted</li>
         </ul>
       </div>
@@ -341,7 +381,7 @@
         <h3>Files</h3>
         <ul>
           <li>Gnumeric's <code>.gnumeric</code>, which carries everything</li>
-          <li>Excel's <code>.xlsx</code>, the Strict form too, and <code>.xls</code>, with formulas, styles, charts, shapes, tables, names and notes, opening in Excel, LibreOffice and Gnumeric</li>
+          <li>Excel 2007's <code>.xlsx</code>, the Strict form too, and the older <code>.xls</code>, with formulas, styles, charts, shapes, tables, names and notes, opening in Excel, LibreOffice and Gnumeric</li>
           <li>An <code>.xlsm</code> keeps its Visual Basic for Excel</li>
           <li>OpenDocument <code>.ods</code> and <code>.fods</code>, checked against LibreOffice both ways</li>
           <li>HTML, CSV, DIF, SYLK, LaTeX and Lotus 1-2-3; PDF out and in</li>
@@ -433,13 +473,15 @@ docs/          the guide, the architecture, the parity review</code></pre>
     <h2>Two programs to aim at</h2>
     <div class="goals">
       <div class="goal">
-        <h3>Microsoft Excel 97</h3>
-        <p>For what it should do and how it should look. Excel&nbsp;97 is the target for feature
-        parity: every menu, every dialog and every command it had is meant to be here and to
-        behave as it did there, and its shape is this program's shape: a grid, a formula bar, a
-        name box, two toolbars and sheet tabs along the bottom. No ribbon.</p>
-        <p>Later Excels are drawn on where they got something right: dynamic arrays,
-        <code>LET</code> and <code>LAMBDA</code>, the <code>.xlsx</code> file.</p>
+        <h3>Microsoft Excel 2007</h3>
+        <p>For what a spreadsheet should hold and which files it should share. Excel&nbsp;2007
+        brought the <code>.xlsx</code> file, a grid of a million rows, tables, <code>IFERROR</code>
+        and the <code>SUMIFS</code> family, and conditional formats of more than three rules, and
+        every Excel since has built on them. A book from any of them should open here and work.</p>
+        <p>The window keeps the shape Excel had before the ribbon: a menu bar, two toolbars, a
+        formula bar, a name box and sheet tabs along the bottom, and the menus and dialogs of
+        Excel&nbsp;97, command for command. Later Excels are drawn on where they got something
+        right: dynamic arrays, <code>XLOOKUP</code>, <code>LET</code> and <code>LAMBDA</code>.</p>
       </div>
       <div class="goal">
         <h3>Gnumeric</h3>
@@ -521,7 +563,7 @@ meson compile -C builddir
       </div>
       <div>
         <h3><a href="https://github.com/office-42/office42/blob/main/docs/PARITY.md">The parity review</a></h3>
-        <p>A review of the code, module by module, and the score against Excel&nbsp;97, menu by menu, and against Gnumeric.</p>
+        <p>A review of the code, module by module, and an honest score, area by area, of what is there and what is missing.</p>
       </div>
       <div>
         <h3><a href="https://github.com/office-42/office42/blob/main/docs/ARCHITECTURE.md">Architecture</a></h3>
