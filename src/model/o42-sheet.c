@@ -1640,8 +1640,23 @@ tree_is_volatile (const O42Node *node)
     return FALSE;
   switch (node->type)
     {
-    case O42_NODE_UNARY:
     case O42_NODE_BINARY:
+      /* Start:Finish, or INDEX(Data,1):C3 with Data a name: the
+       * rectangle the colon makes has cells in it that neither the
+       * references nor the names' own rectangles name. */
+      if (node->as.op.op == O42_OP_RANGE)
+        {
+          GPtrArray *used = g_ptr_array_new ();
+          gboolean any;
+
+          o42_node_collect_names (node, used);
+          any = used->len > 0;
+          g_ptr_array_free (used, TRUE);
+          if (any)
+            return TRUE;
+        }
+      return tree_is_volatile (node->as.op.a) || tree_is_volatile (node->as.op.b);
+    case O42_NODE_UNARY:
       return tree_is_volatile (node->as.op.a) || tree_is_volatile (node->as.op.b);
     case O42_NODE_CALL:
       /* Every function whose name starts with RAND draws a new number
@@ -1729,6 +1744,8 @@ tree_has_range (const O42Node *node)
       return TRUE;
     case O42_NODE_UNARY:
     case O42_NODE_BINARY:
+      if (node->type == O42_NODE_BINARY && node->as.op.op == O42_OP_RANGE)
+        return TRUE;
       return tree_has_range (node->as.op.a) || tree_has_range (node->as.op.b);
     case O42_NODE_CALL:
       for (guint i = 0; i < G_N_ELEMENTS (names); i++)

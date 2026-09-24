@@ -115,6 +115,14 @@ find_next (O42Node *node, const O42Node *parent)
       return found != NULL ? found : node;
 
     case O42_NODE_BINARY:
+      /* A1:A2:A3, A1:B5 B2:C9, (A1,C1): the parts of a reference
+       * operator are references, and one worked out to a value would
+       * leave the operator nothing to work on; the whole is left for
+       * the function it is given to, or worked out in one step. */
+      if (node->as.op.op == O42_OP_RANGE || node->as.op.op == O42_OP_ISECT ||
+          node->as.op.op == O42_OP_UNION)
+        return parent != NULL && (parent->type == O42_NODE_CALL || parent->type == O42_NODE_APPLY)
+               ? NULL : node;
       found = find_next (node->as.op.a, node);
       if (found == NULL)
         found = find_next (node->as.op.b, node);

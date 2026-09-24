@@ -1028,26 +1028,38 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             push (&d, n);
           }
           break;
-        case 0x11:   /* range: two cells into the rectangle between them */
+        case 0x11:   /* range: the rectangle between two references */
           {
             O42Node *b = pop (&d);
             O42Node *a = pop (&d);
             if (a != NULL && b != NULL && a->type == O42_NODE_REF && b->type == O42_NODE_REF &&
-                g_strcmp0 (a->sheet, b->sheet) == 0)
+                g_strcmp0 (a->sheet, b->sheet) == 0 && a->sheet_last == NULL && b->sheet_last == NULL)
               {
                 O42Node *n = node_new (O42_NODE_RANGE);
+                gboolean swap_rows = a->as.ref.row > b->as.ref.row, swap_cols = a->as.ref.col > b->as.ref.col;
+                const O42Node *top = swap_rows ? b : a, *left = swap_cols ? b : a;
+                const O42Node *bottom = swap_rows ? a : b, *right = swap_cols ? a : b;
+
                 n->sheet = a->sheet;
                 n->as.range = o42_range_normalise (a->as.ref.row, a->as.ref.col, b->as.ref.row, b->as.ref.col);
-                n->abs = (a->abs & (O42_ABS_ROW0 | O42_ABS_COL0)) |
-                         ((b->abs & O42_ABS_ROW0) ? O42_ABS_ROW1 : 0) | ((b->abs & O42_ABS_COL0) ? O42_ABS_COL1 : 0);
+                /* The dollar signs go with the coordinates they were on. */
+                n->abs = ((top->abs & O42_ABS_ROW0) ? O42_ABS_ROW0 : 0) |
+                         ((left->abs & O42_ABS_COL0) ? O42_ABS_COL0 : 0) |
+                         ((bottom->abs & O42_ABS_ROW0) ? O42_ABS_ROW1 : 0) |
+                         ((right->abs & O42_ABS_COL0) ? O42_ABS_COL1 : 0);
                 o42_node_free (a);
                 o42_node_free (b);
                 push (&d, n);
               }
             else
               {
-                o42_node_free (b);
-                push (&d, a);
+                /* INDEX(A1:A3,1):A3 and the like: the model has the
+                 * operator too. */
+                O42Node *n = node_new (O42_NODE_BINARY);
+                n->as.op.op = O42_OP_RANGE;
+                n->as.op.a = a;
+                n->as.op.b = b;
+                push (&d, n);
               }
           }
           break;
@@ -4440,15 +4452,19 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
             compile (w, node->as.op.a, a, TRUE, own_sheet, cb);
             break;
           }
-        /* The parts of a union or an intersection are references, so
-         * they keep the reference class. */
-        compile (w, node->as.op.a, a, node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT, own_sheet, cb);
-        compile (w, node->as.op.b, a, node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT, own_sheet, cb);
+        /* The parts of a union, an intersection or a range are
+         * references, so they keep the reference class. */
+        gboolean refs = node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT ||
+                        node->as.op.op == O42_OP_RANGE;
+        compile (w, node->as.op.a, a, refs, own_sheet, cb);
+        compile (w, node->as.op.b, a, refs, own_sheet, cb);
         if (node->as.op.op == O42_OP_UNION)
           put8 (a, 0x10);
         else if (node->as.op.op == O42_OP_ISECT)
           put8 (a, 0x0F);
-        else
+        else if (node->as.op.op == O42_OP_RANGE)
+          put8 (a, 0x11);
+        else if (node->as.op.op < G_N_ELEMENTS (ptg))
           put8 (a, ptg[node->as.op.op]);
       }
       break;

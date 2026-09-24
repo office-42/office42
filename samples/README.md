@@ -44,7 +44,6 @@ run the only differences left were these:
 |---|---|---|
 | `C59` | `chidist(3.84,1)` | LibreOffice will not take the lower-case spelling in a `.xlsx`; office42 will |
 | `C60` | `SUM(D2:D11*E2:E11)` | an array formula: office42 spills it as Excel 365 does, LibreOffice wants Ctrl+Shift+Enter |
-| `C63` | `SUM(D2:INDEX(D2:D11,5))` | a range whose far end is a function. Excel and LibreOffice allow it; office42 says `#REF!` -- the one thing in these books it cannot yet do |
 
 Everything else agrees to the last digit, currency and percent cells
 included, and the formats book shows what it should down to the

@@ -383,6 +383,20 @@ next_token (Parser *ps)
   ps->p = p + 1;
 }
 
+/* The token after the current one, without moving on to it; the caller
+ * clears it. */
+static Token
+peek_token (const Parser *ps)
+{
+  Parser ahead;
+
+  memset (&ahead, 0, sizeof ahead);
+  ahead.input = ps->input;
+  ahead.p = ps->p;
+  next_token (&ahead);
+  return ahead.tok;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Nodes                                                                   */
 /* ---------------------------------------------------------------------- */
@@ -458,6 +472,7 @@ static O42Node *parse_whole_range (Parser *ps, gboolean cols, int first, gboolea
                                    const char *sheet, const char *sheet_last);
 static gboolean parse_row_only (const char *text, int *row, gboolean *abs);
 static gboolean parse_col_only (const char *text, int *col, gboolean *abs);
+static gboolean parse_whole_end (const Token *tok, gboolean cols, int *index, gboolean *abs);
 
 static gboolean
 op_is (Parser *ps, const char *what)
@@ -665,21 +680,26 @@ parse_primary (Parser *ps)
         if (o42_ref_parse_full (name, &row, &col, &row_abs, &col_abs, &used) &&
             used == strlen (name))
           {
+            /* A1:B5 is one range.  A1:INDEX(...) is the colon operator
+             * over two references, which parse_range_op reads, so the
+             * colon is taken here only when a cell follows it. */
             if (ps->tok.type == TOK_COLON)
               {
+                Token after = peek_token (ps);
                 int row1 = 0, col1 = 0;
                 gboolean row1_abs = FALSE, col1_abs = FALSE;
                 gsize used1 = 0;
+                gboolean cell_after = after.type == TOK_IDENT && after.text != NULL &&
+                                      o42_ref_parse_full (after.text, &row1, &col1,
+                                                          &row1_abs, &col1_abs, &used1) &&
+                                      used1 == strlen (after.text);
 
-                next_token (ps);
-
-                if (ps->tok.type == TOK_IDENT && ps->tok.text != NULL &&
-                    o42_ref_parse_full (ps->tok.text, &row1, &col1,
-                                        &row1_abs, &col1_abs, &used1) &&
-                    used1 == strlen (ps->tok.text))
+                token_clear (&after);
+                if (cell_after)
                   {
                     O42Node *n = node_new (O42_NODE_RANGE);
 
+                    next_token (ps);
                     /* Normalising swaps corners, and the dollar signs have
                      * to travel with the coordinate they were attached to. */
                     n->as.range = o42_range_normalise (row, col, row1, col1);
@@ -699,9 +719,6 @@ parse_primary (Parser *ps)
                     next_token (ps);
                     return n;
                   }
-
-                g_free (name);
-                return node_error (O42_ERR_REF);
               }
 
             {
@@ -716,22 +733,24 @@ parse_primary (Parser *ps)
             }
           }
 
-        /* A:A and $1:$1: a column or a row on its own before a colon is
-         * the whole of it. */
+        /* A:A and $1:$1: a column or a row on its own either side of a
+         * colon is the whole of it.  With anything else after the colon
+         * the name is a name, as x is in LET(x,A1,SUM(x:A3)). */
         if (ps->tok.type == TOK_COLON)
           {
-            int index = 0;
-            gboolean abs = FALSE;
+            int index = 0, last = 0;
+            gboolean abs = FALSE, last_abs = FALSE;
+            Token after = peek_token (ps);
+            gboolean cols = parse_col_only (name, &index, &abs) &&
+                            parse_whole_end (&after, TRUE, &last, &last_abs);
+            gboolean rows = !cols && parse_row_only (name, &index, &abs) &&
+                            parse_whole_end (&after, FALSE, &last, &last_abs);
 
-            if (parse_col_only (name, &index, &abs))
+            token_clear (&after);
+            if (cols || rows)
               {
                 g_free (name);
-                return parse_whole_range (ps, TRUE, index, abs, sheet, sheet_last);
-              }
-            if (parse_row_only (name, &index, &abs))
-              {
-                g_free (name);
-                return parse_whole_range (ps, FALSE, index, abs, sheet, sheet_last);
+                return parse_whole_range (ps, cols, index, abs, sheet, sheet_last);
               }
           }
 
@@ -800,16 +819,16 @@ parse_row_only (const char *text, int *row, gboolean *abs)
  * or a row on its own.  A bare row lexes as a number, so both shapes
  * are looked at. */
 static gboolean
-parse_whole_end (Parser *ps, gboolean cols, int *index, gboolean *abs)
+parse_whole_end (const Token *tok, gboolean cols, int *index, gboolean *abs)
 {
-  if (ps->tok.type == TOK_IDENT && ps->tok.sheet == NULL)
-    return cols ? parse_col_only (ps->tok.text, index, abs)
-                : parse_row_only (ps->tok.text, index, abs);
-  if (!cols && ps->tok.type == TOK_NUMBER &&
-      ps->tok.number >= 1 && ps->tok.number <= O42_MAX_ROWS &&
-      ps->tok.number == (int) ps->tok.number)
+  if (tok->type == TOK_IDENT && tok->sheet == NULL)
+    return cols ? parse_col_only (tok->text, index, abs)
+                : parse_row_only (tok->text, index, abs);
+  if (!cols && tok->type == TOK_NUMBER &&
+      tok->number >= 1 && tok->number <= O42_MAX_ROWS &&
+      tok->number == (int) tok->number)
     {
-      *index = (int) ps->tok.number - 1;
+      *index = (int) tok->number - 1;
       *abs = FALSE;
       return TRUE;
     }
@@ -828,7 +847,7 @@ parse_whole_range (Parser *ps, gboolean cols, int first, gboolean first_abs,
   O42Node *n;
 
   next_token (ps);
-  if (!parse_whole_end (ps, cols, &last, &last_abs))
+  if (!parse_whole_end (&ps->tok, cols, &last, &last_abs))
     return node_error (O42_ERR_REF);
   next_token (ps);
 
@@ -859,30 +878,65 @@ parse_whole_range (Parser *ps, gboolean cols, int first, gboolean first_abs,
   return n;
 }
 
-/* Trailing % divides by a hundred, and binds tighter than anything
- * else; a "(" after a call or a name calls what it came to, which is
- * how LAMBDA(x,x+1)(4) and a LET-bound function are written. */
+/* A1:A2:A3, INDEX(A1:A3,1):A3, Start:Finish with two names: a colon
+ * the primary did not take as part of a plain A1:B5 is the range
+ * operator, which binds tightest of all, and chains. */
+static O42Node *
+parse_range_op (Parser *ps)
+{
+  O42Node *n = parse_primary (ps);
+
+  while (ps->tok.type == TOK_COLON)
+    {
+      next_token (ps);
+      n = make_binary (O42_OP_RANGE, n, parse_primary (ps));
+    }
+
+  return n;
+}
+
 /* A1:B5 B2:C9: a space between two references is the intersection
- * operator, which binds tightest of all. */
+ * operator, which binds tighter than anything but the colon. */
 static O42Node *
 parse_intersection (Parser *ps)
 {
-  O42Node *n = parse_primary (ps);
+  O42Node *n = parse_range_op (ps);
 
   while (ps->tok.space_before &&
          (ps->tok.type == TOK_IDENT || ps->tok.type == TOK_LPAREN) &&
          (n->type == O42_NODE_REF || n->type == O42_NODE_RANGE || n->type == O42_NODE_NAME ||
           n->type == O42_NODE_CALL || (n->type == O42_NODE_BINARY &&
-                                       (n->as.op.op == O42_OP_UNION || n->as.op.op == O42_OP_ISECT))))
-    n = make_binary (O42_OP_ISECT, n, parse_primary (ps));
+                                       (n->as.op.op == O42_OP_UNION || n->as.op.op == O42_OP_ISECT ||
+                                        n->as.op.op == O42_OP_RANGE))))
+    n = make_binary (O42_OP_ISECT, n, parse_range_op (ps));
 
   return n;
 }
 
+/* [.A1:.A2]~[.C1]: OpenFormula's union, as .ods files write it, the
+ * loosest of the reference operators.  Written back, it is the comma
+ * inside parentheses that Excel uses. */
+static O42Node *
+parse_tilde_union (Parser *ps)
+{
+  O42Node *n = parse_intersection (ps);
+
+  while (op_is (ps, "~"))
+    {
+      next_token (ps);
+      n = make_binary (O42_OP_UNION, n, parse_intersection (ps));
+    }
+
+  return n;
+}
+
+/* Trailing % divides by a hundred, and binds tighter than anything
+ * else; a "(" after a call or a name calls what it came to, which is
+ * how LAMBDA(x,x+1)(4) and a LET-bound function are written. */
 static O42Node *
 parse_postfix (Parser *ps)
 {
-  O42Node *n = parse_intersection (ps);
+  O42Node *n = parse_tilde_union (ps);
 
   for (;;)
     {
@@ -1082,6 +1136,14 @@ o42_formula_parse (const char *text)
 
   next_token (&ps);
   node = parse_expr (&ps);
+
+  /* Whatever the expression did not take makes the formula a bad one,
+   * as Excel refuses =MAX(1,2)):( rather than reading =MAX(1,2). */
+  if (ps.tok.type != TOK_END)
+    {
+      o42_node_free (node);
+      node = node_error (O42_ERR_NAME);
+    }
 
   token_clear (&ps.tok);
   return node;
@@ -1661,9 +1723,36 @@ o42_node_collect_refs (const O42Node *node, GArray *ranges)
 
     case O42_NODE_UNARY:
     case O42_NODE_BINARY:
-      o42_node_collect_refs (node->as.op.a, ranges);
-      o42_node_collect_refs (node->as.op.b, ranges);
-      break;
+      {
+        guint first = ranges->len;
+
+        o42_node_collect_refs (node->as.op.a, ranges);
+        o42_node_collect_refs (node->as.op.b, ranges);
+
+        /* INDEX(A1:A3,1):C3 reads B1:B3 as well, which neither side
+         * names.  What the operator comes to lies inside the rectangle
+         * around everything the two sides read, so that is read too. */
+        if (node->type == O42_NODE_BINARY && node->as.op.op == O42_OP_RANGE &&
+            ranges->len > first)
+          {
+            O42SheetRange box = g_array_index (ranges, O42SheetRange, first);
+            gboolean one_sheet = TRUE;
+
+            for (guint i = first + 1; i < ranges->len && one_sheet; i++)
+              {
+                const O42SheetRange *r = &g_array_index (ranges, O42SheetRange, i);
+
+                one_sheet = r->sheet == box.sheet;
+                box.range.row0 = MIN (box.range.row0, r->range.row0);
+                box.range.col0 = MIN (box.range.col0, r->range.col0);
+                box.range.row1 = MAX (box.range.row1, r->range.row1);
+                box.range.col1 = MAX (box.range.col1, r->range.col1);
+              }
+            if (one_sheet)
+              g_array_append_val (ranges, box);
+          }
+        break;
+      }
 
     case O42_NODE_CALL:
       if (node->as.call.args != NULL)
@@ -1711,6 +1800,7 @@ op_text (O42Op op)
     case O42_OP_UNION:  return ",";
     case O42_OP_ISECT:  return " ";
     case O42_OP_IMPLICIT: return "@";
+    case O42_OP_RANGE:  return ":";
     default:            return "?";
     }
 }
@@ -1821,6 +1911,7 @@ op_precedence (const O42Node *node)
 
   switch (node->as.op.op)
     {
+    case O42_OP_RANGE:  return 10;
     case O42_OP_ISECT:  return 9;
     case O42_OP_UNION:  return 8;   /* always written in its parentheses */
     case O42_OP_POW:    return 5;
@@ -1851,7 +1942,9 @@ node_write_child (const O42Node *child, const O42Node *parent,
   /* A child that binds looser needs brackets.  One that binds equally
    * needs them on the side the operator does not associate to, which
    * in a spreadsheet is the right of every operator, "^" included. */
-  if (cc < pc)
+  if (child->type == O42_NODE_BINARY && child->as.op.op == O42_OP_UNION)
+    parens = FALSE;   /* a union brings its own */
+  else if (cc < pc)
     parens = TRUE;
   else if (cc == pc && parent->type == O42_NODE_BINARY)
     parens = right_side;

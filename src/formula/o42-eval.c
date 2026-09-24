@@ -287,7 +287,8 @@ static O42Value binary_values (O42Op op, O42Value a, O42Value b);
 
 /* (A1:A2,C1:C2) and A1:B5 B2:C9: the union of two references as one
  * operand of several areas, or the cells two references share, which
- * is #NULL! when there are none. */
+ * is #NULL! when there are none.  INDEX(A1:A3,1):C3 is the smallest
+ * rectangle holding both. */
 static O42Operand
 reference_operator (O42EvalContext *ctx, O42Op op, const O42Operand *oa, const O42Operand *ob)
 {
@@ -297,7 +298,8 @@ reference_operator (O42EvalContext *ctx, O42Op op, const O42Operand *oa, const O
   memset (&out, 0, sizeof out);
   if (!oa->is_range || !ob->is_range)
     {
-      out.value = o42_value_error (oa->is_range || ob->is_range ? O42_ERR_VALUE : O42_ERR_NULL);
+      out.value = o42_value_error (oa->is_range || ob->is_range || op == O42_OP_RANGE
+                                   ? O42_ERR_VALUE : O42_ERR_NULL);
       if (!oa->is_range && oa->value.type == O42_VALUE_ERROR)
         { o42_value_clear (&out.value); out.value = o42_value_copy (&oa->value); }
       else if (!ob->is_range && ob->value.type == O42_VALUE_ERROR)
@@ -340,6 +342,47 @@ reference_operator (O42EvalContext *ctx, O42Op op, const O42Operand *oa, const O
       out.value = o42_value_empty ();
       out.sheet = g_intern_string (name);
       g_free (name);
+      return out;
+    }
+
+  if (op == O42_OP_RANGE)
+    {
+      /* The rectangle around every area on both sides, which is what
+       * (A1,A5):A3 comes to as well; all of it on one sheet. */
+      const O42Operand *sides[2] = { oa, ob };
+      gboolean first = TRUE;
+
+      out.is_range = TRUE;
+      for (int k = 0; k < 2; k++)
+        {
+          GArray *inner = union_areas (sides[k]);
+          guint n = inner != NULL ? inner->len : 1;
+
+          for (guint i = 0; i < n; i++)
+            {
+              const O42Operand *area = inner != NULL ? &g_array_index (inner, O42Operand, i) : sides[k];
+
+              if (area->sheet_last != NULL ||
+                  (!first && area->sheet != out.sheet &&
+                   (area->sheet == NULL || out.sheet == NULL || strcmp (area->sheet, out.sheet) != 0)))
+                {
+                  memset (&out, 0, sizeof out);
+                  out.value = o42_value_error (O42_ERR_VALUE);
+                  return out;
+                }
+              if (first)
+                {
+                  out.sheet = area->sheet;
+                  out.range = area->range;
+                  first = FALSE;
+                  continue;
+                }
+              out.range.row0 = MIN (out.range.row0, area->range.row0);
+              out.range.col0 = MIN (out.range.col0, area->range.col0);
+              out.range.row1 = MAX (out.range.row1, area->range.row1);
+              out.range.col1 = MAX (out.range.col1, area->range.col1);
+            }
+        }
       return out;
     }
 
@@ -12240,7 +12283,8 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
          * wants an operand, works cell by cell: SUM(A1:A3*2). */
         O42Operand oa = eval_operand (ctx, node->as.op.a);
         O42Operand ob = eval_operand (ctx, node->as.op.b);
-        if (node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT)
+        if (node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT ||
+            node->as.op.op == O42_OP_RANGE)
           {
             op = reference_operator (ctx, node->as.op.op, &oa, &ob);
             operand_clear (&oa);

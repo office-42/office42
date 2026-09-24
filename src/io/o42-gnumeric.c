@@ -4094,6 +4094,18 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
       O42Sheet *target = o42_book_sheet (book, 0);
       O42Range range;
       gboolean usable = FALSE;
+      char *areas = NULL;
+
+      /* Sheet1!$A$1:$A$3,Sheet1!$C$1: several areas joined by commas
+       * with no parentheses round them, which a name may be and a
+       * cell's formula may not; read with them, it is a union. */
+      if (tree->type == O42_NODE_ERROR && strchr (val, ',') != NULL)
+        {
+          areas = g_strdup_printf ("(%s)", val[0] == '=' ? val + 1 : val);
+          o42_node_free (tree);
+          tree = o42_formula_parse (areas);
+          val = areas;
+        }
 
       if (tree->type == O42_NODE_RANGE)
         { range = tree->as.range; usable = TRUE; }
@@ -4113,6 +4125,7 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
       else if (tree->type != O42_NODE_ERROR && tree->type != O42_NODE_RANGE && tree->type != O42_NODE_REF)
         o42_book_define_name_formula (book, nm, val);
       o42_node_free (tree);
+      g_free (areas);
     }
   g_ptr_array_free (r.pending_names, TRUE);
   g_string_free (r.name_name, TRUE);

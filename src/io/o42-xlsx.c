@@ -4948,9 +4948,22 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
               g_free (text);
               continue;
             }
-          tree = o42_formula_parse (val[0] == '=' ? val + 1 : val);
+          const char *body = val[0] == '=' ? val + 1 : val;
+          char *areas = NULL;
+          tree = o42_formula_parse (body);
           O42Range range;
           gboolean usable = FALSE;
+
+          /* Sheet1!$A$1:$A$3,Sheet1!$C$1: a name may be several areas
+           * joined by commas with no parentheses round them, as a
+           * cell's formula may not; read with them, it is a union. */
+          if (tree->type == O42_NODE_ERROR && strchr (body, ',') != NULL)
+            {
+              areas = g_strdup_printf ("(%s)", body);
+              o42_node_free (tree);
+              tree = o42_formula_parse (areas);
+              body = areas;
+            }
 
           if (tree->type == O42_NODE_RANGE)
             { range = tree->as.range; usable = TRUE; }
@@ -4970,11 +4983,12 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           else if (tree->type != O42_NODE_ERROR)
             {
               /* A constant, an expression or a LAMBDA. */
-              char *plain = strip_xlfn (val[0] == '=' ? val + 1 : val);
+              char *plain = strip_xlfn (body);
               o42_book_define_name_formula (book, nm, plain);
               g_free (plain);
             }
           o42_node_free (tree);
+          g_free (areas);
         }
 
       for (int i = 0; i < o42_book_n_sheets (book); i++)

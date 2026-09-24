@@ -57,7 +57,7 @@ op_precedence (const O42Node *node)
   if (node->type == O42_NODE_UNARY)
     return node->as.op.op == O42_OP_PERCENT ? 7 : 6;
   if (node->type != O42_NODE_BINARY)
-    return 8;
+    return 11;
   switch (node->as.op.op)
     {
     case O42_OP_EQ: case O42_OP_NE: case O42_OP_LT:
@@ -66,6 +66,9 @@ op_precedence (const O42Node *node)
     case O42_OP_ADD: case O42_OP_SUB: return 3;
     case O42_OP_MUL: case O42_OP_DIV: return 4;
     case O42_OP_POW: return 5;
+    /* OpenFormula binds ":" tighter than "!", and "!" tighter than "~". */
+    case O42_OP_RANGE: return 10;
+    case O42_OP_ISECT: return 9;
     default: return 8;
     }
 }
@@ -87,6 +90,7 @@ op_text (O42Op op)
      * scalar context intersects implicitly without being asked. */
     case O42_OP_UNION: return "~";  case O42_OP_ISECT: return "!";
     case O42_OP_IMPLICIT: return "";
+    case O42_OP_RANGE: return ":";
     }
   return "?";
 }
@@ -3442,6 +3446,10 @@ formula_from_of (const char *of)
       if (*p == '}') { braces--; g_string_append_c (out, *p++); continue; }
       if (*p == ';') { g_string_append_c (out, braces > 0 ? ',' : ','); p++; continue; }
       if (*p == '|' && braces > 0) { g_string_append_c (out, ';'); p++; continue; }
+      /* [.A1:.B5]![.B2:.C9]: OpenFormula's intersection is a space in
+       * ours.  (The "!" of #DIV/0! follows no bracket.) */
+      if (*p == '!' && p > of && (p[-1] == ']' || p[-1] == ')'))
+        { g_string_append_c (out, ' '); p++; continue; }
       if (g_str_has_prefix (p, "TRUE()")) { g_string_append (out, "TRUE"); p += 6; continue; }
       if (g_str_has_prefix (p, "FALSE()")) { g_string_append (out, "FALSE"); p += 7; continue; }
       g_string_append_c (out, *p++);

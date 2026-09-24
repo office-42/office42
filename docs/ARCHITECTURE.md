@@ -77,8 +77,14 @@ multiplicative *  /
 power         ^            (right-associative: 2^3^2 is 512)
 unary         -  +         (binds tighter than ^: -2^2 is 4)
 postfix       %            (divides by 100)
+reference     ~  space  :  (union, intersection, range; ":" binds tightest)
 primary       number, string, TRUE/FALSE, error literal, (expr), ref, range, call
 ```
+
+A colon between two cells makes a range as it is read.  Between anything
+else -- `A1:A2:A3`, `INDEX(A1:A3,1):A3`, two defined names -- it is the
+range operator, and the reference it comes to is the smallest rectangle
+that holds both sides.
 
 Two things there surprise people and are both Excel's own behaviour: unary
 minus binding tighter than exponentiation, and the right associativity of
@@ -90,7 +96,8 @@ entirely as a reference is one; anything else is `#NAME?`.
 
 A formula that will not parse becomes an error node rather than a NULL. A bad
 formula is a cell showing `#NAME?`, not a special case running through the
-model.
+model.  So is one with anything left over after a whole expression:
+`=MAX(1,2)):(` is not `=MAX(1,2)`.
 
 ## The evaluator
 

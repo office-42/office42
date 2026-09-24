@@ -40,8 +40,11 @@ typedef enum {
   O42_OP_NEG, O42_OP_POS, O42_OP_PERCENT,
   /* The reference operators: (A1:A3,C1:C3) is both ranges, A1:B5 B2:C9
    * the cells they share, and @A1:A3 the one cell of the range that
-   * lines up with the formula. */
-  O42_OP_UNION, O42_OP_ISECT, O42_OP_IMPLICIT
+   * lines up with the formula.  A colon between two cells is read as an
+   * O42_NODE_RANGE; between anything else -- A1:A2:A3,
+   * INDEX(A1:A3,1):A3 -- it is O42_OP_RANGE, the smallest rectangle
+   * that holds both. */
+  O42_OP_UNION, O42_OP_ISECT, O42_OP_IMPLICIT, O42_OP_RANGE
 } O42Op;
 
 typedef struct _O42Node O42Node;
@@ -106,7 +109,9 @@ struct _O42Node {
 
 /* Parses the text after the leading "=".  Never returns NULL: a formula that
  * will not parse becomes an error node, so that a bad formula is a cell
- * showing #NAME? rather than a special case running through the model. */
+ * showing #NAME? rather than a special case running through the model.
+ * Anything left over after a whole expression is such a formula too:
+ * =MAX(1,2)):( is not =MAX(1,2). */
 O42Node *o42_formula_parse (const char *text);
 
 void     o42_node_free (O42Node *node);
