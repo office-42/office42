@@ -300,6 +300,7 @@ sylk_op_text (O42Op op)
     case O42_OP_POS:     return "+";
     case O42_OP_UNION:   return ",";
     case O42_OP_ISECT:   return " ";
+    case O42_OP_RANGE:   return ":";
     default:             return "";
     }
 }

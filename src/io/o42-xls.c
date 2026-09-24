@@ -1071,8 +1071,12 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
               }
             else
               {
-                o42_node_free (b);
-                push (&d, a);
+                /* A1:INDEX(...), a name's end: the range operator. */
+                O42Node *n = node_new (O42_NODE_BINARY);
+                n->as.op.op = O42_OP_RANGE;
+                n->as.op.a = a;
+                n->as.op.b = b;
+                push (&d, n);
               }
           }
           break;
@@ -4383,6 +4387,21 @@ addin_index (Writer *w, const char *name)
 static void compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class,
                      int own_sheet, GByteArray *cb);
 
+/* The areas of a union, left to right with a ptgUnion after each
+ * pair: (A,B,C) is A B union C union, whatever way it was grouped. */
+static void
+compile_union_parts (Writer *w, const O42Node *node, GByteArray *a, int own_sheet, GByteArray *cb)
+{
+  if (node != NULL && node->type == O42_NODE_BINARY && node->as.op.op == O42_OP_UNION)
+    {
+      compile_union_parts (w, node->as.op.a, a, own_sheet, cb);
+      compile_union_parts (w, node->as.op.b, a, own_sheet, cb);
+      put8 (a, 0x10);
+    }
+  else
+    compile (w, node, a, TRUE, own_sheet, cb);
+}
+
 /* An array constant: ptgArray in the tokens, the cells in the extra
  * data after them. */
 static void
@@ -4548,12 +4567,36 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
             compile (w, node->as.op.a, a, TRUE, own_sheet, cb);
             break;
           }
+        if (node->as.op.op == O42_OP_UNION)
+          {
+            /* (A1:A2,C1:C3,E1) as Excel writes it: a ptgMemFunc giving
+             * the length of the areas and their ptgUnions, then a
+             * ptgParen.  LibreOffice needs the parenthesis to count
+             * AREAS((A1,B1)) as one argument, and Gnumeric the
+             * ptgMemFunc to read the union after one. */
+            gsize at = a->len;
+            gsize cce;
+
+            put8 (a, 0x29);
+            put16 (a, 0);
+            compile_union_parts (w, node, a, own_sheet, cb);
+            cce = a->len - at - 3;
+            a->data[at + 1] = cce & 0xFF;
+            a->data[at + 2] = (cce >> 8) & 0xFF;
+            put8 (a, 0x15);
+            break;
+          }
         /* The parts of a union or an intersection are references, so
          * they keep the reference class. */
-        compile (w, node->as.op.a, a, node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT, own_sheet, cb);
-        compile (w, node->as.op.b, a, node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT, own_sheet, cb);
-        if (node->as.op.op == O42_OP_UNION)
-          put8 (a, 0x10);
+        {
+          gboolean refs = node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT ||
+                          node->as.op.op == O42_OP_RANGE;
+
+          compile (w, node->as.op.a, a, refs, own_sheet, cb);
+          compile (w, node->as.op.b, a, refs, own_sheet, cb);
+        }
+        if (node->as.op.op == O42_OP_RANGE)
+          put8 (a, 0x11);
         else if (node->as.op.op == O42_OP_ISECT)
           put8 (a, 0x0F);
         else

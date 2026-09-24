@@ -306,6 +306,27 @@ reference_operator (O42EvalContext *ctx, O42Op op, const O42Operand *oa, const O
       return out;
     }
 
+  if (op == O42_OP_RANGE)
+    {
+      /* D2:INDEX(D2:D11,5): the smallest block holding both, which
+       * must be single areas on one sheet. */
+      if (union_areas (oa) != NULL || union_areas (ob) != NULL ||
+          oa->sheet_last != NULL || ob->sheet_last != NULL ||
+          (oa->sheet != ob->sheet && (oa->sheet == NULL || ob->sheet == NULL ||
+                                      strcmp (oa->sheet, ob->sheet) != 0)))
+        {
+          out.value = o42_value_error (O42_ERR_VALUE);
+          return out;
+        }
+      out.is_range = TRUE;
+      out.sheet = oa->sheet;
+      out.range.row0 = MIN (oa->range.row0, ob->range.row0);
+      out.range.col0 = MIN (oa->range.col0, ob->range.col0);
+      out.range.row1 = MAX (oa->range.row1, ob->range.row1);
+      out.range.col1 = MAX (oa->range.col1, ob->range.col1);
+      return out;
+    }
+
   if (op == O42_OP_UNION)
     {
       ArrayFrame *frame = array_frames && array_frames->len > 0
@@ -11787,10 +11808,25 @@ done:
 static O42Value
 eval_binary (O42EvalContext *ctx, const O42Node *node)
 {
-  O42Operand oa = eval_operand (ctx, node->as.op.a);
-  O42Operand ob = eval_operand (ctx, node->as.op.b);
-  O42Value a = operand_value (ctx, &oa);
-  O42Value b = operand_value (ctx, &ob);
+  O42Operand oa, ob;
+  O42Value a, b;
+
+  /* A reference operator's answer is a reference, and its value that
+   * reference's. */
+  if (node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT ||
+      node->as.op.op == O42_OP_RANGE)
+    {
+      O42Operand op = eval_operand (ctx, node);
+      O42Value v = operand_value (ctx, &op);
+
+      operand_clear (&op);
+      return v;
+    }
+
+  oa = eval_operand (ctx, node->as.op.a);
+  ob = eval_operand (ctx, node->as.op.b);
+  a = operand_value (ctx, &oa);
+  b = operand_value (ctx, &ob);
 
   operand_clear (&oa);
   operand_clear (&ob);
@@ -12283,7 +12319,8 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
          * wants an operand, works cell by cell: SUM(A1:A3*2). */
         O42Operand oa = eval_operand (ctx, node->as.op.a);
         O42Operand ob = eval_operand (ctx, node->as.op.b);
-        if (node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT)
+        if (node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT ||
+            node->as.op.op == O42_OP_RANGE)
           {
             op = reference_operator (ctx, node->as.op.op, &oa, &ob);
             operand_clear (&oa);

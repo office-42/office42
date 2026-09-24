@@ -637,8 +637,10 @@ parse_primary (Parser *ps)
         inner = parse_expr (ps);
 
         /* (A1:A2,C1:C2): commas inside parentheses join references
-         * into one operand of several areas. */
-        while (ps->tok.type == TOK_COMMA)
+         * into one operand of several areas -- and LibreOffice's ~,
+         * which it writes into .xlsx files too. */
+        while (ps->tok.type == TOK_COMMA ||
+               (ps->tok.type == TOK_OP && strcmp (ps->tok.op, "~") == 0))
           {
             next_token (ps);
             inner = make_binary (O42_OP_UNION, inner, parse_expr (ps));
@@ -749,8 +751,20 @@ parse_primary (Parser *ps)
                     return n;
                   }
 
-                g_free (name);
-                return node_error (O42_ERR_REF);
+                /* D2:INDEX(D2:D11,5): the far end is a reference a
+                 * function or a name gives, so the block is found when
+                 * the formula is evaluated. */
+                {
+                  O42Node *left = node_new (O42_NODE_REF);
+
+                  left->as.ref.row = row;
+                  left->as.ref.col = col;
+                  left->abs = (row_abs ? O42_ABS_ROW0 : 0) | (col_abs ? O42_ABS_COL0 : 0);
+                  left->sheet = sheet;
+                  left->sheet_last = sheet_last;
+                  g_free (name);
+                  return make_binary (O42_OP_RANGE, left, parse_primary (ps));
+                }
               }
 
             {
@@ -911,19 +925,53 @@ parse_whole_range (Parser *ps, gboolean cols, int first, gboolean first_abs,
 /* Trailing % divides by a hundred, and binds tighter than anything
  * else; a "(" after a call or a name calls what it came to, which is
  * how LAMBDA(x,x+1)(4) and a LET-bound function are written. */
-/* A1:B5 B2:C9: a space between two references is the intersection
- * operator, which binds tightest of all. */
+/* What a reference operator takes: a reference, a name or a call that
+ * may give one, or another reference operator's result. */
+static gboolean
+reference_side (const O42Node *n)
+{
+  return n->type == O42_NODE_REF || n->type == O42_NODE_RANGE || n->type == O42_NODE_NAME ||
+         n->type == O42_NODE_CALL ||
+         (n->type == O42_NODE_BINARY &&
+          (n->as.op.op == O42_OP_UNION || n->as.op.op == O42_OP_ISECT || n->as.op.op == O42_OP_RANGE));
+}
+
+/* A1:B2:C3, INDEX(A1:A9,2):B5: a colon after anything that is not a
+ * cell written out, the range operator, which binds tightest. */
 static O42Node *
-parse_intersection (Parser *ps)
+parse_range (Parser *ps)
 {
   O42Node *n = parse_primary (ps);
 
-  while (ps->tok.space_before &&
-         (ps->tok.type == TOK_IDENT || ps->tok.type == TOK_LPAREN) &&
-         (n->type == O42_NODE_REF || n->type == O42_NODE_RANGE || n->type == O42_NODE_NAME ||
-          n->type == O42_NODE_CALL || (n->type == O42_NODE_BINARY &&
-                                       (n->as.op.op == O42_OP_UNION || n->as.op.op == O42_OP_ISECT))))
-    n = make_binary (O42_OP_ISECT, n, parse_primary (ps));
+  while (ps->tok.type == TOK_COLON && reference_side (n))
+    {
+      next_token (ps);
+      n = make_binary (O42_OP_RANGE, n, parse_primary (ps));
+    }
+  return n;
+}
+
+/* A1:B5 B2:C9: a space between two references is the intersection
+ * operator, which binds tighter than all but the range; A1~B1 is
+ * LibreOffice's union, outside parentheses too. */
+static O42Node *
+parse_intersection (Parser *ps)
+{
+  O42Node *n = parse_range (ps);
+
+  for (;;)
+    {
+      if (ps->tok.space_before &&
+          (ps->tok.type == TOK_IDENT || ps->tok.type == TOK_LPAREN) && reference_side (n))
+        n = make_binary (O42_OP_ISECT, n, parse_range (ps));
+      else if (ps->tok.type == TOK_OP && strcmp (ps->tok.op, "~") == 0 && reference_side (n))
+        {
+          next_token (ps);
+          n = make_binary (O42_OP_UNION, n, parse_range (ps));
+        }
+      else
+        break;
+    }
 
   return n;
 }
@@ -1209,6 +1257,14 @@ o42_formula_parse (const char *text)
   next_token (&ps);
   node = parse_expr (&ps);
 
+  /* What is left after the expression is not part of it: =1+2) and
+   * =SUM(A1) B are no formulas, where Excel refuses them, rather than
+   * 3 and SUM(A1) with the rest dropped. */
+  if (ps.tok.type != TOK_END && node != NULL && node->type != O42_NODE_ERROR)
+    {
+      o42_node_free (node);
+      node = node_error (O42_ERR_NAME);
+    }
   token_clear (&ps.tok);
   if (ps.too_deep || tree_deeper_than (node, TREE_DEPTH_MAX))
     {
@@ -1842,6 +1898,7 @@ op_text (O42Op op)
     case O42_OP_UNION:  return ",";
     case O42_OP_ISECT:  return " ";
     case O42_OP_IMPLICIT: return "@";
+    case O42_OP_RANGE:  return ":";
     default:            return "?";
     }
 }
@@ -1962,6 +2019,7 @@ op_precedence (const O42Node *node)
 
   switch (node->as.op.op)
     {
+    case O42_OP_RANGE:  return 10;
     case O42_OP_ISECT:  return 9;
     case O42_OP_UNION:  return 8;   /* always written in its parentheses */
     case O42_OP_POW:    return 5;

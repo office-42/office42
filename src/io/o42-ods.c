@@ -217,6 +217,7 @@ op_text (O42Op op)
      * scalar context intersects implicitly without being asked. */
     case O42_OP_UNION: return "~";  case O42_OP_ISECT: return "!";
     case O42_OP_IMPLICIT: return "";
+    case O42_OP_RANGE: return ":";
     }
   return "?";
 }
@@ -406,7 +407,13 @@ of_formula (const char *input)
 {
   O42Node *tree = o42_formula_parse (input + 1);
   GString *out = g_string_new ("of:=");
-  of_write (tree, out);
+
+  /* A formula that does not parse is kept as it was typed, as .xlsx
+   * keeps it, rather than lost to the #NAME? it shows. */
+  if (tree->type == O42_NODE_ERROR && input[1] != '#')
+    g_string_append (out, input + 1);
+  else
+    of_write (tree, out);
   o42_node_free (tree);
   return g_string_free (out, FALSE);
 }

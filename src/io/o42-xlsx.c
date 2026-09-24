@@ -5079,6 +5079,8 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_array_unref (r.sheet_hidden);
   g_ptr_array_unref (r.names);
   g_string_free (r.name_text, TRUE);
+  if (r.prop_text != NULL)
+    g_string_free (r.prop_text, TRUE);
   g_free (r.script_name);
   g_free (r.script_description);
   g_free (r.scenario_name);

@@ -40,8 +40,10 @@ typedef enum {
   O42_OP_NEG, O42_OP_POS, O42_OP_PERCENT,
   /* The reference operators: (A1:A3,C1:C3) is both ranges, A1:B5 B2:C9
    * the cells they share, and @A1:A3 the one cell of the range that
-   * lines up with the formula. */
-  O42_OP_UNION, O42_OP_ISECT, O42_OP_IMPLICIT
+   * lines up with the formula.  D2:INDEX(D2:D11,5) is the range
+   * operator between references that are not both cells written out:
+   * the smallest block holding both, found when it is evaluated. */
+  O42_OP_UNION, O42_OP_ISECT, O42_OP_IMPLICIT, O42_OP_RANGE
 } O42Op;
 
 typedef struct _O42Node O42Node;
