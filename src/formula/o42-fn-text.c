@@ -100,6 +100,9 @@ fn_mid (O42EvalContext *ctx, O42Operand *args, int n)
   ARG_TEXT (0, s);
   ARG_NUMBER (1, start);
   ARG_NUMBER (2, count);
+  /* Excel cuts a fraction off both: MID("abcdef",2.9,2.9) is "bc". */
+  start = floor (start);
+  count = floor (count);
 
   if (start < 1 || count < 0)
     { g_free (s); return o42_value_error (O42_ERR_VALUE); }
@@ -612,6 +615,8 @@ fn_replace (O42EvalContext *ctx, O42Operand *args, int n)
     with = o42_value_to_text (&v);
     o42_value_clear (&v);
   }
+  start = floor (start);
+  count = floor (count);
 
   if (start < 1 || count < 0)
     { g_free (old); g_free (with); return o42_value_error (O42_ERR_VALUE); }

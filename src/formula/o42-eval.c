@@ -10,6 +10,7 @@
 #include "o42-hdate.h"
 #include "o42-numfmt.h"
 
+#include <float.h>
 #include <math.h>
 #include <string.h>
 
@@ -814,7 +815,9 @@ fn_and_or (O42EvalContext *ctx, O42Operand *args, int n, gboolean want_or)
 
                 ctx->get_cell (ctx, args[i].sheet, row, col, &v);
 
-                if (v.type == O42_VALUE_EMPTY)
+                /* Text in a reference is passed over, as Excel does:
+                 * AND(TRUE,A1) is TRUE with a label in A1. */
+                if (v.type == O42_VALUE_EMPTY || v.type == O42_VALUE_TEXT)
                   { o42_value_clear (&v); continue; }
 
                 if (!o42_value_to_bool (&v, &b, &err))
@@ -1074,17 +1077,42 @@ fn_round (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_number (round_half_away (x, (int) CLAMP (digits, -400, 400)));
 }
 
+/* ROUNDDOWN and ROUNDUP: x cut to `digits` places, toward zero or away
+ * from it.  0.29 is 0.28999999999999998 as a double and 0.29*100 is
+ * 28.999999999999996, which cut at the point gives 0.28 where Excel,
+ * deciding at the fifteenth significant digit, says 0.29: a scaled
+ * number within a few units in its last place of a whole number is
+ * taken as that whole number before it is cut. */
+static double
+round_toward (double x, double digits, gboolean away)
+{
+  double scale = pow (10.0, (int) CLAMP (digits, -400, 400));
+  double scaled = x * scale;
+  double whole;
+
+  if (scale == 0.0)
+    return away && x != 0.0 ? copysign (HUGE_VAL, x) : 0.0;
+  if (!isfinite (scaled))
+    return x;
+
+  whole = round (scaled);
+  if (fabs (scaled - whole) <= fabs (scaled) * 4 * DBL_EPSILON)
+    scaled = whole;
+  if (away)
+    return (scaled >= 0 ? ceil (scaled) : floor (scaled)) / scale;
+  return trunc (scaled) / scale;
+}
+
 static O42Value
 fn_rounddown (O42EvalContext *ctx, O42Operand *args, int n)
 {
-  double x, digits = 0, scale;
+  double x, digits = 0;
 
   ARG_NUMBER (0, x);
   if (n >= 2)
     ARG_NUMBER (1, digits);
 
-  scale = pow (10.0, (int) digits);
-  return o42_value_number (trunc (x * scale) / scale);
+  return o42_value_number (round_toward (x, digits, FALSE));
 }
 
 /* TRUNC(number, digits) is ROUNDDOWN by another name. */
@@ -1097,15 +1125,13 @@ fn_trunc (O42EvalContext *ctx, O42Operand *args, int n)
 static O42Value
 fn_roundup (O42EvalContext *ctx, O42Operand *args, int n)
 {
-  double x, digits = 0, scale, scaled;
+  double x, digits = 0;
 
   ARG_NUMBER (0, x);
   if (n >= 2)
     ARG_NUMBER (1, digits);
 
-  scale = pow (10.0, (int) digits);
-  scaled = x * scale;
-  return o42_value_number ((scaled >= 0 ? ceil (scaled) : floor (scaled)) / scale);
+  return o42_value_number (round_toward (x, digits, TRUE));
 }
 
 static O42Value
@@ -4297,7 +4323,8 @@ fn_xor (O42EvalContext *ctx, O42Operand *args, int n)
                 gboolean b = FALSE;
                 O42ErrorCode e = O42_ERR_VALUE;
                 ctx->get_cell (ctx, args[i].sheet, row, col, &w);
-                if (w.type != O42_VALUE_EMPTY && o42_value_to_bool (&w, &b, &e) && b)
+                if (w.type != O42_VALUE_EMPTY && w.type != O42_VALUE_TEXT &&
+                    o42_value_to_bool (&w, &b, &e) && b)
                   trues++;
                 o42_value_clear (&w);
               }
@@ -10417,7 +10444,7 @@ fn_base (O42EvalContext *ctx, O42Operand *args, int n)
 {
   double number, radix, min_len = 0;
   const char *digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  char buf[80];
+  char buf[256];
   int len = 0;
   guint64 v;
 
@@ -10428,8 +10455,9 @@ fn_base (O42EvalContext *ctx, O42Operand *args, int n)
   if (number < 0 || number >= 9007199254740992.0 || radix < 2 || radix > 36 || min_len < 0 || min_len > 255)
     return o42_value_error (O42_ERR_NUM);   /* 2^53: past it a double has no whole numbers */
   v = (guint64) number;
-  do { buf[len++] = digits[v % (guint64) radix]; v /= (guint64) radix; } while (v > 0 && len < 70);
-  while (len < min_len && len < 70) buf[len++] = '0';
+  /* 2^53 is 54 digits in base 2, and min_length pads to 255. */
+  do { buf[len++] = digits[v % (guint64) radix]; v /= (guint64) radix; } while (v > 0);
+  while (len < min_len) buf[len++] = '0';
   {
     char *out = g_new (char, len + 1);
     for (int i = 0; i < len; i++) out[i] = buf[len - 1 - i];
