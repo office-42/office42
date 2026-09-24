@@ -17,6 +17,7 @@
 #include "o42-sheet.h"
 #include "o42-date.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* ====================================================================== */
@@ -281,7 +282,8 @@ attr_int (const char *attrs, const char *want, int fallback)
             return fallback;
           v++;
           while (*v == '"' || *v == '\'' || g_ascii_isspace (*v)) v++;
-          return atoi (v);
+          /* Saturated, so that a number past an int's cannot wrap. */
+          return (int) CLAMP (strtol (v, NULL, 10), -(1L << 30), 1L << 30);
         }
       while (*p != '\0' && !g_ascii_isspace (*p)) p++;
     }
@@ -318,7 +320,9 @@ o42_html_load (O42Sheet *sheet, GFile *file, GError **error)
   int span = 1;
   gboolean in_cell = FALSE, in_row = FALSE, in_table = FALSE, skipping = FALSE;
   O42Range used;
-  GArray *pending;   /* rowspans still to skip: row, col, count */
+  /* The cells a rowspan above holds open, which a row's cells go past. */
+  typedef struct { int row0, row1, col0, col1; } Held;
+  GArray *pending;
 
   g_return_val_if_fail (sheet != NULL && G_IS_FILE (file), FALSE);
   if (!g_file_load_contents (file, NULL, &text, &length, NULL, error))
@@ -345,7 +349,7 @@ o42_html_load (O42Sheet *sheet, GFile *file, GError **error)
         row = used.row1 + 2;
       g_free (first);
     }
-  pending = g_array_new (FALSE, FALSE, sizeof (int) * 3);
+  pending = g_array_new (FALSE, FALSE, sizeof (Held));
 
   o42_sheet_begin_group (sheet);
   for (p = text; *p != '\0'; )
@@ -393,24 +397,37 @@ o42_html_load (O42Sheet *sheet, GFile *file, GError **error)
                 {
                   int rowspan;
 
+                  gboolean moved;
+
                   /* A cell held open by a rowspan above pushes this
-                   * one along. */
-                  for (guint i = 0; i < pending->len; i++)
+                   * one along, past as many as stand in its way. */
+                  do
                     {
-                      int *e = &g_array_index (pending, int, i * 3);
-                      if (e[0] == row && e[1] == col && e[2] > 0)
-                        { col += 1; i = 0; }
+                      moved = FALSE;
+                      for (guint i = 0; i < pending->len; i++)
+                        {
+                          const Held *h = &g_array_index (pending, Held, i);
+
+                          if (row >= h->row0 && row <= h->row1 && col >= h->col0 && col <= h->col1)
+                            {
+                              col = h->col1 + 1;
+                              moved = TRUE;
+                            }
+                        }
                     }
+                  while (moved);
                   in_cell = TRUE;
                   g_string_truncate (cell, 0);
-                  span = MAX (attr_int (attrs, "colspan", 1), 1);
-                  rowspan = MAX (attr_int (attrs, "rowspan", 1), 1);
+                  /* No wider or taller than the sheet: a page claiming a
+                   * span of two thousand million is held to it. */
+                  span = CLAMP (attr_int (attrs, "colspan", 1), 1, MAX (O42_MAX_COLS - col, 1));
+                  rowspan = CLAMP (attr_int (attrs, "rowspan", 1), 1, MAX (O42_MAX_ROWS - row, 1));
                   if (rowspan > 1)
-                    for (int r = 1; r < rowspan; r++)
-                      {
-                        int entry[3] = { row + r, col, 1 };
-                        g_array_append_vals (pending, entry, 3);
-                      }
+                    {
+                      Held h = { row + 1, row + rowspan - 1, col, col + span - 1 };
+
+                      g_array_append_val (pending, h);
+                    }
                 }
             }
           else if (in_cell && (strcmp (tag, "br") == 0 || strcmp (tag, "p") == 0))

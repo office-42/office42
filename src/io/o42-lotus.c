@@ -122,12 +122,29 @@ o42_lotus_save (O42Sheet *sheet, GFile *file, GError **error)
         else
           {
             char *shown = o42_sheet_get_display (sheet, row, col);
+            /* 1-2-3's labels are in the PC's code page, 437, which is
+             * how LibreOffice and Gnumeric read them; a label that code
+             * page cannot hold stays UTF-8, which the reader here tries
+             * first and so gets back whole. */
+            gsize n = 0;
+            char *pc = g_convert (shown, -1, "IBM437", "UTF-8", NULL, &n, NULL);
+            const char *label = pc != NULL ? pc : shown;
+            gsize length = pc != NULL ? n : strlen (shown);
 
+            /* A record's length is sixteen bits: the label is cut, at a
+             * character, where the record would pass it. */
+            if (length > 65535 - 7)
+              {
+                length = 65535 - 7;
+                if (pc == NULL)
+                  length = (gsize) (g_utf8_find_prev_char (label, label + length + 1) - label);
+              }
             /* A label begins with the character that says how it is
              * lined up: an apostrophe is to the left. */
             g_byte_array_append (body, (const guint8 *) "'", 1);
-            g_byte_array_append (body, (const guint8 *) shown, strlen (shown));
+            g_byte_array_append (body, (const guint8 *) label, length);
             g_byte_array_append (body, (const guint8 *) "", 1);
+            g_free (pc);
             put_record (out, L_LABEL, body->data, body->len);
             g_free (shown);
           }
@@ -232,9 +249,17 @@ o42_lotus_load (O42Sheet *sheet, GFile *file, GError **error)
                 { start++; n--; }
               while (n > 0 && start[n - 1] == '\0')
                 n--;
-              /* A Lotus label is in the code page of its day, not UTF-8,
-               * and is a text even when it looks like a number. */
-              text = o42_text_to_utf8 (start, n);
+              /* A Lotus label is in the PC's code page, 437, unless it
+               * is UTF-8 -- as this program writes one that 437 cannot
+               * hold -- and is a text even when it looks like a number. */
+              if (g_utf8_validate (start, (gssize) n, NULL))
+                text = g_strndup (start, n);
+              else
+                {
+                  text = g_convert (start, (gssize) n, "UTF-8", "IBM437", NULL, NULL, NULL);
+                  if (text == NULL)
+                    text = o42_text_to_utf8 (start, n);
+                }
               {
                 char *quoted = o42_entry_quote_text (text);
 

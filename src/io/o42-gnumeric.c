@@ -1709,6 +1709,14 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
 /* Reading                                                                 */
 /* ---------------------------------------------------------------------- */
 
+/* A style region too big to lay a format over cell by cell, kept until
+ * the sheet's cells are in and given to the ones that hold something. */
+typedef struct {
+  O42Range region;
+  guint32  mask;
+  O42Fmt   fmt;          /* its strings are interned */
+} LateStyle;
+
 typedef struct {
   O42Book    *book;
   O42Sheet   *sheet;            /* the sheet being read */
@@ -1732,6 +1740,7 @@ typedef struct {
   gboolean    in_print_info;    /* inside gnm:PrintInformation */
   gboolean    saw_selection;    /* the sheet's first gnm:Selection was read */
   GArray     *data_tables;      /* O42DataTable, defined when the sheet ends */
+  GArray     *late_styles;      /* LateStyle: regions too big to lay out whole */
   int         print_text;       /* 1 in its order, 2 orientation, 3 paper */
   GString    *text;             /* what they say */
   gboolean    in_script;        /* gnm:o42-Script, workbook level */
@@ -3214,11 +3223,16 @@ finish_cell (Reader *r)
       break;
     }
 
-  if (r->cell_rows > 0 && r->cell_cols > 0 && text[0] == '=')
+  /* An array block is laid out a cell at a time: held to the sheet,
+   * and to a million cells, which is more than any made by hand; one
+   * past that keeps its formula in its first cell. */
+  if (r->cell_rows > 0 && r->cell_cols > 0 && text[0] == '=' &&
+      (gint64) MIN (r->cell_rows, O42_MAX_ROWS - r->cell_row) *
+      MIN (r->cell_cols, O42_MAX_COLS - r->cell_col) <= 1000000)
     {
       O42Range block = { r->cell_row, r->cell_col,
-                         MIN (r->cell_row + r->cell_rows - 1, O42_MAX_ROWS - 1),
-                         MIN (r->cell_col + r->cell_cols - 1, O42_MAX_COLS - 1) };
+                         r->cell_row + MIN (r->cell_rows, O42_MAX_ROWS - r->cell_row) - 1,
+                         r->cell_col + MIN (r->cell_cols, O42_MAX_COLS - r->cell_col) - 1 };
       o42_sheet_set_array_formula (r->sheet, &block, text);
     }
   else
@@ -3535,6 +3549,28 @@ end_element (GMarkupParseContext *context, const char *element,
         o42_sheet_define_data_table (r->sheet, &g_array_index (r->data_tables, O42DataTable, i));
       g_clear_pointer (&r->data_tables, g_array_unref);
     }
+  if (strcmp (name, "Sheet") == 0 && r->late_styles != NULL && r->sheet != NULL)
+    {
+      O42Range used;
+
+      o42_sheet_used_range (r->sheet, &used);
+      for (guint i = 0; i < r->late_styles->len; i++)
+        {
+          const LateStyle *late = &g_array_index (r->late_styles, LateStyle, i);
+          int row0 = MAX (late->region.row0, used.row0), row1 = MIN (late->region.row1, used.row1);
+          int col0 = MAX (late->region.col0, used.col0), col1 = MIN (late->region.col1, used.col1);
+
+          for (int row = row0; row <= row1; row++)
+            for (int col = col0; col <= col1; col++)
+              if (!o42_sheet_is_empty (r->sheet, row, col))
+                {
+                  O42Range one = { row, col, row, col };
+
+                  o42_sheet_apply_fmt (r->sheet, &one, late->mask, &late->fmt);
+                }
+        }
+      g_clear_pointer (&r->late_styles, g_array_unref);
+    }
   if (strcmp (name, "Sheet") == 0)
     {
       o42_sheet_autofilter_refresh (r->sheet);
@@ -3616,7 +3652,9 @@ end_element (GMarkupParseContext *context, const char *element,
   if (strcmp (name, "Style") == 0 && r->validation_ready)
     {
       r->validation_ready = FALSE;
-      if (r->validation.kind != O42_VALID_ANY && r->validation.range.row1 - r->validation.range.row0 < 2000)
+      /* A rule is kept as its range, whatever the size: a whole column
+       * validated is as cheap as a cell. */
+      if (r->validation.kind != O42_VALID_ANY)
         {
           o42_sheet_add_validation (r->sheet, &r->validation);
         }
@@ -3693,14 +3731,22 @@ end_element (GMarkupParseContext *context, const char *element,
           return;
         }
 
-      /* Anything else tall or wide is clamped to a workable rectangle:
-       * the cells it affects are the ones that hold something. */
-      if (region.row1 - region.row0 > 2000)
-        region.row1 = region.row0 + 2000;
-      if (region.col1 - region.col0 > 255)
-        region.col1 = region.col0 + 255;
+      /* A format costs a microsecond a cell to lay down: a region of up
+       * to a million cells -- a column formatted to row 65,536 and a
+       * dozen more -- takes it whole.  One bigger than that goes to the
+       * cells that hold something, once they are in: Gnumeric writes
+       * its styles before its cells.  (Every region used to be cut at
+       * 2,001 rows, so a column of dates lost its format below.) */
+      if (r->mask != 0 &&
+          (gint64) (region.row1 - region.row0 + 1) * (region.col1 - region.col0 + 1) > (1 << 20))
+        {
+          LateStyle late = { region, r->mask, r->fmt };
 
-      if (r->mask != 0)
+          if (r->late_styles == NULL)
+            r->late_styles = g_array_new (FALSE, FALSE, sizeof (LateStyle));
+          g_array_append_val (r->late_styles, late);
+        }
+      else if (r->mask != 0)
         o42_sheet_apply_fmt (r->sheet, &region, r->mask, &r->fmt);
       if (r->style_link != NULL && (region.row1 - region.row0 + 1) * (region.col1 - region.col0 + 1) <= 4096)
         {
