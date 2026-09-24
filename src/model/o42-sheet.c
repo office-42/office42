@@ -133,6 +133,7 @@ struct _O42Sheet {
   GHashTable  *table_values;  /* key -> O42Value*, what TABLE() shows */
   gboolean     tables_stale;  /* something changed since the tables were filled */
   gboolean     filling_tables;
+  int          evaluating;      /* formulas of this sheet being worked out */
   guint        sizes_stamp;   /* bumped whenever a width or a height moves */
   GArray      *row_stops;     /* SizeStop: the rows that differ from the default */
   GArray      *col_stops;
@@ -767,11 +768,16 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
     return;
 
   /* The first cell asked for evaluates what it reads from the far end
-   * of the chain first, so that the recursion below stays shallow. */
-  if (evaluate_depth == 0 && cell->precedents != NULL && cell->precedents->len > 0)
+   * of the chain first, so that the recursion below stays shallow.
+   * "First" is this sheet's: a formula on another sheet reading the
+   * end of a long chain here enters it at depth one, and the chain
+   * would otherwise be followed on the stack. */
+  if (sheet->evaluating == 0 && cell->precedents != NULL && cell->precedents->len > 0)
     {
       evaluate_depth++;
+      sheet->evaluating++;
       sheet_evaluate_deep_first (sheet, key);
+      sheet->evaluating--;
       evaluate_depth--;
       cell = sheet_find_key (sheet, key);
       if (cell == NULL || !cell->dirty)
@@ -799,6 +805,7 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
 
   cell->visiting = 1;
   evaluate_depth++;
+  sheet->evaluating++;
   {
     /* Evaluating pulls on other cells, which evaluate in turn, so the
      * calling cell is saved and put back around each one. */
@@ -874,6 +881,7 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
   if (cell == NULL)
     {
       o42_value_clear (&result);
+      sheet->evaluating--;
       evaluate_depth--;
       return;
     }
@@ -882,6 +890,7 @@ sheet_evaluate (O42Sheet *sheet, guint64 key, O42Cell *cell)
   cell->value = result;
   cell->dirty = 0;
   round_to_display (sheet, cell);
+  sheet->evaluating--;
   evaluate_depth--;
 }
 
@@ -1032,7 +1041,12 @@ sheet_get_cell_info (O42EvalContext *ctx, const char *sheet_name, int row, int c
       guint64 key = o42_key (row, col);
       O42Value *v;
 
-      if (sheet->tables_stale && !sheet->filling_tables)
+      /* Not while a formula is being worked out, though, which is
+       * always, here: filling a table puts values into its input cell,
+       * and that can free the cells the evaluation stands on.  The
+       * tables are filled after every change and whenever a value is
+       * asked for from outside. */
+      if (sheet->tables_stale && !sheet->filling_tables && evaluate_depth == 0)
         data_tables_fill (sheet);
       v = g_hash_table_lookup (sheet->table_values, &key);
       *out = v != NULL ? o42_value_copy (v) : o42_value_error (O42_ERR_NA);
@@ -3257,6 +3271,10 @@ o42_sheet_get_value (O42Sheet *sheet, int row, int col, O42Value *out)
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (out != NULL);
 
+  /* A What-If table left stale by a change that did not fill it is
+   * filled now, before anything is worked out. */
+  if (sheet->tables_stale && !sheet->filling_tables && evaluate_depth == 0 && !loading (sheet))
+    data_tables_fill (sheet);
   sheet_get_cell_value (&sheet->eval, NULL, row, col, out);
 }
 
@@ -4404,6 +4422,12 @@ o42_sheet_autofill (O42Sheet *sheet, const O42Range *source,
 
   g_return_if_fail (sheet != NULL);
   g_return_if_fail (source != NULL && target != NULL);
+
+  /* The fill handle draws the target out of the source, so the target
+   * holds it; one that does not has nowhere for the source to be. */
+  if (target->row0 > source->row0 || target->row1 < source->row1 ||
+      target->col0 > source->col0 || target->col1 < source->col1)
+    return;
 
   /* The target reaches past the source either down (or up) or across; the
    * direction with the difference wins. */
