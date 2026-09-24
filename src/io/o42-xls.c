@@ -1750,8 +1750,12 @@ read_name (Reader *r, const guchar *p, gsize len)
         }
       else
         {
-          name = g_strndup ((const char *) p, MIN (cch, (guint) (end - p)));
-          p += cch;
+          /* Compressed: the low bytes of UTF-16, which is Latin-1 --
+           * Excel's Größe is six bytes. */
+          GString *s = g_string_new (NULL);
+          for (guint i = 0; i < cch && p < end; i++, p++)
+            g_string_append_unichar (s, *p);
+          name = g_string_free (s, FALSE);
         }
     }
   else
@@ -1775,6 +1779,14 @@ read_name (Reader *r, const guchar *p, gsize len)
         {
           char *text = o42_node_to_string (tree);
           range_text = text;
+        }
+      else if (cce > 0)
+        {
+          /* A constant or an expression: kept as a formula, "=" and
+           * all, which is how the names are told apart below. */
+          char *text = o42_node_to_string (tree);
+          range_text = g_strconcat ("=", text, NULL);
+          g_free (text);
         }
       o42_node_free (tree);
     }
@@ -3883,6 +3895,11 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
           const char *val = g_ptr_array_index (r.name_ranges, i);
           if (nm[0] == '\0' || val == NULL)
             continue;
+          if (val[0] == '=')
+            {
+              o42_book_define_name_formula (book, nm, val);
+              continue;
+            }
           {
             O42Node *tree = o42_formula_parse (val);
             O42Range range;
@@ -6287,6 +6304,26 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
       g_array_sort (g.cells, compare_cells);
       g_ptr_array_add (sheet_cells, g.cells);
     }
+  /* The formulas of names too: their add-in functions and 3-D spans
+   * are numbered in the globals, ahead of the NAME records. */
+  {
+    GList *names = o42_book_names (book);
+
+    for (GList *l = names; l != NULL; l = l->next)
+      {
+        const char *formula = o42_book_lookup_name_formula (book, l->data);
+        O42Node *tree = formula != NULL ? o42_formula_parse (formula) : NULL;
+        GByteArray *scratch = g_byte_array_new (), *extra = g_byte_array_new ();
+
+        o42_node_make_absolute (tree);
+        if (tree != NULL)
+          compile (&w, tree, scratch, FALSE, -1, extra);
+        o42_node_free (tree);
+        g_byte_array_free (scratch, TRUE);
+        g_byte_array_free (extra, TRUE);
+      }
+    g_list_free (names);
+  }
   /* A drawn shape's text has a font of its own, which must be on record
    * before the FONT records go out. */
   for (int i = 0; i < n_sheets; i++)
@@ -6446,7 +6483,42 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
         O42Sheet *target;
         O42Range range;
         if (!o42_book_lookup_name (book, l->data, &target, &range))
-          continue;
+          {
+            /* A name for a formula -- a constant, an expression --
+             * has its tokens compiled as a cell's are.  Every name gets
+             * its record, as a ptgName counts them in this order. */
+            const char *formula = o42_book_lookup_name_formula (book, l->data);
+            O42Node *tree = formula != NULL ? o42_formula_parse (formula) : NULL;
+            GByteArray *rgce = g_byte_array_new ();
+            GByteArray *extra = g_byte_array_new ();
+
+            /* A relative reference in a NAME is a distance from the
+             * cell using the name; office42's stay put. */
+            o42_node_make_absolute (tree);
+            if (tree != NULL)
+              compile (&w, tree, rgce, FALSE, -1, extra);
+            if (tree == NULL || rgce->len == 0 || rgce->len + extra->len > 8000)
+              {
+                g_byte_array_set_size (rgce, 0);
+                g_byte_array_set_size (extra, 0);
+                put8 (rgce, 0x1C);
+                put8 (rgce, error_to_biff (O42_ERR_REF));
+              }
+            begin_record (&w, R_NAME);
+            put16 (w.out, 0); put8 (w.out, 0);
+            put8 (w.out, MIN (char_count (l->data), 255));
+            put16 (w.out, rgce->len);
+            put16 (w.out, 0); put16 (w.out, 0);
+            put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0);
+            put_ustr_body (w.out, l->data);
+            g_byte_array_append (w.out, rgce->data, rgce->len);
+            g_byte_array_append (w.out, extra->data, extra->len);
+            end_record (&w);
+            g_byte_array_free (rgce, TRUE);
+            g_byte_array_free (extra, TRUE);
+            o42_node_free (tree);
+            continue;
+          }
         begin_record (&w, R_NAME);
         put16 (w.out, 0); put8 (w.out, 0);
         put8 (w.out, MIN (char_count (l->data), 255));

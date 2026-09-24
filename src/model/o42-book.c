@@ -1491,11 +1491,19 @@ name_is_legal (const char *name)
 {
   int row, col;
 
-  if (name == NULL || *name == '\0' || g_ascii_isdigit (*name))
+  if (name == NULL || *name == '\0' || g_ascii_isdigit (*name) || *name == '.' ||
+      !g_utf8_validate (name, -1, NULL))
     return FALSE;
-  for (const char *p = name; *p != '\0'; p++)
-    if (!g_ascii_isalnum (*p) && *p != '_' && *p != '.')
-      return FALSE;
+  /* Letters and digits past ASCII too, as Excel's Größe and
+   * Données, which the formula parser reads as a name. */
+  for (const char *p = name; *p != '\0'; p = g_utf8_next_char (p))
+    {
+      gunichar c = g_utf8_get_char (p);
+
+      if (c < 0x80 ? !g_ascii_isalnum (*p) && *p != '_' && *p != '.'
+                   : !g_unichar_isalnum (c) && !g_unichar_ismark (c))
+        return FALSE;
+    }
   /* A name that reads as a cell reference could never be reached. */
   if (o42_ref_parse (name, &row, &col, NULL))
     return FALSE;

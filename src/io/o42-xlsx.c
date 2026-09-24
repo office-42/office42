@@ -2175,6 +2175,9 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
             char *spelled, *n, *r;
 
             o42_node_prefix_functions (tree, o42_function_is_future, "_xlfn.");
+            /* Absolute, as office42 reads the name: Excel's relative
+             * references in a name move with the cell using it. */
+            o42_node_make_absolute (tree);
             spelled = o42_node_to_string (tree);
             n = g_markup_escape_text (l->data, -1);
             r = g_markup_escape_text (spelled, -1);

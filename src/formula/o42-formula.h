@@ -189,6 +189,11 @@ char    *o42_node_to_string_marked (const O42Node *node, const O42Node *mark,
 void     o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
                                     const char *prefix);
 
+/* Makes every reference in the tree absolute, in place.  A defined
+ * name's references stay where they are in office42; in .xls and .ods
+ * a relative one moves with the cell that uses the name. */
+void     o42_node_make_absolute (O42Node *node);
+
 /* Writes the table's name in front of every structured reference that
  * has none -- [@Qty], [Qty], [#Headers] -- as Excel's files spell
  * them: Table[[#This Row],[Qty]], Table[Qty], Table[#Headers]. */

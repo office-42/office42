@@ -107,6 +107,38 @@ static const struct {
   { "#CALC!",   O42_ERR_CALC  },
 };
 
+/* The length of a letter or digit past ASCII at p, which a sheet or a
+ * defined name may hold as Excel's do -- Données!A1, Größe --
+ * and 0 for anything else. */
+static int
+name_letter (const char *p)
+{
+  gunichar c;
+
+  if ((guchar) *p < 0x80)
+    return 0;
+  c = g_utf8_get_char_validated (p, -1);
+  if (c == (gunichar) -1 || c == (gunichar) -2 ||
+      !(g_unichar_isalnum (c) || g_unichar_ismark (c)))
+    return 0;
+  return (int) (g_utf8_next_char (p) - p);
+}
+
+/* Past the letters, digits, underscores and points of a name, and its
+ * dollar signs when `dollars` is TRUE: $A$1 is one word. */
+static const char *
+skip_name (const char *p, gboolean dollars)
+{
+  for (;;)
+    {
+      int n = (g_ascii_isalnum (*p) || *p == '_' || *p == '.' ||
+               (dollars && *p == '$')) ? 1 : name_letter (p);
+      if (n == 0)
+        return p;
+      p += n;
+    }
+}
+
 static void
 next_token (Parser *ps)
 {
@@ -173,12 +205,12 @@ next_token (Parser *ps)
   /* [y]: a LAMBDA parameter that may be left out, brackets and all. */
   /* [Sales], [@Sales], [#Headers]: a structured reference into the
    * table the formula is in, with no table name in front. */
-  if (*p == '[' && (g_ascii_isalpha (p[1]) || p[1] == '_' || p[1] == '@' || p[1] == '#' || p[1] == '['))
+  if (*p == '[' && (g_ascii_isalpha (p[1]) || p[1] == '_' || p[1] == '@' || p[1] == '#' || p[1] == '[' ||
+                    name_letter (p + 1) > 0))
     {
       const char *q = p + 1;
 
-      while (g_ascii_isalnum (*q) || *q == '_' || *q == '.')
-        q++;
+      q = skip_name (q, FALSE);
       if (*q != ']')
         {
           /* Not a bare word in brackets: the whole specifier to the
@@ -253,8 +285,7 @@ next_token (Parser *ps)
         {
           const char *start = ++p;
 
-          while (g_ascii_isalnum (*p) || *p == '_' || *p == '.' || *p == '$')
-            p++;
+          p = skip_name (p, TRUE);
 
           ps->tok.type = TOK_IDENT;
           ps->tok.sheet = g_string_free (name, FALSE);
@@ -275,12 +306,11 @@ next_token (Parser *ps)
   /* An identifier: a function name, a cell reference, or a word we will not
    * recognise.  Dollar signs are part of it so that $A$1 lexes as one
    * thing, and "!" splits Sheet1!A1 into a sheet and a reference. */
-  if (g_ascii_isalpha (*p) || *p == '_' || *p == '$')
+  if (g_ascii_isalpha (*p) || *p == '_' || *p == '$' || name_letter (p) > 0)
     {
       const char *start = p;
 
-      while (g_ascii_isalnum (*p) || *p == '_' || *p == '.' || *p == '$')
-        p++;
+      p = skip_name (p, TRUE);
 
       /* Table1[Sales], Table1[#Data], Table1[@Sales]: the brackets are
        * part of the name, and the sheet resolves it to a range. */
@@ -306,8 +336,7 @@ next_token (Parser *ps)
           const char *ref = ++p;
 
           ps->tok.sheet = g_strndup (start, (gsize) (p - 1 - start));
-          while (g_ascii_isalnum (*p) || *p == '_' || *p == '.' || *p == '$')
-            p++;
+          p = skip_name (p, TRUE);
           ps->tok.type = TOK_IDENT;
           ps->tok.text = g_strndup (ref, (gsize) (p - ref));
           ps->p = p;
@@ -335,8 +364,7 @@ next_token (Parser *ps)
               ps->tok.sheet = g_strndup (start, (gsize) (p - start));
               ps->tok.sheet_last = g_string_free (second, FALSE);
               p = ref;
-              while (g_ascii_isalnum (*p) || *p == '_' || *p == '.' || *p == '$')
-                p++;
+              p = skip_name (p, TRUE);
               ps->tok.type = TOK_IDENT;
               ps->tok.text = g_strndup (ref, (gsize) (p - ref));
               ps->p = p;
@@ -346,13 +374,12 @@ next_token (Parser *ps)
         }
 
       /* Sheet1:Sheet3!A1: a second name after a colon, then "!". */
-      if (*p == ':' && (g_ascii_isalpha (p[1]) || p[1] == '_'))
+      if (*p == ':' && (g_ascii_isalpha (p[1]) || p[1] == '_' || name_letter (p + 1) > 0))
         {
           const char *second = p + 1;
           const char *q = second;
 
-          while (g_ascii_isalnum (*q) || *q == '_' || *q == '.')
-            q++;
+          q = skip_name (q, FALSE);
           if (*q == '!')
             {
               const char *ref = q + 1;
@@ -360,8 +387,7 @@ next_token (Parser *ps)
               ps->tok.sheet = g_strndup (start, (gsize) (p - start));
               ps->tok.sheet_last = g_strndup (second, (gsize) (q - second));
               p = ref;
-              while (g_ascii_isalnum (*p) || *p == '_' || *p == '.' || *p == '$')
-                p++;
+              p = skip_name (p, TRUE);
               ps->tok.type = TOK_IDENT;
               ps->tok.text = g_strndup (ref, (gsize) (p - ref));
               ps->p = p;
@@ -2357,4 +2383,31 @@ o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),
 
   prefix_walk (node, is_future, prefix, bound);
   g_ptr_array_free (bound, TRUE);
+}
+
+void
+o42_node_make_absolute (O42Node *node)
+{
+  if (node == NULL)
+    return;
+  switch (node->type)
+    {
+    case O42_NODE_REF:
+    case O42_NODE_RANGE:
+      /* The whole-row and whole-column marks stay: A:A is $A:$A. */
+      node->abs |= O42_ABS_ROW0 | O42_ABS_COL0 | O42_ABS_ROW1 | O42_ABS_COL1;
+      break;
+    case O42_NODE_UNARY:
+    case O42_NODE_BINARY:
+      o42_node_make_absolute (node->as.op.a);
+      o42_node_make_absolute (node->as.op.b);
+      break;
+    case O42_NODE_CALL:
+      if (node->as.call.args != NULL)
+        for (guint i = 0; i < node->as.call.args->len; i++)
+          o42_node_make_absolute (g_ptr_array_index (node->as.call.args, i));
+      break;
+    default:
+      break;
+    }
 }

@@ -411,6 +411,17 @@ of_formula (const char *input)
   return g_string_free (out, FALSE);
 }
 
+static char *
+of_formula_absolute (const char *input)
+{
+  O42Node *tree = o42_formula_parse (input + 1);
+  GString *out = g_string_new ("of:=");
+  o42_node_make_absolute (tree);
+  of_write (tree, out);
+  o42_node_free (tree);
+  return g_string_free (out, FALSE);
+}
+
 /* ---- Styles ----------------------------------------------------------- */
 
 typedef struct {
@@ -2735,6 +2746,27 @@ write_names (GString *out, O42Book *book)
           }
           g_string_free (addr, TRUE);
           g_free (a); g_free (b); g_free (ename);
+        }
+      else if (o42_book_lookup_name_formula (book, l->data) != NULL)
+        {
+          /* A name for a formula -- a constant, an expression, a
+           * LAMBDA -- is a named expression, its references made from
+           * the first sheet's A1 as LibreOffice writes them. */
+          char *with = g_strconcat ("=", o42_book_lookup_name_formula (book, l->data), NULL);
+          char *of = of_formula_absolute (with);
+          char *ename = g_markup_escape_text (l->data, -1);
+          char *eof = g_markup_escape_text (of, -1);
+          GString *base = g_string_new (NULL);
+          char *ebase;
+
+          of_sheet_prefix (o42_book_n_sheets (book) > 0
+                           ? o42_sheet_get_name (o42_book_sheet (book, 0)) : NULL, base);
+          g_string_append (base, "$A$1");
+          ebase = g_markup_escape_text (base->str, -1);
+          g_string_append_printf (out, "<table:named-expression table:name=\"%s\" table:base-cell-address=\"%s\" table:expression=\"%s\"/>",
+                                  ename, ebase, eof);
+          g_string_free (base, TRUE);
+          g_free (ebase); g_free (eof); g_free (ename); g_free (of); g_free (with);
         }
     }
   g_string_append (out, "</table:named-expressions>");
@@ -5868,6 +5900,20 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           o42_node_free (tree);
           g_free (ours);
           g_free (of);
+        }
+      return;
+    }
+  if (strcmp (name, "named-expression") == 0)
+    {
+      const char *nname = attr (names, values, "name");
+      const char *expression = attr (names, values, "expression");
+
+      if (nname != NULL && expression != NULL && *expression != '\0')
+        {
+          char *ours = formula_from_of (expression);
+
+          o42_book_define_name_formula (r->book, nname, ours);
+          g_free (ours);
         }
       return;
     }
