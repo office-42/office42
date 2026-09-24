@@ -326,24 +326,37 @@ is_latin1 (const char *text)
 
 /* A BIFF8 unicode string body: flags byte then characters, after the
  * caller has written the length in whatever width the record wants. */
+/* The characters of a string, at most `most` of them in UTF-16 units:
+ * no more than the count before them says, and never half a pair. */
 static void
-put_ustr_body (GByteArray *a, const char *text)
+put_ustr_body_most (GByteArray *a, const char *text, glong most)
 {
   if (is_latin1 (text))
     {
+      glong i = 0;
+
       put8 (a, 0);
-      for (const char *p = text; *p; p = g_utf8_next_char (p))
+      for (const char *p = text; *p && i < most; p = g_utf8_next_char (p), i++)
         put8 (a, g_utf8_get_char (p));
     }
   else
     {
       glong n = 0;
       gunichar2 *u = g_utf8_to_utf16 (text, -1, NULL, &n, NULL);
+
+      if (n > most)
+        n = most > 0 && u[most - 1] >= 0xD800 && u[most - 1] <= 0xDBFF ? most - 1 : most;
       put8 (a, 1);
       for (glong i = 0; i < n; i++)
         put16 (a, u[i]);
       g_free (u);
     }
+}
+
+static void
+put_ustr_body (GByteArray *a, const char *text)
+{
+  put_ustr_body_most (a, text, G_MAXLONG);
 }
 
 static glong
@@ -358,8 +371,16 @@ char_count (const char *text)
 static void
 put_ustr8 (GByteArray *a, const char *text)
 {
-  put8 (a, MIN (char_count (text), 255));
-  put_ustr_body (a, text);
+  glong n = MIN (char_count (text), 255);
+  gunichar2 *u = NULL;
+
+  /* Cut where the body will be cut: before a pair that 255 would split. */
+  if (n == 255 && !is_latin1 (text) && (u = g_utf8_to_utf16 (text, -1, NULL, NULL, NULL)) != NULL &&
+      u[254] >= 0xD800 && u[254] <= 0xDBFF)
+    n = 254;
+  g_free (u);
+  put8 (a, n);
+  put_ustr_body_most (a, text, n);
 }
 
 /* A hyperlink's counted string: the count of UTF-16 units with the
@@ -1710,10 +1731,10 @@ read_name (Reader *r, const guchar *p, gsize len)
   p += 14;
   if (r->biff >= 8)
     {
-      guint sflags = *p++;
+      guint sflags = p < end ? *p++ : 0;
       if (flags & 0x0020)
         {
-          guint id = sflags & 0x01 ? rd16 (p) : *p;
+          guint id = p + (sflags & 0x01 ? 2 : 1) > end ? 0 : sflags & 0x01 ? rd16 (p) : *p;
           p += sflags & 0x01 ? 2 : 1;
           name = g_strdup_printf ("_builtin_%u", id);
           cch = 0;
@@ -2928,7 +2949,7 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
       if (len >= 20 && r->sheet) read_dv (r, p, len);
       break;
     case R_CONDFMT:
-      if (len >= 12)
+      if (len >= 14)
         {
           guint n = rd16 (p + 12);
 
@@ -2948,7 +2969,7 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         }
       break;
     case R_CF:
-      if (len >= 10 && r->cf_have_range && r->sheet)
+      if (len >= 12 && r->cf_have_range && r->sheet)
         read_cf (r, p, len);
       break;
     case R_ROW:
@@ -3076,6 +3097,14 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         {
           O42Range at = o42_range_normalise (rd16 (p), rd16 (p + 4), rd16 (p + 2), rd16 (p + 6));
           char *target = read_hlink_target (p + 8, p + len);
+
+          /* Excel 97's sheet is 256 columns wide, and a link is one
+           * per cell here: a record claiming the whole sheet would ask
+           * for a thousand million of them, so one that big links its
+           * first cell only. */
+          at.col1 = MIN (at.col1, 255);
+          if ((gint64) (at.row1 - at.row0 + 1) * (at.col1 - at.col0 + 1) > 65536)
+            at.row1 = at.row0, at.col1 = at.col0;
           if (target != NULL)
             for (int row = at.row0; row <= at.row1 && row < O42_MAX_ROWS; row++)
               for (int col = at.col0; col <= at.col1 && col < O42_MAX_COLS; col++)
@@ -4393,8 +4422,39 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
         { put8 (a, 0x1F); put_double (a, node->as.number); }
       break;
     case O42_NODE_STRING:
-      put8 (a, 0x17);
-      put_ustr8 (a, node->as.string);
+      {
+        /* A ptgStr holds 255 characters.  A longer string goes as
+         * pieces of that length joined with &, which is the same
+         * string to anything that reads it. */
+        const char *rest = node->as.string;
+        gboolean first = TRUE;
+
+        do
+          {
+            const char *cut = rest;
+            glong units = 0;
+            char *piece;
+
+            while (*cut != '\0')
+              {
+                glong these = g_utf8_get_char (cut) > 0xFFFF ? 2 : 1;
+
+                if (units + these > 255)
+                  break;
+                units += these;
+                cut = g_utf8_next_char (cut);
+              }
+            piece = g_strndup (rest, (gsize) (cut - rest));
+            put8 (a, 0x17);
+            put_ustr8 (a, piece);
+            g_free (piece);
+            if (!first)
+              put8 (a, 0x08);
+            first = FALSE;
+            rest = cut;
+          }
+        while (*rest != '\0');
+      }
       break;
     case O42_NODE_EMPTY:
       put8 (a, 0x16);
@@ -4706,8 +4766,14 @@ write_cell (Writer *w, const CellOut *c)
         }
       if (v->type == O42_VALUE_TEXT)
         {
+          /* A long result runs on into CONTINUE records, as a long
+           * shared string does; in one record its length would pass
+           * what the record's own length can say. */
+          glong n = MIN (char_count (v->as.text), 32767);
+
           begin_record (w, R_STRING);
-          put_ustr16 (w->out, v->as.text);
+          put16 (w->out, n);
+          put_ustr_body_continued (w, v->as.text, n);
           end_record (w);
         }
       return;
