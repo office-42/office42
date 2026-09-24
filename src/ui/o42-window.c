@@ -47,6 +47,7 @@
 #include "o42-scan.h"
 #include "o42-sql.h"
 #include "o42-csv.h"
+#include "o42-file.h"
 #include "o42-text-formats.h"
 #include "o42-lotus.h"
 #include "o42-gnumeric.h"
@@ -5433,9 +5434,17 @@ action_open_recent (GSimpleAction *a, GVariant *param, gpointer data)
 {
   O42Window *self = data;
   GFile *file = g_file_new_for_uri (g_variant_get_string (param, NULL));
+  O42Window *target = self;
 
   (void) a;
-  o42_window_open_file (self, file);
+  /* As File > Open does: a book with work in it stays, and the file
+   * opens beside it. */
+  if (!o42_window_is_blank (self))
+    {
+      target = O42_WINDOW (o42_window_new (gtk_window_get_application (GTK_WINDOW (self))));
+      gtk_window_present (GTK_WINDOW (target));
+    }
+  o42_window_open_file (target, file);
   g_object_unref (file);
 }
 
@@ -5679,120 +5688,42 @@ o42_window_tell_book (O42Window *self, const char *what)
   self->telling = FALSE;
 }
 
-static gboolean
-file_is_csv (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  /* .txt, .tsv and .tab are the same thing with tabs, as Excel has them. */
-  gboolean csv = name != NULL && (g_str_has_suffix (name, ".csv") || g_str_has_suffix (name, ".txt") ||
-                                  g_str_has_suffix (name, ".tsv") || g_str_has_suffix (name, ".tab"));
-  g_free (name);
-  return csv;
-}
-
-/* The three text formats: DIF and SYLK hold one sheet each and LaTeX
- * is written and never read. */
-static gboolean
-file_is_dif (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  gboolean dif = name != NULL && g_str_has_suffix (name, ".dif");
-  g_free (name);
-  return dif;
-}
-
-static gboolean
-file_is_sylk (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  gboolean sylk = name != NULL && (g_str_has_suffix (name, ".slk") ||
-                                   g_str_has_suffix (name, ".sylk"));
-  g_free (name);
-  return sylk;
-}
-
-static gboolean
-file_is_lotus (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  gboolean wk1 = name != NULL && (g_str_has_suffix (name, ".wk1") ||
-                                  g_str_has_suffix (name, ".wks"));
-  g_free (name);
-  return wk1;
-}
-
-static gboolean
-file_is_latex (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  gboolean latex = name != NULL && g_str_has_suffix (name, ".tex");
-  g_free (name);
-  return latex;
-}
-
-static gboolean
-file_is_xlsx (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  gboolean xlsx = name != NULL && (g_str_has_suffix (name, ".xlsx") || g_str_has_suffix (name, ".xlsm"));
-  g_free (name);
-  return xlsx;
-}
-
-static gboolean
-file_is_html (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  gboolean html = name != NULL && (g_str_has_suffix (name, ".html") || g_str_has_suffix (name, ".htm"));
-  g_free (name);
-  return html;
-}
-
-static gboolean
-file_is_ods (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  gboolean ods = name != NULL && (g_str_has_suffix (name, ".ods") || g_str_has_suffix (name, ".fods"));
-  g_free (name);
-  return ods;
-}
-
-static gboolean
-file_is_xls (GFile *file)
-{
-  char *name = g_file_get_basename (file);
-  gboolean xls = name != NULL && g_str_has_suffix (name, ".xls");
-  g_free (name);
-  return xls;
-}
-
 gboolean
 o42_window_open_file (O42Window *self, GFile *file)
 {
   GError *error = NULL;
+  O42FileFormat format;
   gboolean ok;
 
   g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
+  /* A file is read as what its first bytes say it is, which is what
+   * its name says unless the name is wrong. */
+  format = o42_file_format_to_read (file);
   o42_book_begin_load (self->book);
-  if (file_is_csv (file) || file_is_html (file) ||
-      file_is_dif (file) || file_is_sylk (file) || file_is_lotus (file))
+  if (format == O42_FILE_LATEX)
     {
-      ok = file_is_csv (file)   ? o42_csv_load (self->sheet, file, &error)
-         : file_is_dif (file)   ? o42_dif_load (self->sheet, file, &error)
-         : file_is_sylk (file)  ? o42_sylk_load (self->sheet, file, &error)
-         : file_is_lotus (file) ? o42_lotus_load (self->sheet, file, &error)
-                                : o42_html_load (self->sheet, file, &error);
+      ok = FALSE;
+      g_set_error (&error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                   "office42 writes LaTeX but does not read it.");
+    }
+  else if (!o42_file_format_is_book (format))
+    {
+      ok = format == O42_FILE_CSV  ? o42_csv_load (self->sheet, file, &error)
+         : format == O42_FILE_DIF  ? o42_dif_load (self->sheet, file, &error)
+         : format == O42_FILE_SYLK ? o42_sylk_load (self->sheet, file, &error)
+         : format == O42_FILE_LOTUS ? o42_lotus_load (self->sheet, file, &error)
+                                   : o42_html_load (self->sheet, file, &error);
       o42_sheet_clear_undo (self->sheet);
       o42_sheet_set_modified (self->sheet, FALSE);
     }
   else
     {
-      ok = file_is_xlsx (file) ? o42_xlsx_load (self->book, file, &error)
-         : file_is_xls (file)  ? o42_xls_load (self->book, file, &error)
-         : file_is_ods (file)  ? o42_ods_load (self->book, file, &error)
-                               : o42_gnumeric_load (self->book, file, &error);
+      ok = format == O42_FILE_XLSX ? o42_xlsx_load (self->book, file, &error)
+         : format == O42_FILE_XLS  ? o42_xls_load (self->book, file, &error)
+         : format == O42_FILE_ODS  ? o42_ods_load (self->book, file, &error)
+                                   : o42_gnumeric_load (self->book, file, &error);
       self->sheet = o42_book_sheet (self->book, 0);
     }
   o42_book_end_load (self->book);
@@ -5879,30 +5810,25 @@ static gboolean
 window_save_to (O42Window *self, GFile *file)
 {
   GError *error = NULL;
+  O42FileFormat format = o42_file_format (file);
   gboolean ok;
 
   o42_window_fire_event (self, "before_save", NULL);
 
-  if (file_is_csv (file))
-    ok = o42_csv_save (self->sheet, file, &error);
-  else if (file_is_dif (file))
-    ok = o42_dif_save (self->sheet, file, &error);
-  else if (file_is_sylk (file))
-    ok = o42_sylk_save (self->sheet, file, &error);
-  else if (file_is_latex (file))
-    ok = o42_latex_save (self->sheet, file, &error);
-  else if (file_is_lotus (file))
-    ok = o42_lotus_save (self->sheet, file, &error);
-  else if (file_is_xlsx (file))
-    ok = o42_xlsx_save (self->book, file, &error);
-  else if (file_is_xls (file))
-    ok = o42_xls_save (self->book, file, &error);
-  else if (file_is_ods (file))
-    ok = o42_ods_save (self->book, file, &error);
-  else if (file_is_html (file))
-    ok = o42_html_save (self->book, file, &error);
-  else
-    ok = o42_gnumeric_save (self->book, file, &error);
+  switch (format)
+    {
+    case O42_FILE_CSV:   ok = o42_csv_save (self->sheet, file, &error); break;
+    case O42_FILE_DIF:   ok = o42_dif_save (self->sheet, file, &error); break;
+    case O42_FILE_SYLK:  ok = o42_sylk_save (self->sheet, file, &error); break;
+    case O42_FILE_LATEX: ok = o42_latex_save (self->sheet, file, &error); break;
+    case O42_FILE_LOTUS: ok = o42_lotus_save (self->sheet, file, &error); break;
+    case O42_FILE_XLSX:  ok = o42_xlsx_save (self->book, file, &error); break;
+    case O42_FILE_XLS:   ok = o42_xls_save (self->book, file, &error); break;
+    case O42_FILE_ODS:   ok = o42_ods_save (self->book, file, &error); break;
+    case O42_FILE_HTML:  ok = o42_html_save (self->book, file, &error); break;
+    case O42_FILE_GNUMERIC:
+    default:             ok = o42_gnumeric_save (self->book, file, &error); break;
+    }
 
   if (!ok)
     {
@@ -5915,7 +5841,7 @@ window_save_to (O42Window *self, GFile *file)
   /* Excel 97's grid is 65,536 rows by 256 columns and office42's is
    * Excel 2007's, so a .xls may not be able to hold everything.  It is
    * saved either way, and this says what did not go in. */
-  if ((file_is_xlsx (file) || file_is_ods (file)) && o42_xlsx_dropped_cells > 0)
+  if ((format == O42_FILE_XLSX || format == O42_FILE_ODS) && o42_xlsx_dropped_cells > 0)
     {
       char *said = g_strdup_printf ("%d cells lie beyond the 1,048,576 rows this "
                                     "kind of file can hold, and were not written. "
@@ -5925,7 +5851,7 @@ window_save_to (O42Window *self, GFile *file)
       show_error (self, said, NULL);
       g_free (said);
     }
-  if (file_is_xls (file) && o42_xls_dropped_cells > 0)
+  if (format == O42_FILE_XLS && o42_xls_dropped_cells > 0)
     {
       char *said = g_strdup_printf ("%d cells lie outside the 65,536 rows by 256 "
                                     "columns an .xls file can hold, and were not "
@@ -5936,8 +5862,36 @@ window_save_to (O42Window *self, GFile *file)
       g_free (said);
     }
 
-  if (file_is_csv (file) || file_is_dif (file) || file_is_sylk (file) ||
-      file_is_lotus (file))
+  if (format == O42_FILE_LATEX)
+    {
+      /* A table for a paper is an export, like a PDF: the book is still
+       * the file it was, with the changes it had. */
+      if (self->close_after_save)
+        {
+          self->close_after_save = FALSE;
+          show_error (self, "A LaTeX table is written from one sheet and cannot be opened "
+                            "again; save the book in a spreadsheet format to keep it.", NULL);
+        }
+      return TRUE;
+    }
+
+  if (!o42_file_format_is_book (format) && o42_book_n_sheets (self->book) > 1)
+    {
+      /* One sheet is all these formats hold.  Asked for on closing,
+       * the save is the answer to the question, and the window closes
+       * as Excel's does; otherwise the other sheets stay unsaved. */
+      char *said = g_strdup_printf ("Only the sheet \"%s\" was saved: this kind of file holds "
+                                    "one sheet. Save as .xlsx or .gnumeric to keep them all.",
+                                    o42_sheet_get_name (self->sheet));
+
+      if (self->close_after_save)
+        o42_book_set_modified (self->book, FALSE);
+      else
+        show_error (self, said, NULL);
+      g_free (said);
+    }
+
+  if (!o42_file_format_is_book (format) && format != O42_FILE_HTML)
     o42_sheet_set_modified (self->sheet, FALSE);
   else
     o42_book_set_modified (self->book, FALSE);
@@ -5983,7 +5937,7 @@ spreadsheet_filter (void)
 {
   static const char *const suffixes[] = {
     "xlsx", "xlsm", "xls", "gnumeric", "ods", "fods", "html", "htm",
-    "csv", "txt", "prn", "dif", "slk", "tex", "wk1", "wks", "123", NULL
+    "csv", "txt", "tsv", "tab", "dif", "slk", "sylk", "wk1", "wks", NULL
   };
 
   return suffix_filter ("All Spreadsheets", suffixes);
@@ -6066,7 +6020,44 @@ on_save_as_response (GObject *source, GAsyncResult *result, gpointer data)
 
   if (file != NULL)
     {
-      window_save_to (self, file);
+      char *name = g_file_get_basename (file);
+
+      /* A name typed without an ending gets the one of the format the
+       * dialog was showing, as Excel's does -- the book's own, or
+       * Excel's for a new one.  The dialog asked about replacing the
+       * name as typed, not this one, so a file already there by the
+       * longer name is not replaced unasked. */
+      if (name != NULL && !o42_file_name_has_format (name))
+        {
+          char *ending = self->file != NULL ? g_file_get_basename (self->file) : NULL;
+          const char *dot = ending != NULL && o42_file_name_has_format (ending) ? strrchr (ending, '.') : NULL;
+          char *longer = g_strconcat (g_file_peek_path (file) != NULL ? g_file_peek_path (file) : name,
+                                      dot != NULL ? dot : ".xlsx", NULL);
+          GFile *named = g_file_new_for_path (longer);
+
+          if (g_file_query_exists (named, NULL))
+            {
+              char *said = g_strdup_printf ("%s already exists. Type the whole name, "
+                                            "ending and all, to replace it.",
+                                            strrchr (longer, G_DIR_SEPARATOR) != NULL
+                                            ? strrchr (longer, G_DIR_SEPARATOR) + 1 : longer);
+
+              show_error (self, said, NULL);
+              g_free (said);
+              self->close_after_save = FALSE;
+              g_object_unref (named);
+            }
+          else
+            {
+              g_object_unref (file);
+              file = named;
+            }
+          g_free (longer);
+          g_free (ending);
+        }
+      if (file != NULL && o42_file_name_has_format (g_file_peek_path (file)))
+        window_save_to (self, file);
+      g_free (name);
       g_object_unref (file);
     }
   else

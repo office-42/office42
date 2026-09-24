@@ -48,6 +48,7 @@
 #include "o42-eval.h"
 #include "o42-eval-steps.h"
 #include "o42-csv.h"
+#include "o42-file.h"
 #include "o42-text-formats.h"
 #include "o42-lotus.h"
 #include "o42-gnumeric.h"
@@ -560,17 +561,27 @@ main (int argc, char *argv[])
           const char *path = text + 5;
           GFile *file = g_file_new_for_path (path);
           GError *error = NULL;
-          gboolean csv = g_str_has_suffix (path, ".csv") || g_str_has_suffix (path, ".txt") ||
-                         g_str_has_suffix (path, ".tsv") || g_str_has_suffix (path, ".tab");
-          gboolean xlsx = g_str_has_suffix (path, ".xlsx") || g_str_has_suffix (path, ".xlsm");
-          gboolean xls = g_str_has_suffix (path, ".xls");
-          gboolean ods = g_str_has_suffix (path, ".ods") || g_str_has_suffix (path, ".fods");
-          gboolean html = g_str_has_suffix (path, ".html") || g_str_has_suffix (path, ".htm");
-          gboolean dif = g_str_has_suffix (path, ".dif");
-          gboolean sylk = g_str_has_suffix (path, ".slk") || g_str_has_suffix (path, ".sylk");
-          gboolean latex = g_str_has_suffix (path, ".tex");
-          gboolean wk1 = g_str_has_suffix (path, ".wk1") || g_str_has_suffix (path, ".wks");
+          /* A file is read as what it is and written as what its name
+           * says. */
+          O42FileFormat format = text[0] == 'l' ? o42_file_format_to_read (file)
+                                                : o42_file_format (file);
+          gboolean csv = format == O42_FILE_CSV;
+          gboolean xlsx = format == O42_FILE_XLSX;
+          gboolean xls = format == O42_FILE_XLS;
+          gboolean ods = format == O42_FILE_ODS;
+          gboolean html = format == O42_FILE_HTML;
+          gboolean dif = format == O42_FILE_DIF;
+          gboolean sylk = format == O42_FILE_SYLK;
+          gboolean latex = format == O42_FILE_LATEX;
+          gboolean wk1 = format == O42_FILE_LOTUS;
           gboolean ok;
+
+          if (text[0] == 'l' && latex)
+            {
+              fprintf (stderr, "%s: LaTeX is written, not read\n", path);
+              g_object_unref (file);
+              continue;
+            }
 
           if (text[0] == 'l')
             o42_book_begin_load (book);
