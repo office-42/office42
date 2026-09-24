@@ -120,14 +120,16 @@ o42_ref_parse_full (const char *text, int *row, int *col,
       p++;
     }
 
-  while (g_ascii_isdigit (*p) && digits < 7)
+  /* Eight digits: the grid is 16,777,216 rows deep.  A ninth is not a
+   * row of it, and neither is the first eight of a longer number. */
+  while (g_ascii_isdigit (*p) && digits < 8)
     {
       r = r * 10 + (*p - '0');
       p++;
       digits++;
     }
 
-  if (digits == 0 || r == 0)
+  if (digits == 0 || r == 0 || g_ascii_isdigit (*p))
     return FALSE;
 
   c -= 1;      /* the count above is one-based; the program is not */
