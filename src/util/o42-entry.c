@@ -8,6 +8,7 @@
 
 #include "o42-date.h"
 
+#include <math.h>
 #include <string.h>
 
 /* A number the way people type one:
@@ -135,7 +136,9 @@ read_plain_number (const char *text, O42Entry *out)
     goto text;
 
   n = g_ascii_strtod (digits->str, &end);
-  if (end == NULL || *end != '\0')
+  /* 1e400 is past any double: kept as the text it was, as Excel does,
+   * not as an infinity no file can hold. */
+  if (end == NULL || *end != '\0' || !isfinite (n))
     goto text;
   g_string_free (digits, TRUE);
 

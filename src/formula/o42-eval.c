@@ -11655,6 +11655,17 @@ o42_function_help (const char *name, const char **signature, const char **summar
 static O42Operand eval_operand (O42EvalContext *ctx, const O42Node *node);
 
 /* One operator applied to two values, which it takes over. */
+/* A number past what a double holds, or none at all, is #NUM!, as in
+ * Excel: kept as a number it would pass ISNUMBER, dodge IFERROR, and go
+ * into a file as "inf" that nothing can read. */
+static O42Value
+finite_or_num (O42Value v)
+{
+  if (v.type == O42_VALUE_NUMBER && !isfinite (v.as.number))
+    return o42_value_error (O42_ERR_NUM);
+  return v;
+}
+
 static O42Value
 binary_values (O42Op op, O42Value a, O42Value b)
 {
@@ -11712,13 +11723,13 @@ binary_values (O42Op op, O42Value a, O42Value b)
 
   switch (op)
     {
-    case O42_OP_ADD: result = o42_value_number (x + y); break;
-    case O42_OP_SUB: result = o42_value_number (x - y); break;
-    case O42_OP_MUL: result = o42_value_number (x * y); break;
+    case O42_OP_ADD: result = finite_or_num (o42_value_number (x + y)); break;
+    case O42_OP_SUB: result = finite_or_num (o42_value_number (x - y)); break;
+    case O42_OP_MUL: result = finite_or_num (o42_value_number (x * y)); break;
 
     case O42_OP_DIV:
       result = (y == 0.0) ? o42_value_error (O42_ERR_DIV0)
-                          : o42_value_number (x / y);
+                          : finite_or_num (o42_value_number (x / y));
       break;
 
     case O42_OP_POW:
@@ -11945,8 +11956,8 @@ lift_call (O42EvalContext *ctx, const O42Function *fn, const External *ext,
             else if (!operands[k].is_range)
               one[k].value = o42_value_copy (&operands[k].value);
           }
-        result->cells[i * cols + j] = fn != NULL ? fn->fn (ctx, one, n_args)
-                                    : ext->impl (ctx, ext->name, one, n_args, ext->user);
+        result->cells[i * cols + j] = finite_or_num (fn != NULL ? fn->fn (ctx, one, n_args)
+                                                   : ext->impl (ctx, ext->name, one, n_args, ext->user));
         for (int k = 0; k < n_args; k++)
           operand_clear (&one[k]);
         g_free (one);
@@ -12093,8 +12104,8 @@ eval_call_operand (O42EvalContext *ctx, const O42Node *node)
     guint32 mask = fn != NULL ? lift_mask (fn->name) : 0;
 
     if (mask == 0 || !lift_call (ctx, fn, ext, mask, operands, n_args, &result))
-      result.value = fn != NULL ? fn->fn (ctx, operands, n_args)
-                                : ext->impl (ctx, ext->name, operands, n_args, ext->user);
+      result.value = finite_or_num (fn != NULL ? fn->fn (ctx, operands, n_args)
+                                               : ext->impl (ctx, ext->name, operands, n_args, ext->user));
   }
 
   for (int i = 0; i < n_args; i++)
