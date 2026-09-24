@@ -3247,7 +3247,7 @@ placed:
               run.fmt.italic = (flags & 2) != 0;
               run.fmt.underline = (flags & 4) != 0;
               run.fmt.strikeout = (flags & 8) != 0;
-              run.fmt.size = (guint8) CLAMP (atoi (fields[2]), 2, 800);
+              run.fmt.size = CLAMP (atoi (fields[2]), 2, 800);
               run.fmt.colour = (guint32) g_ascii_strtoull (fields[3], NULL, 16);
               run.fmt.family = g_intern_string (fields[4]);
               g_array_append_val (runs, run);

@@ -182,6 +182,9 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
                        ? chart->data_sheet : o42_sheet_get_name (sheet);
   const char *element;
   int series = 0;
+  /* The groups the schema gives a third axis, into the page. */
+  gboolean series_axis = chart->kind == O42_CHART_SURFACE || chart->kind == O42_CHART_CONTOUR ||
+                         (chart->kind == O42_CHART_LINE && chart->three_d);
 
   if (chart->title != NULL && chart->title[0] != '\0')
     {
@@ -209,7 +212,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
      * contour; each goes out as the nearest thing it does have, and
      * .gnumeric keeps what it really is. */
     case O42_CHART_POLAR:   element = "radarChart"; break;
-    case O42_CHART_CONTOUR: element = "surface3DChart"; break;
+    case O42_CHART_CONTOUR: element = "surfaceChart"; break;   /* Excel's surface seen from above */
     case O42_CHART_AREA:    element = chart->three_d ? "area3DChart" : "areaChart"; break;
     case O42_CHART_SCATTER: element = "scatterChart"; break;
     default:                element = chart->three_d ? "bar3DChart" : "barChart"; break;
@@ -393,19 +396,21 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
       }
   }
 
-  if (chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT)
+  /* The 3-D groups have no overlap and no marker in the schema. */
+  if ((chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT) && !chart->three_d)
     g_string_append (out, "<c:gapWidth val=\"150\"/><c:overlap val=\"100\"/>");
-  else if (chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_BAR)
+  else if (chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_BAR ||
+           chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT)
     g_string_append (out, "<c:gapWidth val=\"150\"/>");
-  else if (chart->kind == O42_CHART_LINE)
+  else if (chart->kind == O42_CHART_LINE && !chart->three_d)
     g_string_append (out, "<c:marker val=\"1\"/>");
   else if (chart->kind == O42_CHART_PIE && chart->of_pie != 0)
     g_string_append_printf (out, "<c:gapWidth val=\"100\"/><c:splitType val=\"pos\"/><c:splitPos val=\"%d\"/>"
                                  "<c:secondPieSize val=\"75\"/>",
                             chart->of_pie_count > 0 ? chart->of_pie_count : 2);
-  if (chart->kind == O42_CHART_SURFACE)
+  if (series_axis)
     /* A surface stands on three: the categories across, the values up,
-     * and the series into the page. */
+     * and the series into the page; so does a line drawn in 3-D. */
     g_string_append (out, "<c:axId val=\"10001\"/><c:axId val=\"10002\"/>"
                           "<c:axId val=\"10005\"/>");
   else if (!round)
@@ -422,6 +427,8 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
       char *xt = axis_title_xml (chart->x_title);
       char *yt = axis_title_xml (chart->y_title);
       const char *code = chart->y_format != NULL && *chart->y_format != '\0' ? chart->y_format : "General";
+      /* A code has quotes in it as often as not: "$"#,##0. */
+      char *code_xml = g_markup_escape_text (code, -1);
       char minmax[96] = "";
 
       if (chart->has_max || chart->has_min)
@@ -448,9 +455,9 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
         "<c:tickLblPos val=\"nextTo\"/><c:crossAx val=\"10001\"/><c:crosses val=\"autoZero\"/>"
         "<c:crossBetween val=\"%s\"/></c:valAx>",
         minmax, bar ? "b" : "l", chart->gridlines ? "<c:majorGridlines/>" : "", yt,
-        code, *code == 'G' ? 1 : 0,
+        code_xml, *code == 'G' ? 1 : 0,
         scatter || bubble ? "midCat" : "between");
-      if (chart->kind == O42_CHART_SURFACE)
+      if (series_axis)
         g_string_append (out,
           "<c:serAx><c:axId val=\"10005\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling>"
           "<c:delete val=\"0\"/><c:axPos val=\"b\"/><c:tickLblPos val=\"nextTo\"/>"
@@ -471,6 +478,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
         }
       g_free (xt);
       g_free (yt);
+      g_free (code_xml);
     }
   /* The grey plot area Excel 97 gave a chart with axes, so that Excel
    * and LibreOffice show what office42 draws. */
@@ -564,6 +572,9 @@ append_text_body (GString *dr, const O42Shape *sh)
       g_string_append (dr, "</a:p>");
       g_free (t);
     }
+  /* A body has at least one paragraph, empty or not. */
+  if (lines[0] == NULL)
+    g_string_append (dr, "<a:p/>");
   g_string_append (dr, "</xdr:txBody>");
   g_strfreev (lines);
   g_free (family);
@@ -1000,8 +1011,11 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
     { c->kind = O42_CHART_AREA; c->kind_known = TRUE; }
   else if (strcmp (n, "scatterChart") == 0)
     { c->kind = O42_CHART_SCATTER; c->kind_known = TRUE; }
-  else if (strcmp (n, "surfaceChart") == 0 || strcmp (n, "surface3DChart") == 0)
+  else if (strcmp (n, "surface3DChart") == 0)
     { c->kind = O42_CHART_SURFACE; c->kind_known = TRUE; }
+  else if (strcmp (n, "surfaceChart") == 0)
+    /* The flat surface is Excel's contour. */
+    { c->kind = O42_CHART_CONTOUR; c->kind_known = TRUE; }
   else if (strcmp (n, "stockChart") == 0)
     { c->kind = O42_CHART_STOCK; c->kind_known = TRUE; }
   else if (strcmp (n, "barDir") == 0)

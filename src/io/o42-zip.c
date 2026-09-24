@@ -40,6 +40,9 @@ crc32_bytes (const guchar *data, gsize n)
  * one, so there is a wide margin before an honest file is refused. */
 #define PART_FLOOR (32u * 1024 * 1024)
 #define SWELL_MAX  500
+/* The whole archive may come to this many times its size, and never
+ * less than PART_FLOOR: an honest book comes to twenty or so. */
+#define TOTAL_SWELL 200
 
 /* Runs `data` through a GConverter and returns the result. */
 static GBytes *
@@ -139,6 +142,11 @@ o42_zip_read (GBytes *archive, GError **error)
   gsize cd = rd32 (buf + eocd + 16);
   GHashTable *table = g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
                                              (GDestroyNotify) g_bytes_unref);
+  /* Many directory entries can name the same bytes, and each would be
+   * inflated again: a part is read once. */
+  GHashTable *seen = g_hash_table_new (g_direct_hash, g_direct_equal);
+  guint64 budget = MAX ((guint64) size * TOTAL_SWELL, (guint64) PART_FLOOR);
+  guint64 total = 0;
 
   for (guint i = 0; i < entries; i++)
     {
@@ -156,11 +164,13 @@ o42_zip_read (GBytes *archive, GError **error)
       char *name = g_strndup ((const char *) buf + cd + 46, nlen);
       cd += 46 + nlen + xlen + clen;
 
-      if (local + 30 > size || rd32 (buf + local) != 0x04034b50)
+      if (local + 30 > size || rd32 (buf + local) != 0x04034b50 ||
+          g_hash_table_contains (seen, GSIZE_TO_POINTER (local)))
         {
           g_free (name);
           continue;
         }
+      g_hash_table_add (seen, GSIZE_TO_POINTER (local));
       gsize data = local + 30 + rd16 (buf + local + 26) + rd16 (buf + local + 28);
       if (data + csize > size)
         {
@@ -173,16 +183,19 @@ o42_zip_read (GBytes *archive, GError **error)
         content = g_bytes_new (buf + data, csize);
       else if (method == 8 && usize > PART_FLOOR && csize > 0 && usize / csize > SWELL_MAX)
         content = NULL;    /* a megabyte that claims to be a gigabyte */
-      else if (method == 8)
-        content = inflate_bounded (buf + data, csize, usize != 0 ? usize : PART_FLOOR);
+      else if (method == 8 && total < budget)
+        content = inflate_bounded (buf + data, csize,
+                                   (gsize) MIN (usize != 0 ? usize : PART_FLOOR, budget - total));
       if (content == NULL || (usize != 0 && g_bytes_get_size (content) != usize))
         {
           g_clear_pointer (&content, g_bytes_unref);
           g_free (name);
           continue;
         }
+      total += g_bytes_get_size (content);
       g_hash_table_insert (table, name, content);
     }
+  g_hash_table_unref (seen);
   return table;
 }
 

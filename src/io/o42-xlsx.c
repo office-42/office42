@@ -321,7 +321,19 @@ append_cell (Writer *w, GString *out, O42Sheet *sheet, int row, int col, guint x
         o42_node_prefix_functions (tree, o42_function_is_future, "_xlfn.");
         if (table != NULL)
           o42_node_qualify_structured (tree, table->name);
-        spelled = o42_node_to_string (tree);
+        /* What the parser could not read -- a link to another book,
+         * [1]Sheet1!A1 -- comes back as an error; the formula goes out
+         * as it was written rather than as that error. */
+        if (tree != NULL && tree->type == O42_NODE_ERROR)
+          {
+            char *typed = g_strstrip (g_strdup (input + 1));
+
+            spelled = g_ascii_strcasecmp (typed, o42_error_name (tree->as.error)) != 0
+                      ? g_strdup (input + 1) : o42_node_to_string (tree);
+            g_free (typed);
+          }
+        else
+          spelled = o42_node_to_string (tree);
         escaped = g_markup_escape_text (spelled, -1);
         g_free (spelled);
         o42_node_free (tree);
@@ -1349,7 +1361,12 @@ write_control_vml (GString *vml, O42Sheet *sheet, const O42Shape *shape, int sha
       g_free (macro);
     }
   if (shape->source != NULL && *shape->source != 0)
-    g_string_append_printf (vml, "<x:FmlaRange>%s</x:FmlaRange>", shape->source);
+    {
+      char *range = g_markup_escape_text (shape->source, -1);
+
+      g_string_append_printf (vml, "<x:FmlaRange>%s</x:FmlaRange>", range);
+      g_free (range);
+    }
 
   switch (shape->kind)
     {
@@ -1755,10 +1772,11 @@ vml_end (GMarkupParseContext *ctx, const char *element, gpointer user, GError **
                 }
               if (r->range != NULL && *r->range != 0)
                 {
-                  const char *bare = strchr (r->range, '!');
+                  /* The list may be on another sheet, which it names;
+                   * only the dollars go. */
                   GString *plain = g_string_new (NULL);
 
-                  for (const char *q = bare ? bare + 1 : r->range; *q != 0; q++)
+                  for (const char *q = r->range; *q != 0; q++)
                     if (*q != '$')
                       g_string_append_c (plain, *q);
                   g_free (shape->source);
@@ -2172,7 +2190,11 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
       {
         {
           const O42PrintSetup *ps = o42_sheet_print_setup (o42_book_sheet (book, i));
-          char *sname = g_markup_escape_text (o42_sheet_get_name (o42_book_sheet (book, i)), -1);
+          /* Quoted as a formula quotes it, a ' in the name doubled. */
+          char *quoted = o42_sheet_name_quote (o42_sheet_get_name (o42_book_sheet (book, i)));
+          char *sname = g_markup_escape_text (quoted, -1);
+
+          g_free (quoted);
           if (ps->has_area)
             {
               g_string_append_printf (defs, "<definedName name=\"_xlnm.Print_Area\" localSheetId=\"%d\">", i);
@@ -2181,7 +2203,7 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
                   const O42Range *area = ps->n_areas > 0 ? &ps->areas[k] : &ps->area;
                   char *a = o42_ref_name_full (area->row0, area->col0, TRUE, TRUE);
                   char *b = o42_ref_name_full (area->row1, area->col1, TRUE, TRUE);
-                  g_string_append_printf (defs, "%s'%s'!%s:%s", k > 0 ? "," : "", sname, a, b);
+                  g_string_append_printf (defs, "%s%s!%s:%s", k > 0 ? "," : "", sname, a, b);
                   g_free (a); g_free (b);
                 }
               g_string_append (defs, "</definedName>");
@@ -2194,9 +2216,9 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
               o42_col_name (ps->title_col_first + MAX (ps->title_cols - 1, 0), last_col, sizeof last_col);
               g_string_append_printf (defs, "<definedName name=\"_xlnm.Print_Titles\" localSheetId=\"%d\">", i);
               if (ps->title_cols > 0)
-                g_string_append_printf (defs, "'%s'!$%s:$%s%s", sname, first_col, last_col, ps->title_rows > 0 ? "," : "");
+                g_string_append_printf (defs, "%s!$%s:$%s%s", sname, first_col, last_col, ps->title_rows > 0 ? "," : "");
               if (ps->title_rows > 0)
-                g_string_append_printf (defs, "'%s'!$%d:$%d", sname, ps->title_row_first + 1,
+                g_string_append_printf (defs, "%s!$%d:$%d", sname, ps->title_row_first + 1,
                                         ps->title_row_first + ps->title_rows);
               g_string_append (defs, "</definedName>");
             }
@@ -2314,6 +2336,18 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
           gsize length = strlen (text);
 
           g_string_append (s, "<si>");
+          /* Text before the first run is in the cell's own font: a run
+           * of its own with no properties. */
+          if (g_array_index (runs, O42TextRun, 0).start > 0)
+            {
+              gsize lead = CLAMP ((gsize) g_array_index (runs, O42TextRun, 0).start, 0, length);
+              char *piece = g_strndup (text, lead);
+              char *part = escape_cell_text (piece);
+
+              g_string_append_printf (s, "<r><t xml:space=\"preserve\">%s</t></r>", part);
+              g_free (part);
+              g_free (piece);
+            }
           for (guint k = 0; k < runs->len; k++)
             {
               const O42TextRun *run = &g_array_index (runs, O42TextRun, k);
@@ -2338,8 +2372,12 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
               g_string_append_printf (s, "<sz val=\"%g\"/>", run->fmt.size / 2.0);
               g_string_append (s, "<color rgb=\"");
               append_rgb (s, run->fmt.colour);
-              g_string_append_printf (s, "\"/><rFont val=\"%s\"/></rPr>",
-                                      run->fmt.family != NULL ? run->fmt.family : "Arial");
+              {
+                char *family = g_markup_escape_text (run->fmt.family != NULL ? run->fmt.family : "Arial", -1);
+
+                g_string_append_printf (s, "\"/><rFont val=\"%s\"/></rPr>", family);
+                g_free (family);
+              }
               g_string_append_printf (s, "<t xml:space=\"preserve\">%s</t></r>", part);
               g_free (part);
             }
@@ -2408,7 +2446,19 @@ static int
 attr_int (const char **names, const char **values, const char *want, int fallback)
 {
   const char *v = attr (names, values, want);
-  return v ? atoi (v) : fallback;
+  long n;
+
+  if (v == NULL)
+    return fallback;
+  /* An xsd:boolean may be spelt out, as LibreOffice spells it:
+   * showGridLines="true" is not showGridLines="0". */
+  if (strcmp (v, "true") == 0)
+    return 1;
+  if (strcmp (v, "false") == 0)
+    return 0;
+  /* Held well inside an int, so that r - 1 and the like cannot wrap. */
+  n = strtol (v, NULL, 10);
+  return (int) CLAMP (n, -(1L << 30), 1L << 30);
 }
 
 static gboolean
@@ -2752,7 +2802,7 @@ run_property (Reader *r, GArray *runs, const char *n, const char **names, const 
   else if (strcmp (n, "sz") == 0)
     {
       double points = attr_double (names, values, "val", 10);
-      fmt->size = (guint8) CLAMP ((int) (points * 2 + 0.5), 2, 800);
+      fmt->size = CLAMP ((int) (points * 2 + 0.5), 2, 800);
     }
   else if (strcmp (n, "color") == 0)
     {
@@ -3281,14 +3331,18 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
           memset (&r->cur_bdef, 0, sizeof r->cur_bdef);
           r->bside = -1;
         }
-      else if (strcmp (n, "left") == 0 || strcmp (n, "right") == 0 || strcmp (n, "top") == 0 || strcmp (n, "bottom") == 0)
+      else if (strcmp (n, "left") == 0 || strcmp (n, "right") == 0 || strcmp (n, "top") == 0 ||
+               strcmp (n, "bottom") == 0 || strcmp (n, "start") == 0 || strcmp (n, "end") == 0)
         {
           const char *style = attr (names, values, "style");
-          int side = n[0] == 't' ? O42_SIDE_TOP : n[0] == 'b' ? O42_SIDE_BOTTOM : n[0] == 'l' ? O42_SIDE_LEFT : O42_SIDE_RIGHT;
+          /* start and end, as Gnumeric and the Strict schema write
+           * them, are left and right. */
+          char first = strcmp (n, "start") == 0 ? 'l' : strcmp (n, "end") == 0 ? 'r' : n[0];
+          int side = first == 't' ? O42_SIDE_TOP : first == 'b' ? O42_SIDE_BOTTOM : first == 'l' ? O42_SIDE_LEFT : O42_SIDE_RIGHT;
           r->bside = side;
           if (style != NULL && strcmp (style, "none") != 0)
             {
-              r->cur_border |= n[0] == 'l' ? 1 : n[0] == 'r' ? 2 : n[0] == 't' ? 4 : 8;
+              r->cur_border |= first == 'l' ? 1 : first == 'r' ? 2 : first == 't' ? 4 : 8;
               r->cur_bdef.style[side] = xlsx_border_style (style);
             }
         }
@@ -3541,9 +3595,14 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
 
           memset (&table, 0, sizeof table);
           table.row_input_row = table.row_input_col = table.col_input_row = table.col_input_col = -1;
+          /* A What-If table is worked out cell by cell, at a cost that
+           * grows faster than its size: one larger than any made by
+           * hand keeps the values the file has for it. */
           if (o42_ref_parse (ref, &table.range.row0, &table.range.col0, &used) && ref[used] == ':' &&
               o42_ref_parse (ref + used + 1, &table.range.row1, &table.range.col1, NULL) &&
               table.range.row0 > 0 && table.range.col0 > 0 &&
+              (gint64) (ABS (table.range.row1 - table.range.row0) + 1) *
+              (ABS (table.range.col1 - table.range.col0) + 1) <= 16384 &&
               o42_ref_parse (attr (names, values, "r1"), &a_row, &a_col, NULL))
             {
               gboolean two = attr_int (names, values, "dt2D", 0) != 0;
@@ -3808,7 +3867,11 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
           o42_ref_parse (ref + used + 1, &m.row1, &m.col1, NULL))
         {
           m = o42_range_normalise (m.row0, m.col0, m.row1, m.col1);
-          o42_sheet_merge (r->sheet, &m);
+          /* Merging costs its area: a whole column is the most an
+           * honest book merges, and one element must not stall the
+           * load for minutes. */
+          if ((gint64) (m.row1 - m.row0 + 1) * (m.col1 - m.col0 + 1) <= O42_MAX_ROWS)
+            o42_sheet_merge (r->sheet, &m);
         }
     }
   else if (strcmp (n, "picture") == 0)
@@ -4923,7 +4986,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                       p.row_fields = o42_pivot_fields_from_string (f[2]);
                       p.col_fields = o42_pivot_fields_from_string (f[3]);
                       p.data_field = f[4];
-                      p.agg = (O42PivotAgg) atoi (f[5]);
+                      p.agg = (O42PivotAgg) CLAMP (atoi (f[5]), O42_PIVOT_SUM, O42_PIVOT_MAX);
                       p.rows = atoi (f[7]);
                       p.cols = atoi (f[8]);
                       if (g_strv_length (f) >= 11)

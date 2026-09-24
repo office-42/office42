@@ -12,6 +12,7 @@
 #include "o42-entry.h"
 #include "o42-python.h"
 
+#include <locale.h>
 #include <glib/gi18n.h>
 #include <stdlib.h>
 #include <string.h>
@@ -193,6 +194,11 @@ static void
 o42_application_startup (GApplication *app)
 {
   G_APPLICATION_CLASS (o42_application_parent_class)->startup (app);
+  /* GTK set the whole locale from the machine as it started, numbers
+   * with it; main() had kept them in C, and every writer that prints
+   * a number relies on that -- a German machine would otherwise write
+   * defaultColWidth="10,7143" into an .xlsx. */
+  setlocale (LC_NUMERIC, "C");
 
   load_css ();
   load_icons ();
