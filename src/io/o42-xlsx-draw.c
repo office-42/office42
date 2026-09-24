@@ -1871,17 +1871,20 @@ draw_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **er
            (strcmp (n, "col") == 0 || strcmp (n, "row") == 0 || strcmp (n, "colOff") == 0 || strcmp (n, "rowOff") == 0))
     {
       double v = g_ascii_strtod (d->text->str, NULL);
+      /* A cell's number held to the sheet before it is made an int,
+       * which a double past an int's range cannot be. */
+      int index = isfinite (v) ? (int) CLAMP (v, -1, O42_MAX_ROWS) : 0;
       if (d->in_from)
         {
-          if (strcmp (n, "col") == 0) d->from_col = (int) v;
-          else if (strcmp (n, "row") == 0) d->from_row = (int) v;
+          if (strcmp (n, "col") == 0) d->from_col = index;
+          else if (strcmp (n, "row") == 0) d->from_row = index;
           else if (strcmp (n, "colOff") == 0) d->from_coff = v / EMU_PER_PX;
           else d->from_roff = v / EMU_PER_PX;
         }
       else if (d->in_to)
         {
-          if (strcmp (n, "col") == 0) d->to_col = (int) v;
-          else if (strcmp (n, "row") == 0) d->to_row = (int) v;
+          if (strcmp (n, "col") == 0) d->to_col = index;
+          else if (strcmp (n, "row") == 0) d->to_row = index;
           else if (strcmp (n, "colOff") == 0) d->to_coff = v / EMU_PER_PX;
           else d->to_roff = v / EMU_PER_PX;
         }

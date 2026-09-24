@@ -3042,7 +3042,23 @@ static int
 attr_int (const char **names, const char **values, const char *want, int fallback)
 {
   const char *v = attr (names, values, want);
-  return v != NULL ? atoi (v) : fallback;
+  gint64 n;
+  char *end = NULL;
+
+  if (v == NULL)
+    return fallback;
+  /* Held to a thousand million either way, where atoi's answer for
+   * "99999999999" is undefined. */
+  n = g_ascii_strtoll (v, &end, 10);
+  return end == v ? 0 : (int) CLAMP (n, -1000000000, 1000000000);
+}
+
+/* A count of rows or columns -- repeated, spanned, a matrix's -- held
+ * to the sheet: at least one, and no more than there are. */
+static int
+attr_count (const char **names, const char **values, const char *want, int most)
+{
+  return CLAMP (attr_int (names, values, want, 1), 1, most);
 }
 
 /* A count of digit places in a number style: decimals, leading noughts,
@@ -3818,7 +3834,7 @@ cell_finish (Reader *r)
       input = o42_entry_quote_text (r->text->str);
     }
 
-  for (int k = 0; k < repeat && r->cell_col + k < O42_MAX_COLS; k++)
+  for (int k = 0; k < repeat && r->cell_col + k < O42_MAX_COLS && r->row < O42_MAX_ROWS; k++)
     {
       int col = r->cell_col + k;
       if (input != NULL && r->row < O42_MAX_ROWS && input[0] == '=' && repeat == 1 &&
@@ -3861,7 +3877,7 @@ cell_finish (Reader *r)
         }
     }
   g_free (input);
-  r->cell_col += repeat;
+  r->cell_col = MIN (r->cell_col + repeat, O42_MAX_COLS);
   CLEAR_RUNS ();
   #undef CLEAR_RUNS
 
@@ -3884,7 +3900,7 @@ row_finish (Reader *r)
             if (r->row_hidden) o42_sheet_set_row_hidden (r->sheet, k, TRUE);
           }
     }
-  r->row += repeat;
+  r->row = MIN (r->row + repeat, O42_MAX_ROWS);
 }
 
 /* A length as OpenDocument writes it -- 3.5cm, 42mm, 12pt, 1in -- in
@@ -4514,7 +4530,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "s") == 0 && r->in_p)
         {
-          int n = attr_int (names, values, "c", 1);
+          /* No more spaces than a cell holds characters, 32,767. */
+          int n = CLAMP (attr_int (names, values, "c", 1), 0, 32767);
           GString *target = r->in_annotation ? r->note : r->text;
           for (int i = 0; i < n; i++) g_string_append_c (target, ' ');
         }
@@ -4685,7 +4702,7 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       if (strcmp (name, "s") == 0 || strcmp (name, "tab") == 0)
         {
-          int n = attr_int (names, values, "c", 1);
+          int n = CLAMP (attr_int (names, values, "c", 1), 0, 255);
           hf_sync (r);
           for (int i = 0; i < n; i++)
             g_string_append_c (part, name[0] == 's' ? ' ' : '\t');
@@ -5353,7 +5370,7 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
     }
   if (strcmp (name, "table-column") == 0 && r->sheet != NULL)
     {
-      int repeat = attr_int (names, values, "number-columns-repeated", 1);
+      int repeat = attr_count (names, values, "number-columns-repeated", O42_MAX_COLS);
       const char *sname = attr (names, values, "style-name");
       const char *cell_style_name = attr (names, values, "default-cell-style-name");
       const char *vis = attr (names, values, "visibility");
@@ -5371,13 +5388,13 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                 cell_style_name != NULL && strcmp (cell_style_name, "Default") != 0 ? g_strdup (cell_style_name) : NULL;
             }
         }
-      r->col += repeat;
+      r->col = MIN (r->col + repeat, O42_MAX_COLS);
       return;
     }
   if (strcmp (name, "table-row") == 0 && r->sheet != NULL)
     {
       const char *vis = attr (names, values, "visibility");
-      r->row_repeat = attr_int (names, values, "number-rows-repeated", 1);
+      r->row_repeat = attr_count (names, values, "number-rows-repeated", O42_MAX_ROWS);
       g_free (r->row_style);
       r->row_style = g_strdup (attr (names, values, "style-name"));
       r->row_hidden = vis != NULL && strcmp (vis, "collapse") == 0;
@@ -5436,9 +5453,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       r->covered = name[0] == 'c';
       g_free (r->cell_valid);
       r->cell_valid = g_strdup (attr (names, values, "content-validation-name"));
-      r->cell_repeat = attr_int (names, values, "number-columns-repeated", 1);
-      r->span_cols = attr_int (names, values, "number-columns-spanned", 1);
-      r->span_rows = attr_int (names, values, "number-rows-spanned", 1);
+      r->cell_repeat = attr_count (names, values, "number-columns-repeated", O42_MAX_COLS);
+      r->span_cols = attr_count (names, values, "number-columns-spanned", O42_MAX_COLS);
+      r->span_rows = attr_count (names, values, "number-rows-spanned", O42_MAX_ROWS);
       r->matrix_cols = attr_int (names, values, "number-matrix-columns-spanned", 0);
       r->matrix_rows = attr_int (names, values, "number-matrix-rows-spanned", 0);
       g_free (r->cell_style);  r->cell_style = g_strdup (attr (names, values, "style-name"));

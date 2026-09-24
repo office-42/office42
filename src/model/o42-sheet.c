@@ -7093,13 +7093,33 @@ o42_sheet_merge (O42Sheet *sheet, const O42Range *range)
         i++;
     }
 
-  for (int row = r.row0; row <= r.row1; row++)
-    for (int col = r.col0; col <= r.col1; col++)
-      if ((row != r.row0 || col != r.col0) && !o42_sheet_is_empty (sheet, row, col))
+  if (range_is_vast (sheet, &r))
+    {
+      /* A merge over a whole sheet, as a file may ask for: the cells
+       * there are, not the places there could be. */
+      GArray *keys = cells_in_range (sheet, &r);
+
+      for (guint i = 0; i < keys->len; i++)
         {
-          op_capture (sheet, row, col);
-          set_input_internal (sheet, row, col, NULL);
+          int row = o42_key_row (g_array_index (keys, guint64, i));
+          int col = o42_key_col (g_array_index (keys, guint64, i));
+
+          if ((row != r.row0 || col != r.col0) && !o42_sheet_is_empty (sheet, row, col))
+            {
+              op_capture (sheet, row, col);
+              set_input_internal (sheet, row, col, NULL);
+            }
         }
+      g_array_unref (keys);
+    }
+  else
+    for (int row = r.row0; row <= r.row1; row++)
+      for (int col = r.col0; col <= r.col1; col++)
+        if ((row != r.row0 || col != r.col0) && !o42_sheet_is_empty (sheet, row, col))
+          {
+            op_capture (sheet, row, col);
+            set_input_internal (sheet, row, col, NULL);
+          }
   g_array_append_val (sheet->merges, r);
   op_end (sheet);
   sheet->modified = TRUE;

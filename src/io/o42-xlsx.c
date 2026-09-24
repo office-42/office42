@@ -2409,11 +2409,27 @@ attr_double (const char **names, const char **values, const char *want, double f
   return v ? g_ascii_strtod (v, NULL) : fallback;
 }
 
+/* A whole number as a file writes it, held to a thousand million
+ * either way: atoi's answer for "99999999999" is undefined, and a row
+ * number of -2147483648 has one taken off it before it is looked at. */
+static int
+int_value (const char *text, int fallback)
+{
+  gint64 v;
+  char *end = NULL;
+
+  if (text == NULL)
+    return fallback;
+  v = g_ascii_strtoll (text, &end, 10);
+  if (end == text)
+    return 0;
+  return (int) CLAMP (v, -1000000000, 1000000000);
+}
+
 static int
 attr_int (const char **names, const char **values, const char *want, int fallback)
 {
-  const char *v = attr (names, values, want);
-  return v ? atoi (v) : fallback;
+  return int_value (attr (names, values, want), fallback);
 }
 
 static gboolean
@@ -3049,7 +3065,7 @@ rgb_attr (Reader *r, const char **names, const char **values)
     return (guint32) g_ascii_strtoull (rgb + strlen (rgb) - 6, NULL, 16);
   if (theme != NULL)
     {
-      int slot = atoi (theme);
+      int slot = int_value (theme, -1);
       const char *tint = attr (names, values, "tint");
 
       if (slot >= 0 && slot < 12)
@@ -3057,7 +3073,7 @@ rgb_attr (Reader *r, const char **names, const char **values)
     }
   if (indexed != NULL)
     {
-      int slot = atoi (indexed);
+      int slot = int_value (indexed, -1);
 
       if (slot >= 0 && slot < 64)
         return r->indexed[slot];
@@ -3639,7 +3655,12 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         }
     }
   else if (strcmp (n, "brk") == 0 && r->in_breaks)
-    o42_sheet_toggle_page_break (r->sheet, r->in_breaks == 1, attr_int (names, values, "id", 0));
+    {
+      /* A break past the sheet's edge breaks nothing. */
+      int at = attr_int (names, values, "id", 0);
+      if (at < (r->in_breaks == 1 ? O42_MAX_ROWS : O42_MAX_COLS))
+        o42_sheet_toggle_page_break (r->sheet, r->in_breaks == 1, at);
+    }
   else if (strcmp (n, "rowBreaks") == 0)
     r->in_breaks = 1;
   else if (strcmp (n, "colBreaks") == 0)
@@ -3670,7 +3691,7 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       if (!r->fit_to_page)
         ps.fit_wide = ps.fit_tall = 0;
       if ((v = attr (names, values, "paperSize")) != NULL)
-        ps.paper = atoi (v) > 0 ? atoi (v) : ps.paper;
+        ps.paper = int_value (v, 0) > 0 ? int_value (v, 0) : ps.paper;
       if ((v = attr (names, values, "orientation")) != NULL)
         ps.landscape = strcmp (v, "landscape") == 0;
       if (attr_int (names, values, "useFirstPageNumber", 0) != 0)
@@ -4908,14 +4929,19 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                       if (*start == '$') start++;
                       if (*end == '$') end++;
                       if (g_ascii_isdigit (*start))
-                        { row0 = atoi (start) - 1; row1 = atoi (end) - 1; }
+                        {
+                          row0 = CLAMP (int_value (start, 0), 1, O42_MAX_ROWS) - 1;
+                          row1 = CLAMP (int_value (end, 0), 1, O42_MAX_ROWS) - 1;
+                        }
                       else if (g_ascii_isalpha (*start))
                         {
+                          /* Past three letters a column is off the sheet;
+                           * counting further would overflow. */
                           int a = 0, c = 0;
                           for (; g_ascii_isalpha (*start); start++)
-                            a = a * 26 + (g_ascii_toupper (*start) - 'A' + 1);
+                            a = MIN (a * 26 + (g_ascii_toupper (*start) - 'A' + 1), O42_MAX_COLS);
                           for (; g_ascii_isalpha (*end); end++)
-                            c = c * 26 + (g_ascii_toupper (*end) - 'A' + 1);
+                            c = MIN (c * 26 + (g_ascii_toupper (*end) - 'A' + 1), O42_MAX_COLS);
                           col0 = a - 1; col1 = c - 1;
                         }
                     }
