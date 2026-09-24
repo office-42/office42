@@ -27,6 +27,9 @@
 
 #define MIME "application/vnd.oasis.opendocument.spreadsheet"
 
+/* The most cells an array formula read from a file may cover. */
+#define ODS_MAX_MATRIX_CELLS (1 << 20)
+
 #define NS_HEAD \
   "xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" " \
   "xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\" " \
@@ -48,6 +51,24 @@
 /* ====================================================================== */
 /* Writing                                                                */
 /* ====================================================================== */
+
+/* A number in the fewest digits that read back as the same double:
+ * 0.05 and not the 0.050000000000000003 that seventeen digits give,
+ * and 17 digits only for the numbers that need them. */
+static const char *
+ods_number (char *buf, gsize size, double value)
+{
+  for (int digits = 15; digits <= 17; digits++)
+    {
+      char spec[8];
+
+      g_snprintf (spec, sizeof spec, "%%.%dg", digits);
+      g_ascii_formatd (buf, size, spec, value);
+      if (g_ascii_strtod (buf, NULL) == value)
+        break;
+    }
+  return buf;
+}
 
 /* ---- Formulas in OpenFormula notation --------------------------------- */
 
@@ -142,7 +163,7 @@ of_write (const O42Node *node, GString *out)
     case O42_NODE_NUMBER:
       {
         char buf[G_ASCII_DTOSTR_BUF_SIZE];
-        g_string_append (out, g_ascii_dtostr (buf, sizeof buf, node->as.number));
+        g_string_append (out, ods_number (buf, sizeof buf, node->as.number));
         break;
       }
     case O42_NODE_STRING:
@@ -2067,9 +2088,18 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
     {
       char *of = of_formula (input);
       char *esc = g_markup_escape_text (of, -1);
+      O42Range block;
+
       g_string_append_printf (out, " table:formula=\"%s\"", esc);
       g_free (esc);
       g_free (of);
+      /* An array formula, or one that spilled: the block it fills,
+       * which OpenDocument keeps on the cell that holds the formula.
+       * The other cells are written with their values only, as
+       * LibreOffice writes them. */
+      if (o42_sheet_array_range (sheet, row, col, &block) && block.row0 == row && block.col0 == col)
+        g_string_append_printf (out, " table:number-matrix-columns-spanned=\"%d\" table:number-matrix-rows-spanned=\"%d\"",
+                                block.col1 - block.col0 + 1, block.row1 - block.row0 + 1);
     }
   if (has_content)
     {
@@ -2099,7 +2129,7 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
             }
           g_string_append_printf (out, " office:value-type=\"%s\" office:value=\"%s\"",
                                   fmt->number == O42_NUM_PERCENT ? "percentage" : (fmt->number == O42_NUM_CURRENCY || fmt->number == O42_NUM_ACCOUNTING) ? "currency" : "float",
-                                  g_ascii_dtostr (buf, sizeof buf, value.as.number));
+                                  ods_number (buf, sizeof buf, value.as.number));
           if (fmt->number == O42_NUM_CURRENCY || fmt->number == O42_NUM_ACCOUNTING)
             g_string_append_printf (out, " office:currency=\"%s\"", o42_numfmt_currency_iso ());
           break;
@@ -2369,7 +2399,7 @@ cond_operand (const char *expr, double value)
     }
   {
     char buffer[G_ASCII_DTOSTR_BUF_SIZE];
-    return g_strdup (g_ascii_dtostr (buffer, sizeof buffer, value));
+    return g_strdup (ods_number (buffer, sizeof buffer, value));
   }
 }
 
@@ -2402,7 +2432,7 @@ write_conditional_formats (GString *out, Styles *s, O42Sheet *sheet, const char 
           for (int k = 0; k < CLAMP (c->stops, 2, 3); k++)
             {
               char sv[G_ASCII_DTOSTR_BUF_SIZE];
-              g_ascii_dtostr (sv, sizeof sv, c->stop_value[k]);
+              ods_number (sv, sizeof sv, c->stop_value[k]);
               g_string_append_printf (out, "<calcext:color-scale-entry calcext:value=\"%s\" calcext:type=\"%s\" calcext:color=\"#%06x\"/>",
                                       sv, kinds[CLAMP (c->stop_type[k], 0, 4)], c->stop_colour[k] & 0xFFFFFF);
             }
@@ -2932,6 +2962,7 @@ typedef struct {
   gboolean    in_cell, covered;
   int         cell_repeat;
   int         span_cols, span_rows;
+  int         matrix_cols, matrix_rows;   /* an array formula's block, or 0 */
   char       *cell_style;
   char       *formula;
   char       *cell_link;
@@ -3770,7 +3801,23 @@ cell_finish (Reader *r)
   for (int k = 0; k < repeat && r->cell_col + k < O42_MAX_COLS; k++)
     {
       int col = r->cell_col + k;
-      if (input != NULL && r->row < O42_MAX_ROWS)
+      if (input != NULL && r->row < O42_MAX_ROWS && input[0] == '=' && repeat == 1 &&
+          (r->matrix_cols > 0 || r->matrix_rows > 0) &&
+          (gint64) MAX (r->matrix_cols, 1) * MAX (r->matrix_rows, 1) <= ODS_MAX_MATRIX_CELLS)
+        {
+          /* The head of an array formula, TRANSPOSE over three cells or
+           * a Ctrl+Shift+Enter one over one.  (A block bigger than any
+           * sheet has a use for is a damaged file, and read as a
+           * plain formula rather than a billion cells.) */
+          O42Range block = { r->row, col,
+                             MIN (r->row + MAX (r->matrix_rows, 1) - 1, O42_MAX_ROWS - 1),
+                             MIN (col + MAX (r->matrix_cols, 1) - 1, O42_MAX_COLS - 1) };
+          o42_sheet_set_array_formula (r->sheet, &block, input);
+        }
+      else if (input != NULL && r->row < O42_MAX_ROWS &&
+               !o42_sheet_array_range (r->sheet, r->row, col, NULL))
+        /* A cell inside an array's block carries the value the file
+         * last worked out for it, which the formula will again. */
         o42_sheet_set_input (r->sheet, r->row, col, input);
       if (r->note != NULL && r->note->len > 0)
         o42_sheet_set_note (r->sheet, r->row, col, r->note->str);
@@ -5372,6 +5419,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       r->cell_repeat = attr_int (names, values, "number-columns-repeated", 1);
       r->span_cols = attr_int (names, values, "number-columns-spanned", 1);
       r->span_rows = attr_int (names, values, "number-rows-spanned", 1);
+      r->matrix_cols = attr_int (names, values, "number-matrix-columns-spanned", 0);
+      r->matrix_rows = attr_int (names, values, "number-matrix-rows-spanned", 0);
       g_free (r->cell_style);  r->cell_style = g_strdup (attr (names, values, "style-name"));
       g_free (r->formula);     r->formula = g_strdup (attr (names, values, "formula"));
       g_free (r->value_type);  r->value_type = g_strdup (attr (names, values, "value-type"));
