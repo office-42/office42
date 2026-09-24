@@ -2917,6 +2917,8 @@ typedef struct {
   gboolean     cf_in_scale;
   NumStyle   *num;           /* the number style being read */
   gboolean    in_num_style;
+  gboolean    in_num_text;   /* inside an element of it that holds text:
+                              * number:text, a currency symbol, a fill */
 
   /* Columns of the current table, as read. */
   int         col;           /* next column index for table-column */
@@ -4177,6 +4179,14 @@ ods_read_freeform (O42Shape *shape, const char *element, const char *viewbox,
     shape->fill = O42_FILL_NONE;
 }
 
+/* The elements of a number style whose text is part of the format. */
+static gboolean
+num_text_element (const char *name)
+{
+  return strcmp (name, "text") == 0 || strcmp (name, "embedded-text") == 0 ||
+         strcmp (name, "currency-symbol") == 0 || strcmp (name, "fill-character") == 0;
+}
+
 static void
 content_start (GMarkupParseContext *ctx, const char *element, const char **names,
                const char **values, gpointer user, GError **error)
@@ -4881,6 +4891,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
   if (r->in_num_style && r->num != NULL)
     {
       NumStyle *ns = r->num;
+      if (num_text_element (name))
+        r->in_num_text = TRUE;
       if (strcmp (name, "number") == 0)
         {
           const char *dp = attr (names, values, "decimal-places");
@@ -5504,6 +5516,14 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
     }
   if (strcmp (name, "style") == 0)
     r->style = NULL;
+  else if (r->in_num_style && num_text_element (name))
+    {
+      /* An empty <number:text/> or symbol leaves nothing waiting for
+       * the next text to arrive. */
+      r->in_num_text = FALSE;
+      if (r->num != NULL)
+        r->num->in_fill = r->num->in_symbol = r->num->in_currency_symbol = FALSE;
+    }
   else if (r->in_num_style && g_str_has_suffix (name, "-style"))
     {
       if (r->num != NULL && r->num->code != NULL && r->num->lang != 0 &&
@@ -5535,6 +5555,7 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
           g_string_free (whole, TRUE);
         }
       r->in_num_style = FALSE;
+      r->in_num_text = FALSE;
       r->num = NULL;
     }
   else if (strcmp (name, "color-scale") == 0 && r->cf_in_scale)
@@ -5626,6 +5647,12 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
 {
   Reader *r = user;
   (void) ctx; (void) error;
+  /* A number style's words are in its number:text elements and their
+   * kin; what lies between its elements is only how the file was laid
+   * out, and a pretty-printed one would otherwise show a line break
+   * and an indent between the $ and the number. */
+  if (r->in_num_style && !r->in_num_text)
+    return;
   if (r->in_num_style && r->num != NULL && r->num->in_fill)
     {
       /* "* " in a code: the character that fills the cell. */
