@@ -8,6 +8,8 @@
 
 #include <string.h>
 
+#define DIFSECT    0xFFFFFFFCu
+#define FATSECT    0xFFFFFFFDu
 #define ENDOFCHAIN 0xFFFFFFFEu
 #define FREESECT   0xFFFFFFFFu
 #define NOSTREAM   0xFFFFFFFFu
@@ -307,7 +309,8 @@ o42_ole2_build (const char **names, GBytes **contents, int n)
   GByteArray *dir = g_byte_array_new ();
   GByteArray *file;
   guint n_dir_entries = n + 1, n_dir_sectors, n_data_sectors, n_fat_sectors, n_mini_sectors, n_minifat_sectors;
-  guint32 mini_start, minifat_start, dir_start, data_start;
+  guint n_difat_sectors;
+  guint32 mini_start, minifat_start, dir_start, data_start, difat_start;
 
   /* Small streams go to the mini stream, large ones to the big data
    * area.  Chains are laid out contiguously, so building the FATs is a
@@ -344,24 +347,34 @@ o42_ole2_build (const char **names, GBytes **contents, int n)
   n_dir_sectors = (n_dir_entries * 128 + S - 1) / S;
   n_data_sectors = big->len / S;
 
-  /* Sector layout: FAT sectors, directory, mini-FAT, mini stream, data.
-   * The FAT must describe itself, so its size is solved by iteration. */
+  /* Sector layout: FAT sectors, DIFAT sectors, directory, mini-FAT,
+   * mini stream, data.  The FAT must describe itself, so its size is
+   * solved by iteration.  The header lists the first 109 FAT sectors;
+   * past about 6.8 MB of file there are more, and the rest are listed
+   * in DIFAT sectors of 127 each, the last entry of each pointing on
+   * to the next -- and those need describing in the FAT too. */
   n_fat_sectors = 1;
+  n_difat_sectors = 0;
   for (;;)
     {
-      guint total = n_fat_sectors + n_dir_sectors + n_minifat_sectors + n_mini_sectors + n_data_sectors;
+      guint total = n_fat_sectors + n_difat_sectors + n_dir_sectors + n_minifat_sectors +
+                    n_mini_sectors + n_data_sectors;
       guint need = (total * 4 + S - 1) / S;
-      if (need <= n_fat_sectors) break;
-      n_fat_sectors = need;
+      guint need_difat = need > 109 ? (need - 109 + (S / 4 - 1) - 1) / (S / 4 - 1) : 0;
+      if (need <= n_fat_sectors && need_difat <= n_difat_sectors) break;
+      n_fat_sectors = MAX (need, n_fat_sectors);
+      n_difat_sectors = MAX (need_difat, n_difat_sectors);
     }
-  dir_start = n_fat_sectors;
+  difat_start = n_fat_sectors;
+  dir_start = difat_start + n_difat_sectors;
   minifat_start = dir_start + n_dir_sectors;
   mini_start = minifat_start + n_minifat_sectors;
   data_start = mini_start + n_mini_sectors;
 
   {
     guint32 v;
-    for (guint i = 0; i < n_fat_sectors; i++) { v = 0xFFFFFFFD; g_array_append_val (fat, v); }   /* FATSECT */
+    for (guint i = 0; i < n_fat_sectors; i++) { v = FATSECT; g_array_append_val (fat, v); }
+    for (guint i = 0; i < n_difat_sectors; i++) { v = DIFSECT; g_array_append_val (fat, v); }
     for (guint i = 0; i < n_dir_sectors; i++) { v = i + 1 < n_dir_sectors ? dir_start + i + 1 : ENDOFCHAIN; g_array_append_val (fat, v); }
     for (guint i = 0; i < n_minifat_sectors; i++) { v = i + 1 < n_minifat_sectors ? minifat_start + i + 1 : ENDOFCHAIN; g_array_append_val (fat, v); }
     for (guint i = 0; i < n_mini_sectors; i++) { v = i + 1 < n_mini_sectors ? mini_start + i + 1 : ENDOFCHAIN; g_array_append_val (fat, v); }
@@ -403,13 +416,21 @@ o42_ole2_build (const char **names, GBytes **contents, int n)
   put32 (file, MINI_CUTOFF);
   put32 (file, n_minifat_sectors > 0 ? minifat_start : ENDOFCHAIN);
   put32 (file, n_minifat_sectors);
-  put32 (file, ENDOFCHAIN);      /* first DIFAT sector: none */
-  put32 (file, 0);
+  put32 (file, n_difat_sectors > 0 ? difat_start : ENDOFCHAIN);
+  put32 (file, n_difat_sectors);
   for (guint i = 0; i < 109; i++)
     put32 (file, i < n_fat_sectors ? i : FREESECT);
 
   for (guint i = 0; i < fat->len; i++)
     put32 (file, g_array_index (fat, guint32, i));
+  /* The FAT sectors the header had no room for.  They are sectors
+   * 0 to n_fat_sectors - 1, so the ones listed here start at 109. */
+  for (guint k = 0, fat_sector = 109; k < n_difat_sectors; k++)
+    {
+      for (guint i = 0; i + 1 < S / 4; i++, fat_sector++)
+        put32 (file, fat_sector < n_fat_sectors ? fat_sector : FREESECT);
+      put32 (file, k + 1 < n_difat_sectors ? difat_start + k + 1 : ENDOFCHAIN);
+    }
   g_byte_array_append (file, dir->data, dir->len);
   for (guint i = 0; i < minifat->len; i++)
     put32 (file, g_array_index (minifat, guint32, i));
