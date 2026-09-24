@@ -3747,7 +3747,27 @@ cell_finish (Reader *r)
         }
     }
   if (r->formula != NULL)
-    input = formula_from_of (r->formula);
+    {
+      input = formula_from_of (r->formula);
+      /* A formula that is not a matrix is worked out in a scalar
+       * context, where OpenFormula intersects a range with the cell's
+       * row or column: [.A1:.A3]*10 in B2 is 20.  It is read with the
+       * @ that says so; the writer leaves it out again. */
+      if (r->matrix_cols <= 0 && r->matrix_rows <= 0 && input[0] == '=' && strchr (input, ':') != NULL)
+        {
+          O42Node *tree = o42_formula_parse (input + 1);
+
+          if (o42_node_mark_implicit (&tree))
+            {
+              char *marked = o42_node_to_string (tree);
+
+              g_free (input);
+              input = g_strconcat ("=", marked, NULL);
+              g_free (marked);
+            }
+          o42_node_free (tree);
+        }
+    }
   else if (r->value_type != NULL)
     {
       const char *t = r->value_type;

@@ -295,6 +295,24 @@ write_cell (Writer *w, O42Sheet *sheet, int row, int col)
   if (o42_sheet_has_formula (sheet, row, col))
     {
       text = o42_sheet_get_input (sheet, row, col);
+      /* Gnumeric reads a range where a value is wanted as the cell of
+       * it in the formula's row or column, and has no @ to say so;
+       * the @s it would supply itself are left out. */
+      if (text[0] == '=' && strchr (text, '@') != NULL &&
+          !o42_sheet_array_range (sheet, row, col, NULL))
+        {
+          O42Node *tree = o42_formula_parse (text + 1);
+
+          if (o42_node_unmark_implicit (&tree))
+            {
+              char *plain = o42_node_to_string (tree);
+
+              g_free (text);
+              text = g_strconcat ("=", plain, NULL);
+              g_free (plain);
+            }
+          o42_node_free (tree);
+        }
     }
   else
     {
@@ -3214,8 +3232,30 @@ finish_cell (Reader *r)
       o42_sheet_set_array_formula (r->sheet, &block, text);
     }
   else
-    o42_sheet_set_input (r->sheet, r->cell_row, r->cell_col,
-                         forced != NULL ? forced : text);
+    {
+      const char *input = forced != NULL ? forced : text;
+      char *marked = NULL;
+
+      /* A formula that is not an array one is worked out as Gnumeric
+       * and Excel 97 work it out: =A1:A3*10 in B2 is 20, the cell of
+       * the range in the formula's row.  It is read with the @ that
+       * says so. */
+      if (input[0] == '=' && strchr (input, ':') != NULL)
+        {
+          O42Node *tree = o42_formula_parse (input + 1);
+
+          if (o42_node_mark_implicit (&tree))
+            {
+              char *spelled = o42_node_to_string (tree);
+
+              marked = g_strconcat ("=", spelled, NULL);
+              g_free (spelled);
+            }
+          o42_node_free (tree);
+        }
+      o42_sheet_set_input (r->sheet, r->cell_row, r->cell_col, marked != NULL ? marked : input);
+      g_free (marked);
+    }
   g_free (forced);
 placed:
   r->seen_cell = TRUE;

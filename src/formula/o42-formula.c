@@ -1150,6 +1150,79 @@ o42_formula_parse (const char *text)
 }
 
 /* ---------------------------------------------------------------------- */
+/* Implicit intersection in files                                          */
+/* ---------------------------------------------------------------------- */
+
+/* A reference to more than one cell of one sheet: what Excel 97 cut
+ * down to a single cell where a value was wanted. */
+static gboolean
+is_multi_reference (const O42Node *n)
+{
+  if (n->type == O42_NODE_RANGE)
+    return n->sheet_last == NULL &&
+           (n->as.range.row0 != n->as.range.row1 || n->as.range.col0 != n->as.range.col1);
+  return n->type == O42_NODE_BINARY && n->as.op.op == O42_OP_RANGE;
+}
+
+/* An operator whose operands are values: not one of the reference
+ * operators, whose operands stay references. */
+static gboolean
+takes_values (const O42Node *n)
+{
+  if (n->type == O42_NODE_UNARY)
+    return n->as.op.op != O42_OP_IMPLICIT;
+  return n->type == O42_NODE_BINARY &&
+         n->as.op.op != O42_OP_UNION && n->as.op.op != O42_OP_ISECT && n->as.op.op != O42_OP_RANGE;
+}
+
+gboolean
+o42_node_mark_implicit (O42Node **node)
+{
+  O42Node *n = *node;
+  gboolean changed = FALSE;
+
+  if (n == NULL)
+    return FALSE;
+  if (is_multi_reference (n))
+    {
+      *node = make_unary (O42_OP_IMPLICIT, n);
+      return TRUE;
+    }
+  if (takes_values (n))
+    {
+      changed |= o42_node_mark_implicit (&n->as.op.a);
+      if (n->type == O42_NODE_BINARY)
+        changed |= o42_node_mark_implicit (&n->as.op.b);
+    }
+  return changed;
+}
+
+gboolean
+o42_node_unmark_implicit (O42Node **node)
+{
+  O42Node *n = *node;
+  gboolean changed = FALSE;
+
+  if (n == NULL)
+    return FALSE;
+  if (n->type == O42_NODE_UNARY && n->as.op.op == O42_OP_IMPLICIT &&
+      n->as.op.a != NULL && is_multi_reference (n->as.op.a))
+    {
+      *node = n->as.op.a;
+      n->as.op.a = NULL;
+      o42_node_free (n);
+      return TRUE;
+    }
+  if (takes_values (n))
+    {
+      changed |= o42_node_unmark_implicit (&n->as.op.a);
+      if (n->type == O42_NODE_BINARY)
+        changed |= o42_node_unmark_implicit (&n->as.op.b);
+    }
+  return changed;
+}
+
+/* ---------------------------------------------------------------------- */
 /* Copying and moving references                                           */
 /* ---------------------------------------------------------------------- */
 

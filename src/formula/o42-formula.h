@@ -185,6 +185,22 @@ char    *o42_node_to_string (const O42Node *node);
 char    *o42_node_to_string_marked (const O42Node *node, const O42Node *mark,
                                     int *start, int *length);
 
+/* A formula from a file of the days before dynamic arrays -- an .xlsx
+ * cell with no dynamic-array flag, an .ods cell that is no matrix --
+ * reads a range where one value is wanted as the cell of it in the
+ * formula's own row or column, Excel 97's implicit intersection.  This
+ * puts the @ that says so in front of each range the formula's top
+ * level uses that way, the formula itself and the operands of its
+ * operators, as Excel 365 does when it opens such a file.  Inside a
+ * function's arguments the kind of parameter decides, which the text
+ * does not say, so nothing there is touched.  TRUE if anything changed. */
+gboolean o42_node_mark_implicit   (O42Node **node);
+
+/* The other way, for writing such a file: takes off the @s that
+ * o42_node_mark_implicit would put back, since the file's own rules
+ * supply them.  TRUE if anything changed. */
+gboolean o42_node_unmark_implicit (O42Node **node);
+
 /* Prefixes every call to a function `is_future` says yes to with
  * `prefix`, in place: how .xlsx spells the newer functions. */
 void     o42_node_prefix_functions (O42Node *node, gboolean (*is_future) (const char *),

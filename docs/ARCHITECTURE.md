@@ -118,6 +118,15 @@ one-by-one, and is `#VALUE!` otherwise. Excel would try an implicit
 intersection against the calling cell's row or column, which is a cleverness
 that mostly confuses people.
 
+Files written before dynamic arrays depend on it all the same: `=A1:A3*10` in
+B2 of an `.xls`, of an `.xlsx` cell without the dynamic-array flag, of an
+`.ods` cell that is no matrix or of a `.gnumeric` one that is no array, is 20.
+Such a formula is read with an `@` in front of each range its top level uses
+as a value (`o42_node_mark_implicit`), as Excel 365 shows it, and written
+without them again where the format's own rules supply them. Ranges inside a
+function's arguments are left alone: whether they are intersected depends on
+the kind of parameter, which only `.xls` records.
+
 ### Literals versus ranges
 
 `SUM("x")` is `#VALUE!`. `SUM(A1:A3)` where A2 holds `"x"` is the sum of A1

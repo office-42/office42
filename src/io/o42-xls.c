@@ -453,6 +453,7 @@ typedef struct
   GHashTable *shared;        /* o42_key -> GBytes rgce */
   int         pending_row, pending_col;   /* formula waiting on a STRING record */
   gboolean    pending;
+  gboolean    cell_formula;  /* decoding a cell's formula, not a name's or a rule's */
   int         default_width;
 
   /* Notes: OBJ gives an id, TXO and its CONTINUEs the text, NOTE the cell. */
@@ -895,6 +896,9 @@ static O42Node *
 make_call (const char *name, GPtrArray *args)
 {
   O42Node *n = node_new (O42_NODE_CALL);
+
+  for (guint i = 0; i < args->len; i++)
+    o42_node_unmark_implicit ((O42Node **) &args->pdata[i]);
   /* Newer functions come as add-in names with Excel's _xlfn. prefix. */
   if (g_ascii_strncasecmp (name, "_xlfn.", 6) == 0)
     name += 6;
@@ -956,6 +960,28 @@ decode_array (Reader *r, const guchar **pp, const guchar *end)
     g_ptr_array_add (n->as.array.items, node_new (O42_NODE_EMPTY));
   *pp = MIN (p, end);
   return n;
+}
+
+/* An area of value class in a cell's formula -- A1:A3 in =A1:A3*10 --
+ * is one that Excel 97 cut down to the cell in the formula's own row
+ * or column, and the file says so by the class alone; it is read with
+ * the @ that says so in a formula.  An area of reference class, as SUM
+ * takes, or of array class, as SUMPRODUCT does and an array formula's
+ * tokens are, is left whole.  So is one inside a function's arguments,
+ * as the other formats' readers leave it (make_call takes the @ off
+ * again): an @ there is one .xlsx and .ods have no way to write. */
+static O42Node *
+value_area (Decoder *d, guint ptg, O42Node *n)
+{
+  O42Node *at;
+
+  if (!d->r->cell_formula || (ptg & 0x60) != 0x40 || n->sheet_last != NULL ||
+      (n->as.range.row0 == n->as.range.row1 && n->as.range.col0 == n->as.range.col1))
+    return n;
+  at = node_new (O42_NODE_UNARY);
+  at->as.op.op = O42_OP_IMPLICIT;
+  at->as.op.a = n;
+  return at;
 }
 
 static O42Node *
@@ -1252,7 +1278,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
                 n->as.range.col1 = O42_MAX_COLS - 1;
                 n->abs |= O42_WHOLE_ROWS;
               }
-            push (&d, n);
+            push (&d, value_area (&d, ptg, n));
           }
           break;
         case 0x26: p += biff8 ? 6 : 6; break;   /* memory area: skip its header */
@@ -1345,7 +1371,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
               }
             n->sheet = sheet;
             n->sheet_last = sheet_last;
-            push (&d, n);
+            push (&d, base == 0x3B ? value_area (&d, ptg, n) : n);
           }
           break;
         case 0x3C: case 0x3D:
@@ -1925,11 +1951,17 @@ read_formula (Reader *r, const guchar *p, gsize len)
         gsize mlen = g_bytes_get_size (master);
         guint mcce = mlen >= 2 ? rd16 (m) : 0;
         if (2 + mcce > mlen) mcce = mlen >= 2 ? mlen - 2 : 0;
+        r->cell_formula = TRUE;
         tree = decode_formula (r, m + 2, mcce, row, col, TRUE, m + 2 + mcce, m + mlen);
+        r->cell_formula = FALSE;
       }
     }
   else
-    tree = decode_formula (r, rgce, cce, row, col, FALSE, rgce + cce, end);
+    {
+      r->cell_formula = TRUE;
+      tree = decode_formula (r, rgce, cce, row, col, FALSE, rgce + cce, end);
+      r->cell_formula = FALSE;
+    }
 
   text = o42_node_to_string (tree);
   {
@@ -4439,19 +4471,24 @@ compile (Writer *w, const O42Node *node, GByteArray *a, gboolean ref_class, int 
       }
       break;
     case O42_NODE_UNARY:
+      if (node->as.op.op == O42_OP_IMPLICIT)
+        {
+          /* @A1:A3: Excel 97 had no such operator.  A range in a
+           * value's place was read that way, and its file says so by
+           * the value class on the range's token. */
+          guint at = a->len;
+
+          compile (w, node->as.op.a, a, TRUE, own_sheet, cb);
+          if (a->len > at && (a->data[at] == 0x25 || a->data[at] == 0x2D || a->data[at] == 0x3B))
+            a->data[at] = (a->data[at] & 0x9F) | 0x40;
+          break;
+        }
       compile (w, node->as.op.a, a, FALSE, own_sheet, cb);
       put8 (a, node->as.op.op == O42_OP_NEG ? 0x13 : node->as.op.op == O42_OP_POS ? 0x12 : 0x14);
       break;
     case O42_NODE_BINARY:
       {
         static const guint8 ptg[] = { 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x0B, 0x0E, 0x09, 0x0D, 0x0A, 0x0C };
-        if (node->as.op.op == O42_OP_IMPLICIT)
-          {
-            /* @A1:A3: Excel 97 had no such operator; the range itself
-             * is read that way by a cell formula. */
-            compile (w, node->as.op.a, a, TRUE, own_sheet, cb);
-            break;
-          }
         /* The parts of a union, an intersection or a range are
          * references, so they keep the reference class. */
         gboolean refs = node->as.op.op == O42_OP_UNION || node->as.op.op == O42_OP_ISECT ||

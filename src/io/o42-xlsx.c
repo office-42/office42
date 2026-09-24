@@ -312,11 +312,16 @@ append_cell (Writer *w, GString *out, O42Sheet *sheet, int row, int col, guint x
       O42Range block;
 
       /* Excel wants _xlfn. on the functions it added after 2007, and
-       * the table's name on a structured reference that has none. */
+       * the table's name on a structured reference that has none.  A
+       * formula written without the dynamic-array flag is read in
+       * Excel's old sense, which makes the @s at its top level for
+       * itself; they are left out, as Excel leaves them out. */
       {
         O42Node *tree = o42_formula_parse (input + 1);
         const O42Table *table = strchr (input, '[') != NULL ? o42_sheet_table_at (sheet, row, col) : NULL;
         char *spelled;
+        if (!o42_sheet_array_range (sheet, row, col, NULL))
+          o42_node_unmark_implicit (&tree);
         o42_node_prefix_functions (tree, o42_function_is_future, "_xlfn.");
         if (table != NULL)
           o42_node_qualify_structured (tree, table->name);
@@ -2507,6 +2512,7 @@ typedef struct
   gboolean    in_f, in_v, in_is, has_f;
   char       *shared_si;
   char       *array_ref;    /* <f t="array" ref=...>: the block to spread over */
+  gboolean    dynamic;      /* <c cm=...>: a dynamic-array formula, not a legacy one */
   GArray     *data_tables;  /* O42DataTable from <f t="dataTable">, made when the sheet is read */
   GHashTable *shared;       /* si -> master formula "row,col,text" */
   int         default_width, default_height;
@@ -3496,6 +3502,7 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       else
         r->col++;
       r->xf = attr_int (names, values, "s", 0);
+      r->dynamic = attr (names, values, "cm") != NULL;
       g_strlcpy (r->type, type ? type : "n", sizeof r->type);
       g_string_truncate (r->f, 0);
       g_string_truncate (r->v, 0);
@@ -4073,6 +4080,24 @@ finish_cell (Reader *r)
               o42_node_free (tree);
             }
         }
+    }
+
+  /* A formula with neither the dynamic-array flag nor t="array" is
+   * one Excel keeps in its old sense: =A1:A3*10 in B2 is 20, the row
+   * of the range B2 is in.  It is read with the @ that says so. */
+  if (input != NULL && r->array_ref == NULL && !r->dynamic && strchr (input, ':') != NULL)
+    {
+      O42Node *tree = o42_formula_parse (input + 1);
+
+      if (o42_node_mark_implicit (&tree))
+        {
+          char *marked = o42_node_to_string (tree);
+
+          g_free (input);
+          input = g_strconcat ("=", marked, NULL);
+          g_free (marked);
+        }
+      o42_node_free (tree);
     }
 
   /* A constant goes into the cell as the value it is, not as text to
