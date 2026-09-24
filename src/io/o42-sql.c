@@ -527,6 +527,53 @@ static O42Book *fn_book;
 static O42Db   *fn_db;
 static char    *fn_db_path;
 
+/* A formula is worked out whenever the book is opened or changed, with
+ * no one asking, and the book may be anyone's: what it asks may read,
+ * never write.  So the connection is read-only, may not ATTACH another
+ * file -- which SQLite counts as reading, though it makes the file --
+ * and a statement that would change anything is refused before it
+ * runs. */
+static O42Db *
+function_db_open (const char *path)
+{
+#ifdef HAVE_SQLITE
+  O42Db *db;
+  sqlite3 *handle = NULL;
+
+  if (sqlite3_open_v2 (path, &handle, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK)
+    {
+      sqlite3_close (handle);
+      return NULL;
+    }
+  sqlite3_limit (handle, SQLITE_LIMIT_ATTACHED, 0);
+  db = g_new0 (O42Db, 1);
+  db->path = g_strdup (path);
+  db->handle = handle;
+  return db;
+#else
+  (void) path;
+  return NULL;
+#endif
+}
+
+static gboolean
+function_query_reads (O42Db *db, const char *sql)
+{
+#ifdef HAVE_SQLITE
+  sqlite3_stmt *stmt = NULL;
+  gboolean reads;
+
+  if (sqlite3_prepare_v2 (db->handle, sql, -1, &stmt, NULL) != SQLITE_OK || stmt == NULL)
+    return FALSE;
+  reads = sqlite3_stmt_readonly (stmt) != 0;
+  sqlite3_finalize (stmt);
+  return reads;
+#else
+  (void) db; (void) sql;
+  return FALSE;
+#endif
+}
+
 static O42Db *
 function_db (void)
 {
@@ -542,7 +589,7 @@ function_db (void)
 
   o42_db_close (fn_db);
   g_free (fn_db_path);
-  fn_db = o42_db_open (path, NULL);
+  fn_db = function_db_open (path);
   fn_db_path = g_strdup (path);
   return fn_db;
 }
@@ -584,7 +631,7 @@ function_sqlvalue (O42EvalContext *ctx, const char *name,
       o42_value_clear (&v);
     }
 
-  result = o42_db_query (db, sql, NULL);
+  result = function_query_reads (db, sql) ? o42_db_query (db, sql, NULL) : NULL;
   g_free (sql);
   if (result == NULL)
     return o42_value_error (O42_ERR_VALUE);
