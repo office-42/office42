@@ -13647,6 +13647,24 @@ o42_sheet_set_runs (O42Sheet *sheet, int row, int col,
     {
       cell->runs = g_array_sized_new (FALSE, FALSE, sizeof (O42TextRun), n_runs);
       g_array_append_vals (cell->runs, runs, n_runs);
+      /* A run starts at a character.  An offset inside one, which a
+       * file or a caller may give, would have every writer cut the
+       * character in two, and the .xlsx or .ods it made unreadable:
+       * it is moved back to where the character begins. */
+      if (cell->value.type == O42_VALUE_TEXT && cell->value.as.text != NULL)
+        {
+          const char *text = cell->value.as.text;
+          int length = (int) strlen (text);
+
+          for (guint i = 0; i < cell->runs->len; i++)
+            {
+              O42TextRun *run = &g_array_index (cell->runs, O42TextRun, i);
+
+              while (run->start > 0 && run->start < length &&
+                     ((guchar) text[run->start] & 0xC0) == 0x80)
+                run->start--;
+            }
+        }
     }
   sheet_prune (sheet, row, col);
   sheet->modified = TRUE;
