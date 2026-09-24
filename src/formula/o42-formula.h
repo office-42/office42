@@ -174,6 +174,10 @@ char    *o42_sheet_name_quote (const char *name);
  * formula bar with its references in canonical form. */
 char    *o42_node_to_string (const O42Node *node);
 
+/* "Sheet2!", "'My Sheet'!" or "'Q1:Q4'!" for a reference to another
+ * sheet, "" for one on the formula's own. */
+char    *o42_node_sheet_prefix (const O42Node *node);
+
 /* The same, saying where the subtree `mark` landed in the text: its
  * byte offset and length, or -1 and 0 when it is not in the tree.  For
  * underlining the part of a formula that is evaluated next. */

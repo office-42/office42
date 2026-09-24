@@ -1807,6 +1807,16 @@ write_sheet_prefix (const O42Node *node, GString *out)
     }
 }
 
+char *
+o42_node_sheet_prefix (const O42Node *node)
+{
+  GString *out = g_string_new (NULL);
+
+  g_return_val_if_fail (node != NULL, g_string_free (out, FALSE));
+  write_sheet_prefix (node, out);
+  return g_string_free (out, FALSE);
+}
+
 /* How tightly an operator binds, from the grammar above.  Used to put back
  * only the parentheses a formula needs, so that A1+B1 reads back as A1+B1
  * and not (A1+B1). */
