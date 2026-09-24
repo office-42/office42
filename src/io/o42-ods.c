@@ -3210,6 +3210,9 @@ typedef struct {
   gboolean in_currency_symbol;   /* the symbol element itself, for the code */
   gboolean in_fill;      /* reading a fill character */
   gboolean in_text;      /* inside <number:text> */
+  gboolean in_embedded;  /* inside <number:embedded-text>: 000-000 */
+  int      embedded_at;  /* its place, in whole-number digits from the right */
+  gsize    int_end;      /* where the code's whole-number places end */
   gboolean elapsed;      /* its first time field runs on: [h] */
   gboolean custom;       /* more than a preset holds: text, a colour, a map */
   char    *map_ge, *map_gt, *map_lt;   /* the styles its maps name, by the sign */
@@ -5356,6 +5359,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                   g_string_free (digits, TRUE);
                   digits = grouped;
                 }
+              /* Where the whole number's places end: text embedded
+               * in the number is counted back from there. */
+              ns->int_end = ns->code->len + digits->len;
               if (places > 0)
                 {
                   g_string_append_c (digits, '.');
@@ -5453,6 +5459,12 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         ns->in_symbol = TRUE;
       if (strcmp (name, "text") == 0)
         ns->in_text = TRUE;
+      if (strcmp (name, "embedded-text") == 0)
+        {
+          ns->in_embedded = TRUE;
+          ns->embedded_at = attr_int (names, values, "position", 0);
+          ns->custom = TRUE;
+        }
 
       if (ns->code != NULL)
         {
@@ -5991,9 +6003,10 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
     r->style = NULL;
   else if (r->in_num_style && r->num != NULL &&
            (strcmp (name, "text") == 0 || strcmp (name, "currency-symbol") == 0 ||
-            strcmp (name, "fill-character") == 0))
+            strcmp (name, "fill-character") == 0 || strcmp (name, "embedded-text") == 0))
     {
       /* An empty element leaves nothing for the text to claim. */
+      r->num->in_embedded = FALSE;
       r->num->in_text = FALSE;
       r->num->in_symbol = FALSE;
       r->num->in_currency_symbol = FALSE;
@@ -6142,8 +6155,27 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
    * the line breaks and indenting a pretty-printed .fods puts between
    * the elements, as LibreOffice writes it. */
   if (r->in_num_style &&
-      (r->num == NULL || !(r->num->in_text || r->num->in_currency_symbol || r->num->in_fill)))
+      (r->num == NULL || !(r->num->in_text || r->num->in_currency_symbol || r->num->in_fill ||
+                           r->num->in_embedded)))
     return;
+  if (r->num != NULL && r->num->in_embedded && r->num->code != NULL)
+    {
+      /* Text inside the number's places, counted back from where the
+       * whole number ends: the - of 000-000 at place three. */
+      gsize at = MIN (r->num->int_end, r->num->code->len);
+      char *literal = g_strndup (text, len);
+      char *quoted = strspn (literal, "-/., ()") == len ? g_strdup (literal)
+                                                         : g_strdup_printf ("\"%s\"", literal);
+
+      for (int k = 0; k < r->num->embedded_at && at > 0; at--)
+        if (strchr ("0#?", r->num->code->str[at - 1]) != NULL)
+          k++;
+      g_string_insert (r->num->code, (gssize) at, quoted);
+      r->num->int_end += strlen (quoted);
+      g_free (quoted);
+      g_free (literal);
+      return;
+    }
   if (r->in_num_style && r->num != NULL && r->num->in_fill)
     {
       /* "* " in a code: the character that fills the cell. */

@@ -2939,6 +2939,18 @@ o42_xlsx_builtin_number_format (int id)
 
 /* Whether a format code shows a date or time: it has day, month, year
  * or hour letters outside of quotes and brackets. */
+/* Whether a preset writes the code back as it came: #,##0.00 is the
+ * two-place grouped preset, and 0.0,, only looks like the one-place. */
+static gboolean
+preset_writes (const char *code, O42NumberFormat preset, int decimals)
+{
+  char *ours = o42_number_format_to_string (preset, decimals);
+  gboolean same = g_ascii_strcasecmp (ours, code) == 0;
+
+  g_free (ours);
+  return same;
+}
+
 static gboolean
 code_is_date (const char *code)
 {
@@ -2977,8 +2989,12 @@ o42_xlsx_apply_format_code (O42Fmt *fmt, const char *code)
     { fmt->number = preset; fmt->decimals = decimals; }   /* this machine's money */
   else if (!is_date && (strchr (code, '[') != NULL || strchr (code, ';') != NULL))
     fmt->custom = g_intern_string (code);
-  else if (o42_number_format_parse (code, &preset, &decimals))
+  else if (o42_number_format_parse (code, &preset, &decimals) && preset_writes (code, preset, decimals))
     { fmt->number = preset; fmt->decimals = decimals; }
+  else if (!is_date)
+    /* More than a preset holds -- 0.0,, in millions, 0.00 "kg", 000-000
+     * -- is kept as it was written, as the Gnumeric reader keeps it. */
+    fmt->custom = g_intern_string (code);
   else if (is_date)
     {
       gboolean day = strchr (code, 'y') || strchr (code, 'd') || strchr (code, 'Y') || strchr (code, 'D');
