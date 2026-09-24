@@ -1584,18 +1584,22 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
       if (*p == '[') { while (p < s->end && *p != ']') p++; continue; }
       if (*p == '_' || *p == '*') { p++; continue; }
       if (*p == '/' && slash == NULL) { slash = p; continue; }
+      if (slash != NULL && fixed_den == 0 && *p >= '1' && *p <= '9')
+        {
+          /* ?/100, # ??/16: a denominator that starts with a figure
+           * other than 0 is that number, its noughts included, and not
+           * places for one.  Nine figures at most: past that the
+           * numerator, the fraction times the denominator, would not
+           * fit a long. */
+          for (; p < s->end && g_ascii_isdigit (*p); p++)
+            fixed_den = MIN (fixed_den * 10 + (*p - '0'), FRACTION_MAX_DEN);
+          p--;
+          continue;
+        }
       if (*p == '0' || *p == '#' || *p == '?')
         {
           if (slash != NULL) den_places++;
           else num_places++;
-        }
-      else if (g_ascii_isdigit (*p) && slash != NULL)
-        {
-          /* Nine figures at most: past that the numerator, the
-           * fraction times the denominator, would not fit a long. */
-          fixed_den = fixed_den * 10 + (*p - '0');
-          if (fixed_den > FRACTION_MAX_DEN)
-            fixed_den = FRACTION_MAX_DEN;
         }
       else if (*p == ' ' && slash == NULL && num_places > 0 && gap == NULL)
         {
