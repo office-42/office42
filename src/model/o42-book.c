@@ -16,6 +16,7 @@
  * o42-sheet.h. */
 
 typedef struct {
+  char     *name;        /* as it was defined: Qtys, not QTYS */
   O42Sheet *sheet;       /* NULL for a name that is a formula */
   O42Range  range;
   char     *formula;     /* the expression, without "=", or NULL */
@@ -25,6 +26,7 @@ static void
 named_range_free (gpointer data)
 {
   NamedRange *nr = data;
+  g_free (nr->name);
   g_free (nr->formula);
   g_free (nr);
 }
@@ -1060,6 +1062,8 @@ o42_book_copy_sheet (O42Book *book, int from, int to, const char *name)
   return copy;
 }
 
+static gboolean take_out_sheet (O42Book *book, int index, gboolean keep_names);
+
 gboolean
 o42_book_move_sheet (O42Book *book, int from, int to)
 {
@@ -1076,7 +1080,7 @@ o42_book_move_sheet (O42Book *book, int from, int to)
   sheet = g_ptr_array_index (book->sheets, from);
   o42_sheet_begin_group (sheet);
   o42_sheet_undo_capture_sheet (sheet, FALSE);
-  if (o42_book_detach_sheet (book, from))
+  if (take_out_sheet (book, from, TRUE))
     o42_book_attach_sheet (book, sheet, to);
   o42_sheet_end_group (sheet);
 
@@ -1091,8 +1095,10 @@ o42_book_move_sheet (O42Book *book, int from, int to)
   return TRUE;
 }
 
-gboolean
-o42_book_detach_sheet (O42Book *book, int index)
+/* Takes a sheet out of the book.  A sheet going for good takes its
+ * names with it; one that is only moving keeps them. */
+static gboolean
+take_out_sheet (O42Book *book, int index, gboolean keep_names)
 {
   O42Sheet *gone;
 
@@ -1100,16 +1106,23 @@ o42_book_detach_sheet (O42Book *book, int index)
   if (index < 0 || index >= (int) book->sheets->len || book->sheets->len < 2)
     return FALSE;
   gone = g_ptr_array_index (book->sheets, index);
-  {
-    GHashTableIter iter;
-    gpointer key, value;
-    g_hash_table_iter_init (&iter, book->names);
-    while (g_hash_table_iter_next (&iter, &key, &value))
-      if (((NamedRange *) value)->sheet == gone)
-        g_hash_table_iter_remove (&iter);
-  }
+  if (!keep_names)
+    {
+      GHashTableIter iter;
+      gpointer key, value;
+      g_hash_table_iter_init (&iter, book->names);
+      while (g_hash_table_iter_next (&iter, &key, &value))
+        if (((NamedRange *) value)->sheet == gone)
+          g_hash_table_iter_remove (&iter);
+    }
   g_ptr_array_steal_index (book->sheets, index);
   return TRUE;
+}
+
+gboolean
+o42_book_detach_sheet (O42Book *book, int index)
+{
+  return take_out_sheet (book, index, FALSE);
 }
 
 void
@@ -1502,6 +1515,7 @@ o42_book_define_name (O42Book *book, const char *name, O42Sheet *sheet,
 {
   NamedRange *nr;
   char *upper;
+  const char *interned;
 
   g_return_val_if_fail (book != NULL, FALSE);
   g_return_val_if_fail (sheet != NULL && range != NULL, FALSE);
@@ -1509,12 +1523,17 @@ o42_book_define_name (O42Book *book, const char *name, O42Sheet *sheet,
   if (!name_is_legal (name))
     return FALSE;
 
+  /* Names are found whatever their case, and kept as they were typed.
+   * The key is interned first: a name defined again replaces the one
+   * there, and the table frees the key it was given. */
   upper = g_ascii_strup (name, -1);
+  interned = g_intern_string (upper);
   nr = g_new0 (NamedRange, 1);
+  nr->name = g_strdup (name);
   nr->sheet = sheet;
   nr->range = *range;
-  g_hash_table_insert (book->names, upper, nr);
-  stale_users_of_name (book, g_intern_string (upper));
+  g_hash_table_replace (book->names, upper, nr);
+  stale_users_of_name (book, interned);
   o42_sheet_set_modified (sheet, TRUE);
   return TRUE;
 }
@@ -1616,6 +1635,7 @@ o42_book_define_name_formula (O42Book *book, const char *name, const char *formu
 {
   NamedRange *nr;
   char *upper;
+  const char *interned;
 
   g_return_val_if_fail (book != NULL, FALSE);
   g_return_val_if_fail (formula != NULL, FALSE);
@@ -1628,10 +1648,12 @@ o42_book_define_name_formula (O42Book *book, const char *name, const char *formu
     return FALSE;
 
   upper = g_ascii_strup (name, -1);
+  interned = g_intern_string (upper);
   nr = g_new0 (NamedRange, 1);
+  nr->name = g_strdup (name);
   nr->formula = g_strdup (formula);
-  g_hash_table_insert (book->names, upper, nr);
-  stale_users_of_name (book, g_intern_string (upper));
+  g_hash_table_replace (book->names, upper, nr);
+  stale_users_of_name (book, interned);
   o42_book_set_modified (book, TRUE);
   return TRUE;
 }
@@ -1697,11 +1719,14 @@ o42_book_lookup_name (O42Book *book, const char *name, O42Sheet **sheet,
 GList *
 o42_book_names (O42Book *book)
 {
-  GList *keys;
+  GList *values, *names = NULL;
 
   g_return_val_if_fail (book != NULL, NULL);
-  keys = g_hash_table_get_keys (book->names);
-  return g_list_sort (keys, (GCompareFunc) g_strcmp0);
+  values = g_hash_table_get_values (book->names);
+  for (GList *l = values; l != NULL; l = l->next)
+    names = g_list_prepend (names, ((NamedRange *) l->data)->name);
+  g_list_free (values);
+  return g_list_sort (names, (GCompareFunc) g_ascii_strcasecmp);
 }
 
 O42UndoStack *

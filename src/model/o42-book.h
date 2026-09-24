@@ -77,7 +77,8 @@ int          o42_book_create_names  (O42Book *book, O42Sheet *sheet, const O42Ra
                                      gboolean top, gboolean left, gboolean bottom, gboolean right);
 gboolean     o42_book_lookup_name   (O42Book *book, const char *name,
                                      O42Sheet **sheet, O42Range *range);
-GList       *o42_book_names         (O42Book *book);   /* sorted; free with g_list_free */
+GList       *o42_book_names         (O42Book *book);   /* as defined, sorted whatever their
+                                                         * case; free with g_list_free */
 
 /* Back to one empty sheet called Sheet1 with no names: what a file
  * loader starts from. */
