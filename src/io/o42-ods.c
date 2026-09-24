@@ -2878,6 +2878,7 @@ typedef struct {
   gboolean in_symbol;    /* reading it */
   gboolean in_currency_symbol;   /* the symbol element itself, for the code */
   gboolean in_fill;      /* reading a fill character */
+  gboolean in_text;      /* inside <number:text> */
   gboolean custom;       /* more than a preset holds: text, a colour, a map */
   char    *map_ge, *map_gt, *map_lt;   /* the styles its maps name, by the sign */
 } NumStyle;
@@ -4988,6 +4989,8 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       else if (strcmp (name, "text") == 0 &&
                (ns->number == O42_NUM_CURRENCY || ns->number == O42_NUM_ACCOUNTING))
         ns->in_symbol = TRUE;
+      if (strcmp (name, "text") == 0)
+        ns->in_text = TRUE;
 
       if (ns->code != NULL)
         {
@@ -5482,6 +5485,16 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
     }
   if (strcmp (name, "style") == 0)
     r->style = NULL;
+  else if (r->in_num_style && r->num != NULL &&
+           (strcmp (name, "text") == 0 || strcmp (name, "currency-symbol") == 0 ||
+            strcmp (name, "fill-character") == 0))
+    {
+      /* An empty element leaves nothing for the text to claim. */
+      r->num->in_text = FALSE;
+      r->num->in_symbol = FALSE;
+      r->num->in_currency_symbol = FALSE;
+      r->num->in_fill = FALSE;
+    }
   else if (r->in_num_style && g_str_has_suffix (name, "-style"))
     {
       if (r->num != NULL && r->num->code != NULL && r->num->lang != 0 &&
@@ -5604,6 +5617,13 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
 {
   Reader *r = user;
   (void) ctx; (void) error;
+  /* In a number style only the words of <number:text>, the currency
+   * symbol and the fill character are part of the code; the rest is
+   * the line breaks and indenting a pretty-printed .fods puts between
+   * the elements, as LibreOffice writes it. */
+  if (r->in_num_style &&
+      (r->num == NULL || !(r->num->in_text || r->num->in_currency_symbol || r->num->in_fill)))
+    return;
   if (r->in_num_style && r->num != NULL && r->num->in_fill)
     {
       /* "* " in a code: the character that fills the cell. */
