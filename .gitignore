@@ -33,3 +33,6 @@ compile_commands.json
 
 # Worktrees the agents work in
 /.claude/worktrees/
+
+# Profiler output
+gmon.out
