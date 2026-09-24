@@ -1716,6 +1716,10 @@ o42_book_begin_load (O42Book *book)
 {
   g_return_if_fail (book != NULL);
   book->loading = TRUE;
+  /* What a file brings may not run until the user says so -- and a
+   * reader adds scripts as it goes, so this holds from the start, for
+   * a file that fails half way as much as for one that loads. */
+  o42_book_set_scripts_trusted (book, FALSE);
 }
 
 void
