@@ -19,6 +19,7 @@
 #include "o42-zip.h"
 #include "o42-sheet.h"
 #include "o42-formula.h"
+#include "o42-eval.h"
 #include "o42-entry.h"
 #include "o42-date.h"
 
@@ -51,6 +52,134 @@
 /* ====================================================================== */
 
 /* ---- Formulas in OpenFormula notation --------------------------------- */
+
+/* OpenFormula's names for the functions it names differently: Excel
+ * 2010's under COM.MICROSOFT., the old statistics Excel renamed under
+ * LEGACY., and a few spelt otherwise.  LibreOffice writes and reads
+ * these and answers #NAME? to the bare ones.  The list is what
+ * LibreOffice 24.2 writes for each of office42's functions. */
+static const struct {
+  const char *name;      /* office42's, Excel's */
+  const char *odf;
+} ODF_NAMES[] = {
+  { "BETA.DIST", "COM.MICROSOFT.BETA.DIST" },
+  { "BETA.INV", "COM.MICROSOFT.BETA.INV" },
+  { "BINOM.DIST", "COM.MICROSOFT.BINOM.DIST" },
+  { "BINOM.INV", "COM.MICROSOFT.BINOM.INV" },
+  { "CEILING", "COM.MICROSOFT.CEILING" },
+  { "CEILING.MATH", "COM.MICROSOFT.CEILING.MATH" },
+  { "CEILING.PRECISE", "COM.MICROSOFT.CEILING.PRECISE" },
+  { "CHIDIST", "LEGACY.CHIDIST" },
+  { "CHIINV", "LEGACY.CHIINV" },
+  { "CHISQ.DIST", "COM.MICROSOFT.CHISQ.DIST" },
+  { "CHISQ.DIST.RT", "COM.MICROSOFT.CHISQ.DIST.RT" },
+  { "CHISQ.INV", "COM.MICROSOFT.CHISQ.INV" },
+  { "CHISQ.INV.RT", "COM.MICROSOFT.CHISQ.INV.RT" },
+  { "CHISQ.TEST", "COM.MICROSOFT.CHISQ.TEST" },
+  { "CHITEST", "LEGACY.CHITEST" },
+  { "CONCAT", "COM.MICROSOFT.CONCAT" },
+  { "CONFIDENCE.NORM", "COM.MICROSOFT.CONFIDENCE.NORM" },
+  { "CONFIDENCE.T", "COM.MICROSOFT.CONFIDENCE.T" },
+  { "COVARIANCE.P", "COM.MICROSOFT.COVARIANCE.P" },
+  { "COVARIANCE.S", "COM.MICROSOFT.COVARIANCE.S" },
+  { "EASTERSUNDAY", "ORG.OPENOFFICE.EASTERSUNDAY" },
+  { "ENCODEURL", "COM.MICROSOFT.ENCODEURL" },
+  { "ERF.PRECISE", "COM.MICROSOFT.ERF.PRECISE" },
+  { "ERFC.PRECISE", "COM.MICROSOFT.ERFC.PRECISE" },
+  { "EXPON.DIST", "COM.MICROSOFT.EXPON.DIST" },
+  { "F.DIST", "FDIST" },
+  { "F.DIST.RT", "COM.MICROSOFT.F.DIST.RT" },
+  { "F.INV", "FINV" },
+  { "F.INV.RT", "COM.MICROSOFT.F.INV.RT" },
+  { "F.TEST", "COM.MICROSOFT.F.TEST" },
+  { "FDIST", "LEGACY.FDIST" },
+  { "FINV", "LEGACY.FINV" },
+  { "FLOOR", "COM.MICROSOFT.FLOOR" },
+  { "FLOOR.MATH", "COM.MICROSOFT.FLOOR.MATH" },
+  { "FLOOR.PRECISE", "COM.MICROSOFT.FLOOR.PRECISE" },
+  { "FORECAST.LINEAR", "COM.MICROSOFT.FORECAST.LINEAR" },
+  { "FORMULATEXT", "FORMULA" },
+  { "GAMMA.DIST", "COM.MICROSOFT.GAMMA.DIST" },
+  { "GAMMA.INV", "COM.MICROSOFT.GAMMA.INV" },
+  { "GAMMALN.PRECISE", "COM.MICROSOFT.GAMMALN.PRECISE" },
+  { "HYPGEOM.DIST", "COM.MICROSOFT.HYPGEOM.DIST" },
+  { "IFS", "COM.MICROSOFT.IFS" },
+  { "LOGNORM.DIST", "COM.MICROSOFT.LOGNORM.DIST" },
+  { "LOGNORM.INV", "COM.MICROSOFT.LOGNORM.INV" },
+  { "MAXIFS", "COM.MICROSOFT.MAXIFS" },
+  { "MINIFS", "COM.MICROSOFT.MINIFS" },
+  { "MODE.MULT", "COM.MICROSOFT.MODE.MULT" },
+  { "MODE.SNGL", "COM.MICROSOFT.MODE.SNGL" },
+  { "NEGBINOM.DIST", "COM.MICROSOFT.NEGBINOM.DIST" },
+  { "NORM.DIST", "COM.MICROSOFT.NORM.DIST" },
+  { "NORM.INV", "COM.MICROSOFT.NORM.INV" },
+  { "NORM.S.DIST", "COM.MICROSOFT.NORM.S.DIST" },
+  { "NORM.S.INV", "COM.MICROSOFT.NORM.S.INV" },
+  { "NORMSDIST", "LEGACY.NORMSDIST" },
+  { "NORMSINV", "LEGACY.NORMSINV" },
+  { "PERCENTILE.EXC", "COM.MICROSOFT.PERCENTILE.EXC" },
+  { "PERCENTILE.INC", "COM.MICROSOFT.PERCENTILE.INC" },
+  { "PERCENTRANK.EXC", "COM.MICROSOFT.PERCENTRANK.EXC" },
+  { "PERCENTRANK.INC", "COM.MICROSOFT.PERCENTRANK.INC" },
+  { "POISSON.DIST", "COM.MICROSOFT.POISSON.DIST" },
+  { "QUARTILE.EXC", "COM.MICROSOFT.QUARTILE.EXC" },
+  { "QUARTILE.INC", "COM.MICROSOFT.QUARTILE.INC" },
+  { "RANK.AVG", "COM.MICROSOFT.RANK.AVG" },
+  { "RANK.EQ", "COM.MICROSOFT.RANK.EQ" },
+  { "SKEW.P", "SKEWP" },
+  { "STDEV.P", "COM.MICROSOFT.STDEV.P" },
+  { "STDEV.S", "COM.MICROSOFT.STDEV.S" },
+  { "SWITCH", "COM.MICROSOFT.SWITCH" },
+  { "T.DIST", "COM.MICROSOFT.T.DIST" },
+  { "T.DIST.2T", "COM.MICROSOFT.T.DIST.2T" },
+  { "T.DIST.RT", "COM.MICROSOFT.T.DIST.RT" },
+  { "T.INV", "COM.MICROSOFT.T.INV" },
+  { "T.INV.2T", "COM.MICROSOFT.T.INV.2T" },
+  { "T.TEST", "COM.MICROSOFT.T.TEST" },
+  { "TDIST", "LEGACY.TDIST" },
+  { "TEXTJOIN", "COM.MICROSOFT.TEXTJOIN" },
+  { "VAR.P", "COM.MICROSOFT.VAR.P" },
+  { "VAR.S", "COM.MICROSOFT.VAR.S" },
+  { "WEIBULL.DIST", "COM.MICROSOFT.WEIBULL.DIST" },
+  { "Z.TEST", "COM.MICROSOFT.Z.TEST" },
+};
+
+static const char *
+odf_function_name (const char *name)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (ODF_NAMES); i++)
+    if (strcmp (ODF_NAMES[i].name, name) == 0)
+      return ODF_NAMES[i].odf;
+  return name;
+}
+
+/* The other way: the table first, then any namespace a writer put in
+ * front of a function office42 has -- COM.MICROSOFT., LEGACY.,
+ * ORG.OPENOFFICE., ORG.LIBREOFFICE., ORG.GNUMERIC. -- taken off. */
+static char *
+function_from_odf (const char *odf)
+{
+  static const char *const SPACES[] = {
+    "COM.MICROSOFT.", "LEGACY.", "ORG.OPENOFFICE.", "ORG.LIBREOFFICE.", "ORG.GNUMERIC.", "_XLFN.", "_XLWS."
+  };
+  char *upper = g_ascii_strup (odf, -1);
+
+  for (guint i = 0; i < G_N_ELEMENTS (ODF_NAMES); i++)
+    if (strcmp (ODF_NAMES[i].odf, upper) == 0)
+      {
+        g_free (upper);
+        return g_strdup (ODF_NAMES[i].name);
+      }
+  for (guint i = 0; i < G_N_ELEMENTS (SPACES); i++)
+    if (g_str_has_prefix (upper, SPACES[i]) && o42_function_exists (upper + strlen (SPACES[i])))
+      {
+        char *bare = g_strdup (upper + strlen (SPACES[i]));
+        g_free (upper);
+        return bare;
+      }
+  g_free (upper);
+  return g_strdup (odf);
+}
 
 static int
 op_precedence (const O42Node *node)
@@ -158,7 +287,20 @@ of_write (const O42Node *node, GString *out)
       g_string_append (out, node->as.name);
       break;
     case O42_NODE_ERROR:
-      g_string_append (out, node->as.error == O42_ERR_NA ? "NA()" : "#VALUE!");
+      /* OpenFormula has the seven error literals Excel has; the rest of
+       * office42's (#SPILL!, #CALC! and the like) are Excel 365's and
+       * go out as the #VALUE! LibreOffice would make of them. */
+      switch (node->as.error)
+        {
+        case O42_ERR_NA:    g_string_append (out, "NA()"); break;
+        case O42_ERR_DIV0:
+        case O42_ERR_REF:
+        case O42_ERR_NAME:
+        case O42_ERR_NUM:
+        case O42_ERR_NULL:
+        case O42_ERR_VALUE: g_string_append (out, o42_error_name (node->as.error)); break;
+        default:            g_string_append (out, "#VALUE!"); break;
+        }
       break;
     case O42_NODE_EMPTY:
       break;
@@ -244,7 +386,7 @@ of_write (const O42Node *node, GString *out)
       of_write_child (node->as.op.b, node, TRUE, out);
       break;
     case O42_NODE_CALL:
-      g_string_append (out, node->as.call.name);
+      g_string_append (out, odf_function_name (node->as.call.name));
       g_string_append_c (out, '(');
       if (node->as.call.args != NULL)
         for (guint i = 0; i < node->as.call.args->len; i++)
@@ -285,6 +427,7 @@ typedef struct {
   GString    *cond_styles;  /* styles.xml: the named styles conditional formats switch to */
   int         next_cond;
   GString    *fill_defs;    /* styles.xml: the gradients and hatches the shapes use */
+  gboolean    flat;         /* a .fods: pictures and charts inside their frames */
 } Styles;
 
 /* A break in a row or column style: the same size, with
@@ -688,6 +831,14 @@ append_date_style (GString *out, const char *name, const char *code)
 
   g_string_append_printf (out, "<number:%s-style style:name=\"%s\"",
                           clock && !strpbrk (code, "yYdD") ? "time" : "date", name);
+  /* [h]:mm, [mm]:ss: the first field runs on past its clock, which is
+   * how OpenDocument says elapsed time. */
+  for (const char *q = code; (q = strchr (q, '[')) != NULL; q++)
+    if (strchr ("hHmMsS", q[1]) != NULL)
+      {
+        g_string_append (out, " number:truncate-on-overflow=\"false\"");
+        break;
+      }
   if (lang != 0)
     g_string_append_printf (out, " number:language=\"%s\"", language_tag (lang & 0x3FF));
   g_string_append (out, " number:automatic-order=\"false\">");
@@ -700,7 +851,19 @@ append_date_style (GString *out, const char *name, const char *code)
       if (c == '[')
         {
           const char *close = strchr (p, ']');
+          int n = close != NULL ? (int) (close - p - 1) : 0;
 
+          /* An elapsed field, [h] or [mm], is its element; the style
+           * says it runs on. */
+          if (n > 0 && strspn (p + 1, "hH") == (gsize) n)
+            {
+              g_string_append_printf (out, "<number:hours%s/>", n >= 2 ? " number:style=\"long\"" : "");
+              last_was_hour = TRUE;
+            }
+          else if (n > 0 && strspn (p + 1, "mM") == (gsize) n)
+            g_string_append_printf (out, "<number:minutes%s/>", n >= 2 ? " number:style=\"long\"" : "");
+          else if (n > 0 && strspn (p + 1, "sS") == (gsize) n)
+            g_string_append_printf (out, "<number:seconds%s/>", n >= 2 ? " number:style=\"long\"" : "");
           p = close != NULL ? close + 1 : p + 1;
           continue;
         }
@@ -1289,47 +1452,118 @@ cell_style (Styles *s, const O42Fmt *fmt)
 
 /* ---- Cells ------------------------------------------------------------ */
 
+/* The clock part of a date, "T18:00:00", or of a duration,
+ * "T36H00M00S" after its "P": whole hours however many, then minutes
+ * and seconds, the seconds with as many places as they need. */
+static void
+append_clock (GString *out, double seconds, gboolean duration)
+{
+  char buf[G_ASCII_DTOSTR_BUF_SIZE];
+  double hours = floor ((seconds + 0.0005) / 3600.0);
+  int minutes = (int) floor ((seconds + 0.0005 - hours * 3600.0) / 60.0);
+  double secs = MAX (seconds - hours * 3600.0 - minutes * 60.0, 0);
+
+  g_ascii_formatd (buf, sizeof buf, "%.3f", secs);
+  /* Noughts after the point say nothing. */
+  {
+    char *last = buf + strlen (buf) - 1;
+    while (*last == '0') *last-- = '\0';
+    if (*last == '.') *last = '\0';
+  }
+  g_string_append_printf (out, duration ? "T%02.0fH%02dM%s%sS" : "T%02.0f:%02d:%s%s",
+                          hours, minutes, secs < 10 ? "0" : "", buf);
+}
+
+/* Text as it goes into a paragraph: the markup escaped; a run of spaces,
+ * and a single space at either end of the paragraph, which a reader
+ * would drop, as text:s; a tab as text:tab and a line break -- a line
+ * inside a cell set in several fonts -- as text:line-break.  The
+ * control characters XML 1.0 cannot hold at all are left out: one of
+ * them, =CHAR(7), made the whole content.xml unreadable to LibreOffice. */
+static void
+append_para_text (GString *out, const char *text, gsize length,
+                  gboolean at_start, gboolean at_end)
+{
+  const char *p = text, *end = text + length;
+
+  while (p < end)
+    {
+      if (*p == ' ')
+        {
+          const char *q = p;
+          int n;
+
+          while (q < end && *q == ' ')
+            q++;
+          n = (int) (q - p);
+          if (n > 1)
+            g_string_append_printf (out, "<text:s text:c=\"%d\"/>", n);
+          else if ((p == text && at_start) || (q == end && at_end))
+            g_string_append (out, "<text:s/>");
+          else
+            g_string_append_c (out, ' ');
+          p = q;
+          continue;
+        }
+      if (*p == '\t')
+        {
+          g_string_append (out, "<text:tab/>");
+          p++;
+          continue;
+        }
+      if (*p == '\n')
+        {
+          g_string_append (out, "<text:line-break/>");
+          p++;
+          continue;
+        }
+      if ((guchar) *p < 0x20)
+        {
+          p++;
+          continue;
+        }
+      {
+        const char *q = p;
+        char *escaped;
+
+        while (q < end && *q != ' ' && (guchar) *q >= 0x20)
+          q++;
+        escaped = g_markup_escape_text (p, (gssize) (q - p));
+        g_string_append (out, escaped);
+        g_free (escaped);
+        p = q;
+      }
+    }
+}
+
 static void
 append_text_runs (GString *out, Styles *s, const char *text, const O42TextRun *runs,
                   int n_runs, const O42Fmt *base)
 {
   /* Text set in more than one font: a text:span per run, with a style
-   * of its own for whatever the run says differently. */
+   * of its own for whatever the run says differently.  A line inside
+   * the cell is a break, not a paragraph: the runs are counted against
+   * the whole string and paragraphs would cut them. */
   gsize length = strlen (text != NULL ? text : "");
 
   g_string_append (out, "<text:p>");
+  /* Text before the first run is in the cell's own font. */
+  if (n_runs > 0 && runs[0].start > 0)
+    append_para_text (out, text, CLAMP ((gsize) runs[0].start, 0, length), TRUE, (gsize) runs[0].start >= length);
   for (int i = 0; i < n_runs; i++)
     {
       gsize start = CLAMP ((gsize) runs[i].start, 0, length);
       gsize end = (i + 1 < n_runs) ? CLAMP ((gsize) runs[i + 1].start, 0, length) : length;
-      char *style, *escaped;
+      char *style;
 
       if (end <= start)
         continue;
       style = text_style (s, &runs[i].fmt, base);
-      escaped = g_markup_escape_text (text + start, (gssize) (end - start));
-      {
-        /* A line inside a cell is a break, not a paragraph, when the
-         * text is set in more than one font: the runs are counted
-         * against the whole string and paragraphs would cut them. */
-        char **lines = g_strsplit (escaped, "\n", -1);
-        GString *body = g_string_new (NULL);
-
-        for (int k = 0; lines[k] != NULL; k++)
-          {
-            if (k > 0)
-              g_string_append (body, "<text:line-break/>");
-            g_string_append (body, lines[k]);
-          }
-        if (style != NULL)
-          g_string_append_printf (out, "<text:span text:style-name=\"%s\">%s</text:span>",
-                                  style, body->str);
-        else
-          g_string_append (out, body->str);
-        g_string_free (body, TRUE);
-        g_strfreev (lines);
-      }
-      g_free (escaped);
+      if (style != NULL)
+        g_string_append_printf (out, "<text:span text:style-name=\"%s\">", style);
+      append_para_text (out, text + start, end - start, start == 0, end == length);
+      if (style != NULL)
+        g_string_append (out, "</text:span>");
       g_free (style);
     }
   g_string_append (out, "</text:p>");
@@ -1351,29 +1585,7 @@ append_text_p (GString *out, const char *text, const char *link)
           g_string_append_printf (out, "<text:a xlink:href=\"%s\" xlink:type=\"simple\">", href);
           g_free (href);
         }
-      while (*p != '\0')
-        {
-          if (*p == ' ' && (p[1] == ' ' || p == lines[i]))
-            {
-              int n = 0;
-              while (*p == ' ') { n++; p++; }
-              if (n == 1) g_string_append_c (out, ' ');
-              else g_string_append_printf (out, "<text:s text:c=\"%d\"/>", n);
-              continue;
-            }
-          if (*p == '\t')
-            { g_string_append (out, "<text:tab/>"); p++; continue; }
-          {
-            const char *q = p;
-            while (*q != '\0' && *q != '\t' && !(*q == ' ' && q[1] == ' ')) q++;
-            {
-              char *esc = g_markup_escape_text (p, q - p);
-              g_string_append (out, esc);
-              g_free (esc);
-            }
-            p = q;
-          }
-        }
+      append_para_text (out, p, strlen (p), TRUE, TRUE);
       if (link != NULL)
         g_string_append (out, "</text:a>");
       g_string_append (out, "</text:p>");
@@ -1754,6 +1966,8 @@ write_validations (GString *out, O42Book *book)
   g_string_append (out, "</table:content-validations>");
 }
 
+static char *ods_chart_document (O42Sheet *sheet, const O42Chart *chart);
+
 static void
 write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, int col)
 {
@@ -1774,10 +1988,20 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
         append_frame_head (out, name, (int) i, pic->dx, pic->dy, pic->width, pic->height, end);
         g_free (end);
       }
-      g_string_append_printf (out,
-        "<draw:image xlink:href=\"Pictures/sheet%d_image%u.%s\" xlink:type=\"simple\" "
-        "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
-        sheet_index + 1, i + 1, pic->format != NULL ? pic->format : "png");
+      if (s->flat)
+        {
+          /* In a .fods the picture is in the frame, in base64. */
+          char *base64 = g_base64_encode (g_bytes_get_data (pic->data, NULL), g_bytes_get_size (pic->data));
+
+          g_string_append_printf (out, "<draw:image><office:binary-data>%s</office:binary-data>"
+                                       "</draw:image></draw:frame>", base64);
+          g_free (base64);
+        }
+      else
+        g_string_append_printf (out,
+          "<draw:image xlink:href=\"Pictures/sheet%d_image%u.%s\" xlink:type=\"simple\" "
+          "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
+          sheet_index + 1, i + 1, pic->format != NULL ? pic->format : "png");
       g_free (name);
     }
 
@@ -1987,10 +2211,31 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
                            chart->width, chart->height, end);
         g_free (end);
       }
-      g_string_append_printf (out,
-        "<draw:object xlink:href=\"./Sheet%dChart%u\" xlink:type=\"simple\" "
-        "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
-        sheet_index + 1, i + 1);
+      if (s->flat)
+        {
+          /* In a .fods the chart's document is in the frame: its
+           * content, as the zip's part has it, under office:document. */
+          char *doc = ods_chart_document (sheet, chart);
+          const char *root = strstr (doc, "<office:document-content ");
+          const char *close = strstr (doc, "</office:document-content>");
+
+          g_string_append (out, "<draw:object>");
+          if (root != NULL && close != NULL)
+            {
+              const char *attrs = root + strlen ("<office:document-content ");
+
+              g_string_append (out, "<office:document office:mimetype=\"application/vnd.oasis.opendocument.chart\" ");
+              g_string_append_len (out, attrs, close - attrs);
+              g_string_append (out, "</office:document>");
+            }
+          g_string_append (out, "</draw:object></draw:frame>");
+          g_free (doc);
+        }
+      else
+        g_string_append_printf (out,
+          "<draw:object xlink:href=\"./Sheet%dChart%u\" xlink:type=\"simple\" "
+          "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
+          sheet_index + 1, i + 1);
       g_free (name);
     }
 }
@@ -2076,22 +2321,31 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
         case O42_VALUE_NUMBER:
           if (fmt->number == O42_NUM_DATE || fmt->number == O42_NUM_DATETIME)
             {
-              int y, m, d, hh, mm, ss;
-              if (o42_date_from_serial (value.as.number, &y, &m, &d))
+              int y, m, d;
+              if (value.as.number >= 0 && o42_date_from_serial (value.as.number, &y, &m, &d))
                 {
-                  o42_time_from_serial (value.as.number, &hh, &mm, &ss);
-                  if (fmt->number == O42_NUM_DATETIME)
-                    g_string_append_printf (out, " office:value-type=\"date\" office:date-value=\"%04d-%02d-%02dT%02d:%02d:%02d\"", y, m, d, hh, mm, ss);
-                  else
-                    g_string_append_printf (out, " office:value-type=\"date\" office:date-value=\"%04d-%02d-%02d\"", y, m, d);
+                  /* The time of day goes with the date whenever there
+                   * is one, shown or not: a date is a number, and its
+                   * fraction is part of it. */
+                  double seconds = (value.as.number - floor (value.as.number)) * 86400.0;
+
+                  g_string_append_printf (out, " office:value-type=\"date\" office:date-value=\"%04d-%02d-%02d", y, m, d);
+                  if (seconds > 0 || fmt->number == O42_NUM_DATETIME)
+                    append_clock (out, seconds, FALSE);
+                  g_string_append (out, "\"");
                   break;
                 }
             }
           if (fmt->number == O42_NUM_TIME)
             {
-              int hh, mm, ss;
-              o42_time_from_serial (value.as.number, &hh, &mm, &ss);
-              g_string_append_printf (out, " office:value-type=\"time\" office:time-value=\"PT%02dH%02dM%02dS\"", hh, mm, ss);
+              /* A duration, whole: 36 hours is PT36H, not the time of
+               * day it ends at, and six hours back is -PT6H. */
+              double seconds = fabs (value.as.number) * 86400.0;
+
+              g_string_append_printf (out, " office:value-type=\"time\" office:time-value=\"%sP",
+                                      value.as.number < 0 ? "-" : "");
+              append_clock (out, seconds, TRUE);
+              g_string_append (out, "\"");
               break;
             }
           g_string_append_printf (out, " office:value-type=\"%s\" office:value=\"%s\"",
@@ -2668,15 +2922,30 @@ gboolean
 o42_ods_save (O42Book *book, GFile *file, GError **error)
 {
   o42_xlsx_dropped_cells = 0;
-  O42ZipWriter *zip;
   Styles s;
   GString *body = g_string_new (NULL);
-  GString *content, *settings;
+  GString *spreadsheet, *common, *automatic, *masters, *meta, *settings, *out;
   GBytes *bytes;
-  gboolean ok;
+  gboolean ok, flat;
+  const char *FONTS =
+    "<office:font-face-decls><style:font-face style:name=\"Arial\" svg:font-family=\"Arial\" "
+    "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\"/></office:font-face-decls>";
 
   g_return_val_if_fail (book != NULL && G_IS_FILE (file), FALSE);
 
+  /* A .fods is the same book as one XML document, the parts that would
+   * be files in the zip written in its place and the pictures and
+   * charts inside the frames that show them. */
+  {
+    char *name = g_file_get_basename (file);
+    char *folded = name != NULL ? g_ascii_strdown (name, -1) : NULL;
+
+    flat = folded != NULL && g_str_has_suffix (folded, ".fods");
+    g_free (folded);
+    g_free (name);
+  }
+
+  s.flat = flat;
   s.styles = g_string_new (NULL);
   s.col_styles = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
   s.row_styles = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
@@ -2695,39 +2964,22 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
     write_table (body, &s, o42_book_sheet (book, i), i);
   write_names (body, book);
 
-  content = g_string_new ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content " NS_HEAD ">");
-  g_string_append (content, "<office:font-face-decls><style:font-face style:name=\"Arial\" svg:font-family=\"Arial\" xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\"/></office:font-face-decls>");
-  g_string_append (content, "<office:automatic-styles>");
-  g_string_append (content, s.styles->str);
-  g_string_append (content, "</office:automatic-styles><office:body><office:spreadsheet");
+  /* The pieces, each written once: the body, the named styles, the
+   * automatic ones (the cells' and the pages'), the master pages, the
+   * settings and the properties. */
+  spreadsheet = g_string_new ("<office:body><office:spreadsheet");
   if (o42_book_protected (book))
-    g_string_append (content, " table:structure-protected=\"true\"");
-  g_string_append (content, ">");
+    g_string_append (spreadsheet, " table:structure-protected=\"true\"");
+  g_string_append (spreadsheet, ">");
   if (o42_book_date_1904 (book) || o42_book_precision_as_displayed (book))
-    g_string_append_printf (content, "<table:calculation-settings%s>%s</table:calculation-settings>",
+    g_string_append_printf (spreadsheet, "<table:calculation-settings%s>%s</table:calculation-settings>",
                             o42_book_precision_as_displayed (book) ? " table:precision-as-shown=\"true\"" : "",
                             o42_book_date_1904 (book) ? "<table:null-date table:date-value=\"1904-01-01\"/>" : "");
-  write_validations (content, book);
-  g_string_append (content, body->str);
-  g_string_append (content, "</office:spreadsheet></office:body></office:document-content>");
+  write_validations (spreadsheet, book);
+  g_string_append (spreadsheet, body->str);
+  g_string_append (spreadsheet, "</office:spreadsheet></office:body>");
 
-  settings = g_string_new (NULL);
-  write_settings (settings, book);
-
-  zip = o42_zip_writer_new ();
-  o42_zip_writer_add_stored (zip, "mimetype", MIME, strlen (MIME));
-  {
-    GString *manifest = g_string_new (
-      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\">"
-      "<manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.2\" manifest:media-type=\"" MIME "\"/>"
-      "<manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/>"
-      "<manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>"
-      "<manifest:file-entry manifest:full-path=\"settings.xml\" manifest:media-type=\"text/xml\"/>"
-      "<manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>");
-
-    GString *styles = g_string_new (
-      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles " NS_HEAD ">"
+  common = g_string_new (
       "<office:styles><style:default-style style:family=\"table-cell\">"
       "<style:text-properties fo:font-family=\"Arial\" fo:font-size=\"10pt\"/></style:default-style>"
       "<style:style style:name=\"Default\" style:family=\"table-cell\"/>"
@@ -2744,41 +2996,26 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
       "<draw:marker draw:name=\"Diamond\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 15 10 15 10-15z\"/>"
       "<draw:marker draw:name=\"Circle\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0c-5.5 0-10 4.5-10 10s4.5 10 10 10 10-4.5 10-10-4.5-10-10-10z\"/>"
       "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>");
-    g_string_append (styles, s.fill_defs->str);
-    g_string_append (styles, s.cond_styles->str);
-    g_string_append (styles, "</office:styles><office:automatic-styles>");
+  g_string_append (common, s.fill_defs->str);
+  g_string_append (common, s.cond_styles->str);
+  g_string_append (common, "</office:styles>");
 
-    g_string_append (styles, s.hf_style_xml->str);
-    g_string_append (styles, s.page_layouts->str);
-    g_string_append (styles, "</office:automatic-styles><office:master-styles>");
-    g_string_append (styles, s.master_pages->str);
-    g_string_append (styles, "</office:master-styles></office:document-styles>");
+  automatic = g_string_new (s.hf_style_xml->str);
+  g_string_append (automatic, s.page_layouts->str);
+  masters = g_string_new ("<office:master-styles>");
+  g_string_append (masters, s.master_pages->str);
+  g_string_append (masters, "</office:master-styles>");
 
-    write_drawing_parts (zip, book, manifest);
-    g_string_append (manifest, "</manifest:manifest>");
-    o42_zip_writer_add (zip, "META-INF/manifest.xml", manifest->str, manifest->len);
-    g_string_free (manifest, TRUE);
-    o42_zip_writer_add (zip, "styles.xml", styles->str, styles->len);
-    g_string_free (styles, TRUE);
-  }
-  o42_zip_writer_add (zip, "content.xml", content->str, content->len);
-  o42_zip_writer_add (zip, "settings.xml", settings->str, settings->len);
-
-  /* File > Properties, in meta.xml as LibreOffice keeps them. */
   {
+    /* File > Properties, as LibreOffice keeps them. */
     static const char *const ELEMENTS[O42_N_PROPS] = {
       "dc:title", "dc:subject", "meta:initial-creator", NULL, NULL, NULL, "meta:keyword", "dc:description"
     };
     static const char *const USER[O42_N_PROPS] = {
       NULL, NULL, NULL, "Manager", "Company", "Category", NULL, NULL
     };
-    GString *meta = g_string_new (
-      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      "<office:document-meta xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "
-      "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" "
-      "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" office:version=\"1.2\"><office:meta>"
-      "<meta:generator>Office42 Spreadsheet</meta:generator>");
 
+    meta = g_string_new ("<office:meta><meta:generator>Office42 Spreadsheet</meta:generator>");
     for (int i = 0; i < O42_N_PROPS; i++)
       {
         const char *value = o42_book_property (book, (O42Property) i);
@@ -2793,15 +3030,109 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
           g_string_append_printf (meta, "<meta:user-defined meta:name=\"%s\">%s</meta:user-defined>", USER[i], escaped);
         g_free (escaped);
       }
-    g_string_append (meta, "</office:meta></office:document-meta>");
-    o42_zip_writer_add (zip, "meta.xml", meta->str, meta->len);
-    g_string_free (meta, TRUE);
+    g_string_append (meta, "</office:meta>");
   }
-  bytes = o42_zip_writer_finish (zip);
-  ok = o42_file_replace (file, g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes), error);
-  g_bytes_unref (bytes);
 
-  g_string_free (content, TRUE);
+  {
+    /* write_settings makes settings.xml whole; its office:settings is
+     * the piece. */
+    GString *whole = g_string_new (NULL);
+    const char *from, *to;
+
+    write_settings (whole, book);
+    from = strstr (whole->str, "<office:settings>");
+    to = strstr (whole->str, "</office:settings>");
+    settings = from != NULL && to != NULL
+               ? g_string_new_len (from, (gssize) (to - from) + (gssize) strlen ("</office:settings>"))
+               : g_string_new (NULL);
+    g_string_free (whole, TRUE);
+  }
+
+#define XML_HEAD "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+#define META_NS "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" " \
+                "xmlns:dc=\"http://purl.org/dc/elements/1.1/\""
+  if (flat)
+    {
+      out = g_string_new (XML_HEAD "<office:document " NS_HEAD " " META_NS " office:mimetype=\"" MIME "\">");
+      g_string_append (out, meta->str);
+      g_string_append (out, settings->str);
+      g_string_append (out, FONTS);
+      g_string_append (out, common->str);
+      /* One list of automatic styles: the cells' and the pages' names
+       * are apart (ce, co, ro, ta, N, T, gr against pm and MT). */
+      g_string_append (out, "<office:automatic-styles>");
+      g_string_append (out, s.styles->str);
+      g_string_append (out, automatic->str);
+      g_string_append (out, "</office:automatic-styles>");
+      g_string_append (out, masters->str);
+      g_string_append (out, spreadsheet->str);
+      g_string_append (out, "</office:document>");
+      ok = o42_file_replace (file, out->str, out->len, error);
+      g_string_free (out, TRUE);
+    }
+  else
+    {
+      O42ZipWriter *zip = o42_zip_writer_new ();
+      GString *manifest = g_string_new (
+        XML_HEAD
+        "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\">"
+        "<manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.2\" manifest:media-type=\"" MIME "\"/>"
+        "<manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/>"
+        "<manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>"
+        "<manifest:file-entry manifest:full-path=\"settings.xml\" manifest:media-type=\"text/xml\"/>"
+        "<manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>");
+
+      o42_zip_writer_add_stored (zip, "mimetype", MIME, strlen (MIME));
+      write_drawing_parts (zip, book, manifest);
+      g_string_append (manifest, "</manifest:manifest>");
+      o42_zip_writer_add (zip, "META-INF/manifest.xml", manifest->str, manifest->len);
+      g_string_free (manifest, TRUE);
+
+      out = g_string_new (XML_HEAD "<office:document-styles " NS_HEAD ">");
+      g_string_append (out, common->str);
+      g_string_append (out, "<office:automatic-styles>");
+      g_string_append (out, automatic->str);
+      g_string_append (out, "</office:automatic-styles>");
+      g_string_append (out, masters->str);
+      g_string_append (out, "</office:document-styles>");
+      o42_zip_writer_add (zip, "styles.xml", out->str, out->len);
+      g_string_free (out, TRUE);
+
+      out = g_string_new (XML_HEAD "<office:document-content " NS_HEAD ">");
+      g_string_append (out, FONTS);
+      g_string_append (out, "<office:automatic-styles>");
+      g_string_append (out, s.styles->str);
+      g_string_append (out, "</office:automatic-styles>");
+      g_string_append (out, spreadsheet->str);
+      g_string_append (out, "</office:document-content>");
+      o42_zip_writer_add (zip, "content.xml", out->str, out->len);
+      g_string_free (out, TRUE);
+
+      out = g_string_new (XML_HEAD "<office:document-settings " NS_HEAD ">");
+      g_string_append (out, settings->str);
+      g_string_append (out, "</office:document-settings>");
+      o42_zip_writer_add (zip, "settings.xml", out->str, out->len);
+      g_string_free (out, TRUE);
+
+      out = g_string_new (XML_HEAD "<office:document-meta xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "
+                          META_NS " office:version=\"1.2\">");
+      g_string_append (out, meta->str);
+      g_string_append (out, "</office:document-meta>");
+      o42_zip_writer_add (zip, "meta.xml", out->str, out->len);
+      g_string_free (out, TRUE);
+
+      bytes = o42_zip_writer_finish (zip);
+      ok = o42_file_replace (file, g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes), error);
+      g_bytes_unref (bytes);
+    }
+#undef XML_HEAD
+#undef META_NS
+
+  g_string_free (spreadsheet, TRUE);
+  g_string_free (common, TRUE);
+  g_string_free (automatic, TRUE);
+  g_string_free (masters, TRUE);
+  g_string_free (meta, TRUE);
   g_string_free (settings, TRUE);
   g_string_free (body, TRUE);
   g_string_free (s.styles, TRUE);
@@ -2879,6 +3210,7 @@ typedef struct {
   gboolean in_currency_symbol;   /* the symbol element itself, for the code */
   gboolean in_fill;      /* reading a fill character */
   gboolean in_text;      /* inside <number:text> */
+  gboolean elapsed;      /* its first time field runs on: [h] */
   gboolean custom;       /* more than a preset holds: text, a colour, a map */
   char    *map_ge, *map_gt, *map_lt;   /* the styles its maps name, by the sign */
 } NumStyle;
@@ -2941,6 +3273,13 @@ typedef struct {
   int         depth_in_cell;
   GHashTable *parts;         /* the zip, for the pictures a frame names */
   int         meta_prop;     /* the property a meta.xml element is, or -1 */
+  int         meta_depth;    /* elements open; the document's office:meta is at 2 */
+  gboolean    in_meta;
+  /* A .fods keeps pictures and charts inside their frames. */
+  gboolean    inline_image;  /* a draw:image with no file to point at */
+  GString    *binary;        /* its office:binary-data, in base64 */
+  gboolean    inline_object; /* a draw:object with no file to point at */
+  gpointer    inline_chart;  /* OdsChartReader, while its document is read */
   GString    *meta_text;
   GArray     *cell_runs;     /* O42TextRun for the cell being read */
   O42Shape   *shape;         /* the shape being read, for its text */
@@ -3006,7 +3345,9 @@ static int
 attr_int (const char **names, const char **values, const char *want, int fallback)
 {
   const char *v = attr (names, values, want);
-  return v != NULL ? atoi (v) : fallback;
+  /* Saturated well inside an int, so that the sums made with it --
+   * a position plus a repeat -- cannot wrap. */
+  return v != NULL ? (int) CLAMP (strtol (v, NULL, 10), -(1L << 30), 1L << 30) : fallback;
 }
 
 /* The Excel language of an ODF language tag, the other way round
@@ -3410,7 +3751,17 @@ formula_from_of (const char *of)
                     {
                       char *sname = g_strndup (side + (side[0] == '$' ? 1 : 0), dot - side - (side[0] == '$' ? 1 : 0));
                       if (sname[0] == '\'' && strlen (sname) >= 2)
-                        { sname[strlen (sname) - 1] = '\0'; memmove (sname, sname + 1, strlen (sname)); }
+                        {
+                          /* 'Bob''s Data' is Bob's Data. */
+                          char **halves;
+
+                          sname[strlen (sname) - 1] = '\0';
+                          memmove (sname, sname + 1, strlen (sname));
+                          halves = g_strsplit (sname, "''", -1);
+                          g_free (sname);
+                          sname = g_strjoinv ("'", halves);
+                          g_strfreev (halves);
+                        }
                       snames[k] = sname;
                     }
                   refs[k] = dot != NULL ? dot + 1 : side;
@@ -3419,10 +3770,29 @@ formula_from_of (const char *of)
                 {
                   gboolean span = snames[1] != NULL && strcmp (snames[0], snames[1]) != 0;
                   char *pair = span ? g_strconcat (snames[0], ":", snames[1], NULL) : g_strdup (snames[0]);
-                  if (strpbrk (pair, " -+") != NULL || (span && FALSE))
-                    g_string_append_printf (out, "'%s'!", pair);
+                  /* Quoted as the formula printer quotes it -- a name
+                   * that is not a plain word, 2024 or Bob's Data, in
+                   * quotes with its own quotes doubled, and a pair of
+                   * sheets quoted as one when either needs it -- or a
+                   * sheet called 2024 would read as the number. */
+                  char *q0 = o42_sheet_name_quote (snames[0]);
+                  char *q1 = span ? o42_sheet_name_quote (snames[1]) : NULL;
+
+                  if (q0[0] == '\'' || (q1 != NULL && q1[0] == '\''))
+                    {
+                      g_string_append_c (out, '\'');
+                      for (const char *c = pair; *c != '\0'; c++)
+                        {
+                          if (*c == '\'')
+                            g_string_append_c (out, '\'');
+                          g_string_append_c (out, *c);
+                        }
+                      g_string_append (out, "'!");
+                    }
                   else
                     g_string_append_printf (out, "%s!", pair);
+                  g_free (q0);
+                  g_free (q1);
                   g_free (pair);
                 }
               g_string_append (out, refs[0] != NULL ? refs[0] : "");
@@ -3443,8 +3813,39 @@ formula_from_of (const char *of)
       if (*p == '}') { braces--; g_string_append_c (out, *p++); continue; }
       if (*p == ';') { g_string_append_c (out, braces > 0 ? ',' : ','); p++; continue; }
       if (*p == '|' && braces > 0) { g_string_append_c (out, ';'); p++; continue; }
-      if (g_str_has_prefix (p, "TRUE()")) { g_string_append (out, "TRUE"); p += 6; continue; }
-      if (g_str_has_prefix (p, "FALSE()")) { g_string_append (out, "FALSE"); p += 7; continue; }
+      if ((g_ascii_isalpha (*p) || *p == '_') &&
+          (out->len == 0 || !(g_ascii_isalnum (out->str[out->len - 1]) ||
+                              out->str[out->len - 1] == '_' || out->str[out->len - 1] == '.')))
+        {
+          /* A name, whole: a function by its office42 name, TRUE() and
+           * FALSE() as the constants, anything else as it stands. */
+          const char *q = p;
+
+          while (g_ascii_isalnum (*q) || *q == '_' || *q == '.')
+            q++;
+          if (*q == '(')
+            {
+              char *name = g_strndup (p, (gsize) (q - p));
+
+              if ((g_ascii_strcasecmp (name, "TRUE") == 0 || g_ascii_strcasecmp (name, "FALSE") == 0) && q[1] == ')')
+                {
+                  g_string_append (out, g_ascii_toupper (name[0]) == 'T' ? "TRUE" : "FALSE");
+                  q += 2;
+                }
+              else
+                {
+                  char *ours = function_from_odf (name);
+
+                  g_string_append (out, ours);
+                  g_free (ours);
+                }
+              g_free (name);
+            }
+          else
+            g_string_append_len (out, p, q - p);
+          p = q;
+          continue;
+        }
       g_string_append_c (out, *p++);
     }
   return g_string_free (out, FALSE);
@@ -3675,9 +4076,9 @@ cell_finish (Reader *r)
   /* Whatever runs were gathered belong to this cell alone. */
   #define CLEAR_RUNS() g_clear_pointer (&r->cell_runs, g_array_unref)
 
-  if (r->sheet == NULL || r->covered)
+  if (r->sheet == NULL || r->covered || r->row >= O42_MAX_ROWS || r->cell_col >= O42_MAX_COLS)
     {
-      r->cell_col += repeat;
+      r->cell_col = MIN (r->cell_col + repeat, O42_MAX_COLS);
       CLEAR_RUNS ();
       return;
     }
@@ -3711,34 +4112,57 @@ cell_finish (Reader *r)
         input = g_strdup (strcmp (r->value, "true") == 0 ? "TRUE" : "FALSE");
       else if (strcmp (t, "date") == 0 && r->value != NULL)
         {
-          int y = 0, m = 0, d = 0, hh = 0, mm = 0, ss = 0;
-          if (sscanf (r->value, "%d-%d-%dT%d:%d:%d", &y, &m, &d, &hh, &mm, &ss) >= 3)
+          int y = 0, m = 0, d = 0, hh = 0, mm = 0, got;
+          double ss = 0;
+          const char *clock = strchr (r->value, 'T');
+
+          got = sscanf (r->value, "%d-%d-%d", &y, &m, &d);
+          /* The seconds may have a fraction: 18:00:00.5. */
+          if (clock != NULL)
+            {
+              char *end = NULL;
+              hh = (int) strtol (clock + 1, &end, 10);
+              if (end != NULL && *end == ':')
+                mm = (int) strtol (end + 1, &end, 10);
+              if (end != NULL && *end == ':')
+                ss = g_ascii_strtod (end + 1, NULL);
+            }
+          if (got >= 3)
             {
               char buf[G_ASCII_DTOSTR_BUF_SIZE];
-              double serial = o42_date_serial (y, m, d) + o42_time_fraction (hh, mm, ss);
+              double serial = o42_date_serial (y, m, d) + (hh * 3600.0 + mm * 60.0 + ss) / 86400.0;
               input = g_strdup (g_ascii_dtostr (buf, sizeof buf, serial));
             }
         }
       else if (strcmp (t, "time") == 0 && r->value != NULL)
         {
-          int hh = 0, mm = 0;
-          double ss = 0;
+          /* A duration, as ISO 8601 writes one: -PT06H00M00S, PT36H,
+           * P1DT12H, with seconds that may have a fraction.  It is the
+           * whole length, not a time of day. */
+          double total = 0;
+          gboolean negative = FALSE, in_time = FALSE;
           const char *v = r->value;
-          if (v[0] == 'P') v++;
-          if (v[0] == 'T') v++;
-          {
-            char *end;
-            while (*v != '\0')
-              {
-                double n = g_ascii_strtod (v, &end);
-                if (end == v) break;
-                if (*end == 'H') hh = (int) n; else if (*end == 'M') mm = (int) n; else if (*end == 'S') ss = n;
-                v = *end != '\0' ? end + 1 : end;
-              }
-          }
+          char *end;
+
+          if (*v == '-') { negative = TRUE; v++; }
+          if (*v == 'P') v++;
+          while (*v != '\0')
+            {
+              double n;
+
+              if (*v == 'T') { in_time = TRUE; v++; continue; }
+              n = g_ascii_strtod (v, &end);
+              if (end == v)
+                break;
+              if (*end == 'D') total += n * 86400.0;
+              else if (*end == 'H') total += n * 3600.0;
+              else if (*end == 'M') total += in_time ? n * 60.0 : 0;   /* months are not a length */
+              else if (*end == 'S') total += n;
+              v = *end != '\0' ? end + 1 : end;
+            }
           {
             char buf[G_ASCII_DTOSTR_BUF_SIZE];
-            input = g_strdup (g_ascii_dtostr (buf, sizeof buf, o42_time_fraction (hh, mm, ss)));
+            input = g_strdup (g_ascii_dtostr (buf, sizeof buf, (negative ? -total : total) / 86400.0));
           }
         }
     }
@@ -3763,7 +4187,9 @@ cell_finish (Reader *r)
       if (r->span_cols > 1 || r->span_rows > 1)
         {
           O42Range m = { r->row, col, MIN (r->row + r->span_rows - 1, O42_MAX_ROWS - 1), MIN (col + r->span_cols - 1, O42_MAX_COLS - 1) };
-          o42_sheet_merge (r->sheet, &m);
+          /* Merging costs its area: no more than a whole column. */
+          if ((gint64) (m.row1 - m.row0 + 1) * (m.col1 - m.col0 + 1) <= O42_MAX_ROWS)
+            o42_sheet_merge (r->sheet, &m);
         }
       if (repeat <= 64 || input != NULL)
         {
@@ -3774,7 +4200,7 @@ cell_finish (Reader *r)
         }
     }
   g_free (input);
-  r->cell_col += repeat;
+  r->cell_col = MIN (r->cell_col + repeat, O42_MAX_COLS);
   CLEAR_RUNS ();
   #undef CLEAR_RUNS
 
@@ -3797,7 +4223,7 @@ row_finish (Reader *r)
             if (r->row_hidden) o42_sheet_set_row_hidden (r->sheet, k, TRUE);
           }
     }
-  r->row += repeat;
+  r->row = MIN (r->row + repeat, O42_MAX_ROWS);
 }
 
 /* A length as OpenDocument writes it -- 3.5cm, 42mm, 12pt, 1in -- in
@@ -3963,6 +4389,9 @@ ods_chart_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer 
     g_string_append_len (c->title, text, (gssize) len);
 }
 
+static void place_chart (Reader *r, OdsChartReader *cr, int row, int col,
+                         double dx, double dy, double width, double height);
+
 /* Adds the chart the frame points at to the sheet, anchored where the
  * frame is. */
 static void
@@ -3998,6 +4427,17 @@ read_chart_object (Reader *r, const char *href, int row, int col,
     g_markup_parse_context_end_parse (ctx, NULL);
     g_markup_parse_context_free (ctx);
   }
+  place_chart (r, &c, row, col, dx, dy, width, height);
+  g_free (part);
+}
+
+/* Puts the chart a chart document described on the sheet, anchored
+ * where its frame is, and lets go of what the reading held. */
+static void
+place_chart (Reader *r, OdsChartReader *cr, int row, int col,
+             double dx, double dy, double width, double height)
+{
+  OdsChartReader c = *cr;
 
   if (c.have_box)
     {
@@ -4035,7 +4475,6 @@ read_chart_object (Reader *r, const char *href, int row, int col,
     }
   g_string_free (c.title, TRUE);
   g_free (c.sheet_name);
-  g_free (part);
 }
 
 /* Before a header's words or a field: the codes that take the style
@@ -4159,6 +4598,27 @@ ods_read_freeform (O42Shape *shape, const char *element, const char *viewbox,
     shape->fill = O42_FILL_NONE;
 }
 
+/* A picture, in the frame being read, on the sheet. */
+static void
+place_picture (Reader *r, GBytes *data)
+{
+  int pw, ph;
+  const char *format;
+  O42Picture *pic;
+
+  if (!o42_image_probe (data, &pw, &ph, &format))
+    return;
+  pic = o42_sheet_add_picture (r->sheet, data, format, pw, ph, r->row, r->cell_col);
+  if (pic != NULL)
+    {
+      pic->anchor = r->frame_anchor;
+      pic->dx = r->frame_x;
+      pic->dy = r->frame_y;
+      if (r->frame_w > 1) pic->width = r->frame_w;
+      if (r->frame_h > 1) pic->height = r->frame_h;
+    }
+}
+
 static void
 content_start (GMarkupParseContext *ctx, const char *element, const char **names,
                const char **values, gpointer user, GError **error)
@@ -4269,41 +4729,38 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           r->frame_w = ods_length (attr (names, values, "width"));
           r->frame_h = ods_length (attr (names, values, "height"));
         }
+      else if (strcmp (name, "object") == 0 && attr (names, values, "href") == NULL)
+        /* A .fods: the chart's document follows, inside the frame. */
+        r->inline_object = TRUE;
       else if (strcmp (name, "object") == 0 && r->parts != NULL)
         read_chart_object (r, attr (names, values, "href"), r->row, r->cell_col,
                            r->frame_x, r->frame_y, r->frame_w, r->frame_h);
+      else if (strcmp (name, "document") == 0 && r->inline_object && r->inline_chart == NULL)
+        {
+          static const GMarkupParser chart_parser = { ods_chart_start, ods_chart_end, ods_chart_text, NULL, NULL };
+          OdsChartReader *c = g_new0 (OdsChartReader, 1);
+
+          c->kind = O42_CHART_COLUMN;
+          c->title = g_string_new (NULL);
+          r->inline_chart = c;
+          g_markup_parse_context_push (ctx, &chart_parser, c);
+        }
+      else if (strcmp (name, "image") == 0 && attr (names, values, "href") == NULL)
+        /* A .fods: the picture follows, in base64. */
+        r->inline_image = TRUE;
+      else if (strcmp (name, "binary-data") == 0 && r->inline_image && r->binary == NULL)
+        r->binary = g_string_new (NULL);
       else if (strcmp (name, "image") == 0 && r->parts != NULL)
         {
           /* The picture is a file in the zip the frame points at. */
           const char *href = attr (names, values, "href");
           GBytes *data = NULL;
 
-          if (href != NULL)
-            {
-              while (*href == '.' || *href == '/')
-                href++;
-              data = g_hash_table_lookup (r->parts, href);
-            }
+          while (*href == '.' || *href == '/')
+            href++;
+          data = g_hash_table_lookup (r->parts, href);
           if (data != NULL)
-            {
-              int pw, ph;
-              const char *format;
-
-              if (o42_image_probe (data, &pw, &ph, &format))
-                {
-                  O42Picture *pic = o42_sheet_add_picture (r->sheet, data, format, pw, ph,
-                                                           r->row, r->cell_col);
-
-                  if (pic != NULL)
-                    {
-                      pic->anchor = r->frame_anchor;
-                      pic->dx = r->frame_x;
-                      pic->dy = r->frame_y;
-                      if (r->frame_w > 1) pic->width = r->frame_w;
-                      if (r->frame_h > 1) pic->height = r->frame_h;
-                    }
-                }
-            }
+            place_picture (r, data);
         }
       else if (strcmp (name, "enhanced-geometry") == 0 && r->shape != NULL)
         o42_shape_apply_ods_type (r->shape, attr (names, values, "type"));
@@ -4419,9 +4876,11 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "s") == 0 && r->in_p)
         {
-          int n = attr_int (names, values, "c", 1);
+          /* A cell holds 32,767 characters; spaces past that are a
+           * file asking for gigabytes. */
+          int n = CLAMP (attr_int (names, values, "c", 1), 1, 32767);
           GString *target = r->in_annotation ? r->note : r->text;
-          for (int i = 0; i < n; i++) g_string_append_c (target, ' ');
+          for (int i = 0; i < n && target->len < 32767 * 4; i++) g_string_append_c (target, ' ');
         }
       else if (strcmp (name, "a") == 0 && r->in_p && !r->in_annotation)
         {
@@ -4590,9 +5049,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       if (strcmp (name, "s") == 0 || strcmp (name, "tab") == 0)
         {
-          int n = attr_int (names, values, "c", 1);
+          int n = CLAMP (attr_int (names, values, "c", 1), 1, 255);
           hf_sync (r);
-          for (int i = 0; i < n; i++)
+          for (int i = 0; i < n && part->len < 32767; i++)
             g_string_append_c (part, name[0] == 's' ? ' ' : '\t');
           return;
         }
@@ -4853,6 +5312,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
 
           ns->code = g_string_new (NULL);
           ns->lang = lang != NULL ? language_lcid (lang) : 0;
+          ns->elapsed = g_strcmp0 (attr (names, values, "truncate-on-overflow"), "false") == 0;
+          if (ns->elapsed)
+            ns->custom = TRUE;
         }
       if (sname != NULL) g_hash_table_replace (r->num_styles, g_strdup (sname), ns);
       else g_free (ns);
@@ -5001,6 +5463,15 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           else if (strcmp (name, "month") == 0)   g_string_append (ns->code, textual ? (long_form ? "mmmm" : "mmm") : (long_form ? "mm" : "m"));
           else if (strcmp (name, "day") == 0)     g_string_append (ns->code, long_form ? "dd" : "d");
           else if (strcmp (name, "day-of-week") == 0) g_string_append (ns->code, long_form ? "dddd" : "ddd");
+          else if (ns->elapsed &&
+                   (strcmp (name, "hours") == 0 || strcmp (name, "minutes") == 0 || strcmp (name, "seconds") == 0))
+            {
+              /* The first field of an elapsed time runs on: [h]:mm:ss. */
+              char letter = name[0];
+
+              g_string_append_printf (ns->code, "[%c%s]", letter, long_form ? (char[]) { letter, 0 } : "");
+              ns->elapsed = FALSE;
+            }
           else if (strcmp (name, "hours") == 0)   g_string_append (ns->code, long_form ? "hh" : "h");
           else if (strcmp (name, "minutes") == 0) g_string_append (ns->code, long_form ? "mm" : "m");
           else if (strcmp (name, "seconds") == 0) g_string_append (ns->code, long_form ? "ss" : "s");
@@ -5255,7 +5726,10 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
     }
   if (strcmp (name, "table-column") == 0 && r->sheet != NULL)
     {
-      int repeat = attr_int (names, values, "number-columns-repeated", 1);
+      /* A repeat is at least one and at most the sheet: LibreOffice
+       * writes the columns past the last out to 16,384, and a file may
+       * say anything. */
+      int repeat = CLAMP (attr_int (names, values, "number-columns-repeated", 1), 1, O42_MAX_COLS);
       const char *sname = attr (names, values, "style-name");
       const char *cell_style_name = attr (names, values, "default-cell-style-name");
       const char *vis = attr (names, values, "visibility");
@@ -5273,13 +5747,13 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                 cell_style_name != NULL && strcmp (cell_style_name, "Default") != 0 ? g_strdup (cell_style_name) : NULL;
             }
         }
-      r->col += repeat;
+      r->col = MIN (r->col + repeat, O42_MAX_COLS);
       return;
     }
   if (strcmp (name, "table-row") == 0 && r->sheet != NULL)
     {
       const char *vis = attr (names, values, "visibility");
-      r->row_repeat = attr_int (names, values, "number-rows-repeated", 1);
+      r->row_repeat = CLAMP (attr_int (names, values, "number-rows-repeated", 1), 1, O42_MAX_ROWS);
       g_free (r->row_style);
       r->row_style = g_strdup (attr (names, values, "style-name"));
       r->row_hidden = vis != NULL && strcmp (vis, "collapse") == 0;
@@ -5338,9 +5812,10 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       r->covered = name[0] == 'c';
       g_free (r->cell_valid);
       r->cell_valid = g_strdup (attr (names, values, "content-validation-name"));
-      r->cell_repeat = attr_int (names, values, "number-columns-repeated", 1);
-      r->span_cols = attr_int (names, values, "number-columns-spanned", 1);
-      r->span_rows = attr_int (names, values, "number-rows-spanned", 1);
+      r->cell_repeat = CLAMP (attr_int (names, values, "number-columns-repeated", 1), 1, O42_MAX_COLS);
+      /* A span of nought is none; one past the sheet stops at its edge. */
+      r->span_cols = CLAMP (attr_int (names, values, "number-columns-spanned", 1), 1, O42_MAX_COLS);
+      r->span_rows = CLAMP (attr_int (names, values, "number-rows-spanned", 1), 1, O42_MAX_ROWS);
       g_free (r->cell_style);  r->cell_style = g_strdup (attr (names, values, "style-name"));
       g_free (r->formula);     r->formula = g_strdup (attr (names, values, "formula"));
       g_free (r->value_type);  r->value_type = g_strdup (attr (names, values, "value-type"));
@@ -5391,7 +5866,36 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
 {
   Reader *r = user;
   const char *name = local (element);
-  (void) ctx; (void) error;
+  (void) error;
+
+  /* The end of what a .fods keeps inside a frame. */
+  if (strcmp (name, "document") == 0 && r->inline_chart != NULL)
+    {
+      OdsChartReader *c = g_markup_parse_context_pop (ctx);
+
+      place_chart (r, c, r->row, r->cell_col, r->frame_x, r->frame_y, r->frame_w, r->frame_h);
+      g_free (c);
+      r->inline_chart = NULL;
+      return;
+    }
+  if (strcmp (name, "object") == 0)
+    r->inline_object = FALSE;
+  if (strcmp (name, "image") == 0 && r->inline_image)
+    {
+      if (r->binary != NULL && r->sheet != NULL)
+        {
+          gsize size = 0;
+          guchar *raw = g_base64_decode (r->binary->str, &size);
+          GBytes *data = g_bytes_new_take (raw, size);
+
+          place_picture (r, data);
+          g_bytes_unref (data);
+        }
+      if (r->binary != NULL)
+        g_string_free (g_steal_pointer (&r->binary), TRUE);
+      r->inline_image = FALSE;
+      return;
+    }
 
   if (r->in_cell && strcmp (name, "span") == 0 && r->cell_runs != NULL)
     {
@@ -5566,6 +6070,13 @@ meta_start (GMarkupParseContext *ctx, const char *element, const char **names,
   O42Property which;
   (void) ctx; (void) error;
   r->meta_prop = -1;
+  /* Only what the document's own office:meta holds: a .fods is walked
+   * whole, and a chart's title or a note's creator is not the book's. */
+  r->meta_depth++;
+  if (r->meta_depth == 2 && strcmp (name, "meta") == 0)
+    r->in_meta = TRUE;
+  if (!r->in_meta || r->meta_depth != 3)
+    return;
   if (strcmp (name, "title") == 0)                r->meta_prop = O42_PROP_TITLE;
   else if (strcmp (name, "subject") == 0)         r->meta_prop = O42_PROP_SUBJECT;
   else if (strcmp (name, "initial-creator") == 0) r->meta_prop = O42_PROP_AUTHOR;
@@ -5587,7 +6098,10 @@ static void
 meta_end (GMarkupParseContext *ctx, const char *element, gpointer user, GError **error)
 {
   Reader *r = user;
-  (void) ctx; (void) element; (void) error;
+  (void) ctx; (void) error;
+  if (r->meta_depth == 2 && strcmp (local (element), "meta") == 0)
+    r->in_meta = FALSE;
+  r->meta_depth--;
   if (r->meta_prop >= 0)
     {
       /* Several keywords are one list, as Excel keeps them. */
@@ -5617,6 +6131,12 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
 {
   Reader *r = user;
   (void) ctx; (void) error;
+  /* A picture inside its frame, in base64. */
+  if (r->binary != NULL)
+    {
+      g_string_append_len (r->binary, text, (gssize) len);
+      return;
+    }
   /* In a number style only the words of <number:text>, the currency
    * symbol and the fill character are part of the code; the rest is
    * the line breaks and indenting a pretty-printed .fods puts between
@@ -5924,6 +6444,7 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
         parts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_bytes_unref);
         g_hash_table_insert (parts, g_strdup ("content.xml"), g_bytes_ref (archive));
         g_hash_table_insert (parts, g_strdup ("settings.xml"), g_bytes_ref (archive));
+        g_hash_table_insert (parts, g_strdup ("meta.xml"), g_bytes_ref (archive));
       }
     else
       parts = o42_zip_read (archive, error);
