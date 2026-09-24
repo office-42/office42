@@ -11,6 +11,7 @@
  */
 
 #include "o42-ods.h"
+#include "o42-file.h"
 #include "o42-xlsx.h"
 
 #include "o42-image.h"
@@ -2797,8 +2798,7 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
     g_string_free (meta, TRUE);
   }
   bytes = o42_zip_writer_finish (zip);
-  ok = g_file_replace_contents (file, g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes),
-                                NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);
+  ok = o42_file_replace (file, g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes), error);
   g_bytes_unref (bytes);
 
   g_string_free (content, TRUE);

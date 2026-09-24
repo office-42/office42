@@ -5,6 +5,7 @@
  */
 
 #include "o42-csv.h"
+#include "o42-file.h"
 
 #include <string.h>
 
@@ -87,8 +88,7 @@ o42_csv_save (O42Sheet *sheet, GFile *file, GError **error)
       g_string_append (out, "\r\n");
     }
 
-  ok = g_file_replace_contents (file, out->str, out->len, NULL, FALSE,
-                                G_FILE_CREATE_NONE, NULL, NULL, error);
+  ok = o42_file_replace (file, out->str, out->len, error);
   g_string_free (out, TRUE);
 
   return ok;

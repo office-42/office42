@@ -5,6 +5,7 @@
  */
 
 #include "o42-pdf.h"
+#include "o42-file.h"
 #include "o42-pattern.h"
 #include "o42-richtext.h"
 
@@ -1586,11 +1587,22 @@ export_to (GFile *file, O42Book *book, O42Sheet *sheet, GError **error)
     }
 
   cairo_destroy (cr);
+  /* Most of the file is written as the surface is finished, so a disk
+   * that fills shows here. */
   cairo_surface_finish (surface);
+  if (ok && cairo_surface_status (surface) != CAIRO_STATUS_SUCCESS)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   "office42 could not write the PDF: %s",
+                   cairo_status_to_string (cairo_surface_status (surface)));
+      ok = FALSE;
+    }
   cairo_surface_destroy (surface);
   g_free (base);
 
-  if (!g_output_stream_close (G_OUTPUT_STREAM (stream), NULL, ok ? error : NULL))
+  if (!ok)
+    o42_file_abandon (G_OUTPUT_STREAM (stream));
+  else if (!g_output_stream_close (G_OUTPUT_STREAM (stream), NULL, error))
     ok = FALSE;
   g_object_unref (stream);
   return ok;

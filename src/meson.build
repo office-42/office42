@@ -18,6 +18,7 @@ o42_core_sources = files(
   'model/o42-chart.c',
   'model/o42-shape.c',
   'io/o42-pdf.c',
+  'io/o42-file.c',
   'io/o42-csv.c',
   'io/o42-text-formats.c',
   'io/o42-lotus.c',

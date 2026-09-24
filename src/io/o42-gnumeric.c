@@ -5,6 +5,7 @@
  */
 
 #include "o42-gnumeric.h"
+#include "o42-file.h"
 
 #include "o42-pattern.h"
 
@@ -658,7 +659,10 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
 
 /* The output as it is written: the XML of a big book would be hundreds
  * of megabytes held whole, so what has been made is pushed through the
- * compressor as it goes and the string emptied. */
+ * compressor as it goes and the string emptied.  The compressed book,
+ * a tenth of that or less, is held until it is whole, and only then
+ * put where the file was, so a save that fails leaves the file as it
+ * was. */
 static GOutputStream *stream_out;
 static GError *stream_error;
 
@@ -1387,16 +1391,11 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
   n = o42_book_n_sheets (book);
   out = g_string_new (NULL);
   {
-    GFileOutputStream *raw = g_file_replace (file, NULL, FALSE, G_FILE_CREATE_NONE, NULL, error);
+    GOutputStream *raw = g_memory_output_stream_new_resizable ();
     GZlibCompressor *compressor;
 
-    if (raw == NULL)
-      {
-        g_string_free (out, TRUE);
-        return FALSE;
-      }
     compressor = g_zlib_compressor_new (G_ZLIB_COMPRESSOR_FORMAT_GZIP, -1);
-    stream_out = g_converter_output_stream_new (G_OUTPUT_STREAM (raw), G_CONVERTER (compressor));
+    stream_out = g_converter_output_stream_new (raw, G_CONVERTER (compressor));
     g_object_unref (compressor);
     g_object_unref (raw);
     g_clear_error (&stream_error);
@@ -1690,7 +1689,15 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
   if (stream_error == NULL)
     g_output_stream_write_all (stream_out, out->str, out->len, NULL, NULL, &stream_error);
   ok = stream_error == NULL && g_output_stream_close (stream_out, NULL, &stream_error);
-  if (stream_error != NULL)
+  if (ok)
+    {
+      GOutputStream *raw = g_filter_output_stream_get_base_stream (G_FILTER_OUTPUT_STREAM (stream_out));
+      GMemoryOutputStream *memory = G_MEMORY_OUTPUT_STREAM (raw);
+
+      ok = o42_file_replace (file, g_memory_output_stream_get_data (memory),
+                             g_memory_output_stream_get_data_size (memory), error);
+    }
+  else
     g_propagate_error (error, g_steal_pointer (&stream_error));
   g_clear_object (&stream_out);
   g_string_free (out, TRUE);

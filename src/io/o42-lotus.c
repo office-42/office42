@@ -5,6 +5,7 @@
  */
 
 #include "o42-lotus.h"
+#include "o42-file.h"
 #include "o42-csv.h"
 #include "o42-entry.h"
 
@@ -135,8 +136,7 @@ o42_lotus_save (O42Sheet *sheet, GFile *file, GError **error)
       }
 
   put_record (out, L_EOF, NULL, 0);
-  ok = g_file_replace_contents (file, (const char *) out->data, out->len, NULL, FALSE,
-                                G_FILE_CREATE_NONE, NULL, NULL, error);
+  ok = o42_file_replace (file, (const char *) out->data, out->len, error);
   g_byte_array_free (out, TRUE);
   return ok;
 }

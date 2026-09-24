@@ -5,6 +5,7 @@
  */
 
 #include "o42-text-formats.h"
+#include "o42-file.h"
 #include "o42-csv.h"
 
 #include "o42-book.h"
@@ -27,8 +28,7 @@ append_number (GString *out, double value)
 static gboolean
 write_text (GFile *file, GString *out, GError **error)
 {
-  gboolean ok = g_file_replace_contents (file, out->str, out->len, NULL, FALSE,
-                                         G_FILE_CREATE_NONE, NULL, NULL, error);
+  gboolean ok = o42_file_replace (file, out->str, out->len, error);
 
   g_string_free (out, TRUE);
   return ok;

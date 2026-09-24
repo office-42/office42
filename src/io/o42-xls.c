@@ -5,6 +5,7 @@
  */
 
 #include "o42-xls.h"
+#include "o42-file.h"
 
 /* Excel 97 to 2003 could hold this much and no more. */
 #define O42_XLS_MAX_ROWS 65536
@@ -6614,8 +6615,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
     g_bytes_unref (contents[1]);
     g_bytes_unref (contents[2]);
   }
-  ok = g_file_replace_contents (file, g_bytes_get_data (whole, NULL), g_bytes_get_size (whole),
-                                NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);
+  ok = o42_file_replace (file, g_bytes_get_data (whole, NULL), g_bytes_get_size (whole), error);
   g_bytes_unref (whole);
   g_bytes_unref (stream);
 
