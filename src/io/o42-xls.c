@@ -453,6 +453,9 @@ typedef struct
   GHashTable *shared;        /* o42_key -> GBytes rgce */
   int         pending_row, pending_col;   /* formula waiting on a STRING record */
   gboolean    pending;
+  int         anchor_row, anchor_col;   /* a shared formula's first cell, */
+  guint       anchor_xf;                /* read before its SHRFMLA */
+  gboolean    anchor;
   int         default_width;
 
   /* Notes: OBJ gives an id, TXO and its CONTINUEs the text, NOTE the cell. */
@@ -1879,6 +1882,7 @@ read_formula (Reader *r, const guchar *p, gsize len)
 
   if (rgce + cce > end)
     return;
+  r->anchor = FALSE;
 
   /* A ptgExp points at the shared formula (or array) that owns it. */
   if (cce >= 5 && rgce[0] == 0x01)
@@ -1892,7 +1896,16 @@ read_formula (Reader *r, const guchar *p, gsize len)
       GBytes *master = g_hash_table_lookup (r->shared, GSIZE_TO_POINTER ((gsize) o42_key (srow, scol)));
       if (master == NULL)
         {
-          /* Not seen yet (or an array formula): keep the cached value. */
+          /* Not seen yet (or an array formula): keep the cached value.
+           * The first cell of a shared formula comes before the
+           * SHRFMLA that holds it, which gives it its formula. */
+          if (srow == (guint) row && scol == (guint) col)
+            {
+              r->anchor = TRUE;
+              r->anchor_row = row;
+              r->anchor_col = col;
+              r->anchor_xf = xf;
+            }
           r->pending = FALSE;
           if (result[6] == 0xFF && result[7] == 0xFF)
             {
@@ -1935,9 +1948,26 @@ read_shrfmla (Reader *r, const guchar *p, gsize len)
 {
   guint r0 = rd16 (p), c0 = p[4];
   guint cce = rd16 (p + 8);
-  if (10 + cce <= len)
-    g_hash_table_insert (r->shared, GSIZE_TO_POINTER ((gsize) o42_key (r0, c0)),
-                         g_bytes_new (p + 8, len - 8));
+  if (10 + cce > len)
+    return;
+  g_hash_table_insert (r->shared, GSIZE_TO_POINTER ((gsize) o42_key (r0, c0)),
+                       g_bytes_new (p + 8, len - 8));
+  if (r->anchor && (guint) r->anchor_row == r0 && (guint) r->anchor_col == c0)
+    {
+      O42Node *tree = decode_formula (r, p + 10, cce, r->anchor_row, r->anchor_col, TRUE,
+                                      p + 10 + cce, p + len);
+      char *text = o42_node_to_string (tree);
+      char *input = g_strconcat ("=", text, NULL);
+
+      set_cell (r, r->anchor_row, r->anchor_col, r->anchor_xf, input);
+      g_free (input);
+      g_free (text);
+      o42_node_free (tree);
+      /* The STRING after it would put the cached text over the formula. */
+      if (r->pending && r->pending_row == r->anchor_row && r->pending_col == r->anchor_col)
+        r->pending = FALSE;
+    }
+  r->anchor = FALSE;
 }
 
 /* A number from a CF rule's formula: ptgInt or ptgNum, nothing else. */
