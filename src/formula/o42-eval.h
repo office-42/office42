@@ -155,6 +155,18 @@ const char * const *o42_function_names (guint *n_names);
 gboolean o42_function_help (const char *name, const char **signature,
                             const char **summary);
 
+/* Least squares: the b that makes X b come closest to y, for n
+ * observations of k columns, X given row by row.  Householder QR, the
+ * columns taken in the order given; a column that is, to within
+ * rounding, a combination of the ones kept before it is set aside, as
+ * LINEST sets aside a collinear column, and gets a coefficient of 0.
+ * `cov`, when not NULL, gets the k by k matrix (X'X)^-1 over the
+ * columns kept, 0 in the rows and columns of the ones set aside: the
+ * coefficients' covariance once multiplied by the residual variance.
+ * Returns how many columns were kept. */
+int o42_least_squares (const double *X, const double *y, int n, int k,
+                       double *beta, double *cov);
+
 /* The euro's members, ISO codes with EUR first, for Tools > Euro
  * Conversion; and how many decimals a member's sums are kept to. */
 int o42_euro_members  (const char ***codes);

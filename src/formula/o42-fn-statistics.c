@@ -37,6 +37,124 @@
 #define accum_init o42_accum_init
 #define accumulate o42_accumulate
 
+/* ---- Least squares ---------------------------------------------------- */
+
+/* A column whose part not explained by the columns before it is this
+ * small a fraction of its own length is taken to be their combination:
+ * far above rounding, which leaves an exact combination at 1e-16 or
+ * so, and far below any column a regression means to keep. */
+#define COLLINEAR 1e-12
+
+/* The normal equations, X'X b = X'y, square the condition of the
+ * problem: on NIST's Longley data they leave seven or eight correct
+ * digits.  Householder reflections work on X itself and keep about
+ * twice as many.  X is copied column by column; each column in turn is
+ * reflected onto the diagonal of R, and the same reflections are made
+ * of the columns after it and of y, which leaves R b = Q'y to solve by
+ * back substitution. */
+int
+o42_least_squares (const double *X, const double *y, int n, int k,
+                   double *beta, double *cov)
+{
+  double *a = g_new (double, (gsize) n * k);     /* column by column */
+  double *qty = g_memdup2 (y, sizeof (double) * n);
+  double *v = g_new (double, n);
+  int *kept = g_new (int, k);                   /* R's columns, as X numbers them */
+  int rank = 0;
+
+  for (int j = 0; j < k; j++)
+    for (int i = 0; i < n; i++)
+      a[(gsize) j * n + i] = X[(gsize) i * k + j];
+
+  for (int j = 0; j < k && rank < n; j++)
+    {
+      double *col = a + (gsize) j * n;
+      double length = 0, rest = 0, alpha, vv = 0;
+
+      for (int i = 0; i < n; i++)
+        length += col[i] * col[i];
+      for (int i = rank; i < n; i++)
+        rest += col[i] * col[i];
+      length = sqrt (length);
+      rest = sqrt (rest);
+      if (rest == 0 || rest <= COLLINEAR * length)
+        continue;
+
+      /* The reflection that takes col[rank..] to (alpha, 0, ...), alpha
+       * signed against col[rank] so that nothing cancels in v. */
+      alpha = col[rank] > 0 ? -rest : rest;
+      for (int i = rank; i < n; i++)
+        v[i] = col[i];
+      v[rank] -= alpha;
+      for (int i = rank; i < n; i++)
+        vv += v[i] * v[i];
+      for (int m = j + 1; m <= k; m++)
+        {
+          double *other = m < k ? a + (gsize) m * n : qty;
+          double dot = 0;
+
+          for (int i = rank; i < n; i++)
+            dot += v[i] * other[i];
+          dot = 2 * dot / vv;
+          for (int i = rank; i < n; i++)
+            other[i] -= dot * v[i];
+        }
+      col[rank] = alpha;
+      for (int i = rank + 1; i < n; i++)
+        col[i] = 0;
+      kept[rank++] = j;
+    }
+
+  /* R b = Q'y, R being row i of the kept columns: a[kept[c] * n + i]. */
+  for (int j = 0; j < k; j++)
+    beta[j] = 0;
+  for (int i = rank - 1; i >= 0; i--)
+    {
+      double sum = qty[i];
+
+      for (int c = i + 1; c < rank; c++)
+        sum -= a[(gsize) kept[c] * n + i] * beta[kept[c]];
+      beta[kept[i]] = sum / a[(gsize) kept[i] * n + i];
+    }
+
+  if (cov != NULL)
+    {
+      /* (X'X)^-1 = R^-1 R^-T over the kept columns. */
+      double *rinv = g_new0 (double, (gsize) rank * rank);
+
+      for (int c = 0; c < rank; c++)
+        {
+          rinv[c * rank + c] = 1 / a[(gsize) kept[c] * n + c];
+          for (int i = c - 1; i >= 0; i--)
+            {
+              double sum = 0;
+
+              for (int m = i + 1; m <= c; m++)
+                sum += a[(gsize) kept[m] * n + i] * rinv[m * rank + c];
+              rinv[i * rank + c] = -sum / a[(gsize) kept[i] * n + i];
+            }
+        }
+      for (int i = 0; i < k * k; i++)
+        cov[i] = 0;
+      for (int i = 0; i < rank; i++)
+        for (int j = 0; j < rank; j++)
+          {
+            double sum = 0;
+
+            for (int m = MAX (i, j); m < rank; m++)
+              sum += rinv[i * rank + m] * rinv[j * rank + m];
+            cov[kept[i] * k + kept[j]] = sum;
+          }
+      g_free (rinv);
+    }
+
+  g_free (a);
+  g_free (qty);
+  g_free (v);
+  g_free (kept);
+  return rank;
+}
+
 /* ---- Statistics ------------------------------------------------------- */
 
 /* Every number in the arguments, in order, or the error that stopped the

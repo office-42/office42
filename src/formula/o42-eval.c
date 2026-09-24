@@ -8216,19 +8216,22 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
        strcmp (node->as.call.name, "LOGREG") == 0) &&
       n_args >= 1 && n_args <= 4)
     {
-      /* Least squares of y on any number of x variables, by the normal
-       * equations; with stats, Excel's five rows: coefficients, their
-       * standard errors, r2 and the standard error of y, F and the
-       * degrees of freedom, and the regression and residual sums of
-       * squares.  LOGEST fits ln y and reports e to the coefficients. */
+      /* Least squares of y on any number of x variables, by
+       * o42_least_squares; with stats, Excel's five rows: coefficients,
+       * their standard errors, r2 and the standard error of y, F and
+       * the degrees of freedom, and the regression and residual sums
+       * of squares.  LOGEST fits ln y and reports e to the
+       * coefficients.  A column collinear with the others is set aside
+       * as Excel sets it aside: a coefficient and a standard error of
+       * 0, and a degree of freedom the more. */
       gboolean logest = strcmp (node->as.call.name, "LOGEST") == 0;
       gboolean logreg = strcmp (node->as.call.name, "LOGREG") == 0;
       O42Operand ys = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
       O42Operand xs;
-      gboolean have_x = FALSE, with_const = TRUE, stats = FALSE, bad = FALSE, singular = FALSE;
-      int yr, yc, n, p = 1, k, xr = 0, xc = 0;
+      gboolean have_x = FALSE, with_const = TRUE, stats = FALSE, bad = FALSE;
+      int yr, yc, n, p = 1, k, xr = 0, xc = 0, first_x, rank;
       gboolean y_is_row;
-      double *X = NULL, *y = NULL, *A = NULL, *inv = NULL, *c = NULL, *beta = NULL;
+      double *X = NULL, *y = NULL, *inv = NULL, *beta = NULL;
       double ss_res = 0, ss_tot = 0, ss_reg, ybar = 0, se_y = 0, r2, f;
       int df;
       ArrayConst *a;
@@ -8258,6 +8261,9 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
             bad = TRUE;
         }
       k = p + (with_const ? 1 : 0);
+      /* The constant's column comes first, so that an x that is
+       * constant too is the one set aside, not the intercept. */
+      first_x = with_const ? 1 : 0;
       if (bad || n < 1 || k > n)
         {
           operand_clear (&ys); operand_clear (&xs);
@@ -8298,10 +8304,10 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
                 {
                   if (x <= 0) bad = TRUE; else x = log (x);
                 }
-              X[i * k + j] = x;
+              X[i * k + first_x + j] = x;
             }
           if (with_const)
-            X[i * k + p] = 1;
+            X[i * k] = 1;
         }
       operand_clear (&ys);
       operand_clear (&xs);
@@ -8312,54 +8318,9 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           return TRUE;
         }
 
-      /* A = X'X, c = X'y, inv = A^-1 by Gauss-Jordan, beta = inv c. */
-      A = g_new0 (double, (gsize) k * k);
-      inv = g_new0 (double, (gsize) k * k);
-      c = g_new0 (double, k);
       beta = g_new0 (double, k);
-      for (int i = 0; i < k; i++)
-        {
-          inv[i * k + i] = 1;
-          for (int j = 0; j < k; j++)
-            for (int r = 0; r < n; r++)
-              A[i * k + j] += X[r * k + i] * X[r * k + j];
-          for (int r = 0; r < n; r++)
-            c[i] += X[r * k + i] * y[r];
-        }
-      for (int col = 0; col < k && !singular; col++)
-        {
-          int pivot = col;
-          for (int r = col + 1; r < k; r++)
-            if (fabs (A[r * k + col]) > fabs (A[pivot * k + col])) pivot = r;
-          if (fabs (A[pivot * k + col]) < 1e-12)
-            { singular = TRUE; break; }
-          if (pivot != col)
-            for (int j = 0; j < k; j++)
-              {
-                double t = A[col * k + j]; A[col * k + j] = A[pivot * k + j]; A[pivot * k + j] = t;
-                t = inv[col * k + j]; inv[col * k + j] = inv[pivot * k + j]; inv[pivot * k + j] = t;
-              }
-          {
-            double d = A[col * k + col];
-            for (int j = 0; j < k; j++) { A[col * k + j] /= d; inv[col * k + j] /= d; }
-          }
-          for (int r = 0; r < k; r++)
-            if (r != col && A[r * k + col] != 0)
-              {
-                double m = A[r * k + col];
-                for (int j = 0; j < k; j++)
-                  { A[r * k + j] -= m * A[col * k + j]; inv[r * k + j] -= m * inv[col * k + j]; }
-              }
-        }
-      if (singular)
-        {
-          g_free (X); g_free (y); g_free (A); g_free (inv); g_free (c); g_free (beta);
-          out->value = o42_value_error (O42_ERR_NUM);
-          return TRUE;
-        }
-      for (int i = 0; i < k; i++)
-        for (int j = 0; j < k; j++)
-          beta[i] += inv[i * k + j] * c[j];
+      inv = g_new0 (double, (gsize) k * k);
+      rank = o42_least_squares (X, y, n, k, beta, inv);
 
       for (int r = 0; r < n; r++) ybar += y[r];
       ybar /= n;
@@ -8371,34 +8332,39 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           ss_tot += with_const ? (y[r] - ybar) * (y[r] - ybar) : y[r] * y[r];
         }
       ss_reg = MAX (ss_tot - ss_res, 0);
-      df = n - k;
+      /* The x columns that were kept are what the fit has to show for
+       * its degrees of freedom. */
+      df = n - rank;
       se_y = df > 0 ? sqrt (ss_res / df) : 0;
       r2 = ss_tot > 0 ? ss_reg / ss_tot : 1;
-      f = (df > 0 && ss_res > 0) ? (ss_reg / p) / (ss_res / df) : 0;
+      f = (df > 0 && ss_res > 0 && rank > first_x) ? (ss_reg / (rank - first_x)) / (ss_res / df) : 0;
 
       a = array_const_new (stats ? 5 : 1, p + 1);
       for (int j = 0; j < p; j++)
         {
-          double m = beta[p - 1 - j];
+          double m = beta[first_x + p - 1 - j];
           a->cells[j] = o42_value_number (logest ? exp (m) : m);
         }
-      a->cells[p] = o42_value_number (with_const ? (logest ? exp (beta[p]) : beta[p]) : (logest ? 1 : 0));
+      a->cells[p] = o42_value_number (with_const ? (logest ? exp (beta[0]) : beta[0]) : (logest ? 1 : 0));
       if (stats)
         {
           int w = p + 1;
           for (int j = 0; j < p; j++)
-            a->cells[w + j] = df > 0 ? o42_value_number (sqrt (se_y * se_y * inv[(p - 1 - j) * k + (p - 1 - j)]))
-                                     : o42_value_error (O42_ERR_NA);
-          a->cells[w + p] = (with_const && df > 0) ? o42_value_number (sqrt (se_y * se_y * inv[p * k + p]))
+            {
+              int at = first_x + p - 1 - j;
+              a->cells[w + j] = df > 0 ? o42_value_number (sqrt (se_y * se_y * inv[at * k + at]))
+                                       : o42_value_error (O42_ERR_NA);
+            }
+          a->cells[w + p] = (with_const && df > 0) ? o42_value_number (sqrt (se_y * se_y * inv[0]))
                                                    : o42_value_error (O42_ERR_NA);
           for (int j = 0; j < w; j++)
             {
               a->cells[2 * w + j] = j == 0 ? o42_value_number (r2) : j == 1 ? (df > 0 ? o42_value_number (se_y) : o42_value_error (O42_ERR_NA)) : o42_value_error (O42_ERR_NA);
-              a->cells[3 * w + j] = j == 0 ? (df > 0 && ss_res > 0 ? o42_value_number (f) : o42_value_error (O42_ERR_NUM)) : j == 1 ? o42_value_number (df) : o42_value_error (O42_ERR_NA);
+              a->cells[3 * w + j] = j == 0 ? (df > 0 && ss_res > 0 && rank > first_x ? o42_value_number (f) : o42_value_error (O42_ERR_NUM)) : j == 1 ? o42_value_number (df) : o42_value_error (O42_ERR_NA);
               a->cells[4 * w + j] = j == 0 ? o42_value_number (ss_reg) : j == 1 ? o42_value_number (ss_res) : o42_value_error (O42_ERR_NA);
             }
         }
-      g_free (X); g_free (y); g_free (A); g_free (inv); g_free (c); g_free (beta);
+      g_free (X); g_free (y); g_free (inv); g_free (beta);
       *out = array_operand (a);
       return TRUE;
     }

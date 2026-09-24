@@ -5,6 +5,7 @@
  */
 
 #include "o42-analysis.h"
+#include "o42-eval.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -448,75 +449,12 @@ o42_analysis_covariance (O42Sheet *sheet, const O42AnalysisOptions *options)
 
 /* ---- Regression ------------------------------------------------------ */
 
-/* Solves the normal equations by Gaussian elimination with partial
- * pivoting, and hands back the inverse too, which the standard errors
- * of the coefficients are made of. */
-static gboolean
-solve_normal (double *a, double *b, double *inverse, int n)
-{
-  int *pivot = g_new (int, n);
-  gboolean ok = TRUE;
-
-  for (int i = 0; i < n; i++)
-    for (int j = 0; j < n; j++)
-      inverse[i * n + j] = (i == j) ? 1 : 0;
-
-  for (int i = 0; i < n && ok; i++)
-    {
-      int best = i;
-
-      for (int r = i + 1; r < n; r++)
-        if (fabs (a[r * n + i]) > fabs (a[best * n + i]))
-          best = r;
-      if (fabs (a[best * n + i]) < 1e-12)
-        { ok = FALSE; break; }
-      if (best != i)
-        {
-          for (int c = 0; c < n; c++)
-            {
-              double t = a[i * n + c]; a[i * n + c] = a[best * n + c]; a[best * n + c] = t;
-              t = inverse[i * n + c]; inverse[i * n + c] = inverse[best * n + c]; inverse[best * n + c] = t;
-            }
-          { double t = b[i]; b[i] = b[best]; b[best] = t; }
-        }
-      pivot[i] = i;
-      {
-        double d = a[i * n + i];
-
-        for (int c = 0; c < n; c++)
-          {
-            a[i * n + c] /= d;
-            inverse[i * n + c] /= d;
-          }
-        b[i] /= d;
-      }
-      for (int r = 0; r < n; r++)
-        {
-          double f;
-
-          if (r == i)
-            continue;
-          f = a[r * n + i];
-          if (f == 0)
-            continue;
-          for (int c = 0; c < n; c++)
-            {
-              a[r * n + c] -= f * a[i * n + c];
-              inverse[r * n + c] -= f * inverse[i * n + c];
-            }
-          b[r] -= f * b[i];
-        }
-    }
-  g_free (pivot);
-  return ok;
-}
-
 gboolean
 o42_analysis_regression (O42Sheet *sheet, const O42AnalysisOptions *options)
 {
   GArray *variables;
   int k, n, terms;
-  double *a, *b, *inverse;
+  double *a, *ys, *b, *inverse;
   double mean_y = 0, ss_total = 0, ss_residual = 0;
   int row;
 
@@ -534,7 +472,10 @@ o42_analysis_regression (O42Sheet *sheet, const O42AnalysisOptions *options)
   if (n <= terms)
     { free_variables (variables); return FALSE; }
 
-  a = g_new0 (double, terms * terms);
+  /* The observations row by row, the intercept's column of ones
+   * first, for the same least squares as LINEST. */
+  a = g_new (double, n * terms);
+  ys = g_new (double, n);
   b = g_new0 (double, terms);
   inverse = g_new0 (double, terms * terms);
 
@@ -542,25 +483,21 @@ o42_analysis_regression (O42Sheet *sheet, const O42AnalysisOptions *options)
     {
       double y = g_array_index (g_array_index (variables, Variable, variables->len - 1).values,
                                 double, row_i);
-      double *x = g_new (double, terms);
 
-      x[0] = 1;
+      a[row_i * terms] = 1;
       for (int i = 0; i < k; i++)
-        x[i + 1] = g_array_index (g_array_index (variables, Variable, i).values, double, row_i);
-      for (int i = 0; i < terms; i++)
-        {
-          for (int j = 0; j < terms; j++)
-            a[i * terms + j] += x[i] * x[j];
-          b[i] += x[i] * y;
-        }
+        a[row_i * terms + i + 1] = g_array_index (g_array_index (variables, Variable, i).values,
+                                                  double, row_i);
+      ys[row_i] = y;
       mean_y += y;
-      g_free (x);
     }
   mean_y /= n;
 
-  if (!solve_normal (a, b, inverse, terms))
+  /* Variables that are combinations of one another have no answer
+   * here, as they had none by the normal equations. */
+  if (o42_least_squares (a, ys, n, terms, b, inverse) < terms)
     {
-      g_free (a); g_free (b); g_free (inverse);
+      g_free (a); g_free (ys); g_free (b); g_free (inverse);
       free_variables (variables);
       return FALSE;
     }
@@ -649,6 +586,7 @@ o42_analysis_regression (O42Sheet *sheet, const O42AnalysisOptions *options)
   o42_sheet_end_group (sheet);
 
   g_free (a);
+  g_free (ys);
   g_free (b);
   g_free (inverse);
   free_variables (variables);
