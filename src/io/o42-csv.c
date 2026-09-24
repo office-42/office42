@@ -14,8 +14,10 @@ static gboolean
 file_is_tabbed (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  gboolean tabbed = name != NULL && (g_str_has_suffix (name, ".txt") || g_str_has_suffix (name, ".tsv") ||
-                                     g_str_has_suffix (name, ".tab") || g_str_has_suffix (name, ".TXT"));
+  char *folded = name != NULL ? g_ascii_strdown (name, -1) : NULL;
+  gboolean tabbed = folded != NULL && (g_str_has_suffix (folded, ".txt") || g_str_has_suffix (folded, ".tsv") ||
+                                       g_str_has_suffix (folded, ".tab"));
+  g_free (folded);
   g_free (name);
   return tabbed;
 }
@@ -25,8 +27,10 @@ append_field (GString *out, const char *text, char sep)
 {
   gboolean quote = FALSE;
 
+  /* The other separators are quoted too, so that a reader guessing the
+   * separator from the first line is not misled by one inside a field. */
   for (const char *p = text; *p != '\0'; p++)
-    if (*p == sep || *p == '"' || *p == '\n' || *p == '\r')
+    if (*p == sep || *p == '"' || *p == '\n' || *p == '\r' || *p == ',' || *p == ';' || *p == '\t')
       {
         quote = TRUE;
         break;
@@ -217,20 +221,34 @@ o42_csv_load (O42Sheet *sheet, GFile *file, GError **error)
   if (g_str_has_prefix (p, "\357\273\277"))     /* a byte-order mark */
     p += 3;
 
-  /* Half the world's Excels write semicolons, because their decimal point
-   * is a comma.  If the first line has semicolons and no commas, that is
-   * the file's separator; a tab in it, and none of either, or a .txt
-   * name, makes it a tab. */
-  {
-    const char *nl = strchr (p, '\n');
-    gsize first = (nl != NULL) ? (gsize) (nl - p) : strlen (p);
-    gboolean tab = memchr (p, '\t', first) != NULL;
+  /* A .txt, .tsv or .tab file has tabs between its fields, as Excel
+   * writes and reads one.  Half the world's Excels write semicolons in a
+   * .csv, because their decimal point is a comma: if the first record has
+   * semicolons and no commas outside quotes, that is the file's
+   * separator, and a tab and neither of the others makes it a tab. */
+  if (file_is_tabbed (file))
+    sep = '\t';
+  else
+    {
+      int commas = 0, semicolons = 0, tabs = 0;
+      gboolean quoted = FALSE;
 
-    if (tab && (file_is_tabbed (file) || (memchr (p, ',', first) == NULL && memchr (p, ';', first) == NULL)))
-      sep = '\t';
-    else if (memchr (p, ';', first) != NULL && memchr (p, ',', first) == NULL)
-      sep = ';';
-  }
+      for (const char *q = p; *q != '\0' && (quoted || (*q != '\n' && *q != '\r')); q++)
+        {
+          if (*q == '"')
+            quoted = !quoted;
+          else if (!quoted && *q == ',')
+            commas++;
+          else if (!quoted && *q == ';')
+            semicolons++;
+          else if (!quoted && *q == '\t')
+            tabs++;
+        }
+      if (tabs > 0 && commas == 0 && semicolons == 0)
+        sep = '\t';
+      else if (semicolons > 0 && commas == 0)
+        sep = ';';
+    }
 
   o42_sheet_begin_group (sheet);
   o42_sheet_clear_range (sheet, &everything);
