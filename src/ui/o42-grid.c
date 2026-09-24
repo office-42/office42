@@ -3419,19 +3419,89 @@ o42_grid_has_own_copy (O42Grid *self)
   return self->clip_text != NULL;
 }
 
+/* The sheet our own copy was taken from: this one, another of the book,
+ * or NULL when that sheet has gone since. */
+static O42Sheet *
+clip_source (O42Grid *self)
+{
+  O42Book *book = o42_sheet_get_book (self->sheet);
+  O42Sheet *source = book != NULL ? o42_book_find_sheet (book, self->clip_sheet) : NULL;
+
+  if (source == NULL && strcmp (self->clip_sheet, o42_sheet_get_name (self->sheet)) == 0)
+    source = self->sheet;
+  return source;
+}
+
+/* Our own copy, taken on another sheet, pasted on this one at row,col:
+ * each formula moved by how far its cell moved -- so =A1 copied from
+ * Sheet1 reads this sheet's cell, as Excel has it -- and the formats
+ * with it, as Fill Across carries them. */
+static void
+paste_from_sheet (O42Grid *self, O42Sheet *source, int row, int col,
+                  O42PasteMode mode, gboolean transpose)
+{
+  const O42Range *from = &self->clip_range;
+
+  for (int r = from->row0; r <= from->row1; r++)
+    for (int c = from->col0; c <= from->col1; c++)
+      {
+        int to_row = row + (transpose ? c - from->col0 : r - from->row0);
+        int to_col = col + (transpose ? r - from->row0 : c - from->col0);
+
+        if (to_row >= O42_MAX_ROWS || to_col >= O42_MAX_COLS)
+          continue;
+        if (mode != O42_PASTE_FORMATS)
+          {
+            char *input = o42_sheet_get_input_relocated (source, r, c, to_row - r, to_col - c);
+
+            if (mode == O42_PASTE_VALUES && input != NULL && input[0] == '=')
+              {
+                O42Value v;
+
+                o42_sheet_get_value (source, r, c, &v);
+                g_free (input);
+                input = o42_value_to_text (&v);
+                o42_value_clear (&v);
+              }
+            if ((input != NULL && *input != '\0') || !o42_sheet_is_empty (self->sheet, to_row, to_col))
+              o42_sheet_set_input (self->sheet, to_row, to_col, input != NULL ? input : "");
+            g_free (input);
+          }
+        if (mode == O42_PASTE_ALL || mode == O42_PASTE_FORMATS)
+          {
+            O42Range one = { to_row, to_col, to_row, to_col };
+
+            o42_sheet_apply_fmt (self->sheet, &one, O42_FMT_ALL, o42_sheet_get_fmt (source, r, c));
+          }
+      }
+}
+
 void
 o42_grid_paste_special (O42Grid *self, O42PasteMode mode, gboolean transpose)
 {
+  O42Sheet *source;
+
   g_return_if_fail (O42_IS_GRID (self));
 
-  if (self->sheet == NULL || self->clip_text == NULL)
+  if (self->sheet == NULL || self->clip_text == NULL || self->clip_sheet == NULL)
+    return;
+  /* A copy from a sheet that has gone since is not ours to lay out. */
+  source = clip_source (self);
+  if (source == NULL)
     return;
 
   if (self->editing)
     o42_grid_commit_edit (self);
 
-  o42_sheet_copy_range_special (self->sheet, &self->clip_range,
-                                self->active_row, self->active_col, mode, transpose);
+  if (source != self->sheet)
+    {
+      o42_sheet_begin_group (self->sheet);
+      paste_from_sheet (self, source, self->active_row, self->active_col, mode, transpose);
+      o42_sheet_end_group (self->sheet);
+    }
+  else
+    o42_sheet_copy_range_special (self->sheet, &self->clip_range,
+                                  self->active_row, self->active_col, mode, transpose);
   {
     O42Range landed = { self->active_row, self->active_col,
                         self->active_row + (transpose ? self->clip_range.col1 - self->clip_range.col0
@@ -3462,7 +3532,7 @@ on_paste_text (GObject *source, GAsyncResult *result, gpointer data)
   text = gdk_clipboard_read_text_finish (GDK_CLIPBOARD (source), result, NULL);
 
   if (text != NULL && self->sheet != NULL && self->clip_text != NULL &&
-      strcmp (text, self->clip_text) == 0)
+      self->clip_sheet != NULL && strcmp (text, self->clip_text) == 0 && clip_source (self) != NULL)
     {
       /* Our own copy, coming back: paste it with its references moved, and
        * tile it across the selection if the selection is a whole number of
@@ -3488,8 +3558,17 @@ on_paste_text (GObject *source, GAsyncResult *result, gpointer data)
       o42_sheet_begin_group (self->sheet);
       for (int r = 0; r < down; r++)
         for (int c = 0; c < across; c++)
-          o42_sheet_copy_range (self->sheet, &self->clip_range,
-                                sel.row0 + r * rows, sel.col0 + c * cols);
+          {
+            O42Sheet *from = clip_source (self);
+
+            /* From another sheet, the copy is that sheet's cells. */
+            if (from != self->sheet)
+              paste_from_sheet (self, from, sel.row0 + r * rows, sel.col0 + c * cols,
+                                O42_PASTE_ALL, FALSE);
+            else
+              o42_sheet_copy_range (self->sheet, &self->clip_range,
+                                    sel.row0 + r * rows, sel.col0 + c * cols);
+          }
       o42_sheet_end_group (self->sheet);
       sheet_changed (self);
     }

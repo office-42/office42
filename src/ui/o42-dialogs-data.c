@@ -1998,6 +1998,7 @@ action_text_to_columns (GSimpleAction *a, GVariant *p, gpointer data)
 typedef struct {
   O42Window *window;
   GtkWidget *dialog;
+  O42Sheet  *sheet;         /* the list's, whichever sheet is on show later */
   O42Range   list;          /* headings on the first row */
   int        record;        /* the row on show, or -1 for a new record */
   gboolean   criteria;      /* the entries hold criteria rather than a record */
@@ -2006,6 +2007,19 @@ typedef struct {
   GtkWidget *new_btn, *delete_btn, *criteria_btn;
   char     **criteria_text; /* the criteria in force, one per column, or NULL */
 } FormPrompt;
+
+/* The sheet the list is on.  The form stays open while the user goes to
+ * another sheet, and must not write that one's cells; a sheet deleted
+ * since has no list left to show. */
+static O42Sheet *
+form_sheet (FormPrompt *prompt)
+{
+  O42Book *book = prompt->window->book;
+
+  if (book == NULL || o42_book_sheet_index (book, prompt->sheet) < 0)
+    return NULL;
+  return prompt->sheet;
+}
 
 /* The block of filled cells around a cell, bounded by empty rows and
  * columns: Excel's CurrentRegion. */
@@ -2062,7 +2076,10 @@ form_set_counter (FormPrompt *prompt)
 static void
 form_show_record (FormPrompt *prompt, int row)
 {
-  O42Sheet *sheet = prompt->window->sheet;
+  O42Sheet *sheet = form_sheet (prompt);
+
+  if (sheet == NULL)
+    return;
 
   prompt->record = row;
   prompt->criteria = FALSE;
@@ -2104,11 +2121,11 @@ form_show_record (FormPrompt *prompt, int row)
 static gboolean
 form_commit (FormPrompt *prompt)
 {
-  O42Sheet *sheet = prompt->window->sheet;
+  O42Sheet *sheet = form_sheet (prompt);
   int row = prompt->record;
   gboolean any = FALSE, changed = FALSE;
 
-  if (prompt->criteria)
+  if (prompt->criteria || sheet == NULL)
     return TRUE;
 
   for (guint i = 0; i < prompt->entries->len && !any; i++)
@@ -2169,8 +2186,10 @@ form_commit (FormPrompt *prompt)
 static gboolean
 form_matches (FormPrompt *prompt, int row)
 {
-  O42Sheet *sheet = prompt->window->sheet;
+  O42Sheet *sheet = form_sheet (prompt);
 
+  if (sheet == NULL)
+    return FALSE;
   if (prompt->criteria_text == NULL)
     return TRUE;
   for (guint i = 0; i < prompt->entries->len; i++)
@@ -2290,11 +2309,11 @@ static void
 on_form_delete (GtkWidget *w, gpointer data)
 {
   FormPrompt *prompt = data;
-  O42Sheet *sheet = prompt->window->sheet;
+  O42Sheet *sheet = form_sheet (prompt);
   int row = prompt->record;
 
   (void) w;
-  if (prompt->criteria || row < 0)
+  if (prompt->criteria || row < 0 || sheet == NULL)
     return;
   o42_sheet_delete_rows (sheet, row, 1);
   prompt->list.row1--;
@@ -2394,6 +2413,7 @@ action_data_form (GSimpleAction *a, GVariant *p, gpointer data)
 
   prompt = g_new0 (FormPrompt, 1);
   prompt->window = self;
+  prompt->sheet = self->sheet;
   prompt->list = list;
   prompt->entries = g_ptr_array_new ();
   prompt->dialog = dialog_frame (self, o42_sheet_get_name (self->sheet), FALSE, &content, &buttons);

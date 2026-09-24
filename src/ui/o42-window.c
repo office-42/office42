@@ -7544,9 +7544,28 @@ o42_window_dispose (GObject *object)
 {
   O42Window *self = O42_WINDOW (object);
 
-  g_clear_pointer (&self->family_index, g_hash_table_destroy);
-  g_clear_pointer (&self->status_text, g_free);
-  g_clear_object (&self->families);
+  /* The dialogs first, while the grid and the book they point at are
+   * still here: a dialog going with its parent gives the grid its focus
+   * back, and Find or the Data Form would otherwise do that to a grid
+   * already freed.  They are gathered before any goes, since each that
+   * goes leaves the list of windows. */
+  {
+    GListModel *all = gtk_window_get_toplevels ();
+    GPtrArray *mine = g_ptr_array_new_with_free_func (g_object_unref);
+
+    for (guint i = 0; i < g_list_model_get_n_items (all); i++)
+      {
+        GtkWindow *w = g_list_model_get_item (all, i);
+
+        if (gtk_window_get_transient_for (w) == GTK_WINDOW (self))
+          g_ptr_array_add (mine, w);
+        else
+          g_object_unref (w);
+      }
+    for (guint i = 0; i < mine->len; i++)
+      gtk_window_destroy (g_ptr_array_index (mine, i));
+    g_ptr_array_unref (mine);
+  }
 
   if (self->grid != NULL)
     o42_grid_set_sheet (self->grid, NULL);
@@ -7566,6 +7585,9 @@ o42_window_dispose (GObject *object)
   g_clear_pointer (&self->db, o42_db_close);
   g_clear_object (&self->file);
   g_clear_object (&self->print_settings);
+  g_clear_pointer (&self->family_index, g_hash_table_destroy);
+  g_clear_pointer (&self->status_text, g_free);
+  g_clear_object (&self->families);
 
   G_OBJECT_CLASS (o42_window_parent_class)->dispose (object);
 }
