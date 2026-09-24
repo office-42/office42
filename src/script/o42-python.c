@@ -117,6 +117,21 @@ static gboolean  sheets_touched = FALSE; /* sheets added, removed or renamed */
 static int       handler_count = 0;      /* event handlers registered, all books */
 static const char *debug_filename = NULL; /* the script being stepped, while it is */
 static int       firing        = 0;      /* inside a handler: no handlers fire */
+static int       in_cell       = 0;      /* inside a function a cell called */
+
+/* A function a cell calls runs in the middle of the sheet being worked
+ * out, and may read the book but not change it -- as Excel's own
+ * user-defined functions may not.  A row deleted under the formula
+ * being worked out would free it while it ran.  Asked to, it raises,
+ * and the cell shows #VALUE! with the reason in office42.errors(). */
+static gboolean
+refuse_in_cell (void)
+{
+  if (in_cell == 0)
+    return FALSE;
+  PyErr_SetString (PyExc_RuntimeError, "a function called from a cell cannot change the book");
+  return TRUE;
+}
 
 /* ---- Between the two value systems --------------------------------- */
 
@@ -126,9 +141,33 @@ value_to_py (const O42Value *v)
   switch (v->type)
     {
     case O42_VALUE_NUMBER: return PyFloat_FromDouble (v->as.number);
-    case O42_VALUE_TEXT:   return PyUnicode_FromString (v->as.text != NULL ? v->as.text : "");
+    case O42_VALUE_TEXT:
+      {
+        /* A text that is not UTF-8 -- a byte typed on a terminal -- comes
+         * over with the bad bytes replaced, never as nothing, which a
+         * list cannot hold. */
+        const char *text = v->as.text != NULL ? v->as.text : "";
+        PyObject *o = PyUnicode_DecodeUTF8 (text, (Py_ssize_t) strlen (text), "replace");
+
+        if (o == NULL)
+          {
+            PyErr_Clear ();
+            Py_RETURN_NONE;
+          }
+        return o;
+      }
     case O42_VALUE_BOOL:   return PyBool_FromLong (v->as.boolean);
-    case O42_VALUE_ERROR:  return PyObject_CallFunction (error_class, "s", o42_error_name (v->as.error));
+    case O42_VALUE_ERROR:
+      {
+        PyObject *o = PyObject_CallFunction (error_class, "s", o42_error_name (v->as.error));
+
+        if (o == NULL)
+          {
+            PyErr_Clear ();
+            Py_RETURN_NONE;
+          }
+        return o;
+      }
     case O42_VALUE_EMPTY:
     default:               Py_RETURN_NONE;
     }
@@ -368,6 +407,8 @@ m_copy_sheet (PyObject *self, PyObject *args)
   int index, to = -1;
   const char *name = "";
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "i|is", &index, &to, &name))
     return NULL;
@@ -386,6 +427,8 @@ m_add_sheet (PyObject *self, PyObject *args)
   const char *name;
   int index = -1;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "s|i", &name, &index))
     return NULL;
@@ -403,6 +446,8 @@ m_remove_sheet (PyObject *self, PyObject *args)
 {
   int index;
   O42Sheet *gone;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "i", &index) || (gone = sheet_arg (index)) == NULL)
     return NULL;
@@ -421,6 +466,8 @@ m_rename_sheet (PyObject *self, PyObject *args)
 {
   int index;
   const char *name;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "is", &index, &name) || sheet_arg (index) == NULL)
     return NULL;
@@ -434,6 +481,8 @@ static PyObject *
 m_move_sheet (PyObject *self, PyObject *args)
 {
   int from, to;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "ii", &from, &to) || sheet_arg (from) == NULL)
     return NULL;
@@ -452,6 +501,8 @@ shift_band (PyObject *args, gboolean rows, gboolean insert)
   int index, at, count = 1;
   O42Sheet *sheet;
   int limit = rows ? O42_MAX_ROWS : O42_MAX_COLS;
+  if (refuse_in_cell ())
+    return NULL;
   if (!PyArg_ParseTuple (args, "ii|i", &index, &at, &count) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
   if (at < 0 || at >= limit || count < 0)
@@ -495,6 +546,8 @@ m_shift_cells (PyObject *self, PyObject *args)
   int index, down, insert;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiipp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &down, &insert) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
@@ -510,6 +563,8 @@ m_merge (PyObject *self, PyObject *args)
   int index;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!RANGE_ARGS (args, index, r) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
@@ -524,6 +579,8 @@ m_unmerge (PyObject *self, PyObject *args)
   int index;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!RANGE_ARGS (args, index, r) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
@@ -585,6 +642,8 @@ m_set_hidden (PyObject *self, PyObject *args)
 {
   int index, rows, first, last, hidden;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "ipiip", &index, &rows, &first, &last, &hidden) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
@@ -625,6 +684,8 @@ m_frozen (PyObject *self, PyObject *args)
     return NULL;
   if (rows >= 0 && cols >= 0)
     {
+      if (refuse_in_cell ())
+        return NULL;
       o42_sheet_set_frozen (sheet, rows, cols);
       book_touched = TRUE;
     }
@@ -640,6 +701,8 @@ m_clear_range (PyObject *self, PyObject *args)
   int index, formats;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiip", &index, &r.row0, &r.col0, &r.row1, &r.col1, &formats) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
@@ -660,6 +723,8 @@ m_copy_range (PyObject *self, PyObject *args)
   const char *mode_text;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiiiisp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &row, &col, &mode_text, &transpose) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
@@ -681,6 +746,8 @@ m_move_range (PyObject *self, PyObject *args)
   int index, row, col;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1, &row, &col) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
@@ -697,6 +764,8 @@ m_fill (PyObject *self, PyObject *args)
   int index, direction;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1, &direction) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
@@ -718,6 +787,8 @@ m_fill_series (PyObject *self, PyObject *args)
   O42Range r;
   O42Series series;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiissdppdp", &index, &r.row0, &r.col0, &r.row1, &r.col1,
                          &type, &unit, &series.step, &trend, &has_stop, &series.stop, &rows) ||
@@ -753,6 +824,8 @@ m_fill_across (PyObject *self, PyObject *args)
   PyObject *list;
   const char *what;
   O42Sheet **targets;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiiOs", &index, &r.row0, &r.col0, &r.row1, &r.col1, &list, &what) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
@@ -788,6 +861,8 @@ m_create_names (PyObject *self, PyObject *args)
   int index, top, left, bottom, right;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiipppp", &index, &r.row0, &r.col0, &r.row1, &r.col1,
                          &top, &left, &bottom, &right) ||
@@ -805,6 +880,8 @@ m_apply_names (PyObject *self, PyObject *args)
   O42Sheet *sheet;
   PyObject *names;
   char **list = NULL;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiiO", &index, &r.row0, &r.col0, &r.row1, &r.col1, &names) ||
       (sheet = sheet_arg (index)) == NULL)
@@ -841,6 +918,8 @@ m_fill_justify (PyObject *self, PyObject *args)
   int index;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
@@ -856,6 +935,8 @@ m_autofill (PyObject *self, PyObject *args)
   int index;
   O42Range r, t;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiiiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1, &t.row0, &t.col0, &t.row1, &t.col1) ||
       !range_ok (&r) || !range_ok (&t) || (sheet = sheet_arg (index)) == NULL)
@@ -909,6 +990,8 @@ m_sort (PyObject *self, PyObject *args)
   int keys[3], n_keys, n_asc;
   int asc_i[3] = { 1, 1, 1 };
   gboolean asc[3];
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiiOOp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &keys_o, &asc_o, &header) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
@@ -944,6 +1027,8 @@ m_replace (PyObject *self, PyObject *args)
   O42Range r;
   O42Sheet *sheet;
   const char *needle, *replacement;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiissp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &needle, &replacement, &match_case) ||
       (sheet = sheet_arg (index)) == NULL)
@@ -985,6 +1070,8 @@ m_remove_duplicates (PyObject *self, PyObject *args)
   O42Sheet *sheet;
   PyObject *cols_o;
   int cols[256];
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiiOp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &cols_o, &header) ||
       !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
@@ -1017,6 +1104,8 @@ m_set_autofilter (PyObject *self, PyObject *args)
   int index;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
@@ -1051,6 +1140,8 @@ m_autofilter_choose (PyObject *self, PyObject *args)
   int index, col;
   PyObject *value = NULL;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "ii|O", &index, &col, &value) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
@@ -1243,6 +1334,8 @@ m_undo (PyObject *self, PyObject *args)
   int index, redo = 0;
   O42Sheet *sheet;
   gboolean done;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "i|p", &index, &redo) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
@@ -1255,6 +1348,8 @@ m_undo (PyObject *self, PyObject *args)
 static PyObject *
 m_calculate (PyObject *self, PyObject *args)
 {
+  if (refuse_in_cell ())
+    return NULL;
   (void) self; (void) args;
   if (current_book != NULL)
     {
@@ -1287,6 +1382,8 @@ m_set_input (PyObject *self, PyObject *args)
   int index, row, col;
   const char *text;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiis", &index, &row, &col, &text) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
     return NULL;
@@ -1685,6 +1782,8 @@ m_set_format (PyObject *self, PyObject *args, PyObject *kwargs)
   O42Sheet *sheet;
   O42Fmt fmt;
   O42FmtMask mask = 0;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
 
   if (!PyArg_ParseTuple (args, "iiiii", &index, &r.row0, &r.col0, &r.row1, &r.col1) ||
@@ -1837,6 +1936,8 @@ m_add_chart (PyObject *self, PyObject *args)
   O42ChartKind kind;
   O42Sheet *sheet;
   O42Chart *chart;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "isiiiiii", &index, &kind_name, &r.row0, &r.col0, &r.row1, &r.col1, &row, &col) ||
       (sheet = sheet_arg (index)) == NULL || !range_ok (&r) || !cell_ok (row, col))
@@ -1862,6 +1963,8 @@ m_add_shape (PyObject *self, PyObject *args)
   gboolean is_geom = FALSE;
   O42Sheet *sheet;
   O42Shape *shape;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "isii", &index, &name, &row, &col) ||
       (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
@@ -1895,6 +1998,8 @@ m_add_picture (PyObject *self, PyObject *args)
   int width = 0, height = 0;
   const char *format = NULL;
   O42Picture *picture;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "isii", &index, &path, &row, &col) ||
       (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
@@ -1937,6 +2042,8 @@ m_remove_object (PyObject *self, PyObject *args)
   unsigned id;
   O42ObjectType type;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "isI", &index, &type_name, &id) || (sheet = sheet_arg (index)) == NULL ||
       !object_type_parse (type_name, &type))
@@ -2114,6 +2221,8 @@ m_object_set (PyObject *self, PyObject *args)
   O42Shape *s = NULL;
   O42Picture *p = NULL;
   gboolean ok = TRUE;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "isIO!", &index, &type_name, &id, &PyDict_Type, &dict) ||
       (sheet = sheet_arg (index)) == NULL || !object_type_parse (type_name, &type))
@@ -2236,6 +2345,8 @@ m_reorder_object (PyObject *self, PyObject *args)
   O42ObjectType type;
   O42Order order;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "isIs", &index, &type_name, &id, &how) || (sheet = sheet_arg (index)) == NULL ||
       !object_type_parse (type_name, &type))
@@ -2272,6 +2383,8 @@ m_set_note (PyObject *self, PyObject *args)
   int index, row, col;
   const char *text = NULL;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiz", &index, &row, &col, &text) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
     return NULL;
@@ -2300,6 +2413,8 @@ m_set_link (PyObject *self, PyObject *args)
   int index, row, col;
   const char *target = NULL;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiz", &index, &row, &col, &target) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
     return NULL;
@@ -2362,6 +2477,8 @@ m_add_validation (PyObject *self, PyObject *args)
   O42Validation v;
   O42Sheet *sheet;
   gboolean found = FALSE;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiisssssp", &index, &r.row0, &r.col0, &r.row1, &r.col1, &kind, &op,
                          &value, &value2, &message, &allow_blank) ||
@@ -2390,6 +2507,8 @@ m_clear_validations (PyObject *self, PyObject *args)
   int index;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!RANGE_ARGS (args, index, r) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
@@ -2437,6 +2556,8 @@ m_add_condition (PyObject *self, PyObject *args, PyObject *kwargs)
   double value, value2;
   O42Condition c;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!PyArg_ParseTuple (args, "iiiiisdd", &index, &r.row0, &r.col0, &r.row1, &r.col1, &op, &value, &value2) ||
       (sheet = sheet_arg (index)) == NULL || !range_ok (&r))
@@ -2465,6 +2586,8 @@ m_clear_conditions (PyObject *self, PyObject *args)
   int index;
   O42Range r;
   O42Sheet *sheet;
+  if (refuse_in_cell ())
+    return NULL;
   (void) self;
   if (!RANGE_ARGS (args, index, r) || (sheet = sheet_arg (index)) == NULL)
     return NULL;
@@ -2524,7 +2647,9 @@ python_function (O42EvalContext *ctx, const char *name, O42Operand *args, int n_
       PyList_SET_ITEM (list, i, item);
     }
 
+  in_cell++;
   result = PyObject_CallMethod (module, "_call", "sO", name, list);
+  in_cell--;
   Py_DECREF (list);
   if (result == NULL)
     {
