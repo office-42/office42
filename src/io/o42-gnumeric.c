@@ -327,7 +327,9 @@ write_cell (Writer *w, O42Sheet *sheet, int row, int col)
           }
         case O42_VALUE_TEXT:  text = g_strdup (v.as.text); value_type = 60; break;
         case O42_VALUE_BOOL:  text = g_strdup (v.as.boolean ? "TRUE" : "FALSE"); value_type = 20; break;
-        case O42_VALUE_ERROR: text = g_strdup (o42_error_name (v.as.error)); value_type = 10; break;
+        /* 50 is Gnumeric's error; 10 is its empty cell, which is how
+         * an error written as 10 would come back to it. */
+        case O42_VALUE_ERROR: text = g_strdup (o42_error_name (v.as.error)); value_type = 50; break;
         default: break;
         }
       o42_value_clear (&v);
@@ -3179,9 +3181,12 @@ finish_cell (Reader *r)
   /* A constant of a known type goes in as the value it is, without
    * being read as typed text: a string stays a string whatever it
    * looks like, and a number is not parsed twice. */
-  if (text[0] != '=' && (r->cell_type == 60 || r->cell_type == 40 || r->cell_type == 30))
+  if (text[0] != '=' && (r->cell_type == 60 || r->cell_type == 40 || r->cell_type == 30 ||
+                         r->cell_type == 20))
     {
+      /* A boolean is a constant too, not a formula that returns one. */
       O42Value value = r->cell_type == 60 ? o42_value_text (text)
+                     : r->cell_type == 20 ? o42_value_bool (g_ascii_strcasecmp (text, "TRUE") == 0)
                                           : o42_value_number (g_ascii_strtod (text, NULL));
 
       o42_sheet_set_value (r->sheet, r->cell_row, r->cell_col, &value);
@@ -3196,10 +3201,6 @@ finish_cell (Reader *r)
     case 60:
       /* Text that would read as a number or a date has to be forced. */
       forced = o42_entry_quote_text (text);
-      break;
-
-    case 20:
-      forced = g_strconcat ("=", text, NULL);
       break;
 
     default:
