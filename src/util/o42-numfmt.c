@@ -305,7 +305,7 @@ format_skeleton (const char *text, gboolean *money, char **symbol)
 static double
 show_round (double n, int places)
 {
-  double scale = pow (10, CLAMP (places, 0, 30));
+  double scale = pow (10, CLAMP (places, 0, O42_MAX_DECIMALS));
   double scaled = n * scale;
   double nudged = scaled;
 
@@ -375,7 +375,7 @@ fixed_digits (char *buffer, gsize size, double n, int decimals)
   int exp10, m = 0;
   GString *out;
 
-  decimals = CLAMP (decimals, 0, 30);
+  decimals = CLAMP (decimals, 0, O42_MAX_DECIMALS);
   n = show_round (fabs (n), decimals);
   if (n == 0)
     {
@@ -1359,6 +1359,11 @@ format_number_section (GString *out, const Section *s, double n, O42FormatLayout
         }
     }
 
+  /* Past thirty decimal places a code shows no more: the digits come
+   * from fixed_digits, which stops there, and the places after them
+   * are left out, as Excel will not have them either. */
+  dec_places = MIN (dec_places, O42_MAX_DECIMALS);
+
   /* Each percent sign is another hundredfold: "0%%" shows 12.5 as
    * 125000%%, as Excel does. */
   for (int i = 0; i < percents; i++)
@@ -1537,6 +1542,23 @@ section_is_fraction (const Section *s)
   return FALSE;
 }
 
+/* The largest denominator a fraction format can name: nine figures. */
+#define FRACTION_MAX_DEN 999999999L
+
+/* A whole number of any size as its digits -- fifteen significant ones
+ * and noughts after, as a cell shows it -- padded on the left to
+ * `places` with `pad`. */
+static void
+append_whole (GString *out, double v, int places, char pad)
+{
+  char digits[400];
+
+  fixed_digits (digits, sizeof digits, v, 0);
+  for (int i = (int) strlen (digits); i < places; i++)
+    g_string_append_c (out, pad);
+  g_string_append (out, digits);
+}
+
 /* Writes a fraction section: "# ?/?" and "# ??/??" find the closest
  * fraction with a denominator of that many digits, "?/8" and "# ?/16"
  * keep the denominator given; with no whole-number place the numerator
@@ -1549,8 +1571,8 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
   int whole_places = 0, num_places = 0, den_places = 0;
   long fixed_den = 0;
   gboolean quoted = FALSE;
-  long whole, num, den;
-  double frac;
+  long num, den;
+  double whole, frac, numerator;
 
   /* The shape: whole-number places, a space, numerator places, the
    * slash, and the denominator's places or its digits. */
@@ -1568,7 +1590,13 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
           else num_places++;
         }
       else if (g_ascii_isdigit (*p) && slash != NULL)
-        fixed_den = fixed_den * 10 + (*p - '0');
+        {
+          /* Nine figures at most: past that the numerator, the
+           * fraction times the denominator, would not fit a long. */
+          fixed_den = fixed_den * 10 + (*p - '0');
+          if (fixed_den > FRACTION_MAX_DEN)
+            fixed_den = FRACTION_MAX_DEN;
+        }
       else if (*p == ' ' && slash == NULL && num_places > 0 && gap == NULL)
         {
           /* The space between the whole number and the fraction: what
@@ -1580,7 +1608,10 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
     }
   if (num_places == 0) num_places = 1;
 
-  whole = (long) floor (n);
+  /* The whole part and the numerator stay doubles and are written as
+   * digits, since a number past a long's range -- 1E+20 in "# ?/?" --
+   * still has a whole part to show. */
+  whole = floor (n);
   frac = n - whole;
 
   if (fixed_den > 0)
@@ -1610,7 +1641,8 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
         { num = c; den = d; }
     }
   if (num == den) { num = 0; whole++; }
-  if (whole_places == 0) { num += whole * den; whole = 0; }
+  numerator = num;
+  if (whole_places == 0) { numerator += whole * den; whole = 0; }
 
   /* Written out, with each place as wide as the code asks. */
   for (p = s->start; p < s->end; )
@@ -1633,14 +1665,14 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
             {
               /* The whole part: a "?" place left empty is a blank, a
                * "#" nothing at all. */
-              if (whole != 0 || num == 0 || pad == '0')
-                g_string_append_printf (out, "%*ld", places, whole);
+              if (whole != 0 || numerator == 0 || pad == '0')
+                append_whole (out, whole, places, ' ');
               else
                 g_string_append_printf (out, "%*s", blanks, "");
               p = q;
               continue;
             }
-          if (num == 0 && whole_places > 0)
+          if (numerator == 0 && whole_places > 0)
             {
               /* No fraction: blanks as wide as "n/d" would have been. */
               const char *r = q;
@@ -1653,7 +1685,7 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
               p = r;
               continue;
             }
-          g_string_append_printf (out, pad == '0' ? "%0*ld" : "%*ld", places, num);
+          append_whole (out, numerator, places, pad);
           p = q;
           if (p < s->end && *p == '/')
             {

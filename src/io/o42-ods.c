@@ -3012,6 +3012,17 @@ attr_int (const char **names, const char **values, const char *want, int fallbac
   return v != NULL ? atoi (v) : fallback;
 }
 
+/* A count of digit places in a number style: decimals, leading noughts,
+ * a fraction's or an exponent's figures.  A file may say anything, and
+ * each place is a character of the code built from it, so it is held
+ * to what a format can show; a style of min-integer-digits="1500000000"
+ * would otherwise be a code of a gigabyte and a minute and a half. */
+static int
+attr_places (const char **names, const char **values, const char *want, int fallback)
+{
+  return CLAMP (attr_int (names, values, want, fallback), 0, O42_MAX_DECIMALS);
+}
+
 /* The Excel language of an ODF language tag, the other way round
  * from language_tag. */
 static guint
@@ -4875,15 +4886,15 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           const char *dp = attr (names, values, "decimal-places");
           const char *grouping = attr (names, values, "grouping");
           if (ns->number == O42_NUM_GENERAL) ns->number = O42_NUM_FIXED;
-          if (dp != NULL) ns->decimals = atoi (dp);
+          if (dp != NULL) ns->decimals = attr_places (names, values, "decimal-places", 0);
           else if (ns->number == O42_NUM_FIXED) ns->number = O42_NUM_GENERAL;
           if (grouping != NULL && strcmp (grouping, "true") == 0) ns->grouping = TRUE;
           if (ns->code != NULL)
             {
               /* The digit places back as a code: "#,##0.00" and its kin. */
-              int mi = attr_int (names, values, "min-integer-digits", 1);
-              int places = dp != NULL ? atoi (dp) : 0;
-              int min_places = attr_int (names, values, "min-decimal-places", places);
+              int mi = attr_places (names, values, "min-integer-digits", 1);
+              int places = attr_places (names, values, "decimal-places", 0);
+              int min_places = attr_places (names, values, "min-decimal-places", places);
               double factor = attr_double (names, values, "display-factor", 1);
               GString *digits = g_string_new (NULL);
 
@@ -4906,7 +4917,10 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
                   g_string_append_c (digits, '.');
                   for (int i = 0; i < places; i++) g_string_append_c (digits, i < min_places ? '0' : '#');
                 }
-              for (; factor >= 1000; factor /= 1000) g_string_append_c (digits, ',');
+              /* A comma a thousand; an infinite factor would be commas
+               * for ever, and a code has room for about a hundred. */
+              for (int k = 0; factor >= 1000 && k < 100; factor /= 1000, k++)
+                g_string_append_c (digits, ',');
               g_string_append (ns->code, digits->str);
               g_string_free (digits, TRUE);
               /* More than a preset says: a scale, several leading
@@ -4920,24 +4934,24 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           /* "# ?/?", "# ??/??" or "# ?/8": the whole number when the
            * style asks for integer digits, then the numerator's places
            * over the denominator's, or over the denominator itself. */
-          int mi = attr_int (names, values, "min-integer-digits", 0);
-          int num = attr_int (names, values, "min-numerator-digits", 1);
-          int den = attr_int (names, values, "min-denominator-digits", 0);
+          int mi = attr_places (names, values, "min-integer-digits", 0);
+          int num = attr_places (names, values, "min-numerator-digits", 1);
+          int den = attr_places (names, values, "min-denominator-digits", 0);
           double den_value = attr_double (names, values, "denominator-value", 0);
 
           if (mi > 0) g_string_append (ns->code, "# ");
           for (int i = 0; i < MAX (num, 1); i++) g_string_append_c (ns->code, '?');
           g_string_append_c (ns->code, '/');
-          if (den_value > 0) g_string_append_printf (ns->code, "%.0f", den_value);
+          if (den_value > 0 && den_value < 1e9) g_string_append_printf (ns->code, "%.0f", den_value);
           else for (int i = 0; i < MAX (den, 1); i++) g_string_append_c (ns->code, '?');
           ns->custom = TRUE;
         }
       else if (strcmp (name, "scientific-number") == 0)
         {
-          int exp_digits = attr_int (names, values, "min-exponent-digits", 2);
-          int mi = attr_int (names, values, "min-integer-digits", 1);
+          int exp_digits = attr_places (names, values, "min-exponent-digits", 2);
+          int mi = attr_places (names, values, "min-integer-digits", 1);
           ns->number = O42_NUM_SCIENTIFIC;
-          ns->decimals = attr_int (names, values, "decimal-places", 2);
+          ns->decimals = attr_places (names, values, "decimal-places", 2);
           if (ns->code != NULL)
             {
               for (int i = 0; i < MAX (mi, 1); i++) g_string_append_c (ns->code, '0');

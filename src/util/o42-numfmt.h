@@ -30,6 +30,10 @@ typedef enum {
                          * the right, a space between: Excel's Accounting */
 } O42NumberFormat;
 
+/* The most decimals a format can show, as in Excel: a code asking for
+ * more shows this many, and a file asking for more is read as this. */
+#define O42_MAX_DECIMALS 30
+
 /* The currency symbol the Currency and Accounting presets show: the
  * locale's at start-up, or what Tools > Options was told.  Kept here
  * because a format is applied below the model and the window alike. */
