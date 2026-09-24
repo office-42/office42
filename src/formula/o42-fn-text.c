@@ -228,6 +228,9 @@ fn_rept (O42EvalContext *ctx, O42Operand *args, int n)
   /* Excel's cell holds 32,767 characters; more than that is #VALUE!. */
   if (count < 0 || (double) g_utf8_strlen (s, -1) * floor (count) > 32767)
     { g_free (s); return o42_value_error (O42_ERR_VALUE); }
+  /* Nothing, however many times, is nothing: at once. */
+  if (*s == '\0')
+    return o42_value_take (s);
 
   out = g_string_new (NULL);
   for (int i = 0; i < (int) count; i++)
@@ -311,13 +314,26 @@ fn_substitute (O42EvalContext *ctx, O42Operand *args, int n)
           break;
         seen++;
         g_string_append_len (out, p, found - p);
-        if (instance == 0 || seen == (int) instance)
+        if (instance == 0 || seen == instance)
           g_string_append (out, with);
         else
           g_string_append (out, needle);
         p = found + nlen;
+        /* A cell holds 32,767 characters, four bytes at most each: a
+         * text on its way past that is #VALUE! before it eats the
+         * memory, as SUBSTITUTE(REPT(...),...,REPT(...)) would. */
+        if (out->len > 32767 * 4)
+          break;
       }
     g_string_append (out, p);
+    if (out->len > 32767 && g_utf8_strlen (out->str, -1) > 32767)
+      {
+        g_string_free (out, TRUE);
+        g_free (hay);
+        g_free (needle);
+        g_free (with);
+        return o42_value_error (O42_ERR_VALUE);
+      }
     result = g_string_free (out, FALSE);
   }
 
@@ -453,54 +469,60 @@ fn_clean (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_take (g_string_free (out, FALSE));
 }
 
-/* Does `pattern`, which may hold * and ?, match a prefix of `text`?  Used
- * by SEARCH, which wants the earliest position at which the pattern
- * begins. */
+/* Does `pattern`, which may hold * and ?, match `text` -- the whole of
+ * it, or when `whole` is FALSE a prefix of it, which is what SEARCH
+ * wants?  Only the last star is ever gone back to: a star further on
+ * covers whatever one before it would have, and going back to every
+ * star, as this once did, took minutes for "*a*a*a*b" over three
+ * hundred a's. */
 static gboolean
 glob_match (const char *pattern, const char *text, gboolean whole)
 {
+  const char *p = pattern, *t = text;
+  const char *star_p = NULL, *star_t = NULL;
+
   for (;;)
     {
-      gunichar pc, tc;
-
-      if (*pattern == '\0')
-        return whole ? *text == '\0' : TRUE;
-
-      pc = g_utf8_get_char (pattern);
-
-      /* ~* and ~? are the characters themselves, and ~~ a tilde. */
-      if (pc == '~' && pattern[1] != '\0')
+      if (*p == '\0' && !whole)
+        return TRUE;
+      if (*p == '*')
         {
-          pattern = g_utf8_next_char (pattern);
-          pc = g_utf8_get_char (pattern);
-          if (*text == '\0' || g_utf8_get_char (text) != pc)
-            return FALSE;
-          pattern = g_utf8_next_char (pattern);
-          text = g_utf8_next_char (text);
+          star_p = ++p;
+          star_t = t;
           continue;
         }
-
-      if (pc == '*')
+      if (*p == '\0' && *t == '\0')
+        return TRUE;
+      if (*p != '\0' && *t != '\0')
         {
-          const char *rest = g_utf8_next_char (pattern);
-          for (const char *t = text; ; t = g_utf8_next_char (t))
+          gunichar pc = g_utf8_get_char (p);
+          const char *after = g_utf8_next_char (p);
+          gboolean any = pc == '?';
+
+          /* ~* and ~? are the characters themselves, and ~~ a tilde. */
+          if (pc == '~' && *after != '\0')
             {
-              if (glob_match (rest, t, whole))
-                return TRUE;
-              if (*t == '\0')
-                return FALSE;
+              pc = g_utf8_get_char (after);
+              after = g_utf8_next_char (after);
+              any = FALSE;
+            }
+          if (any || pc == g_utf8_get_char (t))
+            {
+              p = after;
+              t = g_utf8_next_char (t);
+              continue;
             }
         }
-
-      if (*text == '\0')
-        return FALSE;
-
-      tc = g_utf8_get_char (text);
-      if (pc != '?' && pc != tc)
-        return FALSE;
-
-      pattern = g_utf8_next_char (pattern);
-      text = g_utf8_next_char (text);
+      /* A mismatch, or one of them spent: the last star takes one more
+       * character, while there is one to take. */
+      if (star_p != NULL && *star_t != '\0')
+        {
+          star_t = g_utf8_next_char (star_t);
+          t = star_t;
+          p = star_p;
+          continue;
+        }
+      return FALSE;
     }
 }
 

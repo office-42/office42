@@ -1079,7 +1079,10 @@ section_second_places (const Section *s)
           if (p < s->end && *p == '.')
             for (p++; p < s->end && *p == '0'; p++)
               places++;
-          return places;
+          /* Excel shows three places; nine is as many as fit in an int
+           * once the fraction is scaled, and more noughts are written
+           * as they stand. */
+          return MIN (places, 9);
         }
     }
   return 0;
@@ -1303,6 +1306,7 @@ format_number_section (GString *out, const Section *s, double n, O42FormatLayout
   char digits[400];
   char *point;
   const char *int_digits, *dec_digits;
+  int dec_len;
   int int_len, exp10 = 0;
   int int_used = 0, dec_used = 0;
 
@@ -1390,6 +1394,8 @@ format_number_section (GString *out, const Section *s, double n, O42FormatLayout
     *point++ = '\0';
   int_digits = digits;
   dec_digits = (point != NULL) ? point : "";
+  /* The digits stop at thirty decimals; places after them are noughts. */
+  dec_len = (int) strlen (dec_digits);
   int_len = (int) strlen (int_digits);
   if (int_len == 1 && int_digits[0] == '0' && !int_zero_place)
     int_len = 0;      /* "#.00" shows .50, not 0.50 */
@@ -1471,11 +1477,11 @@ format_number_section (GString *out, const Section *s, double n, O42FormatLayout
             }
           else if (dec_used < dec_places)
             {
-              char digit = dec_digits[dec_used];
+              char digit = dec_used < dec_len ? dec_digits[dec_used] : '0';
               gboolean rest_zero = TRUE;
 
-              for (const char *q = dec_digits + dec_used; *q != '\0'; q++)
-                if (*q != '0') rest_zero = FALSE;
+              for (int q = dec_used; q < dec_len; q++)
+                if (dec_digits[q] != '0') rest_zero = FALSE;
 
               if (c == '0' || !rest_zero)
                 g_string_append_c (out, digit);
@@ -1562,13 +1568,16 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
       if (*p == '[') { while (p < s->end && *p != ']') p++; continue; }
       if (*p == '_' || *p == '*') { p++; continue; }
       if (*p == '/' && slash == NULL) { slash = p; continue; }
-      if (*p == '0' || *p == '#' || *p == '?')
+      /* "?/10" and "?/100", tenths and hundredths: a denominator that
+       * starts with a digit other than nought is a number, noughts and
+       * all, not places. */
+      if (slash != NULL && g_ascii_isdigit (*p) && (fixed_den > 0 || *p != '0'))
+        fixed_den = MIN (fixed_den * 10 + (*p - '0'), 999999999L);
+      else if (*p == '0' || *p == '#' || *p == '?')
         {
           if (slash != NULL) den_places++;
           else num_places++;
         }
-      else if (g_ascii_isdigit (*p) && slash != NULL)
-        fixed_den = fixed_den * 10 + (*p - '0');
       else if (*p == ' ' && slash == NULL && num_places > 0 && gap == NULL)
         {
           /* The space between the whole number and the fraction: what
@@ -1579,6 +1588,17 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
         }
     }
   if (num_places == 0) num_places = 1;
+
+  /* Past fifteen digits there is no fraction left to show, and the
+   * whole part would not fit a long. */
+  if (!(fabs (n) < 1e15))
+    {
+      char digits[400];
+
+      fixed_digits (digits, sizeof digits, n, 0);
+      g_string_append (out, digits);
+      return;
+    }
 
   whole = (long) floor (n);
   frac = n - whole;

@@ -46,7 +46,30 @@ typedef struct {
   const char *input;
   const char *p;
   Token       tok;
+  int         nesting;    /* brackets, calls and signs open */
+  gboolean    too_deep;
 } Parser;
+
+/* How far a formula may nest, and how deep its tree may go.  Excel
+ * nests 64 deep; a sum of every cell an 8,192-character formula can
+ * name is about 1,600 deep.  Parsing, working out, printing and freeing
+ * all go down the tree on the stack, and a file can hold a formula of
+ * any depth, so past these it is refused rather than let run the stack
+ * out. */
+#define PARSE_NESTING_MAX 256
+#define TREE_DEPTH_MAX    4096
+
+static gboolean
+parse_deeper (Parser *ps)
+{
+  if (ps->nesting >= PARSE_NESTING_MAX)
+    {
+      ps->too_deep = TRUE;
+      return FALSE;
+    }
+  ps->nesting++;
+  return TRUE;
+}
 
 static void
 token_clear (Token *t)
@@ -945,26 +968,25 @@ parse_postfix (Parser *ps)
 static O42Node *
 parse_unary (Parser *ps)
 {
+  O42Op op;
+  O42Node *n;
+
   if (op_is (ps, "-"))
-    {
-      next_token (ps);
-      return make_unary (O42_OP_NEG, parse_unary (ps));
-    }
+    op = O42_OP_NEG;
+  else if (op_is (ps, "+"))
+    op = O42_OP_POS;
+  else if (op_is (ps, "@"))
+    /* @A1:A3 asks for the one cell that lines up with the formula. */
+    op = O42_OP_IMPLICIT;
+  else
+    return parse_postfix (ps);
 
-  if (op_is (ps, "+"))
-    {
-      next_token (ps);
-      return make_unary (O42_OP_POS, parse_unary (ps));
-    }
-
-  /* @A1:A3 asks for the one cell that lines up with the formula. */
-  if (op_is (ps, "@"))
-    {
-      next_token (ps);
-      return make_unary (O42_OP_IMPLICIT, parse_unary (ps));
-    }
-
-  return parse_postfix (ps);
+  if (!parse_deeper (ps))
+    return node_error (O42_ERR_VALUE);
+  next_token (ps);
+  n = make_unary (op, parse_unary (ps));
+  ps->nesting--;
+  return n;
 }
 
 static O42Node *
@@ -1046,7 +1068,7 @@ parse_concat (Parser *ps)
 }
 
 static O42Node *
-parse_expr (Parser *ps)
+parse_comparison (Parser *ps)
 {
   O42Node *a = parse_concat (ps);
 
@@ -1067,6 +1089,84 @@ parse_expr (Parser *ps)
     }
 }
 
+/* Every bracket, call and argument comes back through here. */
+static O42Node *
+parse_expr (Parser *ps)
+{
+  O42Node *a;
+
+  if (!parse_deeper (ps))
+    return node_error (O42_ERR_VALUE);
+  a = parse_comparison (ps);
+  ps->nesting--;
+  return a;
+}
+
+/* Whether the tree goes deeper than `limit`, found without recursion. */
+static gboolean
+tree_deeper_than (const O42Node *root, int limit)
+{
+  typedef struct { const O42Node *node; int depth; } Item;
+  GArray *stack = g_array_new (FALSE, FALSE, sizeof (Item));
+  gboolean deeper = FALSE;
+  Item item = { root, 1 };
+
+  if (root != NULL)
+    g_array_append_val (stack, item);
+  while (stack->len > 0 && !deeper)
+    {
+      GPtrArray *more = NULL;
+      const O42Node *n;
+      int depth;
+
+      item = g_array_index (stack, Item, stack->len - 1);
+      g_array_set_size (stack, stack->len - 1);
+      n = item.node;
+      depth = item.depth;
+      if (depth > limit)
+        {
+          deeper = TRUE;
+          break;
+        }
+      switch (n->type)
+        {
+        case O42_NODE_UNARY:
+        case O42_NODE_BINARY:
+          for (int k = 0; k < 2; k++)
+            {
+              Item child = { k == 0 ? n->as.op.a : n->as.op.b, depth + 1 };
+              if (child.node != NULL)
+                g_array_append_val (stack, child);
+            }
+          break;
+        case O42_NODE_CALL:
+          more = n->as.call.args;
+          break;
+        case O42_NODE_ARRAY:
+          more = n->as.array.items;
+          break;
+        case O42_NODE_APPLY:
+          {
+            Item child = { n->as.apply.callee, depth + 1 };
+            if (child.node != NULL)
+              g_array_append_val (stack, child);
+            more = n->as.apply.args;
+          }
+          break;
+        default:
+          break;
+        }
+      for (guint i = 0; more != NULL && i < more->len; i++)
+        {
+          Item child = { g_ptr_array_index (more, i), depth + 1 };
+          if (child.node != NULL)
+            g_array_append_val (stack, child);
+        }
+    }
+  g_array_free (stack, TRUE);
+  return deeper;
+}
+
 O42Node *
 o42_formula_parse (const char *text)
 {
@@ -1084,6 +1184,11 @@ o42_formula_parse (const char *text)
   node = parse_expr (&ps);
 
   token_clear (&ps.tok);
+  if (ps.too_deep || tree_deeper_than (node, TREE_DEPTH_MAX))
+    {
+      o42_node_free (node);
+      node = node_error (O42_ERR_VALUE);
+    }
   return node;
 }
 

@@ -6606,6 +6606,10 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
         o42_value_clear (&v);
       }
       len = rows * cols;
+      /* The answer is wrap wide and as many lines as that takes: its
+       * size is known before a cell of it is made. */
+      if (ceil (len / floor (wrap)) * floor (wrap) > ARRAY_CELLS_MAX)
+        { o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       count = (int) wrap;
       lines = (len + count - 1) / count;
       a = by_rows ? array_const_new (lines, count) : array_const_new (count, lines);
@@ -6830,9 +6834,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       row0 = 0; row1 = rows - 1; col0 = 0; col1 = cols - 1;
       if (has_rows)
         {
-          int k = (int) fabs (want_rows);
-
-          k = MIN (k, rows);
+          int k = (int) MIN (fabs (want_rows), (double) rows);
           if (taking)
             { if (want_rows >= 0) row1 = k - 1; else row0 = rows - k; }
           else
@@ -6840,9 +6842,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
         }
       if (has_cols)
         {
-          int k = (int) fabs (want_cols);
-
-          k = MIN (k, cols);
+          int k = (int) MIN (fabs (want_cols), (double) cols);
           if (taking)
             { if (want_cols >= 0) col1 = k - 1; else col0 = cols - k; }
           else
@@ -7083,6 +7083,10 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       operand_dims (&y, &ry, &cy);
       if (cx != ry)
         { operand_clear (&x); operand_clear (&y); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      /* Each of the three is held whole: no more than any array may be. */
+      if ((gint64) rx * cx > ARRAY_CELLS_MAX || (gint64) ry * cy > ARRAY_CELLS_MAX ||
+          (gint64) rx * cy > ARRAY_CELLS_MAX)
+        { operand_clear (&x); operand_clear (&y); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       {
         /* Both matrices read once into flat doubles, then the plain
          * triple loop with the inner one along a row of the second, so
