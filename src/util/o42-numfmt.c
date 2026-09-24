@@ -1379,10 +1379,22 @@ format_number_section (GString *out, const Section *s, double n, O42FormatLayout
           /* ##0.0E+0 keeps the exponent a multiple of three and up to
            * three figures before the point: 1234 is 1.2E+3, 12345 is
            * 12.3E+3, which is the engineers' form. */
+          int step = int_places > 1 ? int_places : 1;
+          char probe[400];
+
           exp10 = (int) floor (log10 (fabs (n)));
           if (int_places > 1)
             exp10 = (int) floor ((double) exp10 / int_places) * int_places;
           n /= pow (10, exp10);
+
+          /* 99999 is 9.9999E+04, whose mantissa rounds to 10.00 at two
+           * places: it is 1.00E+05, and 999999 under ##0.0E+0 1.0E+6. */
+          fixed_digits (probe, sizeof probe, fabs (n), dec_places);
+          if ((int) strcspn (probe, ".") > step)
+            {
+              exp10 += step;
+              n /= pow (10, step);
+            }
         }
     }
 
@@ -1751,14 +1763,33 @@ section_has_at (const Section *s)
   return FALSE;
 }
 
-/* Writes a text section: the text where the "@" stands, the literals
- * around it as themselves. */
+/* Where the code "General" stands in a section, outside quotes and
+ * brackets; NULL where it does not. */
+static const char *
+section_general (const Section *s)
+{
+  for (const char *p = s->start; p < s->end; p++)
+    {
+      if (*p == '"') { p++; while (p < s->end && *p != '"') p++; continue; }
+      if (*p == '\\' || *p == '_' || *p == '*') { p++; continue; }
+      if (*p == '[') { while (p < s->end && *p != ']') p++; continue; }
+      if (s->end - p >= 7 && g_ascii_strncasecmp (p, "General", 7) == 0)
+        return p;
+    }
+  return NULL;
+}
+
+/* Writes a text section: the text where the "@" stands -- or where
+ * `general` does, in a number's section -- and the literals around it
+ * as themselves. */
 static void
-format_text_section (GString *out, const Section *use, const char *text, O42FormatLayout *layout)
+format_text_section (GString *out, const Section *use, const char *text,
+                     const char *general, O42FormatLayout *layout)
 {
   for (const char *p = use->start; p < use->end; )
     {
-      if (*p == '@') { g_string_append (out, text); p++; }
+      if (p == general) { g_string_append (out, text); p += 7; }
+      else if (*p == '@') { g_string_append (out, text); p++; }
       else if (*p == '"') { p++; while (p < use->end && *p != '"') g_string_append_c (out, *p++); if (p < use->end) p++; }
       else if (*p == '\\' && p + 1 < use->end) { g_string_append_c (out, p[1]); p += 2; }
       else if (*p == '[') { while (p < use->end && *p != ']') p++; if (p < use->end) p++; }
@@ -1803,7 +1834,7 @@ o42_format_string_layout (const char *format, double n, const char *text,
         return g_strdup (text);
 
       out = g_string_new (NULL);
-      format_text_section (out, use, text, layout);
+      format_text_section (out, use, text, NULL, layout);
       return g_string_free (out, FALSE);
     }
 
@@ -1841,9 +1872,23 @@ o42_format_string_layout (const char *format, double n, const char *text,
       use = &sections[0];
   }
 
-  /* "General" in a section is the General display. */
-  if (use->end - use->start == 7 && g_ascii_strncasecmp (use->start, "General", 7) == 0)
-    return o42_number_format (negative && count >= 2 ? -n : n, O42_NUM_GENERAL, 0);
+  /* "General" in a section is the General display, with the section's
+   * text around it.  The negative section supplies its own sign, as the
+   * number sections do: General;-General shows -5 as -5, which is how
+   * that format is used, and "Neg "General shows it as Neg 5. */
+  {
+    const char *general_at = section_general (use);
+
+    if (general_at != NULL)
+      {
+        char *general = o42_number_format (n, O42_NUM_GENERAL, 0);
+
+        out = g_string_new (NULL);
+        format_text_section (out, use, general, general_at, layout);
+        g_free (general);
+        return g_string_free (out, FALSE);
+      }
+  }
 
   /* A number under a section with "@" in it shows as its General text
    * would: TEXT(5, "@") is "5", not "@". */
@@ -1852,7 +1897,7 @@ o42_format_string_layout (const char *format, double n, const char *text,
       char *general = o42_number_format (negative && count >= 2 ? -n : n, O42_NUM_GENERAL, 0);
 
       out = g_string_new (NULL);
-      format_text_section (out, use, general, layout);
+      format_text_section (out, use, general, NULL, layout);
       g_free (general);
       return g_string_free (out, FALSE);
     }
