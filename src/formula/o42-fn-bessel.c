@@ -6,6 +6,7 @@
 
 #include "o42-eval-private.h"
 
+#include <glib/gi18n.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,9 +93,9 @@ const O42Function O42_FUNCS_BESSEL[] = {
 };
 
 const O42FunctionHelp O42_HELP_BESSEL[] = {
-  { "BESSELI", "BESSELI(x, n)", "The modified Bessel function In(x)." },
-  { "BESSELJ", "BESSELJ(x, n)", "The Bessel function Jn(x)." },
-  { "BESSELK", "BESSELK(x, n)", "The modified Bessel function Kn(x)." },
-  { "BESSELY", "BESSELY(x, n)", "The Bessel function Yn(x)." },
+  { "BESSELI", "BESSELI(x, n)", N_("The modified Bessel function In(x).") },
+  { "BESSELJ", "BESSELJ(x, n)", N_("The Bessel function Jn(x).") },
+  { "BESSELK", "BESSELK(x, n)", N_("The modified Bessel function Kn(x).") },
+  { "BESSELY", "BESSELY(x, n)", N_("The Bessel function Yn(x).") },
   { NULL, NULL, NULL }
 };

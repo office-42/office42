@@ -9,6 +9,7 @@
 #include "o42-date.h"
 #include "o42-numfmt.h"
 
+#include <glib/gi18n.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -397,24 +398,24 @@ const O42Function O42_FUNCS_DATES[] = {
 };
 
 const O42FunctionHelp O42_HELP_DATES[] = {
-  { "DATE", "DATE(year, month, day)", "The serial number of a date; months and days roll over." },
-  { "DATEVALUE", "DATEVALUE(text)", "The serial number of a date written as text." },
-  { "DAY", "DAY(serial)", "The day of the month, 1 to 31." },
-  { "DAYS", "DAYS(end_date, start_date)", "The number of days between two dates." },
-  { "DAYS360", "DAYS360(start_date, end_date, method)", "Days between two dates on a 360-day year." },
-  { "EDATE", "EDATE(start_date, months)", "The date a number of months before or after another." },
-  { "EOMONTH", "EOMONTH(start_date, months)", "The last day of the month a number of months away." },
-  { "HOUR", "HOUR(serial)", "The hour of a time, 0 to 23." },
-  { "MINUTE", "MINUTE(serial)", "The minute of a time, 0 to 59." },
-  { "MONTH", "MONTH(serial)", "The month of a date, 1 to 12." },
-  { "NOW", "NOW()", "The current date and time." },
-  { "SECOND", "SECOND(serial)", "The second of a time, 0 to 59." },
-  { "TIME", "TIME(hour, minute, second)", "The fraction of a day for a time." },
-  { "TIMEVALUE", "TIMEVALUE(text)", "The fraction of a day for a time written as text." },
-  { "TODAY", "TODAY()", "Today's date." },
-  { "WEEKDAY", "WEEKDAY(serial, type)", "The day of the week as a number." },
-  { "YEAR", "YEAR(serial)", "The year of a date." },
-  { "NETWORKDAYS", "NETWORKDAYS(start_date, end_date, holidays)", "The working days between two dates, weekends and holidays left out." },
-  { "WORKDAY", "WORKDAY(start_date, days, holidays)", "The date a number of working days away." },
+  { "DATE", "DATE(year, month, day)", N_("The serial number of a date; months and days roll over.") },
+  { "DATEVALUE", "DATEVALUE(text)", N_("The serial number of a date written as text.") },
+  { "DAY", "DAY(serial)", N_("The day of the month, 1 to 31.") },
+  { "DAYS", "DAYS(end_date, start_date)", N_("The number of days between two dates.") },
+  { "DAYS360", "DAYS360(start_date, end_date, method)", N_("Days between two dates on a 360-day year.") },
+  { "EDATE", "EDATE(start_date, months)", N_("The date a number of months before or after another.") },
+  { "EOMONTH", "EOMONTH(start_date, months)", N_("The last day of the month a number of months away.") },
+  { "HOUR", "HOUR(serial)", N_("The hour of a time, 0 to 23.") },
+  { "MINUTE", "MINUTE(serial)", N_("The minute of a time, 0 to 59.") },
+  { "MONTH", "MONTH(serial)", N_("The month of a date, 1 to 12.") },
+  { "NOW", "NOW()", N_("The current date and time.") },
+  { "SECOND", "SECOND(serial)", N_("The second of a time, 0 to 59.") },
+  { "TIME", "TIME(hour, minute, second)", N_("The fraction of a day for a time.") },
+  { "TIMEVALUE", "TIMEVALUE(text)", N_("The fraction of a day for a time written as text.") },
+  { "TODAY", "TODAY()", N_("Today's date.") },
+  { "WEEKDAY", "WEEKDAY(serial, type)", N_("The day of the week as a number.") },
+  { "YEAR", "YEAR(serial)", N_("The year of a date.") },
+  { "NETWORKDAYS", "NETWORKDAYS(start_date, end_date, holidays)", N_("The working days between two dates, weekends and holidays left out.") },
+  { "WORKDAY", "WORKDAY(start_date, days, holidays)", N_("The date a number of working days away.") },
   { NULL, NULL, NULL }
 };

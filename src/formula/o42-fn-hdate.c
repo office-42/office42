@@ -10,6 +10,7 @@
 #include "o42-hdate.h"
 #include "o42-numfmt.h"
 
+#include <glib/gi18n.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -155,13 +156,13 @@ const O42Function O42_FUNCS_HDATE[] = {
 };
 
 const O42FunctionHelp O42_HELP_HDATE[] = {
-  { "DATE2HDATE", "DATE2HDATE(date)", "The Hebrew date a serial date falls on, written out." },
-  { "HDATE", "HDATE(year, month, day)", "The Hebrew date a Gregorian one falls on, written out." },
-  { "HDATE2DATE", "HDATE2DATE(year, month, day)", "The serial date a Hebrew date falls on." },
-  { "HDATE2JULIAN", "HDATE2JULIAN(year, month, day)", "The Julian day a Hebrew date falls on." },
-  { "HDATE_DAY", "HDATE_DAY(year, month, day)", "The day of the Hebrew month." },
-  { "HDATE_JULIAN", "HDATE_JULIAN(year, month, day)", "The Julian day of a Gregorian date." },
-  { "HDATE_MONTH", "HDATE_MONTH(year, month, day)", "The Hebrew month, counting Tishri as one." },
-  { "HDATE_YEAR", "HDATE_YEAR(year, month, day)", "The Hebrew year." },
+  { "DATE2HDATE", "DATE2HDATE(date)", N_("The Hebrew date a serial date falls on, written out.") },
+  { "HDATE", "HDATE(year, month, day)", N_("The Hebrew date a Gregorian one falls on, written out.") },
+  { "HDATE2DATE", "HDATE2DATE(year, month, day)", N_("The serial date a Hebrew date falls on.") },
+  { "HDATE2JULIAN", "HDATE2JULIAN(year, month, day)", N_("The Julian day a Hebrew date falls on.") },
+  { "HDATE_DAY", "HDATE_DAY(year, month, day)", N_("The day of the Hebrew month.") },
+  { "HDATE_JULIAN", "HDATE_JULIAN(year, month, day)", N_("The Julian day of a Gregorian date.") },
+  { "HDATE_MONTH", "HDATE_MONTH(year, month, day)", N_("The Hebrew month, counting Tishri as one.") },
+  { "HDATE_YEAR", "HDATE_YEAR(year, month, day)", N_("The Hebrew year.") },
   { NULL, NULL, NULL }
 };

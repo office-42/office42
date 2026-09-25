@@ -16,6 +16,7 @@
 
 #include "o42-eval-private.h"
 
+#include <glib/gi18n.h>
 #include <math.h>
 #include <string.h>
 
@@ -1153,30 +1154,30 @@ const O42Function O42_FUNCS_OPTIONS[] = {
 };
 
 const O42FunctionHelp O42_HELP_OPTIONS[] = {
-  { "OPT_AMER_EXCHANGE", "OPT_AMER_EXCHANGE(spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho)", "The American right to swap one asset for another." },
-  { "OPT_BAW_AMER", "OPT_BAW_AMER(call_put, spot, strike, time, rate, cost_of_carry, volatility)", "Barone-Adesi and Whaley's price for an American option." },
-  { "OPT_BINOMIAL", "OPT_BINOMIAL(amer_euro, call_put, steps, spot, strike, time, rate, volatility, cost_of_carry)", "The price from a binomial tree, American or European." },
-  { "OPT_BS", "OPT_BS(call_put, spot, strike, time, rate, volatility, carry)", "The Black-Scholes price of a European option." },
-  { "OPT_BS_CARRYCOST", "OPT_BS_CARRYCOST(call_put, spot, strike, time, rate, volatility, carry)", "How its price moves with the cost of carry." },
-  { "OPT_BS_DELTA", "OPT_BS_DELTA(call_put, spot, strike, time, rate, volatility, carry)", "How its price moves with the spot price." },
-  { "OPT_BS_GAMMA", "OPT_BS_GAMMA(spot, strike, time, rate, volatility, carry)", "How its delta moves with the spot price." },
-  { "OPT_BS_RHO", "OPT_BS_RHO(call_put, spot, strike, time, rate, volatility, carry)", "How its price moves with the interest rate." },
-  { "OPT_BS_THETA", "OPT_BS_THETA(call_put, spot, strike, time, rate, volatility, carry)", "How its price falls as the time runs out." },
-  { "OPT_BS_VEGA", "OPT_BS_VEGA(spot, strike, time, rate, volatility, carry)", "How its price moves with the volatility." },
-  { "OPT_COMPLEX_CHOOSER", "OPT_COMPLEX_CHOOSER(spot, strike_call, strike_put, time, time_call, time_put, rate, cost_of_carry, volatility)", "A chooser whose call and put differ in strike and life." },
-  { "OPT_EURO_EXCHANGE", "OPT_EURO_EXCHANGE(spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho)", "Margrabe's: the right to swap one asset for another." },
-  { "OPT_EXEC", "OPT_EXEC(call_put, spot, strike, time, rate, volatility, cost_of_carry, lambda)", "An executive option, forfeited at a rate." },
-  { "OPT_EXTENDIBLE_WRITER", "OPT_EXTENDIBLE_WRITER(call_put, spot, strike1, strike2, time1, time2, rate, cost_of_carry, volatility)", "An option the writer extends if it expires out of the money." },
-  { "OPT_FIXED_STRK_LKBK", "OPT_FIXED_STRK_LKBK(call_put, spot, spot_min, spot_max, strike, time, rate, cost_of_carry, volatility)", "A lookback settled against a fixed strike." },
-  { "OPT_FLOAT_STRK_LKBK", "OPT_FLOAT_STRK_LKBK(call_put, spot, spot_min, spot_max, time, rate, cost_of_carry, volatility)", "A lookback settled against the best the spot reached." },
-  { "OPT_FORWARD_START", "OPT_FORWARD_START(call_put, spot, alpha, time1, time, rate, volatility, cost_of_carry)", "An option whose strike is settled later." },
-  { "OPT_FRENCH", "OPT_FRENCH(call_put, spot, strike, time, ttime, rate, volatility, cost_of_carry)", "French's: the variance counted in trading time." },
-  { "OPT_GARMAN_KOHLHAGEN", "OPT_GARMAN_KOHLHAGEN(call_put, spot, strike, time, domestic_rate, foreign_rate, volatility)", "A currency option." },
-  { "OPT_JUMP_DIFF", "OPT_JUMP_DIFF(call_put, spot, strike, time, rate, volatility, lambda, gamma)", "Merton's jump diffusion price." },
-  { "OPT_ON_OPTIONS", "OPT_ON_OPTIONS(type, spot, strike1, strike2, time1, time2, rate, cost_of_carry, volatility)", "An option on an option: cc, cp, pc or pp." },
-  { "OPT_RGW", "OPT_RGW(spot, strike, time1, time2, rate, dividend, volatility)", "Roll, Geske and Whaley's American call on a share paying one dividend." },
-  { "OPT_SIMPLE_CHOOSER", "OPT_SIMPLE_CHOOSER(spot, strike, time1, time2, rate, cost_of_carry, volatility)", "An option that becomes a call or a put later." },
-  { "OPT_SPREAD_APPROX", "OPT_SPREAD_APPROX(call_put, fut_price1, fut_price2, strike, time, rate, vol1, vol2, rho)", "Kirk's approximation for an option on a spread." },
-  { "OPT_TIME_SWITCH", "OPT_TIME_SWITCH(call_put, spot, strike, amount, time, m, dt, rate, cost_of_carry, volatility)", "An option paying for each interval spent in the money." },
+  { "OPT_AMER_EXCHANGE", "OPT_AMER_EXCHANGE(spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho)", N_("The American right to swap one asset for another.") },
+  { "OPT_BAW_AMER", "OPT_BAW_AMER(call_put, spot, strike, time, rate, cost_of_carry, volatility)", N_("Barone-Adesi and Whaley's price for an American option.") },
+  { "OPT_BINOMIAL", "OPT_BINOMIAL(amer_euro, call_put, steps, spot, strike, time, rate, volatility, cost_of_carry)", N_("The price from a binomial tree, American or European.") },
+  { "OPT_BS", "OPT_BS(call_put, spot, strike, time, rate, volatility, carry)", N_("The Black-Scholes price of a European option.") },
+  { "OPT_BS_CARRYCOST", "OPT_BS_CARRYCOST(call_put, spot, strike, time, rate, volatility, carry)", N_("How its price moves with the cost of carry.") },
+  { "OPT_BS_DELTA", "OPT_BS_DELTA(call_put, spot, strike, time, rate, volatility, carry)", N_("How its price moves with the spot price.") },
+  { "OPT_BS_GAMMA", "OPT_BS_GAMMA(spot, strike, time, rate, volatility, carry)", N_("How its delta moves with the spot price.") },
+  { "OPT_BS_RHO", "OPT_BS_RHO(call_put, spot, strike, time, rate, volatility, carry)", N_("How its price moves with the interest rate.") },
+  { "OPT_BS_THETA", "OPT_BS_THETA(call_put, spot, strike, time, rate, volatility, carry)", N_("How its price falls as the time runs out.") },
+  { "OPT_BS_VEGA", "OPT_BS_VEGA(spot, strike, time, rate, volatility, carry)", N_("How its price moves with the volatility.") },
+  { "OPT_COMPLEX_CHOOSER", "OPT_COMPLEX_CHOOSER(spot, strike_call, strike_put, time, time_call, time_put, rate, cost_of_carry, volatility)", N_("A chooser whose call and put differ in strike and life.") },
+  { "OPT_EURO_EXCHANGE", "OPT_EURO_EXCHANGE(spot1, spot2, qty1, qty2, time, rate, carry1, carry2, vol1, vol2, rho)", N_("Margrabe's: the right to swap one asset for another.") },
+  { "OPT_EXEC", "OPT_EXEC(call_put, spot, strike, time, rate, volatility, cost_of_carry, lambda)", N_("An executive option, forfeited at a rate.") },
+  { "OPT_EXTENDIBLE_WRITER", "OPT_EXTENDIBLE_WRITER(call_put, spot, strike1, strike2, time1, time2, rate, cost_of_carry, volatility)", N_("An option the writer extends if it expires out of the money.") },
+  { "OPT_FIXED_STRK_LKBK", "OPT_FIXED_STRK_LKBK(call_put, spot, spot_min, spot_max, strike, time, rate, cost_of_carry, volatility)", N_("A lookback settled against a fixed strike.") },
+  { "OPT_FLOAT_STRK_LKBK", "OPT_FLOAT_STRK_LKBK(call_put, spot, spot_min, spot_max, time, rate, cost_of_carry, volatility)", N_("A lookback settled against the best the spot reached.") },
+  { "OPT_FORWARD_START", "OPT_FORWARD_START(call_put, spot, alpha, time1, time, rate, volatility, cost_of_carry)", N_("An option whose strike is settled later.") },
+  { "OPT_FRENCH", "OPT_FRENCH(call_put, spot, strike, time, ttime, rate, volatility, cost_of_carry)", N_("French's: the variance counted in trading time.") },
+  { "OPT_GARMAN_KOHLHAGEN", "OPT_GARMAN_KOHLHAGEN(call_put, spot, strike, time, domestic_rate, foreign_rate, volatility)", N_("A currency option.") },
+  { "OPT_JUMP_DIFF", "OPT_JUMP_DIFF(call_put, spot, strike, time, rate, volatility, lambda, gamma)", N_("Merton's jump diffusion price.") },
+  { "OPT_ON_OPTIONS", "OPT_ON_OPTIONS(type, spot, strike1, strike2, time1, time2, rate, cost_of_carry, volatility)", N_("An option on an option: cc, cp, pc or pp.") },
+  { "OPT_RGW", "OPT_RGW(spot, strike, time1, time2, rate, dividend, volatility)", N_("Roll, Geske and Whaley's American call on a share paying one dividend.") },
+  { "OPT_SIMPLE_CHOOSER", "OPT_SIMPLE_CHOOSER(spot, strike, time1, time2, rate, cost_of_carry, volatility)", N_("An option that becomes a call or a put later.") },
+  { "OPT_SPREAD_APPROX", "OPT_SPREAD_APPROX(call_put, fut_price1, fut_price2, strike, time, rate, vol1, vol2, rho)", N_("Kirk's approximation for an option on a spread.") },
+  { "OPT_TIME_SWITCH", "OPT_TIME_SWITCH(call_put, spot, strike, amount, time, m, dt, rate, cost_of_carry, volatility)", N_("An option paying for each interval spent in the money.") },
   { NULL, NULL, NULL }
 };

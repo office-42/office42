@@ -9,6 +9,7 @@
 #include "o42-date.h"
 #include "o42-numfmt.h"
 
+#include <glib/gi18n.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -172,7 +173,7 @@ const O42Function O42_FUNCS_INFO[] = {
 };
 
 const O42FunctionHelp O42_HELP_INFO[] = {
-  { "CELL", "CELL(info_type, reference)", "Something about a cell: address, row, col, contents, type, format, width, protect, prefix." },
-  { "INFO", "INFO(type)", "Something about the program: directory, osversion, recalc, release, system." },
+  { "CELL", "CELL(info_type, reference)", N_("Something about a cell: address, row, col, contents, type, format, width, protect, prefix.") },
+  { "INFO", "INFO(type)", N_("Something about the program: directory, osversion, recalc, release, system.") },
   { NULL, NULL, NULL }
 };

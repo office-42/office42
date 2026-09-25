@@ -16,6 +16,8 @@
 
 #include "o42-eval-private.h"
 
+#include <glib/gi18n.h>
+
 static O42Value
 fn_table (O42EvalContext *ctx, O42Operand *args, int n)
 {
@@ -34,6 +36,6 @@ const O42Function O42_FUNCS_TABLE[] = {
 };
 
 const O42FunctionHelp O42_HELP_TABLE[] = {
-  { "TABLE", "TABLE(row_input, column_input)", "What a What-If table's formula comes to for this cell; Data > Table writes it." },
+  { "TABLE", "TABLE(row_input, column_input)", N_("What a What-If table's formula comes to for this cell; Data > Table writes it.") },
   { NULL, NULL, NULL }
 };
