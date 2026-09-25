@@ -8,7 +8,7 @@ msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-09-25 19:56+0000\n"
-"PO-Revision-Date: 2026-09-25 19:58+0000\n"
+"PO-Revision-Date: 2026-09-25 20:03+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Norwegian Bokmal\n"
 "Language: nb\n"
@@ -2111,7 +2111,7 @@ msgstr "Tettheten til standard normalfordeling."
 
 #: src/formula/o42-eval.c:11502
 msgid "3.14159265358979."
-msgstr "3,14159265358979."
+msgstr "3.14159265358979."
 
 #: src/formula/o42-eval.c:11503
 msgid "The payment on a loan."
@@ -4545,19 +4545,19 @@ msgstr "Egendefinert"
 
 #: src/ui/o42-dialogs-format.c:67
 msgid "-1,234.10"
-msgstr "-1 234,10"
+msgstr "-1,234.10"
 
 #: src/ui/o42-dialogs-format.c:67
 msgid "1,234.10 in red"
-msgstr "1 234,10 i rødt"
+msgstr "1,234.10 i rødt"
 
 #: src/ui/o42-dialogs-format.c:67
 msgid "(1,234.10)"
-msgstr "(1 234,10)"
+msgstr "(1,234.10)"
 
 #: src/ui/o42-dialogs-format.c:67
 msgid "(1,234.10) in red"
-msgstr "(1 234,10) i rødt"
+msgstr "(1,234.10) i rødt"
 
 #: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
 msgid "Left"
