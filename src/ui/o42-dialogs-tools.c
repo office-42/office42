@@ -76,7 +76,9 @@ on_goal_ok (GtkWidget *w, gpointer data)
   if (o42_sheet_goal_seek (self->sheet, trow, tcol, goal, vrow, vcol, &found))
     {
       char *v = o42_sheet_get_display (self->sheet, vrow, vcol);
-      char *msg = g_strdup_printf ("Found a solution: %s = %s.", vt, v);
+      /* Translators: Goal Seek's answer: the cell it changed, as typed
+       * (B2), and the value it put there, as the cell shows it. */
+      char *msg = g_strdup_printf (_("Found a solution: %s = %s."), vt, v);
       gtk_label_set_text (GTK_LABEL (prompt->status), msg);
       g_free (msg);
       g_free (v);
@@ -289,6 +291,7 @@ action_new_from_template (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content), scroller);
   {
     char *own = g_build_filename (g_get_user_data_dir (), "office42", "templates", NULL);
+    /* Translators: %s is a folder; a .gnumeric is a template file. */
     char *hint = g_strdup_printf (_("A .gnumeric in %s is offered here too."), own);
     GtkWidget *label = gtk_label_new (hint);
     gtk_label_set_wrap (GTK_LABEL (label), TRUE);
@@ -352,7 +355,7 @@ on_euro_ok (GtkWidget *w, gpointer data)
   o42_grid_refresh (self->grid);
   window_sync (self);
   {
-    char *msg = g_strdup_printf (n == 1 ? _("%d cell converted.") : _("%d cells converted."), n);
+    char *msg = g_strdup_printf (ngettext ("%d cell converted.", "%d cells converted.", n), n);
     gtk_label_set_text (GTK_LABEL (prompt->status), msg);
     g_free (msg);
   }
@@ -517,7 +520,10 @@ on_console_reset (GtkWidget *w, gpointer data)
   PyConsole *console = data;
   (void) w;
   o42_python_reset ();
-  console_append (console, "-- variables and script functions forgotten --\n", "error");
+  /* Translators: written into the Python Console's transcript after
+   * Reset. */
+  console_append (console, _("-- variables and script functions forgotten --"), "error");
+  console_append (console, "\n", "error");
 }
 
 void
@@ -562,7 +568,7 @@ action_python_console (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content), scroller);
 
   console->entry = gtk_entry_new ();
-  gtk_entry_set_placeholder_text (GTK_ENTRY (console->entry), _("sheet[\"A1\"].value = 42"));
+  gtk_entry_set_placeholder_text (GTK_ENTRY (console->entry), "sheet[\"A1\"].value = 42");
   g_signal_connect (console->entry, "activate", G_CALLBACK (on_console_activate), console);
   keys = gtk_event_controller_key_new ();
   g_signal_connect (keys, "key-pressed", G_CALLBACK (on_console_key), console);
@@ -574,9 +580,12 @@ action_python_console (GSimpleAction *a, GVariant *p, gpointer data)
   dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), console->dialog);
   g_signal_connect (console->dialog, "destroy", G_CALLBACK (on_console_destroy), console);
 
-  banner = g_strdup_printf ("Python %s in Office42 Spreadsheet %s\n"
-                            "`book` and `sheet` are bound; `import office42` for the rest; help(office42) tells.\n",
-                            o42_python_version () != NULL ? o42_python_version () : "?", O42_VERSION);
+  banner = g_strdup_printf ("Python %s in Office42 Spreadsheet %s\n%s\n",
+                            o42_python_version () != NULL ? o42_python_version () : "?", O42_VERSION,
+                            /* Translators: the Python Console's greeting.  book, sheet,
+                             * import office42 and help(office42) are Python: keep them,
+                             * and the backquotes, as they are. */
+                            _("`book` and `sheet` are bound; `import office42` for the rest; help(office42) tells."));
   console_append (console, banner, NULL);
   g_free (banner);
 
@@ -611,7 +620,7 @@ on_python_script_response (GObject *source, GAsyncResult *result, gpointer data)
         }
       else if (!ok || (output != NULL && *output != '\0'))
         {
-          GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", ok ? "The script said:" : "The script failed.");
+          GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", ok ? _("The script said:") : _("The script failed."));
           gtk_alert_dialog_set_detail (alert, output != NULL ? output : "");
           gtk_alert_dialog_show (alert, GTK_WINDOW (self));
           g_object_unref (alert);
@@ -620,7 +629,7 @@ on_python_script_response (GObject *source, GAsyncResult *result, gpointer data)
       g_object_unref (file);
     }
   else if (error != NULL && !g_error_matches (error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED))
-    show_error (self, "office42 could not open that file.", error);
+    show_error (self, _("office42 could not open that file."), error);
   g_clear_error (&error);
 }
 
@@ -670,7 +679,7 @@ script_said (O42Window *self, const char *name, const char *output, gboolean ok)
     }
   else if (!ok || (output != NULL && *output != '\0'))
     {
-      GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", ok ? "The script said:" : "The script failed.");
+      GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", ok ? _("The script said:") : _("The script failed."));
       gtk_alert_dialog_set_detail (alert, output != NULL ? output : "");
       gtk_alert_dialog_show (alert, GTK_WINDOW (self));
       g_object_unref (alert);
@@ -1903,11 +1912,14 @@ typedef struct {
   GtkWidget *list;
 } WatchPrompt;
 
+/* Translators: the Watch Window's column headings. */
 static const char *const WATCH_HEADINGS[] = {
   N_("Book"), N_("Sheet"), N_("Name"), N_("Cell"), N_("Value"), N_("Formula")
 };
 static const int WATCH_WIDTHS[] = { 90, 90, 90, 60, 110, 220 };
 
+/* A row of the list, or the headings (which are asked of the
+ * catalogue here). */
 static GtkWidget *
 watch_row (const char *const *cells, gboolean heading)
 {
@@ -1915,7 +1927,7 @@ watch_row (const char *const *cells, gboolean heading)
 
   for (int i = 0; i < 6; i++)
     {
-      GtkWidget *label = gtk_label_new (cells[i]);
+      GtkWidget *label = gtk_label_new (heading ? _(cells[i]) : cells[i]);
 
       gtk_label_set_xalign (GTK_LABEL (label), 0.0);
       gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_END);
@@ -2466,6 +2478,7 @@ action_stop_recording (GSimpleAction *a, GVariant *p, gpointer data)
         g_free (candidate);
     }
   o42_book_set_script (self->book, name, script != NULL ? script : "");
+  /* Translators: %s is the new macro's name, such as Macro1. */
   said = g_strdup_printf (_("Recorded %s: Tools > Macro > Macros runs it."), name);
   o42_book_set_modified (self->book, TRUE);
   window_sync (self);
@@ -2592,6 +2605,8 @@ macros_fill (MacrosPrompt *prompt, const char *choose)
     for (int i = 0; paths[i] != NULL; i++)
       {
         char *base = g_path_get_basename (paths[i]);
+        /* Translators: a note beside a script's name in the Macro list:
+         * the script is a file in the user's own folder, not the book's. */
         GtkWidget *list_row = macros_row (prompt, base, _("personal"));
 
         g_object_set_data_full (G_OBJECT (list_row), "o42-script", g_strdup (base), g_free);
@@ -2640,7 +2655,7 @@ on_macros_run (GtkWidget *w, gpointer data)
       window_sync (self);
       if (!ok || (output != NULL && *output != '\0'))
         {
-          GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", ok ? "The script said:" : "The script failed.");
+          GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", ok ? _("The script said:") : _("The script failed."));
           gtk_alert_dialog_set_detail (alert, output != NULL ? output : "");
           gtk_alert_dialog_show (alert, GTK_WINDOW (self));
           g_object_unref (alert);
@@ -2761,6 +2776,8 @@ on_macros_options (GtkWidget *w, gpointer data)
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
   gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
   labelled (grid, 0, _("Macro name:"), gtk_label_new (sname));
+  /* Translators: a letter is typed after this; the Macro list shows
+   * the key as Ctrl+Shift+K, with the key names in English. */
   prompt->key = labelled (grid, 1, _("Shortcut key:  Ctrl+Shift+"), gtk_entry_new ());
   gtk_entry_set_max_length (GTK_ENTRY (prompt->key), 1);
   gtk_editable_set_width_chars (GTK_EDITABLE (prompt->key), 3);
@@ -3485,6 +3502,8 @@ typedef struct {
   GtkWidget *nonneg, *report;
 } SolverPrompt;
 
+/* Translators: Solver's "Make it:" drop-down: the target cell as large
+ * as it will go, as small, or equal to the value below. */
 static const char *SOLVER_GOALS[] = { N_("Max"), N_("Min"), N_("Value of"), NULL };
 
 static void
@@ -3620,7 +3639,8 @@ on_solver_solve (GtkWidget *w, gpointer data)
     ok = o42_sheet_solve (sheet, trow, tcol, which, goal_value,
                           (const O42Ref *) changing->data, (int) changing->len,
                           (const O42SolverBound *) bounds->data, (int) bounds->len, &reached);
-    message = g_strdup_printf (ok ? "The target reached %g." : "The search gave up at %g.", reached);
+    /* Translators: %g is the value the Solver's target cell came to. */
+    message = g_strdup_printf (ok ? _("The target reached %g.") : _("The search gave up at %g."), reached);
     gtk_label_set_text (GTK_LABEL (prompt->status), message);
     g_free (message);
     if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->report)))
@@ -3661,6 +3681,7 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->value = labelled (grid, 2, _("Value:"), gtk_entry_new ());
   prompt->changing = labelled (grid, 3, _("By changing:"), gtk_entry_new ());
   gtk_widget_set_size_request (prompt->target, 200, -1);
+  /* Translators: a placeholder; the cell references stay as they are. */
   gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->changing), _("A1, B1  or  A1:B1"));
   gtk_box_append (GTK_BOX (content), grid);
 
@@ -3679,10 +3700,17 @@ action_solver (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_widget_add_css_class (scrolled, "frame");
   gtk_box_append (GTK_BOX (content), scrolled);
   {
-    GtkWidget *hint = gtk_label_new ("D1<=10, A1>=0, B2=5, C1=int, C2=bin. The search is a downhill "
-                                     "simplex with the broken constraints counted against it, branching "
-                                     "on the whole-number cells: it finds a good answer, not always the "
-                                     "best one.");
+    /* Translators: %s is a list of example constraints, such as
+     * D1<=10, C1=int, in the form the box above reads (which is why
+     * they are not in the catalogue). */
+    char *text = g_strdup_printf (_("%s. The search is a downhill "
+                                    "simplex with the broken constraints counted against it, branching "
+                                    "on the whole-number cells: it finds a good answer, not always the "
+                                    "best one."),
+                                  "D1<=10, A1>=0, B2=5, C1=int, C2=bin");
+    GtkWidget *hint = gtk_label_new (text);
+
+    g_free (text);
     gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (hint), 46);
     gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
