@@ -160,8 +160,8 @@ caption_button (const char *glyph, const char *tip, GCallback cb, gpointer data)
   GtkWidget *button = gtk_button_new ();
   GtkWidget *area = gtk_drawing_area_new ();
 
-  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (area), 14);
-  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (area), 12);
+  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (area), 16);
+  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (area), 14);
   gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (area), draw_caption_glyph,
                                   (gpointer) glyph, NULL);
   gtk_button_set_child (GTK_BUTTON (button), area);

@@ -24,14 +24,14 @@ window.o42 label,
 window.o42 button,
 .o42-titlebar label {
   font-family: "MS Sans Serif", "Segoe UI", "DejaVu Sans", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: normal;
 }
 
 .o42-menubar,
 .o42-menubar > item,
 popover.menu contents modelbutton label {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* --- the raised bevel ------------------------------------------------- */
@@ -83,10 +83,10 @@ popover.menu contents modelbutton label {
   opacity: 0.3;
 }
 
-.o42-glyph           { font-weight: bold; font-size: 13px; }
-.o42-glyph-bold      { font-weight: bold; font-family: "Times New Roman", serif; font-size: 14px; }
-.o42-glyph-italic    { font-style: italic; font-family: "Times New Roman", serif; font-size: 14px; }
-.o42-glyph-underline { text-decoration: underline; font-family: "Times New Roman", serif; font-size: 14px; }
+.o42-glyph           { font-weight: bold; font-size: 14px; }
+.o42-glyph-bold      { font-weight: bold; font-family: "Times New Roman", serif; font-size: 15px; }
+.o42-glyph-italic    { font-style: italic; font-family: "Times New Roman", serif; font-size: 15px; }
+.o42-glyph-underline { text-decoration: underline; font-family: "Times New Roman", serif; font-size: 15px; }
 
 /* --- title bar -------------------------------------------------------- */
 
@@ -94,14 +94,14 @@ popover.menu contents modelbutton label {
   background-color: @o42_title;
   color: @o42_title_text;
   border-bottom: 1px solid @o42_dark;
-  min-height: 18px;
+  min-height: 24px;
   padding: 0 2px;
 }
 
 windowhandle,
 window.o42 headerbar,
 window.o42 .titlebar {
-  min-height: 18px;
+  min-height: 24px;
   padding: 0;
   margin: 0;
   background: none;
@@ -109,15 +109,16 @@ window.o42 .titlebar {
   box-shadow: none;
 }
 
-.o42-titlebar-label {
+/* Two classes, so that it outweighs ".o42-titlebar label" above. */
+.o42-titlebar .o42-titlebar-label {
   color: @o42_title_text;
   font-weight: bold;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .o42-titlebar button {
-  min-width: 16px;
-  min-height: 14px;
+  min-width: 20px;
+  min-height: 18px;
   padding: 0;
   margin: 1px;
 }
@@ -133,7 +134,7 @@ window.o42 .titlebar {
   color: @o42_dark;
   border-bottom: 1px solid @o42_shadow;
   padding: 0 2px;
-  min-height: 20px;
+  min-height: 22px;
 }
 
 .o42-menubar > item {
@@ -167,7 +168,7 @@ popover.menu > arrow { min-width: 0; min-height: 0; background: none; }
 popover.menu contents modelbutton {
   border-radius: 0;
   padding: 3px 10px;
-  min-height: 18px;
+  min-height: 20px;
   color: @o42_dark;
 }
 
