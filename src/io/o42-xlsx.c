@@ -2411,11 +2411,27 @@ attr_int (const char **names, const char **values, const char *want, int fallbac
   return v ? atoi (v) : fallback;
 }
 
+/* An xsd:boolean, which may be spelled 1 and 0 or true and false.
+ * Excel writes the digits and LibreOffice the words, so a flag read as
+ * a number turns showGridLines="true" into no gridlines at all. */
+static gboolean
+attr_bool (const char **names, const char **values, const char *want, gboolean fallback)
+{
+  const char *v = attr (names, values, want);
+
+  if (v == NULL)
+    return fallback;
+  if (strcmp (v, "1") == 0 || strcmp (v, "true") == 0)
+    return TRUE;
+  if (strcmp (v, "0") == 0 || strcmp (v, "false") == 0)
+    return FALSE;
+  return fallback;
+}
+
 static gboolean
 attr_flag (const char **names, const char **values, const char *want)
 {
-  const char *v = attr (names, values, want);
-  return v != NULL && (strcmp (v, "1") == 0 || strcmp (v, "true") == 0);
+  return attr_bool (names, values, want, FALSE);
 }
 
 /* A general-purpose element collector: every parser below shares the
@@ -3349,8 +3365,8 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
       else if (strcmp (n, "protection") == 0 && !r->in_style_xfs && r->xfs->len > 0)
         {
           O42Fmt *fmt = &g_array_index (r->xfs, O42Fmt, r->xfs->len - 1);
-          fmt->locked = attr_int (names, values, "locked", 1) != 0;
-          fmt->hidden = attr_int (names, values, "hidden", 0) != 0;
+          fmt->locked = attr_bool (names, values, "locked", TRUE);
+          fmt->hidden = attr_flag (names, values, "hidden");
         }
       else if (strcmp (n, "alignment") == 0 && !r->in_style_xfs && r->xfs->len > 0)
         {
@@ -3546,8 +3562,8 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
               table.range.row0 > 0 && table.range.col0 > 0 &&
               o42_ref_parse (attr (names, values, "r1"), &a_row, &a_col, NULL))
             {
-              gboolean two = attr_int (names, values, "dt2D", 0) != 0;
-              gboolean row_wise = attr_int (names, values, "dtr", 0) != 0;
+              gboolean two = attr_flag (names, values, "dt2D");
+              gboolean row_wise = attr_flag (names, values, "dtr");
               int b_row = -1, b_col = -1;
 
               table.range.row0--;
@@ -3602,10 +3618,10 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     }
 
   if (strcmp (n, "outlinePr") == 0 && r->sheet != NULL)
-    o42_sheet_set_outline_settings (r->sheet, attr_int (names, values, "summaryBelow", 1) == 0,
-                                    attr_int (names, values, "summaryRight", 1) == 0);
+    o42_sheet_set_outline_settings (r->sheet, !attr_bool (names, values, "summaryBelow", TRUE),
+                                    !attr_bool (names, values, "summaryRight", TRUE));
   if (strcmp (n, "pageSetUpPr") == 0 && r->sheet != NULL)
-    r->fit_to_page = attr_int (names, values, "fitToPage", 0) != 0;
+    r->fit_to_page = attr_flag (names, values, "fitToPage");
   if (strcmp (n, "tabColor") == 0 && r->sheet != NULL)
     {
       guint32 colour = rgb_attr (r, names, values);
@@ -3666,12 +3682,12 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
         ps.paper = atoi (v) > 0 ? atoi (v) : ps.paper;
       if ((v = attr (names, values, "orientation")) != NULL)
         ps.landscape = strcmp (v, "landscape") == 0;
-      if (attr_int (names, values, "useFirstPageNumber", 0) != 0)
+      if (attr_flag (names, values, "useFirstPageNumber"))
         ps.first_page = attr_int (names, values, "firstPageNumber", 1);
       if ((v = attr (names, values, "pageOrder")) != NULL)
         ps.down_then_over = strcmp (v, "overThenDown") != 0;
-      ps.black_white = attr_int (names, values, "blackAndWhite", 0) != 0;
-      ps.draft = attr_int (names, values, "draft", 0) != 0;
+      ps.black_white = attr_flag (names, values, "blackAndWhite");
+      ps.draft = attr_flag (names, values, "draft");
       if ((v = attr (names, values, "cellComments")) != NULL)
         ps.notes = strcmp (v, "atEnd") == 0 ? O42_PRINT_NOTES_AT_END
                  : strcmp (v, "asDisplayed") == 0 ? O42_PRINT_NOTES_IN_PLACE : O42_PRINT_NOTES_NONE;
@@ -3685,10 +3701,10 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
 
-      ps.gridlines = attr_int (names, values, "gridLines", 0) != 0;
-      ps.headings = attr_int (names, values, "headings", 0) != 0;
-      ps.hcenter = attr_int (names, values, "horizontalCentered", 0) != 0;
-      ps.vcenter = attr_int (names, values, "verticalCentered", 0) != 0;
+      ps.gridlines = attr_flag (names, values, "gridLines");
+      ps.headings = attr_flag (names, values, "headings");
+      ps.hcenter = attr_flag (names, values, "horizontalCentered");
+      ps.vcenter = attr_flag (names, values, "verticalCentered");
       o42_sheet_set_print_setup (r->sheet, &ps);
     }
   else if (strcmp (n, "headerFooter") == 0)
@@ -3709,11 +3725,11 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       O42SheetView view = *o42_sheet_view (r->sheet);
 
-      view.gridlines = attr_int (names, values, "showGridLines", 1) != 0;
-      view.zeros = attr_int (names, values, "showZeros", 1) != 0;
-      view.right_to_left = attr_int (names, values, "rightToLeft", 0) != 0;
-      view.outline_symbols = attr_int (names, values, "showOutlineSymbols", 1) != 0;
-      view.selected = attr_int (names, values, "tabSelected", 0) != 0;
+      view.gridlines = attr_bool (names, values, "showGridLines", TRUE);
+      view.zeros = attr_bool (names, values, "showZeros", TRUE);
+      view.right_to_left = attr_flag (names, values, "rightToLeft");
+      view.outline_symbols = attr_bool (names, values, "showOutlineSymbols", TRUE);
+      view.selected = attr_flag (names, values, "tabSelected");
       view.zoom = attr_int (names, values, "zoomScale", 100);
       o42_sheet_set_view (r->sheet, &view);
     }
@@ -3908,7 +3924,7 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       r->cf_rank = attr_int (names, values, "rank", 10);
       r->cf_percent = attr_flag (names, values, "percent");
       r->cf_bottom = attr_flag (names, values, "bottom");
-      r->cf_above = attr_int (names, values, "aboveAverage", 1) != 0;
+      r->cf_above = attr_bool (names, values, "aboveAverage", TRUE);
       r->cf_equal = attr_flag (names, values, "equalAverage");
       r->cf_std_dev = attr_int (names, values, "stdDev", 0);
       r->cf_is_cellis = type != NULL && strcmp (type, "cellIs") == 0 && op != NULL;
@@ -3965,7 +3981,7 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       const char *password = attr (names, values, "password");
 
-      o42_sheet_set_protected (r->sheet, attr_int (names, values, "sheet", 1) != 0);
+      o42_sheet_set_protected (r->sheet, attr_bool (names, values, "sheet", TRUE));
       if (password != NULL)
         o42_sheet_set_password_hash (r->sheet, (guint16) g_ascii_strtoull (password, NULL, 16));
     }
