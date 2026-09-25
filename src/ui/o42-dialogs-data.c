@@ -89,7 +89,7 @@ action_sort (GSimpleAction *a, GVariant *p, gpointer data)
   GtkStringList *columns = gtk_string_list_new (NULL);
   GtkStringList *columns_none = gtk_string_list_new (NULL);
   O42Range used;
-  static const char *titles[3] = { "Sort by:", "Then by:", "Then by:" };
+  static const char *const titles[3] = { N_("Sort by:"), N_("Then by:"), N_("Then by:") };
 
   (void) a; (void) p;
 
@@ -114,12 +114,13 @@ action_sort (GSimpleAction *a, GVariant *p, gpointer data)
       if (*heading != '\0')
         g_snprintf (label, sizeof label, "%s (%s)", heading, name);
       else
-        g_snprintf (label, sizeof label, "Column %s", name);
+        /* Translators: %s is a column's letter, as in "Column C". */
+        g_snprintf (label, sizeof label, _("Column %s"), name);
       gtk_string_list_append (columns, label);
       gtk_string_list_append (columns_none, label);
       g_free (heading);
     }
-  gtk_string_list_splice (columns_none, 0, 0, (const char *[]) { "(none)", NULL });
+  gtk_string_list_splice (columns_none, 0, 0, (const char *[]) { _("(none)"), NULL });
 
   prompt->dialog = dialog_frame (self, _("Sort"), TRUE, &content, &buttons);
 
@@ -128,7 +129,7 @@ action_sort (GSimpleAction *a, GVariant *p, gpointer data)
       GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
       GtkWidget *descending;
 
-      gtk_box_append (GTK_BOX (row), gtk_label_new (titles[k]));
+      gtk_box_append (GTK_BOX (row), gtk_label_new (_(titles[k])));
       prompt->key_drop[k] = gtk_drop_down_new (
         G_LIST_MODEL (g_object_ref (k == 0 ? columns : columns_none)), NULL);
       gtk_widget_set_size_request (prompt->key_drop[k], 180, -1);
@@ -227,7 +228,8 @@ on_adv_filter_ok (GtkWidget *w, gpointer data)
   {
     int n = o42_sheet_advanced_filter (prompt->window->sheet, &list, &criteria, drow, dcol,
                                        gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->unique)));
-    char *message = g_strdup_printf ("%d row%s answered the criteria.", n, n == 1 ? "" : "s");
+    char *message = g_strdup_printf (ngettext ("%d row answered the criteria.",
+                                               "%d rows answered the criteria.", n), n);
     gtk_label_set_text (GTK_LABEL (prompt->window->status_label), message);
     g_free (message);
   }
@@ -273,9 +275,11 @@ action_advanced_filter (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->unique = gtk_check_button_new_with_mnemonic ( _("_Unique rows only"));
   gtk_box_append (GTK_BOX (content), prompt->unique);
   {
-    GtkWidget *hint = gtk_label_new ("The criteria range names fields in its first row; each row after it "
-                                     "is a set of conditions that must all hold, and any one row is enough. "
-                                     "A condition is \">5\", \"<>Japan\", \"*land\" or a value to equal.");
+    /* Translators: the quoted conditions are what may be typed into the
+       criteria range; keep the >, <> and * in them. */
+    GtkWidget *hint = gtk_label_new (_("The criteria range names fields in its first row; each row after it "
+                                       "is a set of conditions that must all hold, and any one row is enough. "
+                                       "A condition is \">5\", \"<>Japan\", \"*land\" or a value to equal."));
     gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (hint), 46);
     gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
@@ -387,7 +391,8 @@ action_consolidate (GSimpleAction *a, GVariant *p, gpointer data)
 
   o42_grid_get_active (self->grid, &row, &col);
   at = o42_ref_name (row, col);
-  where = g_strdup_printf ("The result goes at %s. Without labels the cells are matched by position.", at);
+  /* Translators: %s is the cell the result starts at, such as B2. */
+  where = g_strdup_printf (_("The result goes at %s. Without labels the cells are matched by position."), at);
   {
     GtkWidget *hint = gtk_label_new (where);
     gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
@@ -430,13 +435,18 @@ scenario_prompt_fill (ScenarioPrompt *prompt, const char *select)
       const char *name = o42_sheet_scenario_name (prompt->window->sheet, i);
       GArray *keys = NULL;
       const char *comment = NULL;
-      char *text;
+      char *head, *text;
+      guint n_cells;
       GtkWidget *label;
 
       o42_sheet_scenario_cells (prompt->window->sheet, name, &keys, NULL, &comment);
-      text = g_strdup_printf ("%s  (%u cells)%s%s", name, keys != NULL ? keys->len : 0,
-                              comment != NULL && *comment != '\0' ? " -- " : "",
-                              comment != NULL ? comment : "");
+      n_cells = keys != NULL ? keys->len : 0;
+      /* Translators: a scenario in the list: its name, then how many
+         cells it sets. */
+      head = g_strdup_printf (ngettext ("%s  (%u cell)", "%s  (%u cells)", n_cells), name, n_cells);
+      text = comment != NULL && *comment != '\0' ? g_strdup_printf ("%s -- %s", head, comment)
+                                                 : g_strdup (head);
+      g_free (head);
       label = gtk_label_new (text);
       gtk_label_set_xalign (GTK_LABEL (label), 0.0);
       gtk_widget_set_margin_start (label, 6);
@@ -599,7 +609,7 @@ action_scenarios (GSimpleAction *a, GVariant *p, gpointer data)
   ScenarioPrompt *prompt = g_new0 (ScenarioPrompt, 1);
   GtkWidget *content, *buttons, *scroller, *grid, *show;
   O42Range sel;
-  char *a1, *b1, *where;
+  char *a1, *b1, *range, *where;
 
   (void) a; (void) p;
   prompt->window = self;
@@ -617,7 +627,11 @@ action_scenarios (GSimpleAction *a, GVariant *p, gpointer data)
   o42_grid_get_selection (self->grid, &sel);
   a1 = o42_ref_name (sel.row0, sel.col0);
   b1 = o42_ref_name (sel.row1, sel.col1);
-  where = g_strdup_printf ("Add takes the values of %s:%s as they are now.", a1, b1);
+  range = g_strdup_printf ("%s:%s", a1, b1);
+  /* Translators: "Add" is the dialog's _Add button; %s is the selected
+     range, such as A1:B4. */
+  where = g_strdup_printf (_("Add takes the values of %s as they are now."), range);
+  g_free (range);
   grid = gtk_grid_new ();
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
   gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
@@ -713,7 +727,7 @@ action_table (GSimpleAction *a, GVariant *p, gpointer data)
   GtkWidget *content, *buttons, *ok, *row;
   O42Table *existing;
   char *suggestion;
-  char *a1, *b1, *where;
+  char *a1, *b1, *range, *where;
 
   (void) a; (void) p;
   prompt->window = self;
@@ -730,9 +744,11 @@ action_table (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->dialog = dialog_frame (self, _("Table"), TRUE, &content, &buttons);
   a1 = o42_ref_name (prompt->range.row0, prompt->range.col0);
   b1 = o42_ref_name (prompt->range.row1, prompt->range.col1);
-  where = g_strdup_printf ("Table over %s:%s", a1, b1);
+  range = g_strdup_printf ("%s:%s", a1, b1);
+  /* Translators: %s is the table's range, such as A1:D20. */
+  where = g_strdup_printf (_("Table over %s"), range);
   gtk_box_append (GTK_BOX (content), gtk_label_new (where));
-  g_free (where); g_free (a1); g_free (b1);
+  g_free (where); g_free (range); g_free (a1); g_free (b1);
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_append (GTK_BOX (row), gtk_label_new (_("Name:")));
@@ -803,7 +819,8 @@ table_prompt_columns (O42Window *self, TablePrompt *prompt, GtkStringList *label
       if (*heading != '\0')
         g_snprintf (label, sizeof label, "%s (%s)", heading, name);
       else
-        g_snprintf (label, sizeof label, "Column %s", name);
+        /* Translators: %s is a column's letter, as in "Column C". */
+        g_snprintf (label, sizeof label, _("Column %s"), name);
       gtk_string_list_append (labels, label);
       g_free (heading);
     }
@@ -862,7 +879,8 @@ on_remove_duplicates_ok (GtkWidget *w, gpointer data)
     {
       int removed = o42_sheet_remove_duplicates (prompt->window->sheet, &prompt->range, cols, n,
                                                  gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->header)));
-      char *message = g_strdup_printf ("%d duplicate row%s removed.", removed, removed == 1 ? "" : "s");
+      char *message = g_strdup_printf (ngettext ("%d duplicate row removed.",
+                                                 "%d duplicate rows removed.", removed), removed);
       o42_grid_refresh (prompt->window->grid);
       window_sync (prompt->window);
       gtk_label_set_text (GTK_LABEL (prompt->window->status_label), message);
@@ -884,7 +902,7 @@ action_remove_duplicates (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->checks = g_ptr_array_new ();
   table_prompt_columns (self, prompt, labels);
   prompt->dialog = dialog_frame (self, _("Remove Duplicates"), TRUE, &content, &buttons);
-  gtk_box_append (GTK_BOX (content), table_prompt_checklist (prompt, labels, "Columns that must match", TRUE));
+  gtk_box_append (GTK_BOX (content), table_prompt_checklist (prompt, labels, _("Columns that must match"), TRUE));
   prompt->header = gtk_check_button_new_with_mnemonic ( _("My list has a _header row"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->header), TRUE);
   gtk_box_append (GTK_BOX (content), prompt->header);
@@ -898,6 +916,11 @@ action_remove_duplicates (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
+/* The drop-down's choices, and the SUBTOTAL function number each stands
+ * for: the choice is read back by its place in the list. */
+static const char *const SUBTOTAL_NAMES[] = {
+  N_("Sum"), N_("Count"), N_("Average"), N_("Max"), N_("Min"), N_("Product"), NULL
+};
 static const int SUBTOTAL_FUNCTIONS[] = { 9, 3, 1, 4, 5, 6 };
 
 static void
@@ -940,7 +963,6 @@ action_subtotals (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   TablePrompt *prompt = g_new0 (TablePrompt, 1);
   GtkStringList *labels = gtk_string_list_new (NULL);
-  GtkStringList *functions = gtk_string_list_new ((const char *[]) { "Sum", "Count", "Average", "Max", "Min", "Product", NULL });
   GtkWidget *content, *buttons, *ok, *grid;
 
   (void) a; (void) p;
@@ -953,9 +975,9 @@ action_subtotals (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
   gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
   prompt->group_drop = labelled (grid, 0, _("At each change in:"), gtk_drop_down_new (G_LIST_MODEL (g_object_ref (labels)), NULL));
-  prompt->function_drop = labelled (grid, 1, _("Use function:"), gtk_drop_down_new (G_LIST_MODEL (functions), NULL));
+  prompt->function_drop = labelled (grid, 1, _("Use function:"), drop_down_of (SUBTOTAL_NAMES));
   gtk_box_append (GTK_BOX (content), grid);
-  gtk_box_append (GTK_BOX (content), table_prompt_checklist (prompt, labels, "Add subtotal to", FALSE));
+  gtk_box_append (GTK_BOX (content), table_prompt_checklist (prompt, labels, _("Add subtotal to"), FALSE));
   if (prompt->checks->len > 1)
     gtk_check_button_set_active (GTK_CHECK_BUTTON (g_ptr_array_index (prompt->checks, prompt->checks->len - 1)), TRUE);
   prompt->header = gtk_check_button_new_with_mnemonic ( _("My list has a _header row"));
@@ -989,10 +1011,10 @@ typedef struct {
 } PivotPrompt;
 
 /* How a field may be grouped, in the drop-down's order; the specs are
- * what O42Pivot.groups spells. */
+ * what O42Pivot.groups spells.  The choice is read back by its place. */
 static const char *const PIVOT_GROUP_KINDS[] = {
-  "(not grouped)", "Years", "Years and quarters", "Years, quarters and months",
-  "Quarters", "Months", "Days", "Number buckets", "Named groups", NULL
+  N_("(not grouped)"), N_("Years"), N_("Years and quarters"), N_("Years, quarters and months"),
+  N_("Quarters"), N_("Months"), N_("Days"), N_("Number buckets"), N_("Named groups"), NULL
 };
 static const char *const PIVOT_GROUP_SPECS[] = { "", "y", "y,q", "y,q,m", "q", "m", "d", "n", "g" };
 
@@ -1132,7 +1154,7 @@ action_pivot (GSimpleAction *a, GVariant *p, gpointer data)
     }
   g_ptr_array_add (fields, NULL);
   prompt->fields = (GStrv) g_ptr_array_free (fields, FALSE);
-  g_ptr_array_add (col_choices, (gpointer) "(none)");
+  g_ptr_array_add (col_choices, (gpointer) _("(none)"));
   for (guint i = 0; prompt->fields[i] != NULL; i++)
     g_ptr_array_add (col_choices, prompt->fields[i]);
   g_ptr_array_add (col_choices, NULL);
@@ -1883,7 +1905,7 @@ action_text_to_columns (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   SplitPrompt *prompt = g_new0 (SplitPrompt, 1);
   GtkWidget *content, *buttons, *row, *ok, *page, *hint;
-  static const char *names[4] = { "_Comma", "_Tab", "_Semicolon", "S_pace" };
+  static const char *const names[4] = { N_("_Comma"), N_("_Tab"), N_("_Semicolon"), N_("S_pace") };
   static const char *const TYPES[] = { N_("General"), N_("Text"), N_("Date"), N_("Do not import"), NULL };
   O42Range sel;
 
@@ -1908,7 +1930,7 @@ action_text_to_columns (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (page), gtk_label_new (_("Split the selected column at:")));
   for (int i = 0; i < 4; i++)
     {
-      prompt->choice[i] = gtk_check_button_new_with_mnemonic (names[i]);
+      prompt->choice[i] = gtk_check_button_new_with_mnemonic (_(names[i]));
       if (i > 0)
         gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->choice[i]),
                                     GTK_CHECK_BUTTON (prompt->choice[0]));
@@ -2052,6 +2074,8 @@ form_set_counter (FormPrompt *prompt)
   else if (prompt->record < 0)
     text = g_strdup (_("New Record"));
   else
+    /* Translators: the data form's counter: the record on show and how
+       many records the list has, as in "3 of 12". */
     text = g_strdup_printf (_("%d of %d"), prompt->record - prompt->list.row0, form_n_records (prompt));
   gtk_label_set_text (GTK_LABEL (prompt->counter), text);
   g_free (text);
@@ -2410,7 +2434,9 @@ action_data_form (GSimpleAction *a, GVariant *p, gpointer data)
 
       /* A column without a heading goes by its letter. */
       o42_col_name (c, letters, sizeof letters);
-      label = g_strdup_printf ("%s:", heading != NULL && *heading != '\0' ? heading : letters);
+      /* Translators: a field's label in the data form: the column's
+         heading, or its letter, then a colon. */
+      label = g_strdup_printf (_("%s:"), heading != NULL && *heading != '\0' ? heading : letters);
 
       gtk_editable_set_width_chars (GTK_EDITABLE (entry), 24);
       labelled (grid, c - list.col0, label, entry);

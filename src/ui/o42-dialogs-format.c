@@ -400,11 +400,11 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
   /* Border: a style per side, one colour for all. */
   page = page_grid (notebook, _("Border"));
   {
-    static const char *names[4] = { "Top:", "Bottom:", "Left:", "Right:" };
+    static const char *const names[4] = { N_("Top:"), N_("Bottom:"), N_("Left:"), N_("Right:") };
 
     for (int i = 0; i < 4; i++)
       {
-        prompt->border_style[i] = labelled (page, i, names[i], drop_down_of (BORDER_STYLE_NAMES));
+        prompt->border_style[i] = labelled (page, i, _(names[i]), drop_down_of (BORDER_STYLE_NAMES));
         gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->border_style[i]), fmt->border_style[i]);
         prompt->border[i] = prompt->border_style[i];
       }
@@ -420,8 +420,8 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->hidden), fmt->hidden);
   gtk_grid_attach (GTK_GRID (page), prompt->hidden, 0, 1, 2, 1);
   {
-    GtkWidget *hint = gtk_label_new ("Both take effect only while the sheet is protected, "
-                                     "under Tools > Protect Sheet.");
+    GtkWidget *hint = gtk_label_new (_("Both take effect only while the sheet is protected, "
+                                       "under Tools > Protect Sheet."));
     gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (hint), 34);
     gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
@@ -434,7 +434,7 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->no_fill = gtk_check_button_new_with_mnemonic ( _("_No shading"));
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), fmt->fill == O42_FILL_NONE);
   gtk_grid_attach (GTK_GRID (page), prompt->no_fill, 0, 0, 2, 1);
-  prompt->fill = labelled (page, 1, "Shading:",
+  prompt->fill = labelled (page, 1, _("Shading:"),
                            colour_button (fmt->fill != O42_FILL_NONE ? fmt->fill : 0xFFFF99, _("Cell Shading")));
   {
     /* In the order of O42Pattern. */
@@ -447,7 +447,7 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
 
     prompt->pattern = labelled (page, 2, _("Pattern:"), drop_down_of (patterns));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->pattern), fmt->pattern);
-    prompt->pattern_colour = labelled (page, 3, "Pattern colour:",
+    prompt->pattern_colour = labelled (page, 3, _("Pattern colour:"),
                                        colour_button (fmt->pattern_colour, _("Pattern Colour")));
   }
 
@@ -655,7 +655,7 @@ size_prompt (O42Window *self, gboolean columns)
   gtk_window_set_child (GTK_WINDOW (prompt->dialog), box);
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
-  label = gtk_label_new (columns ? "Column Width (pixels):" : "Row Height (pixels):");
+  label = gtk_label_new (columns ? _("Column Width (pixels):") : _("Row Height (pixels):"));
   prompt->entry = gtk_entry_new ();
   gtk_editable_set_text (GTK_EDITABLE (prompt->entry), initial);
   gtk_editable_set_width_chars (GTK_EDITABLE (prompt->entry), 8);
@@ -817,8 +817,8 @@ action_autoformat (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->window = self;
   o42_grid_get_selection (self->grid, &prompt->range);
   prompt->dialog = dialog_frame (self, _("AutoFormat"), TRUE, &content, &buttons);
-  gtk_box_append (GTK_BOX (content), gtk_label_new ("A look for the selection, "
-                                                    "whose first row is its heading:"));
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("A look for the selection, "
+                                                      "whose first row is its heading:")));
   prompt->which = gtk_drop_down_new_from_strings (names);
   gtk_box_append (GTK_BOX (content), prompt->which);
 
