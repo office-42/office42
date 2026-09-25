@@ -437,9 +437,13 @@ action_format_cells (GSimpleAction *a, GVariant *p, gpointer data)
   prompt->fill = labelled (page, 1, _("Shading:"),
                            colour_button (fmt->fill != O42_FILL_NONE ? fmt->fill : 0xFFFF99, _("Cell Shading")));
   {
-    /* In the order of O42Pattern. */
+    /* In the order of O42Pattern.  The per cents are no printf format,
+     * whatever xgettext takes "% g" for. */
     static const char *const patterns[] = {
-      N_("None"), N_("Solid"), N_("75% grey"), N_("50% grey"), N_("25% grey"), N_("12.5% grey"), N_("6.25% grey"),
+      N_("None"), N_("Solid"),
+      /* xgettext:no-c-format */ N_("75% grey"), /* xgettext:no-c-format */ N_("50% grey"),
+      /* xgettext:no-c-format */ N_("25% grey"), /* xgettext:no-c-format */ N_("12.5% grey"),
+      /* xgettext:no-c-format */ N_("6.25% grey"),
       N_("Horizontal"), N_("Vertical"), N_("Diagonal down"), N_("Diagonal up"), N_("Grid"), N_("Trellis"),
       N_("Thin horizontal"), N_("Thin vertical"), N_("Thin diagonal down"), N_("Thin diagonal up"),
       N_("Thin grid"), N_("Thin trellis"), NULL

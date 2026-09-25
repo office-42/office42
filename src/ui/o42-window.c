@@ -2636,6 +2636,7 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->paper), chosen);
     labelled (grid, 1, _("Paper size:"), prompt->paper);
   }
+  /* xgettext:no-c-format */
   prompt->scale = labelled (grid, 2, _("Adjust to (% normal size):"), gtk_spin_button_new_with_range (10, 400, 5));
   prompt->fit_wide = labelled (grid, 3, _("Fit to pages wide:"), gtk_spin_button_new_with_range (0, 99, 1));
   prompt->fit_tall = labelled (grid, 4, _("Fit to pages tall:"), gtk_spin_button_new_with_range (0, 99, 1));
@@ -3908,7 +3909,8 @@ action_insert_chart (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   ChartPrompt *prompt = g_new0 (ChartPrompt, 1);
   GtkWidget *content, *buttons, *row, *ok;
-  static const char *names[17] = { N_("_Column"), N_("_Stacked column"), N_("100% stac_ked column"),
+  static const char *names[17] = { N_("_Column"), N_("_Stacked column"),
+                                   /* xgettext:no-c-format */ N_("100% stac_ked column"),
                                    N_("_Bar"), N_("_Line"), N_("_Area"), N_("_Pie"), N_("_XY (Scatter)"),
                                    N_("_Doughnut"), N_("_Radar"), N_("B_ubble"),
                                    N_("Sto_ck (high-low-close)"), N_("Surfa_ce"),
@@ -4755,9 +4757,15 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->no_fill), shape->fill == O42_FILL_NONE);
   gtk_grid_attach (GTK_GRID (grid), prompt->no_fill, 0, 1, 2, 1);
   {
-    /* In the order of O42ShapeFillKind, and of O42Pattern from GRAY75. */
+    /* In the order of O42ShapeFillKind, and of O42Pattern from GRAY75.
+     * The per cents are no printf format, whatever xgettext takes "% g"
+     * for. */
     static const char *const kinds[] = { N_("Solid"), N_("Gradient"), N_("Pattern"), NULL };
-    static const char *const patterns[] = { N_("75% grey"), N_("50% grey"), N_("25% grey"), N_("12.5% grey"), N_("6.25% grey"),
+    static const char *const patterns[] = { /* xgettext:no-c-format */ N_("75% grey"),
+                                            /* xgettext:no-c-format */ N_("50% grey"),
+                                            /* xgettext:no-c-format */ N_("25% grey"),
+                                            /* xgettext:no-c-format */ N_("12.5% grey"),
+                                            /* xgettext:no-c-format */ N_("6.25% grey"),
                                             N_("Horizontal"), N_("Vertical"), N_("Down diagonal"), N_("Up diagonal"),
                                             N_("Grid"), N_("Trellis"), N_("Thin horizontal"), N_("Thin vertical"),
                                             N_("Thin down diagonal"), N_("Thin up diagonal"), N_("Thin grid"), N_("Thin trellis"), NULL };
