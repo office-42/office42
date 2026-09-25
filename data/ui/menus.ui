@@ -61,9 +61,9 @@
         <submenu>
           <attribute name="label" translatable="yes">F_ill</attribute>
           <item><attribute name="label" translatable="yes">_Down</attribute><attribute name="action">win.fill-down</attribute></item>
-          <item><attribute name="label" translatable="yes">_Right</attribute><attribute name="action">win.fill-right</attribute></item>
+          <item><attribute name="label" translatable="yes" context="fill direction">_Right</attribute><attribute name="action">win.fill-right</attribute></item>
           <item><attribute name="label" translatable="yes">_Up</attribute><attribute name="action">win.fill-up</attribute></item>
-          <item><attribute name="label" translatable="yes">_Left</attribute><attribute name="action">win.fill-left</attribute></item>
+          <item><attribute name="label" translatable="yes" context="fill direction">_Left</attribute><attribute name="action">win.fill-left</attribute></item>
           <item><attribute name="label" translatable="yes">_Across Worksheets...</attribute><attribute name="action">win.fill-across</attribute></item>
           <item><attribute name="label" translatable="yes">_Series...</attribute><attribute name="action">win.fill-series</attribute></item>
           <item><attribute name="label" translatable="yes">_Justify</attribute><attribute name="action">win.fill-justify</attribute></item>
@@ -145,7 +145,7 @@
           <attribute name="label" translatable="yes">Sh_ape</attribute>
           <item><attribute name="label" translatable="yes">_Rectangle</attribute><attribute name="action">win.shape</attribute><attribute name="target">rectangle</attribute></item>
           <item><attribute name="label" translatable="yes">_Oval</attribute><attribute name="action">win.shape</attribute><attribute name="target">oval</attribute></item>
-          <item><attribute name="label" translatable="yes">_Line</attribute><attribute name="action">win.shape</attribute><attribute name="target">line</attribute></item>
+          <item><attribute name="label" translatable="yes" context="shape">_Line</attribute><attribute name="action">win.shape</attribute><attribute name="target">line</attribute></item>
           <item><attribute name="label" translatable="yes">_Arrow</attribute><attribute name="action">win.shape</attribute><attribute name="target">arrow</attribute></item>
           <item><attribute name="label" translatable="yes">_Text Box</attribute><attribute name="action">win.shape</attribute><attribute name="target">textbox</attribute></item>
           <item><attribute name="label" translatable="yes">_Freeform</attribute><attribute name="action">win.shape</attribute><attribute name="target">freeform</attribute></item>
@@ -274,7 +274,7 @@
           <attribute name="label" translatable="yes">_Number</attribute>
           <item><attribute name="label" translatable="yes">_General</attribute><attribute name="action">win.number</attribute><attribute name="target">general</attribute></item>
           <item><attribute name="label" translatable="yes">_Fixed</attribute><attribute name="action">win.number</attribute><attribute name="target">fixed</attribute></item>
-          <item><attribute name="label" translatable="yes">_Comma</attribute><attribute name="action">win.number</attribute><attribute name="target">comma</attribute></item>
+          <item><attribute name="label" translatable="yes" context="number format">_Comma</attribute><attribute name="action">win.number</attribute><attribute name="target">comma</attribute></item>
           <item><attribute name="label" translatable="yes">C_urrency</attribute><attribute name="action">win.number</attribute><attribute name="target">currency</attribute></item>
           <item><attribute name="label" translatable="yes">_Percent</attribute><attribute name="action">win.number</attribute><attribute name="target">percent</attribute></item>
           <item><attribute name="label" translatable="yes">_Scientific</attribute><attribute name="action">win.number</attribute><attribute name="target">scientific</attribute></item>
@@ -407,7 +407,7 @@
     <submenu>
       <attribute name="label" translatable="yes">_Help</attribute>
       <section>
-        <item><attribute name="label" translatable="yes">_Contents</attribute><attribute name="action">win.help-contents</attribute></item>
+        <item><attribute name="label" translatable="yes" context="help">_Contents</attribute><attribute name="action">win.help-contents</attribute></item>
       </section>
       <section>
         <item><attribute name="label" translatable="yes">_About office42</attribute><attribute name="action">win.about</attribute></item>

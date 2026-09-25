@@ -2835,7 +2835,7 @@ action_macros (GSimpleAction *a, GVariant *p, gpointer data)
 
   run = dialog_button (buttons, _("_Run"), G_CALLBACK (on_macros_run), prompt);
   gtk_widget_set_sensitive (run, o42_python_available ());
-  dialog_button (buttons, _("_Edit"), G_CALLBACK (on_macros_edit), prompt);
+  dialog_button (buttons, C_("macro", "_Edit"), G_CALLBACK (on_macros_edit), prompt);
   dialog_button (buttons, _("_Delete"), G_CALLBACK (on_macros_delete), prompt);
   dialog_button (buttons, _("_Options..."), G_CALLBACK (on_macros_options), prompt);
   dialog_button (buttons, _("_Folder"), G_CALLBACK (on_macros_folder), prompt);

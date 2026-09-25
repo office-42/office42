@@ -2732,7 +2732,8 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
   prompt->headings = check_row (grid, 4, _("Row and column h_eadings"), setup->headings);
   prompt->black_white = check_row (grid, 5, _("_Black and white"), setup->black_white);
   prompt->draft = check_row (grid, 6, _("Dra_ft quality"), setup->draft);
-  prompt->notes = labelled (grid, 7, _("Comments:"), drop_down_of (NOTES_NAMES));
+  /* Translators: the cell notes, and where the page puts them. */
+  prompt->notes = labelled (grid, 7, C_("page setup", "Comments:"), drop_down_of (NOTES_NAMES));
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->notes), setup->notes);
   prompt->errors = labelled (grid, 8, _("Cell errors as:"), drop_down_of (ERRORS_NAMES));
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->errors), setup->errors);

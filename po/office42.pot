@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-25 19:37+0000\n"
+"POT-Creation-Date: 2026-09-25 19:56+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -38,11 +38,11 @@ msgstr ""
 #: data/ui/menus.ui:14 src/ui/o42-dialogs-data.c:657
 #: src/ui/o42-dialogs-tools.c:1528 src/ui/o42-dialogs-tools.c:1679
 #: src/ui/o42-dialogs-tools.c:1854 src/ui/o42-dialogs-tools.c:3332
-#: src/ui/o42-dialogs-tools.c:3729 src/ui/o42-window.c:5159
+#: src/ui/o42-dialogs-tools.c:3729 src/ui/o42-window.c:5168
 msgid "_Close"
 msgstr ""
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6248
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6257
 msgid "_Save"
 msgstr ""
 
@@ -102,7 +102,7 @@ msgstr ""
 msgid "E_xit"
 msgstr ""
 
-#: data/ui/menus.ui:48 src/ui/o42-dialogs-tools.c:2838
+#: data/ui/menus.ui:48
 msgid "_Edit"
 msgstr ""
 
@@ -145,7 +145,8 @@ msgstr ""
 msgid "_Down"
 msgstr ""
 
-#: data/ui/menus.ui:64 data/ui/menus.ui:271
+#: data/ui/menus.ui:64
+msgctxt "fill direction"
 msgid "_Right"
 msgstr ""
 
@@ -153,7 +154,8 @@ msgstr ""
 msgid "_Up"
 msgstr ""
 
-#: data/ui/menus.ui:66 data/ui/menus.ui:269
+#: data/ui/menus.ui:66
+msgctxt "fill direction"
 msgid "_Left"
 msgstr ""
 
@@ -181,7 +183,7 @@ msgstr ""
 msgid "_Formats"
 msgstr ""
 
-#: data/ui/menus.ui:75 data/ui/menus.ui:410 src/ui/o42-dialogs-edit.c:235
+#: data/ui/menus.ui:75 src/ui/o42-dialogs-edit.c:235
 msgid "_Contents"
 msgstr ""
 
@@ -369,7 +371,8 @@ msgstr ""
 msgid "_Oval"
 msgstr ""
 
-#: data/ui/menus.ui:148 src/ui/o42-window.c:3912
+#: data/ui/menus.ui:148
+msgctxt "shape"
 msgid "_Line"
 msgstr ""
 
@@ -413,7 +416,7 @@ msgstr ""
 msgid "Octagon"
 msgstr ""
 
-#: data/ui/menus.ui:160 src/ui/o42-window.c:5335
+#: data/ui/menus.ui:160 src/ui/o42-window.c:5344
 msgid "Cross"
 msgstr ""
 
@@ -629,7 +632,7 @@ msgstr ""
 msgid "_Rename..."
 msgstr ""
 
-#: data/ui/menus.ui:238 src/ui/o42-window.c:3368
+#: data/ui/menus.ui:238 src/ui/o42-window.c:3370
 msgid "Move _Left"
 msgstr ""
 
@@ -638,7 +641,7 @@ msgid "Move R_ight"
 msgstr ""
 
 #: data/ui/menus.ui:240 data/ui/menus.ui:250 data/ui/menus.ui:256
-#: data/ui/menus.ui:400 src/ui/o42-window.c:7760
+#: data/ui/menus.ui:400 src/ui/o42-window.c:7769
 msgid "_Hide"
 msgstr ""
 
@@ -676,12 +679,12 @@ msgid "_Standard Width..."
 msgstr ""
 
 #: data/ui/menus.ui:261 src/ui/o42-dialogs-format.c:386
-#: src/ui/o42-dialogs-format.c:551 src/ui/o42-window.c:4842
+#: src/ui/o42-dialogs-format.c:555 src/ui/o42-window.c:4851
 msgid "_Bold"
 msgstr ""
 
 #: data/ui/menus.ui:262 src/ui/o42-dialogs-format.c:387
-#: src/ui/o42-dialogs-format.c:552 src/ui/o42-window.c:4844
+#: src/ui/o42-dialogs-format.c:556 src/ui/o42-window.c:4853
 msgid "_Italic"
 msgstr ""
 
@@ -697,8 +700,16 @@ msgstr ""
 msgid "_General"
 msgstr ""
 
+#: data/ui/menus.ui:269
+msgid "_Left"
+msgstr ""
+
 #: data/ui/menus.ui:270
 msgid "_Center"
+msgstr ""
+
+#: data/ui/menus.ui:271
+msgid "_Right"
 msgstr ""
 
 #: data/ui/menus.ui:274
@@ -709,7 +720,8 @@ msgstr ""
 msgid "_Fixed"
 msgstr ""
 
-#: data/ui/menus.ui:277 src/ui/o42-dialogs-data.c:1908
+#: data/ui/menus.ui:277
+msgctxt "number format"
 msgid "_Comma"
 msgstr ""
 
@@ -1007,6 +1019,11 @@ msgstr ""
 
 #: data/ui/menus.ui:408
 msgid "_Help"
+msgstr ""
+
+#: data/ui/menus.ui:410
+msgctxt "help"
+msgid "_Contents"
 msgstr ""
 
 #: data/ui/menus.ui:413
@@ -3502,7 +3519,16 @@ msgstr ""
 msgid "A number as text in a format such as \"#,##0.00\"."
 msgstr ""
 
-#: src/ui/o42-application.c:656 src/ui/o42-window.c:7452
+#. GTK lays its widgets out right to left for Arabic or Urdu only when
+#. * its own catalogue for the language is installed, which a Windows
+#. * build does not carry; office42's catalogue says it as well.
+#. * Translators: write "default:RTL" if your language is written right
+#. * to left and "default:LTR" otherwise -- nothing else.
+#: src/ui/o42-application.c:265
+msgid "default:LTR"
+msgstr ""
+
+#: src/ui/o42-application.c:664 src/ui/o42-window.c:7461
 msgid "Office42 Spreadsheet"
 msgstr ""
 
@@ -3524,7 +3550,7 @@ msgstr ""
 msgid "(none)"
 msgstr ""
 
-#: src/ui/o42-dialogs-data.c:125 src/ui/o42-window.c:6763
+#: src/ui/o42-dialogs-data.c:125 src/ui/o42-window.c:6772
 msgid "Sort"
 msgstr ""
 
@@ -3550,21 +3576,21 @@ msgstr ""
 #: src/ui/o42-dialogs-edit.c:289 src/ui/o42-dialogs-edit.c:375
 #: src/ui/o42-dialogs-edit.c:531 src/ui/o42-dialogs-edit.c:594
 #: src/ui/o42-dialogs-edit.c:652 src/ui/o42-dialogs-edit.c:728
-#: src/ui/o42-dialogs-format.c:454 src/ui/o42-dialogs-format.c:568
-#: src/ui/o42-dialogs-format.c:669 src/ui/o42-dialogs-format.c:768
-#: src/ui/o42-dialogs-format.c:825 src/ui/o42-dialogs-tools.c:127
+#: src/ui/o42-dialogs-format.c:458 src/ui/o42-dialogs-format.c:572
+#: src/ui/o42-dialogs-format.c:673 src/ui/o42-dialogs-format.c:772
+#: src/ui/o42-dialogs-format.c:829 src/ui/o42-dialogs-tools.c:127
 #: src/ui/o42-dialogs-tools.c:411 src/ui/o42-dialogs-tools.c:2423
 #: src/ui/o42-dialogs-tools.c:2799 src/ui/o42-dialogs-tools.c:3099
 #: src/ui/o42-dialogs-tools.c:3181 src/ui/o42-dialogs-tools.c:3426
 #: src/ui/o42-dialogs-tools.c:3488 src/ui/o42-dialogs-tools.c:3829
 #: src/ui/o42-grid.c:4187 src/ui/o42-window.c:877 src/ui/o42-window.c:1095
 #: src/ui/o42-window.c:1173 src/ui/o42-window.c:1601 src/ui/o42-window.c:2488
-#: src/ui/o42-window.c:2750 src/ui/o42-window.c:3040 src/ui/o42-window.c:3138
-#: src/ui/o42-window.c:3626 src/ui/o42-window.c:3672 src/ui/o42-window.c:3747
-#: src/ui/o42-window.c:3823 src/ui/o42-window.c:3984 src/ui/o42-window.c:4144
-#: src/ui/o42-window.c:4430 src/ui/o42-window.c:4540 src/ui/o42-window.c:4867
-#: src/ui/o42-window.c:4988 src/ui/o42-window.c:5355 src/ui/o42-window.c:5637
-#: src/ui/o42-window.c:7462
+#: src/ui/o42-window.c:2752 src/ui/o42-window.c:3042 src/ui/o42-window.c:3140
+#: src/ui/o42-window.c:3628 src/ui/o42-window.c:3674 src/ui/o42-window.c:3749
+#: src/ui/o42-window.c:3825 src/ui/o42-window.c:3987 src/ui/o42-window.c:4147
+#: src/ui/o42-window.c:4433 src/ui/o42-window.c:4543 src/ui/o42-window.c:4876
+#: src/ui/o42-window.c:4997 src/ui/o42-window.c:5364 src/ui/o42-window.c:5646
+#: src/ui/o42-window.c:7471
 msgid "_OK"
 msgstr ""
 
@@ -3575,20 +3601,20 @@ msgstr ""
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-format.c:455
-#: src/ui/o42-dialogs-format.c:670 src/ui/o42-dialogs-format.c:769
-#: src/ui/o42-dialogs-format.c:826 src/ui/o42-dialogs-tools.c:2424
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-format.c:459
+#: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
+#: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
 #: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
 #: src/ui/o42-dialogs-tools.c:3182 src/ui/o42-dialogs-tools.c:3427
 #: src/ui/o42-dialogs-tools.c:3489 src/ui/o42-dialogs-tools.c:3830
 #: src/ui/o42-grid.c:4188 src/ui/o42-window.c:878 src/ui/o42-window.c:1096
 #: src/ui/o42-window.c:1174 src/ui/o42-window.c:1602 src/ui/o42-window.c:2489
-#: src/ui/o42-window.c:2751 src/ui/o42-window.c:3041 src/ui/o42-window.c:3139
-#: src/ui/o42-window.c:3628 src/ui/o42-window.c:3672 src/ui/o42-window.c:3748
-#: src/ui/o42-window.c:3824 src/ui/o42-window.c:3985 src/ui/o42-window.c:4145
-#: src/ui/o42-window.c:4431 src/ui/o42-window.c:4541 src/ui/o42-window.c:4868
-#: src/ui/o42-window.c:4989 src/ui/o42-window.c:5356 src/ui/o42-window.c:5638
-#: src/ui/o42-window.c:6248 src/ui/o42-window.c:7463
+#: src/ui/o42-window.c:2753 src/ui/o42-window.c:3043 src/ui/o42-window.c:3141
+#: src/ui/o42-window.c:3630 src/ui/o42-window.c:3674 src/ui/o42-window.c:3750
+#: src/ui/o42-window.c:3826 src/ui/o42-window.c:3988 src/ui/o42-window.c:4148
+#: src/ui/o42-window.c:4434 src/ui/o42-window.c:4544 src/ui/o42-window.c:4877
+#: src/ui/o42-window.c:4998 src/ui/o42-window.c:5365 src/ui/o42-window.c:5647
+#: src/ui/o42-window.c:6257 src/ui/o42-window.c:7472
 msgid "_Cancel"
 msgstr ""
 
@@ -3717,7 +3743,7 @@ msgstr ""
 
 #: src/ui/o42-dialogs-data.c:638 src/ui/o42-dialogs-data.c:754
 #: src/ui/o42-dialogs-tools.c:1226 src/ui/o42-dialogs-tools.c:1668
-#: src/ui/o42-window.c:1322 src/ui/o42-window.c:3739
+#: src/ui/o42-window.c:1322 src/ui/o42-window.c:3741
 msgid "Name:"
 msgstr ""
 
@@ -3941,8 +3967,8 @@ msgid ""
 msgstr ""
 
 #: src/ui/o42-dialogs-data.c:1272 src/ui/o42-dialogs-data.c:1382
-#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-format.c:570
-#: src/ui/o42-dialogs-tools.c:307 src/ui/o42-window.c:7010
+#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-format.c:574
+#: src/ui/o42-dialogs-tools.c:307 src/ui/o42-window.c:7019
 msgid "Cancel"
 msgstr ""
 
@@ -4033,7 +4059,7 @@ msgstr ""
 msgid "Data:"
 msgstr ""
 
-#: src/ui/o42-dialogs-data.c:1521 src/ui/o42-dialogs-format.c:543
+#: src/ui/o42-dialogs-data.c:1521 src/ui/o42-dialogs-format.c:547
 msgid "and"
 msgstr ""
 
@@ -4075,8 +4101,12 @@ msgstr ""
 msgid "Show error alert after invalid data is _entered"
 msgstr ""
 
-#: src/ui/o42-dialogs-data.c:1576 src/ui/o42-dialogs-format.c:569
+#: src/ui/o42-dialogs-data.c:1576 src/ui/o42-dialogs-format.c:573
 msgid "_Clear"
+msgstr ""
+
+#: src/ui/o42-dialogs-data.c:1908
+msgid "_Comma"
 msgstr ""
 
 #: src/ui/o42-dialogs-data.c:1908
@@ -4092,13 +4122,13 @@ msgid "S_pace"
 msgstr ""
 
 #: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-format.c:61
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5276
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5285
 msgid "General"
 msgstr ""
 
 #. Text
 #: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-format.c:61
-#: src/ui/o42-window.c:4826
+#: src/ui/o42-window.c:4835
 msgid "Text"
 msgstr ""
 
@@ -4343,7 +4373,7 @@ msgstr ""
 msgid "Apply names:"
 msgstr ""
 
-#: src/ui/o42-dialogs-edit.c:695 src/ui/o42-window.c:3977
+#: src/ui/o42-dialogs-edit.c:695 src/ui/o42-window.c:3980
 msgid "Title:"
 msgstr ""
 
@@ -4371,12 +4401,12 @@ msgstr ""
 msgid "Keywords:"
 msgstr ""
 
-#: src/ui/o42-dialogs-edit.c:696 src/ui/o42-window.c:2734
+#: src/ui/o42-dialogs-edit.c:696
 msgid "Comments:"
 msgstr ""
 
 #. Properties
-#: src/ui/o42-dialogs-edit.c:705 src/ui/o42-window.c:4821
+#: src/ui/o42-dialogs-edit.c:705 src/ui/o42-window.c:4830
 msgid "Properties"
 msgstr ""
 
@@ -4385,9 +4415,9 @@ msgstr ""
 #. In the order of O42TrendKind, so the row is the kind.
 #. In the order of O42ErrBarKind.
 #: src/ui/o42-dialogs-format.c:53 src/ui/o42-dialogs-format.c:312
-#: src/ui/o42-dialogs-format.c:442 src/ui/o42-window.c:4782
-#: src/ui/o42-window.c:5293 src/ui/o42-window.c:5308 src/ui/o42-window.c:5320
-#: src/ui/o42-window.c:5334
+#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4791
+#: src/ui/o42-window.c:5302 src/ui/o42-window.c:5317 src/ui/o42-window.c:5329
+#: src/ui/o42-window.c:5343
 msgid "None"
 msgstr ""
 
@@ -4395,7 +4425,7 @@ msgstr ""
 msgid "Thin"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:53 src/ui/o42-window.c:4784
+#: src/ui/o42-dialogs-format.c:53 src/ui/o42-window.c:4793
 msgid "Medium"
 msgstr ""
 
@@ -4463,27 +4493,27 @@ msgstr ""
 msgid "(1,234.10) in red"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4852
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
 msgid "Left"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:6838
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:6847
 msgid "Center"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4852
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
 msgid "Right"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4853
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
 msgid "Bottom"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4853
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
 msgid "Middle"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4853
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
 msgid "Top"
 msgstr ""
 
@@ -4517,11 +4547,11 @@ msgstr ""
 msgid "Alignment"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:358 src/ui/o42-window.c:4856
+#: src/ui/o42-dialogs-format.c:358 src/ui/o42-window.c:4865
 msgid "Horizontal:"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:360 src/ui/o42-window.c:4858
+#: src/ui/o42-dialogs-format.c:360 src/ui/o42-window.c:4867
 msgid "Vertical:"
 msgstr ""
 
@@ -4546,7 +4576,7 @@ msgstr ""
 msgid "Font"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:376 src/ui/o42-window.c:4836
+#: src/ui/o42-dialogs-format.c:376 src/ui/o42-window.c:4845
 msgid "Font:"
 msgstr ""
 
@@ -4623,192 +4653,194 @@ msgstr ""
 msgid "Shading:"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:438 src/ui/o42-dialogs-format.c:564
+#: src/ui/o42-dialogs-format.c:438 src/ui/o42-dialogs-format.c:568
 msgid "Cell Shading"
 msgstr ""
 
 #. In the order of O42ShapeFillKind, and of O42Pattern from GRAY75.
+#. * The per cents are no printf format, whatever xgettext takes "% g"
+#. * for.
 #. In the order of O42Dash, O42Head and O42HeadSize, so the row is
 #. * the value.
-#: src/ui/o42-dialogs-format.c:442 src/ui/o42-window.c:4759
-#: src/ui/o42-window.c:4780
+#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4764
+#: src/ui/o42-window.c:4789
 msgid "Solid"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:442 src/ui/o42-window.c:4760
-#, c-format
+#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4765
+#, no-c-format
 msgid "75% grey"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:442 src/ui/o42-window.c:4760
-#, c-format
+#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4766
+#, no-c-format
 msgid "50% grey"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:442 src/ui/o42-window.c:4760
-#, c-format
+#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4767
+#, no-c-format
 msgid "25% grey"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:442 src/ui/o42-window.c:4760
-#, c-format
+#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4768
+#, no-c-format
 msgid "12.5% grey"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:442 src/ui/o42-window.c:4760
-#, c-format
+#: src/ui/o42-dialogs-format.c:446 src/ui/o42-window.c:4769
+#, no-c-format
 msgid "6.25% grey"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4761
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4770
 msgid "Horizontal"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4761
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4770
 msgid "Vertical"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:443
+#: src/ui/o42-dialogs-format.c:447
 msgid "Diagonal down"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:443
+#: src/ui/o42-dialogs-format.c:447
 msgid "Diagonal up"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4762
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4771
 msgid "Grid"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4762
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4771
 msgid "Trellis"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4762
+#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4771
 msgid "Thin horizontal"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4762
+#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4771
 msgid "Thin vertical"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:444
+#: src/ui/o42-dialogs-format.c:448
 msgid "Thin diagonal down"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:444
+#: src/ui/o42-dialogs-format.c:448
 msgid "Thin diagonal up"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4763
+#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4772
 msgid "Thin grid"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4763
+#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4772
 msgid "Thin trellis"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4770
+#: src/ui/o42-dialogs-format.c:452 src/ui/o42-window.c:4779
 msgid "Pattern:"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:450
+#: src/ui/o42-dialogs-format.c:454
 msgid "Pattern colour:"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:451
+#: src/ui/o42-dialogs-format.c:455
 msgid "Pattern Colour"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:475
+#: src/ui/o42-dialogs-format.c:479
 msgid "between"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:475
+#: src/ui/o42-dialogs-format.c:479
 msgid "not between"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:475
+#: src/ui/o42-dialogs-format.c:479
 msgid "equal to"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:475
+#: src/ui/o42-dialogs-format.c:479
 msgid "not equal to"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:475
+#: src/ui/o42-dialogs-format.c:479
 msgid "greater than"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:476
+#: src/ui/o42-dialogs-format.c:480
 msgid "less than"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:476
+#: src/ui/o42-dialogs-format.c:480
 msgid "greater than or equal to"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:476
+#: src/ui/o42-dialogs-format.c:480
 msgid "less than or equal to"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:533
+#: src/ui/o42-dialogs-format.c:537
 msgid "Conditional Formatting"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:536
+#: src/ui/o42-dialogs-format.c:540
 msgid "Cell value is"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:549
+#: src/ui/o42-dialogs-format.c:553
 msgid "Then show the cell as:"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:556 src/ui/o42-window.c:4850
+#: src/ui/o42-dialogs-format.c:560 src/ui/o42-window.c:4859
 msgid "Colour:"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:557 src/ui/o42-window.c:4850
+#: src/ui/o42-dialogs-format.c:561 src/ui/o42-window.c:4859
 msgid "Text Colour"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:562
+#: src/ui/o42-dialogs-format.c:566
 msgid "_Shading:"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:644
+#: src/ui/o42-dialogs-format.c:648
 msgid "Column Width"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:644
+#: src/ui/o42-dialogs-format.c:648
 msgid "Row Height"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:658
+#: src/ui/o42-dialogs-format.c:662
 msgid "Column Width (pixels):"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:658
+#: src/ui/o42-dialogs-format.c:662
 msgid "Row Height (pixels):"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:756
+#: src/ui/o42-dialogs-format.c:760
 msgid "Standard Width"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:759
+#: src/ui/o42-dialogs-format.c:763
 msgid "Standard column width (pixels):"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:819
+#: src/ui/o42-dialogs-format.c:823
 msgid "AutoFormat"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:820
+#: src/ui/o42-dialogs-format.c:824
 msgid "A look for the selection, whose first row is its heading:"
 msgstr ""
 
-#: src/ui/o42-dialogs-format.c:842
+#: src/ui/o42-dialogs-format.c:846
 msgid "Click a cell or a range to give it that look"
 msgstr ""
 
@@ -4943,8 +4975,8 @@ msgstr ""
 msgid "The script failed."
 msgstr ""
 
-#: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5833
-#: src/ui/o42-window.c:6190
+#: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5842
+#: src/ui/o42-window.c:6199
 msgid "office42 could not open that file."
 msgstr ""
 
@@ -5034,8 +5066,8 @@ msgstr ""
 msgid "The dashed lines are where the pages divide."
 msgstr ""
 
-#: src/ui/o42-dialogs-tools.c:1546 src/ui/o42-window.c:7052
-#: src/ui/o42-window.c:7203 src/ui/o42-window.c:7204
+#: src/ui/o42-dialogs-tools.c:1546 src/ui/o42-window.c:7061
+#: src/ui/o42-window.c:7212 src/ui/o42-window.c:7213
 msgid "Ready"
 msgstr ""
 
@@ -5092,7 +5124,7 @@ msgid "Book"
 msgstr ""
 
 #. Sheet
-#: src/ui/o42-dialogs-tools.c:1917 src/ui/o42-window.c:2711
+#: src/ui/o42-dialogs-tools.c:1917 src/ui/o42-window.c:2712
 msgid "Sheet"
 msgstr ""
 
@@ -5196,7 +5228,7 @@ msgstr ""
 msgid "Tool:"
 msgstr ""
 
-#: src/ui/o42-dialogs-tools.c:2392 src/ui/o42-window.c:4119
+#: src/ui/o42-dialogs-tools.c:2392 src/ui/o42-window.c:4122
 msgid "Input range:"
 msgstr ""
 
@@ -5284,6 +5316,11 @@ msgstr ""
 
 #: src/ui/o42-dialogs-tools.c:2819
 msgid "Macros in this book, and the personal scripts:"
+msgstr ""
+
+#: src/ui/o42-dialogs-tools.c:2838
+msgctxt "macro"
+msgid "_Edit"
 msgstr ""
 
 #: src/ui/o42-dialogs-tools.c:2841
@@ -5824,7 +5861,7 @@ msgstr ""
 msgid "Paste Special"
 msgstr ""
 
-#: src/ui/o42-window.c:864 src/ui/o42-window.c:6753
+#: src/ui/o42-window.c:864 src/ui/o42-window.c:6762
 msgid "Paste"
 msgstr ""
 
@@ -5941,7 +5978,7 @@ msgstr ""
 msgid "Window Options"
 msgstr ""
 
-#: src/ui/o42-window.c:1537 src/ui/o42-window.c:2730
+#: src/ui/o42-window.c:1537 src/ui/o42-window.c:2731
 msgid "_Gridlines"
 msgstr ""
 
@@ -6154,1034 +6191,1044 @@ msgstr ""
 msgid "Paper size:"
 msgstr ""
 
-#: src/ui/o42-window.c:2639
-#, c-format
+#: src/ui/o42-window.c:2640
+#, no-c-format
 msgid "Adjust to (% normal size):"
 msgstr ""
 
-#: src/ui/o42-window.c:2640
+#: src/ui/o42-window.c:2641
 msgid "Fit to pages wide:"
 msgstr ""
 
-#: src/ui/o42-window.c:2641
+#: src/ui/o42-window.c:2642
 msgid "Fit to pages tall:"
 msgstr ""
 
-#: src/ui/o42-window.c:2642
+#: src/ui/o42-window.c:2643
 msgid "First page number:"
 msgstr ""
 
-#: src/ui/o42-window.c:2647
+#: src/ui/o42-window.c:2648
 msgid ""
 "Pages wide or tall above zero fit the sheet to them and the scale is worked "
 "out."
 msgstr ""
 
 #. Margins
-#: src/ui/o42-window.c:2654
+#: src/ui/o42-window.c:2655
 msgid "Margins"
 msgstr ""
 
-#: src/ui/o42-window.c:2656
+#: src/ui/o42-window.c:2657
 msgid "in"
 msgstr ""
 
-#: src/ui/o42-window.c:2656
+#: src/ui/o42-window.c:2657
 msgid "cm"
-msgstr ""
-
-#: src/ui/o42-window.c:2663
-#, c-format
-msgid "Top (%s):"
 msgstr ""
 
 #: src/ui/o42-window.c:2664
 #, c-format
-msgid "Header (%s):"
+msgid "Top (%s):"
 msgstr ""
 
 #: src/ui/o42-window.c:2665
 #, c-format
-msgid "Left (%s):"
+msgid "Header (%s):"
 msgstr ""
 
 #: src/ui/o42-window.c:2666
 #, c-format
-msgid "Right (%s):"
+msgid "Left (%s):"
 msgstr ""
 
 #: src/ui/o42-window.c:2667
 #, c-format
-msgid "Bottom (%s):"
+msgid "Right (%s):"
 msgstr ""
 
 #: src/ui/o42-window.c:2668
 #, c-format
+msgid "Bottom (%s):"
+msgstr ""
+
+#: src/ui/o42-window.c:2669
+#, c-format
 msgid "Footer (%s):"
 msgstr ""
 
-#: src/ui/o42-window.c:2678
+#: src/ui/o42-window.c:2679
 msgid "Center on page _horizontally"
 msgstr ""
 
-#: src/ui/o42-window.c:2679
+#: src/ui/o42-window.c:2680
 msgid "Center on page _vertically"
 msgstr ""
 
 #. Header/Footer
-#: src/ui/o42-window.c:2682
+#: src/ui/o42-window.c:2683
 msgid "Header/Footer"
 msgstr ""
 
-#: src/ui/o42-window.c:2683
+#: src/ui/o42-window.c:2684
 msgid "Header:"
 msgstr ""
 
-#: src/ui/o42-window.c:2684
+#: src/ui/o42-window.c:2685
 msgid "Footer:"
 msgstr ""
 
-#: src/ui/o42-window.c:2691
+#: src/ui/o42-window.c:2692
 msgid "_Custom Header..."
 msgstr ""
 
-#: src/ui/o42-window.c:2692
+#: src/ui/o42-window.c:2693
 msgid "C_ustom Footer..."
 msgstr ""
 
-#: src/ui/o42-window.c:2701
+#: src/ui/o42-window.c:2702
 msgid ""
 "&L, &C, &R start the left, centre and right parts; &P page, &N pages, &D "
 "date, &T time, &F file, &A sheet; &B bold, &I italic, &U underline, &12 a "
 "size, &\"Arial,Bold\" a font; && an ampersand."
 msgstr ""
 
-#: src/ui/o42-window.c:2712
+#: src/ui/o42-window.c:2713
 msgid "Print area:"
 msgstr ""
 
-#: src/ui/o42-window.c:2713
+#: src/ui/o42-window.c:2714
 msgid "the used range"
 msgstr ""
 
-#: src/ui/o42-window.c:2719
+#: src/ui/o42-window.c:2720
 msgid "Rows to repeat at top:"
 msgstr ""
 
-#: src/ui/o42-window.c:2720
+#: src/ui/o42-window.c:2721
 msgid "Columns to repeat at left:"
 msgstr ""
 
-#: src/ui/o42-window.c:2731
+#: src/ui/o42-window.c:2732
 msgid "Row and column h_eadings"
 msgstr ""
 
-#: src/ui/o42-window.c:2732
+#: src/ui/o42-window.c:2733
 msgid "_Black and white"
 msgstr ""
 
-#: src/ui/o42-window.c:2733
+#: src/ui/o42-window.c:2734
 msgid "Dra_ft quality"
 msgstr ""
 
+#. Translators: the cell notes, and where the page puts them.
 #: src/ui/o42-window.c:2736
+msgctxt "page setup"
+msgid "Comments:"
+msgstr ""
+
+#: src/ui/o42-window.c:2738
 msgid "Cell errors as:"
 msgstr ""
 
-#: src/ui/o42-window.c:2739
+#: src/ui/o42-window.c:2741
 msgid "_Down, then over"
 msgstr ""
 
-#: src/ui/o42-window.c:2740
+#: src/ui/o42-window.c:2742
 msgid "O_ver, then down"
 msgstr ""
 
-#: src/ui/o42-window.c:2745
+#: src/ui/o42-window.c:2747
 msgid "Page order:"
 msgstr ""
 
-#: src/ui/o42-window.c:2998
+#: src/ui/o42-window.c:3000
 msgid "Function Wizard - Step 1 of 2"
 msgstr ""
 
-#: src/ui/o42-window.c:3002
+#: src/ui/o42-window.c:3004
 msgid "Search functions"
 msgstr ""
 
-#: src/ui/o42-window.c:3100
+#: src/ui/o42-window.c:3102
 msgid ""
 "A what-if table needs a row or a column input cell, and a selection bigger "
 "than one cell."
 msgstr ""
 
-#: src/ui/o42-window.c:3121
+#: src/ui/o42-window.c:3123
 msgid "What-If Table"
 msgstr ""
 
-#: src/ui/o42-window.c:3126
+#: src/ui/o42-window.c:3128
 msgid "Row input cell:"
 msgstr ""
 
-#: src/ui/o42-window.c:3127
+#: src/ui/o42-window.c:3129
 msgid "Column input cell:"
 msgstr ""
 
 #. Translators: the next line goes on "the formula goes in the corner".
-#: src/ui/o42-window.c:3133
+#: src/ui/o42-window.c:3135
 msgid "The values run along the top row, down the left column, or both;"
 msgstr ""
 
-#: src/ui/o42-window.c:3136
+#: src/ui/o42-window.c:3138
 msgid "the formula goes in the corner, and the inside is filled in."
 msgstr ""
 
-#: src/ui/o42-window.c:3190
+#: src/ui/o42-window.c:3192
 msgid ""
 "The workbook is protected: Tools > Protection > Unprotect Workbook first."
 msgstr ""
 
-#: src/ui/o42-window.c:3287
+#: src/ui/o42-window.c:3289
 msgid "Tab Colour"
 msgstr ""
 
-#: src/ui/o42-window.c:3362
+#: src/ui/o42-window.c:3364
 msgid "_Insert Sheet"
 msgstr ""
 
-#: src/ui/o42-window.c:3363
+#: src/ui/o42-window.c:3365
 msgid "_Delete Sheet"
 msgstr ""
 
-#: src/ui/o42-window.c:3364
+#: src/ui/o42-window.c:3366
 msgid "_Rename Sheet..."
 msgstr ""
 
-#: src/ui/o42-window.c:3365
+#: src/ui/o42-window.c:3367
 msgid "_Hide Sheet"
 msgstr ""
 
-#: src/ui/o42-window.c:3366
+#: src/ui/o42-window.c:3368
 msgid "_Unhide Sheet..."
 msgstr ""
 
-#: src/ui/o42-window.c:3369
+#: src/ui/o42-window.c:3371
 msgid "Move _Right"
 msgstr ""
 
-#: src/ui/o42-window.c:3370
+#: src/ui/o42-window.c:3372
 msgid "Tab _Colour..."
 msgstr ""
 
-#: src/ui/o42-window.c:3371
+#: src/ui/o42-window.c:3373
 msgid "_No Tab Colour"
 msgstr ""
 
-#: src/ui/o42-window.c:3607 src/ui/o42-window.c:5633
+#: src/ui/o42-window.c:3609 src/ui/o42-window.c:5642
 msgid "Unhide"
 msgstr ""
 
-#: src/ui/o42-window.c:3608
+#: src/ui/o42-window.c:3610
 msgid "Unhide sheet:"
 msgstr ""
 
 #. Translators: %s is the sheet's name.
-#: src/ui/o42-window.c:3683
+#: src/ui/o42-window.c:3685
 #, c-format
 msgid "Delete %s?  The sheet will be gone for good."
 msgstr ""
 
-#: src/ui/o42-window.c:3718
+#: src/ui/o42-window.c:3720
 msgid "That name cannot be used for a sheet."
 msgstr ""
 
-#: src/ui/o42-window.c:3736
+#: src/ui/o42-window.c:3738
 msgid "Rename Sheet"
 msgstr ""
 
-#: src/ui/o42-window.c:3805
+#: src/ui/o42-window.c:3807
 msgid "Shift cells _right"
 msgstr ""
 
-#: src/ui/o42-window.c:3805
+#: src/ui/o42-window.c:3807
 msgid "Shift cells _down"
 msgstr ""
 
-#: src/ui/o42-window.c:3805 src/ui/o42-window.c:3806
+#: src/ui/o42-window.c:3807 src/ui/o42-window.c:3808
 msgid "Entire r_ow"
 msgstr ""
 
-#: src/ui/o42-window.c:3805 src/ui/o42-window.c:3806
+#: src/ui/o42-window.c:3807 src/ui/o42-window.c:3808
 msgid "Entire _column"
 msgstr ""
 
-#: src/ui/o42-window.c:3806
+#: src/ui/o42-window.c:3808
 msgid "Shift cells _left"
 msgstr ""
 
-#: src/ui/o42-window.c:3806
+#: src/ui/o42-window.c:3808
 msgid "Shift cells _up"
 msgstr ""
 
-#: src/ui/o42-window.c:3811
+#: src/ui/o42-window.c:3813
 msgid "Insert"
 msgstr ""
 
-#: src/ui/o42-window.c:3811
+#: src/ui/o42-window.c:3813
 msgid "Delete"
 msgstr ""
 
-#: src/ui/o42-window.c:3911
+#: src/ui/o42-window.c:3913
 msgid "_Column"
 msgstr ""
 
-#: src/ui/o42-window.c:3911
+#: src/ui/o42-window.c:3913
 msgid "_Stacked column"
 msgstr ""
 
-#: src/ui/o42-window.c:3911
-#, c-format
+#: src/ui/o42-window.c:3914
+#, no-c-format
 msgid "100% stac_ked column"
 msgstr ""
 
-#: src/ui/o42-window.c:3912
+#: src/ui/o42-window.c:3915
 msgid "_Bar"
 msgstr ""
 
-#: src/ui/o42-window.c:3912
+#: src/ui/o42-window.c:3915
+msgid "_Line"
+msgstr ""
+
+#: src/ui/o42-window.c:3915
 msgid "_Area"
 msgstr ""
 
-#: src/ui/o42-window.c:3912
+#: src/ui/o42-window.c:3915
 msgid "_Pie"
 msgstr ""
 
-#: src/ui/o42-window.c:3912
+#: src/ui/o42-window.c:3915
 msgid "_XY (Scatter)"
 msgstr ""
 
-#: src/ui/o42-window.c:3913
+#: src/ui/o42-window.c:3916
 msgid "_Doughnut"
 msgstr ""
 
-#: src/ui/o42-window.c:3913
+#: src/ui/o42-window.c:3916
 msgid "_Radar"
 msgstr ""
 
-#: src/ui/o42-window.c:3913
+#: src/ui/o42-window.c:3916
 msgid "B_ubble"
 msgstr ""
 
-#: src/ui/o42-window.c:3914
+#: src/ui/o42-window.c:3917
 msgid "Sto_ck (high-low-close)"
 msgstr ""
 
-#: src/ui/o42-window.c:3914
+#: src/ui/o42-window.c:3917
 msgid "Surfa_ce"
 msgstr ""
 
-#: src/ui/o42-window.c:3915
+#: src/ui/o42-window.c:3918
 msgid "Box and w_hiskers"
 msgstr ""
 
-#: src/ui/o42-window.c:3915
+#: src/ui/o42-window.c:3918
 msgid "Histo_gram"
 msgstr ""
 
-#: src/ui/o42-window.c:3916
+#: src/ui/o42-window.c:3919
 msgid "Pola_r"
 msgstr ""
 
-#: src/ui/o42-window.c:3916
+#: src/ui/o42-window.c:3919
 msgid "Con_tour"
 msgstr ""
 
 #. Translators: %s is the range the chart plots, such as A1:C9.
-#: src/ui/o42-window.c:3929
+#: src/ui/o42-window.c:3932
 #, c-format
 msgid "Chart of %s"
 msgstr ""
 
-#: src/ui/o42-window.c:3934 src/ui/o42-window.c:6764
+#: src/ui/o42-window.c:3937 src/ui/o42-window.c:6773
 msgid "Chart Wizard"
 msgstr ""
 
-#: src/ui/o42-window.c:3951
+#: src/ui/o42-window.c:3954
 msgid "First _row is a heading"
 msgstr ""
 
-#: src/ui/o42-window.c:3952
+#: src/ui/o42-window.c:3955
 msgid "First col_umn is a heading"
 msgstr ""
 
-#: src/ui/o42-window.c:3962
+#: src/ui/o42-window.c:3965
 msgid "Series in _columns"
 msgstr ""
 
-#: src/ui/o42-window.c:3964
+#: src/ui/o42-window.c:3967
 msgid "Series in ro_ws"
 msgstr ""
 
 #. Excel's last step asks where the chart is to go.
-#: src/ui/o42-window.c:3973
+#: src/ui/o42-window.c:3976
 msgid "On a sheet of its _own"
 msgstr ""
 
-#: src/ui/o42-window.c:4096
+#: src/ui/o42-window.c:4099
 msgid ""
 "Ctrl+click a control first: a plain click works it, Ctrl+click takes hold of "
 "it."
 msgstr ""
 
-#: src/ui/o42-window.c:4104
+#: src/ui/o42-window.c:4107
 msgid "Format Control"
 msgstr ""
 
-#: src/ui/o42-window.c:4112
+#: src/ui/o42-window.c:4115
 msgid "Caption:"
 msgstr ""
 
-#: src/ui/o42-window.c:4116
+#: src/ui/o42-window.c:4119
 msgid "Cell link:"
 msgstr ""
 
-#: src/ui/o42-window.c:4122
+#: src/ui/o42-window.c:4125
 msgid "Script:"
 msgstr ""
 
-#: src/ui/o42-window.c:4126
+#: src/ui/o42-window.c:4129
 msgid "Minimum:"
 msgstr ""
 
-#: src/ui/o42-window.c:4128
+#: src/ui/o42-window.c:4131
 msgid "Maximum:"
 msgstr ""
 
-#: src/ui/o42-window.c:4130
+#: src/ui/o42-window.c:4133
 msgid "Increment:"
 msgstr ""
 
-#: src/ui/o42-window.c:4132
+#: src/ui/o42-window.c:4135
 msgid "Page change:"
 msgstr ""
 
-#: src/ui/o42-window.c:4142
+#: src/ui/o42-window.c:4145
 msgid "A plain click works the control; Ctrl+click takes hold of it."
 msgstr ""
 
-#: src/ui/o42-window.c:4162
+#: src/ui/o42-window.c:4165
 msgid "This button names a script the book has not got."
 msgstr ""
 
-#: src/ui/o42-window.c:4186 src/ui/o42-window.c:4249 src/ui/o42-window.c:4282
+#: src/ui/o42-window.c:4189 src/ui/o42-window.c:4252 src/ui/o42-window.c:4285
 msgid "This build of office42 has no SQLite in it."
 msgstr ""
 
-#: src/ui/o42-window.c:4197
+#: src/ui/o42-window.c:4200
 msgid ""
 "This book has no database: Data > Database > Connect opens one, or Embed New "
 "puts one inside the book."
 msgstr ""
 
-#: src/ui/o42-window.c:4203
+#: src/ui/o42-window.c:4206
 msgid "The database would not open."
 msgstr ""
 
-#: src/ui/o42-window.c:4254
+#: src/ui/o42-window.c:4257
 msgid "Open Database"
 msgstr ""
 
-#: src/ui/o42-window.c:4257
+#: src/ui/o42-window.c:4260
 msgid "SQLite databases"
 msgstr ""
 
-#: src/ui/o42-window.c:4263
+#: src/ui/o42-window.c:4266
 msgid "All files"
 msgstr ""
 
-#: src/ui/o42-window.c:4292
+#: src/ui/o42-window.c:4295
 msgid "There was nowhere to put the database."
 msgstr ""
 
-#: src/ui/o42-window.c:4344
+#: src/ui/o42-window.c:4347
 msgid "The query failed."
 msgstr ""
 
-#: src/ui/o42-window.c:4387
+#: src/ui/o42-window.c:4390
 msgid "Get Data"
 msgstr ""
 
-#: src/ui/o42-window.c:4389
+#: src/ui/o42-window.c:4392
 msgid "Tables in the database:"
 msgstr ""
 
-#: src/ui/o42-window.c:4411
+#: src/ui/o42-window.c:4414
 msgid "Query:"
 msgstr ""
 
-#: src/ui/o42-window.c:4423
+#: src/ui/o42-window.c:4426
 msgid "Write the column _names above it"
 msgstr ""
 
-#: src/ui/o42-window.c:4427
+#: src/ui/o42-window.c:4430
 msgid ""
 "The answer is laid out from the active cell, and Data > Refresh Queries runs "
 "it again."
 msgstr ""
 
-#: src/ui/o42-window.c:4451
+#: src/ui/o42-window.c:4454
 msgid "A query failed."
 msgstr ""
 
-#: src/ui/o42-window.c:4458
+#: src/ui/o42-window.c:4461
 #, c-format
 msgid "%d query refreshed"
 msgid_plural "%d queries refreshed"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/ui/o42-window.c:4492
+#: src/ui/o42-window.c:4495
 msgid "The rows would not go in."
 msgstr ""
 
 #. Translators: %s is the name of a table in the database.
-#: src/ui/o42-window.c:4499
+#: src/ui/o42-window.c:4502
 #, c-format
 msgid "The selection went into %s"
 msgstr ""
 
-#: src/ui/o42-window.c:4524
+#: src/ui/o42-window.c:4527
 msgid "Send to Table"
 msgstr ""
 
-#: src/ui/o42-window.c:4531
+#: src/ui/o42-window.c:4534
 msgid "Table:"
 msgstr ""
 
-#: src/ui/o42-window.c:4533
+#: src/ui/o42-window.c:4536
 msgid "The first row _names the columns"
 msgstr ""
 
-#: src/ui/o42-window.c:4537
+#: src/ui/o42-window.c:4540
 msgid "The selection is added to the table, which is made if it is not there."
 msgstr ""
 
-#: src/ui/o42-window.c:4566
+#: src/ui/o42-window.c:4569
 msgid ""
 "Click the points of the freeform; double-click the last, or click the first "
 "again to close it."
 msgstr ""
 
-#: src/ui/o42-window.c:4603
+#: src/ui/o42-window.c:4606
 msgid ""
 "Click a picture, shape or chart first; Format > Order moves the selected one."
 msgstr ""
 
-#: src/ui/o42-window.c:4616
+#: src/ui/o42-window.c:4619
 msgid "_Move and size with cells"
 msgstr ""
 
-#: src/ui/o42-window.c:4616
+#: src/ui/o42-window.c:4619
 msgid "Move but _don't size with cells"
 msgstr ""
 
-#: src/ui/o42-window.c:4617
+#: src/ui/o42-window.c:4620
 msgid "Don't move or si_ze with cells"
 msgstr ""
 
-#: src/ui/o42-window.c:4739
+#: src/ui/o42-window.c:4742
 msgid "Click a shape first; Format > Shape works on the selected one."
 msgstr ""
 
-#: src/ui/o42-window.c:4747
+#: src/ui/o42-window.c:4750
 msgid "Format Shape"
 msgstr ""
 
 #. Colors and Lines
-#: src/ui/o42-window.c:4752
+#: src/ui/o42-window.c:4755
 msgid "Colors and Lines"
 msgstr ""
 
-#: src/ui/o42-window.c:4753
+#: src/ui/o42-window.c:4756
 msgid "Fill:"
 msgstr ""
 
-#: src/ui/o42-window.c:4753
+#: src/ui/o42-window.c:4756
 msgid "Shape Fill"
 msgstr ""
 
-#: src/ui/o42-window.c:4754
+#: src/ui/o42-window.c:4757
 msgid "_No fill"
 msgstr ""
 
-#: src/ui/o42-window.c:4759
+#: src/ui/o42-window.c:4764
 msgid "Gradient"
 msgstr ""
 
-#: src/ui/o42-window.c:4759
+#: src/ui/o42-window.c:4764
 msgid "Pattern"
 msgstr ""
 
-#: src/ui/o42-window.c:4761
+#: src/ui/o42-window.c:4770
 msgid "Down diagonal"
 msgstr ""
 
-#: src/ui/o42-window.c:4761
+#: src/ui/o42-window.c:4770
 msgid "Up diagonal"
 msgstr ""
 
-#: src/ui/o42-window.c:4763
+#: src/ui/o42-window.c:4772
 msgid "Thin down diagonal"
 msgstr ""
 
-#: src/ui/o42-window.c:4763
+#: src/ui/o42-window.c:4772
 msgid "Thin up diagonal"
 msgstr ""
 
-#: src/ui/o42-window.c:4765
+#: src/ui/o42-window.c:4774
 msgid "Fill style:"
 msgstr ""
 
-#: src/ui/o42-window.c:4767
+#: src/ui/o42-window.c:4776
 msgid "Second colour:"
 msgstr ""
 
-#: src/ui/o42-window.c:4767
+#: src/ui/o42-window.c:4776
 msgid "Gradient End or Pattern Colour"
 msgstr ""
 
-#: src/ui/o42-window.c:4768
+#: src/ui/o42-window.c:4777
 msgid "Gradient angle:"
 msgstr ""
 
-#: src/ui/o42-window.c:4774
+#: src/ui/o42-window.c:4783
 msgid "Line:"
 msgstr ""
 
-#: src/ui/o42-window.c:4774
+#: src/ui/o42-window.c:4783
 msgid "Shape Line"
 msgstr ""
 
-#: src/ui/o42-window.c:4775
+#: src/ui/o42-window.c:4784
 msgid "Line width:"
 msgstr ""
 
-#: src/ui/o42-window.c:4780
+#: src/ui/o42-window.c:4789
 msgid "Dash"
 msgstr ""
 
-#: src/ui/o42-window.c:4780
+#: src/ui/o42-window.c:4789
 msgid "Dot"
 msgstr ""
 
-#: src/ui/o42-window.c:4780
+#: src/ui/o42-window.c:4789
 msgid "Dash dot"
 msgstr ""
 
-#: src/ui/o42-window.c:4781
+#: src/ui/o42-window.c:4790
 msgid "Long dash"
 msgstr ""
 
-#: src/ui/o42-window.c:4781
+#: src/ui/o42-window.c:4790
 msgid "Short dash"
 msgstr ""
 
-#: src/ui/o42-window.c:4781
+#: src/ui/o42-window.c:4790
 msgid "Short dot"
 msgstr ""
 
-#: src/ui/o42-window.c:4782 src/ui/o42-window.c:5335
+#: src/ui/o42-window.c:4791 src/ui/o42-window.c:5344
 msgid "Triangle"
 msgstr ""
 
-#: src/ui/o42-window.c:4782
+#: src/ui/o42-window.c:4791
 msgid "Stealth"
 msgstr ""
 
-#: src/ui/o42-window.c:4782 src/ui/o42-window.c:5335
+#: src/ui/o42-window.c:4791 src/ui/o42-window.c:5344
 msgid "Diamond"
 msgstr ""
 
-#: src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4792
 msgid "Oval"
 msgstr ""
 
-#: src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4792
 msgid "Open arrow"
 msgstr ""
 
-#: src/ui/o42-window.c:4784
+#: src/ui/o42-window.c:4793
 msgid "Small"
 msgstr ""
 
-#: src/ui/o42-window.c:4784
+#: src/ui/o42-window.c:4793
 msgid "Large"
 msgstr ""
 
-#: src/ui/o42-window.c:4786
+#: src/ui/o42-window.c:4795
 msgid "Dash:"
 msgstr ""
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4799
 msgid "Begin arrow:"
 msgstr ""
 
-#: src/ui/o42-window.c:4792
+#: src/ui/o42-window.c:4801
 msgid "Begin size:"
 msgstr ""
 
-#: src/ui/o42-window.c:4794
+#: src/ui/o42-window.c:4803
 msgid "End arrow:"
 msgstr ""
 
-#: src/ui/o42-window.c:4796
+#: src/ui/o42-window.c:4805
 msgid "End size:"
 msgstr ""
 
-#: src/ui/o42-window.c:4800
+#: src/ui/o42-window.c:4809
 msgid "_Shadow"
 msgstr ""
 
-#: src/ui/o42-window.c:4803
+#: src/ui/o42-window.c:4812
 msgid "Shadow colour:"
 msgstr ""
 
-#: src/ui/o42-window.c:4803
+#: src/ui/o42-window.c:4812
 msgid "Shadow Colour"
 msgstr ""
 
-#: src/ui/o42-window.c:4804
+#: src/ui/o42-window.c:4813
 msgid "Shadow offset across:"
 msgstr ""
 
-#: src/ui/o42-window.c:4806
+#: src/ui/o42-window.c:4815
 msgid "Shadow offset down:"
 msgstr ""
 
 #. Size
-#: src/ui/o42-window.c:4810
+#: src/ui/o42-window.c:4819
 msgid "Size"
 msgstr ""
 
-#: src/ui/o42-window.c:4811 src/ui/o42-window.c:4952
+#: src/ui/o42-window.c:4820 src/ui/o42-window.c:4961
 msgid "Rotation (degrees):"
 msgstr ""
 
-#: src/ui/o42-window.c:4813 src/ui/o42-window.c:4979
+#: src/ui/o42-window.c:4822 src/ui/o42-window.c:4988
 msgid "Flip _horizontal"
 msgstr ""
 
-#: src/ui/o42-window.c:4816 src/ui/o42-window.c:4982
+#: src/ui/o42-window.c:4825 src/ui/o42-window.c:4991
 msgid "Flip _vertical"
 msgstr ""
 
-#: src/ui/o42-window.c:4822 src/ui/o42-window.c:4985
+#: src/ui/o42-window.c:4831 src/ui/o42-window.c:4994
 msgid "Object positioning:"
 msgstr ""
 
-#: src/ui/o42-window.c:4838
+#: src/ui/o42-window.c:4847
 msgid "Size (points):"
 msgstr ""
 
-#: src/ui/o42-window.c:4848
+#: src/ui/o42-window.c:4857
 msgid "Style:"
 msgstr ""
 
-#: src/ui/o42-window.c:4852
+#: src/ui/o42-window.c:4861
 msgid "As the shape has it"
 msgstr ""
 
-#: src/ui/o42-window.c:4852
+#: src/ui/o42-window.c:4861
 msgid "Centre"
 msgstr ""
 
-#: src/ui/o42-window.c:4861
+#: src/ui/o42-window.c:4870
 msgid "_Wrap text in the shape"
 msgstr ""
 
-#: src/ui/o42-window.c:4864
+#: src/ui/o42-window.c:4873
 msgid "Internal margin (pixels):"
 msgstr ""
 
-#: src/ui/o42-window.c:4936
+#: src/ui/o42-window.c:4945
 msgid "Click a picture first; Format > Picture works on the selected one."
 msgstr ""
 
-#: src/ui/o42-window.c:4943
+#: src/ui/o42-window.c:4952
 msgid "Format Picture"
 msgstr ""
 
-#: src/ui/o42-window.c:4948
+#: src/ui/o42-window.c:4957
 msgid "Width (pixels):"
 msgstr ""
 
-#: src/ui/o42-window.c:4950
+#: src/ui/o42-window.c:4959
 msgid "Height (pixels):"
 msgstr ""
 
 #. The crop, as Excel's Picture tab has it: how much of each side
 #. * is cut away.
-#: src/ui/o42-window.c:4957
+#: src/ui/o42-window.c:4966
 msgid "Crop left (%):"
 msgstr ""
 
-#: src/ui/o42-window.c:4957
+#: src/ui/o42-window.c:4966
 msgid "Crop top (%):"
 msgstr ""
 
-#: src/ui/o42-window.c:4958
+#: src/ui/o42-window.c:4967
 msgid "Crop right (%):"
 msgstr ""
 
-#: src/ui/o42-window.c:4958
+#: src/ui/o42-window.c:4967
 msgid "Crop bottom (%):"
 msgstr ""
 
 #. Excel's picture toolbar: More and Less Brightness, More and Less
 #. * Contrast, as two sliders.
-#: src/ui/o42-window.c:4968
+#: src/ui/o42-window.c:4977
 msgid "Brightness (%):"
 msgstr ""
 
-#: src/ui/o42-window.c:4971
+#: src/ui/o42-window.c:4980
 msgid "Contrast (%):"
 msgstr ""
 
-#: src/ui/o42-window.c:4976
+#: src/ui/o42-window.c:4985
 msgid "_Lock aspect ratio"
 msgstr ""
 
-#: src/ui/o42-window.c:5120
+#: src/ui/o42-window.c:5129
 msgid "Style"
 msgstr ""
 
-#: src/ui/o42-window.c:5132
+#: src/ui/o42-window.c:5141
 msgid "Style name:"
 msgstr ""
 
-#: src/ui/o42-window.c:5140
+#: src/ui/o42-window.c:5149
 msgid ""
 "Define takes the active cell's formatting; redefining a style restyles every "
 "cell wearing it."
 msgstr ""
 
-#: src/ui/o42-window.c:5156
+#: src/ui/o42-window.c:5165
 msgid "_Define"
 msgstr ""
 
-#: src/ui/o42-window.c:5157
+#: src/ui/o42-window.c:5166
 msgid "De_lete"
 msgstr ""
 
-#: src/ui/o42-window.c:5158
+#: src/ui/o42-window.c:5167
 msgid "_Apply"
 msgstr ""
 
-#: src/ui/o42-window.c:5248
+#: src/ui/o42-window.c:5257
 msgid "Click a chart first; Format > Chart works on the selected chart."
 msgstr ""
 
-#: src/ui/o42-window.c:5255
+#: src/ui/o42-window.c:5264
 msgid "Format Chart"
 msgstr ""
 
-#: src/ui/o42-window.c:5259
+#: src/ui/o42-window.c:5268
 msgid "Chart title:"
 msgstr ""
 
-#: src/ui/o42-window.c:5260
+#: src/ui/o42-window.c:5269
 msgid "Category (X) axis title:"
 msgstr ""
 
-#: src/ui/o42-window.c:5261
+#: src/ui/o42-window.c:5270
 msgid "Value (Y) axis title:"
 msgstr ""
 
-#: src/ui/o42-window.c:5262
+#: src/ui/o42-window.c:5271
 msgid "Value axis minimum:"
 msgstr ""
 
-#: src/ui/o42-window.c:5263
+#: src/ui/o42-window.c:5272
 msgid "Value axis maximum:"
 msgstr ""
 
-#: src/ui/o42-window.c:5264
+#: src/ui/o42-window.c:5273
 msgid "Value axis format:"
 msgstr ""
 
-#: src/ui/o42-window.c:5265
+#: src/ui/o42-window.c:5274
 msgid "Second axis from series:"
 msgstr ""
 
-#: src/ui/o42-window.c:5271 src/ui/o42-window.c:5272
+#: src/ui/o42-window.c:5280 src/ui/o42-window.c:5281
 msgid "automatic"
 msgstr ""
 
-#: src/ui/o42-window.c:5278
+#: src/ui/o42-window.c:5287
 msgid "Show _legend"
 msgstr ""
 
-#: src/ui/o42-window.c:5281
+#: src/ui/o42-window.c:5290
 msgid "Show _gridlines"
 msgstr ""
 
-#: src/ui/o42-window.c:5284
+#: src/ui/o42-window.c:5293
 msgid "Show _data labels"
 msgstr ""
 
-#: src/ui/o42-window.c:5287
+#: src/ui/o42-window.c:5296
 msgid "Draw in three _dimensions"
 msgstr ""
 
-#: src/ui/o42-window.c:5293
+#: src/ui/o42-window.c:5302
 msgid "A second pie"
 msgstr ""
 
-#: src/ui/o42-window.c:5293
+#: src/ui/o42-window.c:5302
 msgid "A bar"
 msgstr ""
 
-#: src/ui/o42-window.c:5296
+#: src/ui/o42-window.c:5305
 msgid "Second plot for a pie's last slices:"
 msgstr ""
 
-#: src/ui/o42-window.c:5303
+#: src/ui/o42-window.c:5312
 msgid "slices"
 msgstr ""
 
-#: src/ui/o42-window.c:5308
+#: src/ui/o42-window.c:5317
 msgid "Linear"
 msgstr ""
 
-#: src/ui/o42-window.c:5308
+#: src/ui/o42-window.c:5317
 msgid "Polynomial"
 msgstr ""
 
-#: src/ui/o42-window.c:5308
+#: src/ui/o42-window.c:5317
 msgid "Exponential"
 msgstr ""
 
-#: src/ui/o42-window.c:5309
+#: src/ui/o42-window.c:5318
 msgid "Logarithmic"
 msgstr ""
 
-#: src/ui/o42-window.c:5309
+#: src/ui/o42-window.c:5318
 msgid "Power"
 msgstr ""
 
-#: src/ui/o42-window.c:5309
+#: src/ui/o42-window.c:5318
 msgid "Moving average"
 msgstr ""
 
-#: src/ui/o42-window.c:5311
+#: src/ui/o42-window.c:5320
 msgid "Trendline:"
 msgstr ""
 
-#: src/ui/o42-window.c:5313
+#: src/ui/o42-window.c:5322
 msgid "Order or period:"
 msgstr ""
 
-#: src/ui/o42-window.c:5320
+#: src/ui/o42-window.c:5329
 msgid "Fixed value"
 msgstr ""
 
-#: src/ui/o42-window.c:5320
+#: src/ui/o42-window.c:5329
 msgid "Percentage"
 msgstr ""
 
-#: src/ui/o42-window.c:5321
+#: src/ui/o42-window.c:5330
 msgid "Standard deviations"
 msgstr ""
 
-#: src/ui/o42-window.c:5321
+#: src/ui/o42-window.c:5330
 msgid "Standard error"
 msgstr ""
 
-#: src/ui/o42-window.c:5324
+#: src/ui/o42-window.c:5333
 msgid "Error bars:"
 msgstr ""
 
-#: src/ui/o42-window.c:5326
+#: src/ui/o42-window.c:5335
 msgid "Error bar amount:"
 msgstr ""
 
 #. In the order of O42MarkerKind, so the row is the kind.  The
 #. * picture is named by its number, which "Insert > Picture" gives it
 #. * and office42-calc's "pictures" prints.
-#: src/ui/o42-window.c:5334
+#: src/ui/o42-window.c:5343
 msgid "Automatic"
 msgstr ""
 
-#: src/ui/o42-window.c:5334
+#: src/ui/o42-window.c:5343
 msgid "Circle"
 msgstr ""
 
-#: src/ui/o42-window.c:5334
+#: src/ui/o42-window.c:5343
 msgid "Square"
 msgstr ""
 
-#: src/ui/o42-window.c:5335
+#: src/ui/o42-window.c:5344
 msgid "Plus"
 msgstr ""
 
-#: src/ui/o42-window.c:5336
+#: src/ui/o42-window.c:5345
 msgid "Star"
 msgstr ""
 
-#: src/ui/o42-window.c:5336
+#: src/ui/o42-window.c:5345
 msgid "Picture"
 msgstr ""
 
-#: src/ui/o42-window.c:5338
+#: src/ui/o42-window.c:5347
 msgid "Point marker:"
 msgstr ""
 
-#: src/ui/o42-window.c:5340
+#: src/ui/o42-window.c:5349
 msgid "Marker size:"
 msgstr ""
 
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5352
 msgid "Picture number:"
 msgstr ""
 
-#: src/ui/o42-window.c:5347
+#: src/ui/o42-window.c:5356
 msgid "Text font:"
 msgstr ""
 
-#: src/ui/o42-window.c:5348
+#: src/ui/o42-window.c:5357
 msgid "Sans"
 msgstr ""
 
-#: src/ui/o42-window.c:5351
+#: src/ui/o42-window.c:5360
 msgid "Text size:"
 msgstr ""
 
-#: src/ui/o42-window.c:5568
+#: src/ui/o42-window.c:5577
 msgid "This is the only window on show; open another before hiding it."
 msgstr ""
 
-#: src/ui/o42-window.c:5628
+#: src/ui/o42-window.c:5637
 msgid "No window is hidden."
 msgstr ""
 
-#: src/ui/o42-window.c:5634
+#: src/ui/o42-window.c:5643
 msgid "Unhide window:"
 msgstr ""
 
-#: src/ui/o42-window.c:5862 src/ui/o42-window.c:7753
+#: src/ui/o42-window.c:5871 src/ui/o42-window.c:7762
 msgid "This book has Python scripts in it. They have not been run."
 msgstr ""
 
-#: src/ui/o42-window.c:5863
+#: src/ui/o42-window.c:5872
 msgid ""
 "This book has Visual Basic macros, which office42 does not run; they are "
 "kept for Excel when it is saved as .xlsm."
 msgstr ""
 
-#: src/ui/o42-window.c:5940 src/ui/o42-window.c:6116
+#: src/ui/o42-window.c:5949 src/ui/o42-window.c:6125
 msgid "office42 could not save the file."
 msgstr ""
 
-#: src/ui/o42-window.c:5951
+#: src/ui/o42-window.c:5960
 #, c-format
 msgid ""
 "%d cell lies beyond the 1,048,576 rows this kind of file can hold, and was "
@@ -7192,7 +7239,7 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/ui/o42-window.c:5965
+#: src/ui/o42-window.c:5974
 #, c-format
 msgid ""
 "%d cell lies outside the 65,536 rows by 256 columns an .xls file can hold, "
@@ -7203,81 +7250,81 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/ui/o42-window.c:6016
+#: src/ui/o42-window.c:6025
 msgid "Excel Files (*.xlsx, *.xlsm, *.xls)"
 msgstr ""
 
-#: src/ui/o42-window.c:6028
+#: src/ui/o42-window.c:6037
 msgid "All Spreadsheets"
 msgstr ""
 
-#: src/ui/o42-window.c:6047
+#: src/ui/o42-window.c:6056
 msgid "Excel Workbooks (*.xlsx)"
 msgstr ""
 
-#: src/ui/o42-window.c:6048
+#: src/ui/o42-window.c:6057
 msgid "Excel Macro-Enabled Workbooks (*.xlsm)"
 msgstr ""
 
-#: src/ui/o42-window.c:6049
+#: src/ui/o42-window.c:6058
 msgid "Excel 97-2003 Workbooks (*.xls)"
 msgstr ""
 
-#: src/ui/o42-window.c:6051
+#: src/ui/o42-window.c:6060
 msgid "Gnumeric Spreadsheets (*.gnumeric)"
 msgstr ""
 
-#: src/ui/o42-window.c:6052
+#: src/ui/o42-window.c:6061
 msgid "OpenDocument Spreadsheets (*.ods, *.fods)"
 msgstr ""
 
-#: src/ui/o42-window.c:6053
+#: src/ui/o42-window.c:6062
 msgid "Web Pages (*.html)"
 msgstr ""
 
-#: src/ui/o42-window.c:6054
+#: src/ui/o42-window.c:6063
 msgid "Comma-Separated Values (*.csv)"
 msgstr ""
 
-#: src/ui/o42-window.c:6055
+#: src/ui/o42-window.c:6064
 msgid "Data Interchange Format (*.dif)"
 msgstr ""
 
-#: src/ui/o42-window.c:6057
+#: src/ui/o42-window.c:6066
 msgid "LaTeX Tables (*.tex)"
 msgstr ""
 
-#: src/ui/o42-window.c:6058
+#: src/ui/o42-window.c:6067
 msgid "Lotus 1-2-3 Worksheets (*.wk1)"
 msgstr ""
 
-#: src/ui/o42-window.c:6059
+#: src/ui/o42-window.c:6068
 msgid "All Files"
 msgstr ""
 
-#: src/ui/o42-window.c:6132
+#: src/ui/o42-window.c:6141
 msgid "Save As"
 msgstr ""
 
-#: src/ui/o42-window.c:6205 src/ui/o42-window.c:6746
+#: src/ui/o42-window.c:6214 src/ui/o42-window.c:6755
 msgid "Open"
 msgstr ""
 
-#: src/ui/o42-window.c:6248
+#: src/ui/o42-window.c:6257
 msgid "Do_n't Save"
 msgstr ""
 
 #. Translators: %s is the book's file name, such as Book1.
-#: src/ui/o42-window.c:6281
+#: src/ui/o42-window.c:6290
 #, c-format
 msgid "Save changes to %s?"
 msgstr ""
 
-#: src/ui/o42-window.c:6284
+#: src/ui/o42-window.c:6293
 msgid "Your changes will be lost if you don't save them."
 msgstr ""
 
-#: src/ui/o42-window.c:6433
+#: src/ui/o42-window.c:6442
 msgid ""
 "Also known as Numbers42.\n"
 "A spreadsheet in the shape of Excel 97, at parity with its features and "
@@ -7285,110 +7332,110 @@ msgid ""
 "Source: github.com/office-42/office42"
 msgstr ""
 
-#: src/ui/o42-window.c:6745
+#: src/ui/o42-window.c:6754
 msgid "New"
 msgstr ""
 
-#: src/ui/o42-window.c:6747
+#: src/ui/o42-window.c:6756
 msgid "Save"
 msgstr ""
 
-#: src/ui/o42-window.c:6749
+#: src/ui/o42-window.c:6758
 msgid "Print"
 msgstr ""
 
-#: src/ui/o42-window.c:6751
+#: src/ui/o42-window.c:6760
 msgid "Cut"
 msgstr ""
 
-#: src/ui/o42-window.c:6752
+#: src/ui/o42-window.c:6761
 msgid "Copy"
 msgstr ""
 
-#: src/ui/o42-window.c:6755
+#: src/ui/o42-window.c:6764
 msgid "Undo"
 msgstr ""
 
-#: src/ui/o42-window.c:6756
+#: src/ui/o42-window.c:6765
 msgid "Redo"
 msgstr ""
 
 #. The sigma and the fx are letters, not pictures; Excel 97 drew them as
 #. * letters too.  They stay set in type.
-#: src/ui/o42-window.c:6760
+#: src/ui/o42-window.c:6769
 msgid "AutoSum"
 msgstr ""
 
-#: src/ui/o42-window.c:6761
+#: src/ui/o42-window.c:6770
 msgid "Function Wizard"
 msgstr ""
 
-#: src/ui/o42-window.c:6838
+#: src/ui/o42-window.c:6847
 msgid "Align Left"
 msgstr ""
 
-#: src/ui/o42-window.c:6838
+#: src/ui/o42-window.c:6847
 msgid "Align Right"
 msgstr ""
 
-#: src/ui/o42-window.c:6877
+#: src/ui/o42-window.c:6886
 msgid "Bold"
 msgstr ""
 
-#: src/ui/o42-window.c:6878
+#: src/ui/o42-window.c:6887
 msgid "Italic"
 msgstr ""
 
-#: src/ui/o42-window.c:6879
+#: src/ui/o42-window.c:6888
 msgid "Underline"
 msgstr ""
 
 #. Excel's Currency Style button puts on the Accounting format, with
 #. * the symbol at the edge; Ctrl+Shift+4 is the Currency format.
-#: src/ui/o42-window.c:6897
+#: src/ui/o42-window.c:6906
 msgid "Currency Style"
 msgstr ""
 
-#: src/ui/o42-window.c:6898
+#: src/ui/o42-window.c:6907
 msgid "Percent Style"
 msgstr ""
 
-#: src/ui/o42-window.c:6899
+#: src/ui/o42-window.c:6908
 msgid "Comma Style"
 msgstr ""
 
-#: src/ui/o42-window.c:6901
+#: src/ui/o42-window.c:6910
 msgid "Increase Decimal"
 msgstr ""
 
-#: src/ui/o42-window.c:6903
+#: src/ui/o42-window.c:6912
 msgid "Decrease Decimal"
 msgstr ""
 
-#: src/ui/o42-window.c:6948
+#: src/ui/o42-window.c:6957
 msgid "That cannot be used as a name."
 msgstr ""
 
-#: src/ui/o42-window.c:7005
+#: src/ui/o42-window.c:7014
 msgid "Name Box"
 msgstr ""
 
-#: src/ui/o42-window.c:7011
+#: src/ui/o42-window.c:7020
 msgid "Enter"
 msgstr ""
 
-#: src/ui/o42-window.c:7408
+#: src/ui/o42-window.c:7417
 msgid "OK"
 msgstr ""
 
-#: src/ui/o42-window.c:7708
+#: src/ui/o42-window.c:7717
 msgid "Book1 - Office42 Spreadsheet"
 msgstr ""
 
-#: src/ui/o42-window.c:7754
+#: src/ui/o42-window.c:7763
 msgid "_Run Scripts"
 msgstr ""
 
-#: src/ui/o42-window.c:7759
+#: src/ui/o42-window.c:7768
 msgid "_Scripts..."
 msgstr ""
