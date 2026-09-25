@@ -9,7 +9,8 @@
  * the rest -- carry the old names instead, and a name a theme has
  * nothing for leaves GTK with no cursor image at all: on Wayland that
  * hides the pointer, which is what "the mouse cursor disappears over
- * the sheet" looks like.
+ * the sheet" looks like.  On Windows GDK has a fixed list of names and
+ * shows nothing for one outside it, fallback or not; see o42-cursor.c.
  *
  * So every shape is asked for with the older names behind it and
  * "default" at the end, which every theme has.  The cursors are made

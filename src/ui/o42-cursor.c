@@ -31,6 +31,26 @@ static const char *const SHAPES[][4] = {
   { "pointer",     "hand2",         "default",               NULL      },
 };
 
+/* GDK on Windows knows the Windows names, the X11 ones and most of the
+ * CSS ones, but not these.  And a name it does not know gives it a
+ * cursor with no image, not a reason to try the fallback: the pointer
+ * vanishes over the sheet.  So on Windows a chain starts at the first
+ * name GDK has there. */
+static gboolean
+usable (const char *name)
+{
+#ifdef G_OS_WIN32
+  static const char *const MISSING[] = { "cell", "copy", "dnd-copy" };
+
+  for (guint i = 0; i < G_N_ELEMENTS (MISSING); i++)
+    if (strcmp (MISSING[i], name) == 0)
+      return FALSE;
+#else
+  (void) name;
+#endif
+  return TRUE;
+}
+
 /* The cursor for a name, made on the first ask and kept afterwards:
  * the shape is set again on every mouse move, and building a chain of
  * GdkCursors each time would be work for nothing. */
@@ -60,7 +80,7 @@ cursor_for (const char *name)
   if (shape == NULL)
     {
       cursor = gdk_cursor_new_from_name ("default", NULL);
-      if (cursor != NULL)
+      if (cursor != NULL && usable (name))
         {
           GdkCursor *wanted = gdk_cursor_new_from_name (name, cursor);
 
@@ -79,7 +99,11 @@ cursor_for (const char *name)
         last++;
       for (int i = last; i >= 0; i--)
         {
-          GdkCursor *step = gdk_cursor_new_from_name (shape[i], cursor);
+          GdkCursor *step;
+
+          if (!usable (shape[i]))
+            continue;
+          step = gdk_cursor_new_from_name (shape[i], cursor);
 
           if (step != NULL)
             {
