@@ -11,6 +11,7 @@
 #include "o42-numfmt.h"
 #include "o42-entry.h"
 #include "o42-python.h"
+#include "o42-scale.h"
 
 #include <glib/gi18n.h>
 #include <stdlib.h>
@@ -159,20 +160,82 @@ apply_prefs (void)
   g_free (fixed);
 }
 
+/* A font size scales to the hundredth of a pixel; an icon to a whole
+ * one, which keeps its lines on the pixels. */
+static gboolean
+scale_size (const GMatchInfo *match, GString *result, gpointer data)
+{
+  char *property = g_match_info_fetch (match, 1);
+  char *number = g_match_info_fetch (match, 2);
+  double size = g_ascii_strtod (number, NULL) * *(double *) data;
+  char text[G_ASCII_DTOSTR_BUF_SIZE];
+
+  if (strcmp (property, "font-size") == 0)
+    g_ascii_formatd (text, sizeof text, "%.2f", size);
+  else
+    g_snprintf (text, sizeof text, "%d", (int) (size + 0.5));
+  g_string_append_printf (result, "%s: %spx", property, text);
+  g_free (property);
+  g_free (number);
+  return FALSE;
+}
+
+static void load_css (void);
+
+static void
+on_text_dpi_changed (GObject *settings, GParamSpec *pspec, gpointer data)
+{
+  (void) settings; (void) pspec; (void) data;
+  load_css ();
+}
+
+/* style.css gives its sizes in pixels, which GTK does not scale for a
+ * desktop at 125 or 150 per cent; each font and icon size is multiplied
+ * by that on the way in (see o42-scale.h), and again whenever it
+ * changes. */
 static void
 load_css (void)
 {
-  GtkCssProvider *provider = gtk_css_provider_new ();
+  static GtkCssProvider *provider;
   GdkDisplay *display = gdk_display_get_default ();
+  GBytes *bytes;
+  char *css;
+  double scale;
 
-  gtk_css_provider_load_from_resource (provider, "/net/office42/office42/style.css");
+  if (display == NULL)
+    return;
 
-  if (display != NULL)
-    gtk_style_context_add_provider_for_display (display,
-                                                GTK_STYLE_PROVIDER (provider),
-                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  bytes = g_resources_lookup_data ("/net/office42/office42/style.css", 0, NULL);
+  if (bytes == NULL)
+    return;
+  css = g_strndup (g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes));
+  g_bytes_unref (bytes);
 
-  g_object_unref (provider);
+  scale = o42_text_scale (display);
+  if (scale != 1.0)
+    {
+      GRegex *size = g_regex_new ("(font-size|-gtk-icon-size):\\s*([0-9.]+)px", 0, 0, NULL);
+      char *scaled = g_regex_replace_eval (size, css, -1, 0, 0, scale_size, &scale, NULL);
+
+      g_regex_unref (size);
+      if (scaled != NULL)
+        {
+          g_free (css);
+          css = scaled;
+        }
+    }
+
+  if (provider == NULL)
+    {
+      provider = gtk_css_provider_new ();
+      gtk_style_context_add_provider_for_display (display,
+                                                  GTK_STYLE_PROVIDER (provider),
+                                                  GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+      g_signal_connect (gtk_settings_get_for_display (display), "notify::gtk-xft-dpi",
+                        G_CALLBACK (on_text_dpi_changed), NULL);
+    }
+  gtk_css_provider_load_from_string (provider, css);
+  g_free (css);
 }
 
 /* The toolbar icons travel in the binary, laid out as a small icon theme

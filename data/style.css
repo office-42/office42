@@ -8,6 +8,13 @@
  * shipped side by side and looked it.  The grid paints itself.
  */
 
+/* Every size is in pixels, and every font and icon size is multiplied
+ * by the desktop's text scale as this file is loaded -- 1.25 on Windows
+ * at 125 per cent -- so the chrome grows with the cells; see
+ * o42-scale.h.  A size in points would scale by DPI alone, which is 72
+ * on macOS.  The 13.33px of the cell editor and its tips is Arial 10 at
+ * 96 DPI, the size of the text in a cell at 100 per cent. */
+
 /* The palette, as GTK names colours: @define-color works in every GTK 4,
  * where CSS variables need 4.16. */
 @define-color o42_face #c0c0c0;
@@ -74,6 +81,10 @@ popover.menu contents modelbutton label {
 
 .o42-toolbar button:disabled {
   color: @o42_shadow;
+}
+
+.o42-tool image {
+  -gtk-icon-size: 16px;
 }
 
 /* The icons carry their own colours, so a disabled button cannot grey them
@@ -231,7 +242,7 @@ popover.menu contents separator {
   padding: 0 2px;
   min-height: 0;
   font-family: Arial, sans-serif;
-  font-size: 10pt;
+  font-size: 13.33px;
 }
 
 .o42-toolbar dropdown > button:hover,
@@ -347,7 +358,7 @@ o42grid {
 
 .o42-argtip label {
   font-family: Arial, sans-serif;
-  font-size: 10pt;
+  font-size: 13.33px;
   padding: 1px 5px;
 }
 
@@ -371,7 +382,7 @@ o42grid {
 
 .o42-complete label {
   font-family: Arial, sans-serif;
-  font-size: 10pt;
+  font-size: 13.33px;
   padding: 0 4px;
 }
 

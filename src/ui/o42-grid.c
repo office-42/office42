@@ -26,6 +26,7 @@
 #include "o42-formula.h"
 #include "o42-eval.h"
 #include "o42-cursor.h"
+#include "o42-scale.h"
 
 #include <glib/gi18n.h>
 #include <math.h>
@@ -93,7 +94,9 @@ struct _O42Grid {
   GtkWidget     *list_box;
   gboolean       prompt_shown;
   gboolean       hide_zeros;
-  double         zoom;                     /* 1.0 is 100% */
+  double         zoom;                     /* view_zoom times text_scale: what the cells are drawn at */
+  double         view_zoom;                /* View > Zoom's; 1.0 is 100% */
+  double         text_scale;               /* the desktop's, from o42_text_scale */
   int            frozen_rows, frozen_cols; /* View > Freeze Panes */
   gboolean       show_breaks;              /* View > Page Breaks */
   GArray        *freeform;                 /* double pairs, sheet px: the outline being drawn, or NULL */
@@ -4664,23 +4667,43 @@ o42_grid_has_frozen_panes (O42Grid *self)
   return self->frozen_rows > 0 || self->frozen_cols > 0;
 }
 
-void
-o42_grid_set_zoom (O42Grid *self, double zoom)
+/* The zoom a person chose, times the desktop's text scale: at 125 per
+ * cent on Windows a sheet at 100 is drawn at 125, as Excel draws it, and
+ * the text measured at 96 DPI grows with its cells. */
+static void
+grid_apply_zoom (O42Grid *self)
 {
-  g_return_if_fail (O42_IS_GRID (self));
-
-  self->zoom = CLAMP (zoom, 0.25, 4.0);
+  self->zoom = self->view_zoom * self->text_scale;
   if (self->editing)
     place_editor (self);
   gtk_widget_queue_resize (GTK_WIDGET (self));
   gtk_widget_queue_draw (GTK_WIDGET (self));
 }
 
+static void
+on_text_dpi_changed (GObject *settings, GParamSpec *pspec, gpointer data)
+{
+  O42Grid *self = data;
+
+  (void) settings; (void) pspec;
+  self->text_scale = o42_text_scale (gtk_widget_get_display (GTK_WIDGET (self)));
+  grid_apply_zoom (self);
+}
+
+void
+o42_grid_set_zoom (O42Grid *self, double zoom)
+{
+  g_return_if_fail (O42_IS_GRID (self));
+
+  self->view_zoom = CLAMP (zoom, 0.25, 4.0);
+  grid_apply_zoom (self);
+}
+
 double
 o42_grid_get_zoom (O42Grid *self)
 {
   g_return_val_if_fail (O42_IS_GRID (self), 1.0);
-  return self->zoom;
+  return self->view_zoom;
 }
 
 void
@@ -6098,7 +6121,7 @@ o42_grid_fit_zoom (O42Grid *self, const O42Range *range)
   need_h = o42_sheet_row_offset (self->sheet, range->row1 + 1) - o42_sheet_row_offset (self->sheet, range->row0);
   if (view_w <= 0 || view_h <= 0 || need_w <= 0 || need_h <= 0)
     return 1.0;
-  zoom = MIN (view_w / need_w, view_h / need_h);
+  zoom = MIN (view_w / need_w, view_h / need_h) / self->text_scale;
   return CLAMP (zoom, 0.25, 4.0);
 }
 
@@ -8491,7 +8514,18 @@ o42_grid_init (O42Grid *self)
   g_signal_connect_after (self, "map", G_CALLBACK (validation_prompt_update), NULL);
 
   self->header_w = 42;   /* three digits and room; outline_sync grows it */
-  self->layout = pango_layout_new (gtk_widget_get_pango_context (GTK_WIDGET (self)));
+  {
+    /* Text is measured at 96 DPI whatever the desktop's, as the widths
+     * and heights of cells are; the rest of the scale is in the zoom. */
+    PangoContext *context = gtk_widget_create_pango_context (GTK_WIDGET (self));
+
+    pango_cairo_context_set_resolution (context, 96);
+    self->layout = pango_layout_new (context);
+    g_object_unref (context);
+  }
+  self->text_scale = o42_text_scale (gtk_widget_get_display (GTK_WIDGET (self)));
+  g_signal_connect_object (gtk_widget_get_settings (GTK_WIDGET (self)), "notify::gtk-xft-dpi",
+                           G_CALLBACK (on_text_dpi_changed), self, 0);
 
   key = gtk_event_controller_key_new ();
   g_signal_connect (key, "key-pressed", G_CALLBACK (on_key_pressed), self);
@@ -8529,7 +8563,8 @@ o42_grid_init (O42Grid *self)
   self->tab_origin_col = -1;
   self->resize_col = self->resize_row = -1;
   self->resize_handle = -1;
-  self->zoom = 1.0;
+  self->view_zoom = 1.0;
+  self->zoom = self->view_zoom * self->text_scale;
 
   gtk_widget_set_has_tooltip (GTK_WIDGET (self), TRUE);
   g_signal_connect (self, "query-tooltip", G_CALLBACK (on_query_tooltip), self);

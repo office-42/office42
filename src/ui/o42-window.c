@@ -39,6 +39,7 @@
 
 #include "o42-grid.h"
 #include "o42-cursor.h"
+#include "o42-scale.h"
 #include "o42-application.h"
 #include "o42-date.h"
 #include "o42-entry.h"
@@ -127,9 +128,12 @@ draw_caption_glyph (GtkDrawingArea *area, cairo_t *cr,
                     int width, int height, gpointer data)
 {
   const char *which = data;
-  double cx = width / 2.0, cy = height / 2.0;
+  /* Drawn about the centre, at the desktop's text scale. */
+  double scale = o42_text_scale (gtk_widget_get_display (GTK_WIDGET (area)));
+  double cx = 0, cy = 0;
 
-  (void) area;
+  cairo_translate (cr, width / 2.0, height / 2.0);
+  cairo_scale (cr, scale, scale);
   cairo_set_source_rgb (cr, 0, 0, 0);
   cairo_set_line_width (cr, 1.0);
 
@@ -159,9 +163,10 @@ caption_button (const char *glyph, const char *tip, GCallback cb, gpointer data)
 {
   GtkWidget *button = gtk_button_new ();
   GtkWidget *area = gtk_drawing_area_new ();
+  double scale = o42_text_scale (gdk_display_get_default ());
 
-  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (area), 16);
-  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (area), 14);
+  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (area), (int) (16 * scale + 0.5));
+  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (area), (int) (14 * scale + 0.5));
   gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (area), draw_caption_glyph,
                                   (gpointer) glyph, NULL);
   gtk_button_set_child (GTK_BUTTON (button), area);
@@ -6646,7 +6651,7 @@ icon_button (const char *icon_name, const char *tip, const char *action)
   GtkWidget *button = gtk_button_new ();
   GtkWidget *image = gtk_image_new_from_icon_name (icon_name);
 
-  gtk_image_set_pixel_size (GTK_IMAGE (image), 16);
+  /* Its size is style.css's, which grows with the desktop's text. */
   gtk_button_set_child (GTK_BUTTON (button), image);
   gtk_widget_set_tooltip_text (button, tip);
   gtk_widget_set_focusable (button, FALSE);
@@ -7643,7 +7648,26 @@ o42_window_init (O42Window *self)
       g_object_unref (action);
     }
 
-  gtk_window_set_default_size (GTK_WINDOW (self), 960, 700);
+  {
+    /* The first size grows with the desktop's text as the rest does,
+     * though not past nine tenths of the screen. */
+    GdkDisplay *display = gtk_widget_get_display (GTK_WIDGET (self));
+    GListModel *monitors = gdk_display_get_monitors (display);
+    double scale = o42_text_scale (display);
+    int width = (int) (960 * scale), height = (int) (700 * scale);
+
+    if (scale > 1.0 && g_list_model_get_n_items (monitors) > 0)
+      {
+        GdkMonitor *monitor = g_list_model_get_item (monitors, 0);
+        GdkRectangle area;
+
+        gdk_monitor_get_geometry (monitor, &area);
+        width = MAX (960, MIN (width, area.width * 9 / 10));
+        height = MAX (700, MIN (height, area.height * 9 / 10));
+        g_object_unref (monitor);
+      }
+    gtk_window_set_default_size (GTK_WINDOW (self), width, height);
+  }
   gtk_widget_add_css_class (GTK_WIDGET (self), "o42");
   gtk_window_set_titlebar (GTK_WINDOW (self), build_titlebar (self));
   gtk_window_set_title (GTK_WINDOW (self), _("Book1 - Office42 Spreadsheet"));

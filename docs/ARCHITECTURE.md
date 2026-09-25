@@ -223,11 +223,26 @@ right-aligned numbers — and are folded together. And a gap between lines of
 more than one and a half line pitches is an empty row, or several, so a
 table with a blank line under its title comes back in the right rows.
 
+## The screen
+
+A sheet is laid out in pixels at 96 dpi: widths and heights come out of
+the files converted at that resolution, and the grid measures its text
+with a Pango context held at 96 dpi, whatever the desktop's is. How much
+larger the desktop wants things is a separate factor, `o42_text_scale`
+(`ui/o42-scale.h`): the text DPI over 96, never below one. GTK scales a
+window only by whole numbers, so Windows at 125 per cent reaches a GTK
+program as 120 DPI and nothing else. The grid multiplies the chosen zoom
+by the factor -- View ▸ Zoom still says 100% -- and style.css's pixel
+font and icon sizes are multiplied by it as the style sheet is loaded,
+so the cells, their text and the chrome grow together.
+
 ## Things to be careful about
 
 - **Clear every `O42Value` you own exactly once.** They own their text.
 - **`O42Fmt` must come from `o42_fmt_init_default`.** Interning compares
   padding bytes.
 - **Keep `FUNCTIONS` sorted.** The lookup is a binary search.
+- **Measure a cell's text with the grid's layout, not the widget's.** The
+  widget's Pango context follows the desktop's DPI; the cells do not.
 - **`formula/` must not include `model/`.** The evaluator sees a callback,
   not a sheet. That boundary is the whole design.
