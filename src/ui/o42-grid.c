@@ -3121,6 +3121,13 @@ entry_allowed (O42Grid *self, const char *text)
   if (o42_sheet_validate (self->sheet, self->active_row, self->active_col, text, &message))
     return TRUE;
   v = o42_sheet_validation_at (self->sheet, self->active_row, self->active_col);
+  /* A rule without a message of its own gets the model's English words;
+   * the window says them in the user's language. */
+  if (v == NULL || v->message == NULL || *v->message == '\0')
+    {
+      g_free (message);
+      message = g_strdup (_("The value is not allowed in this cell."));
+    }
   {
     const char *title = v != NULL && v->title != NULL && *v->title != '\0' ? v->title
                         : v != NULL && v->style == O42_VALID_WARNING ? _("Warning")

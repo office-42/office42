@@ -191,11 +191,11 @@ build_titlebar (O42Window *self)
   gtk_widget_add_css_class (self->title_label, "o42-titlebar-label");
   gtk_center_box_set_center_widget (GTK_CENTER_BOX (centre), self->title_label);
 
-  gtk_box_append (GTK_BOX (right), caption_button ("minimise", "Minimize",
+  gtk_box_append (GTK_BOX (right), caption_button ("minimise", _("Minimize"),
                   G_CALLBACK (on_titlebar_minimise), self));
-  gtk_box_append (GTK_BOX (right), caption_button ("maximise", "Maximize",
+  gtk_box_append (GTK_BOX (right), caption_button ("maximise", _("Maximize"),
                   G_CALLBACK (on_titlebar_maximise), self));
-  gtk_box_append (GTK_BOX (right), caption_button ("close", "Close",
+  gtk_box_append (GTK_BOX (right), caption_button ("close", _("Close"),
                   G_CALLBACK (on_titlebar_close), self));
   gtk_center_box_set_end_widget (GTK_CENTER_BOX (centre), right);
 
@@ -506,13 +506,13 @@ on_picture_response (GObject *source, GAsyncResult *result, gpointer data)
             }
         }
       else
-        show_error (self, "office42 could not insert that picture.", error);
+        show_error (self, _("office42 could not insert that picture."), error);
 
       g_object_unref (file);
     }
   else if (error != NULL && !g_error_matches (error, GTK_DIALOG_ERROR,
                                               GTK_DIALOG_ERROR_DISMISSED))
-    show_error (self, "office42 could not open that picture.", error);
+    show_error (self, _("office42 could not open that picture."), error);
 
   g_clear_error (&error);
   gtk_widget_grab_focus (GTK_WIDGET (self->grid));
@@ -563,7 +563,7 @@ on_background_response (GObject *source, GAsyncResult *result, gpointer data)
           window_sync (self);
         }
       else
-        show_error (self, "office42 could not read that picture.", error);
+        show_error (self, _("office42 could not read that picture."), error);
       g_object_unref (file);
     }
   g_clear_error (&error);
@@ -620,7 +620,7 @@ action_insert_scan (GSimpleAction *a, GVariant *p, gpointer data)
       g_bytes_unref (bytes);
     }
   else if (error != NULL)
-    show_error (self, "office42 could not get a picture from the scanner or camera.", error);
+    show_error (self, _("office42 could not get a picture from the scanner or camera."), error);
   g_clear_error (&error);
   g_free (format);
   gtk_widget_grab_focus (GTK_WIDGET (self->grid));
@@ -640,12 +640,12 @@ on_export_pdf_response (GObject *source, GAsyncResult *result, gpointer data)
   if (file != NULL)
     {
       if (!o42_pdf_export (self->sheet, file, &error))
-        show_error (self, "office42 could not export the PDF.", error);
+        show_error (self, _("office42 could not export the PDF."), error);
       g_object_unref (file);
     }
   else if (error != NULL && !g_error_matches (error, GTK_DIALOG_ERROR,
                                               GTK_DIALOG_ERROR_DISMISSED))
-    show_error (self, "office42 could not export the PDF.", error);
+    show_error (self, _("office42 could not export the PDF."), error);
 
   g_clear_error (&error);
 }
@@ -659,7 +659,7 @@ action_export_pdf (GSimpleAction *a, GVariant *p, gpointer data)
 
   (void) a; (void) p;
 
-  g_list_store_append (filters, pattern_filter ("PDF Documents (*.pdf)", "*.pdf"));
+  g_list_store_append (filters, pattern_filter (_("PDF Documents (*.pdf)"), "*.pdf"));
   gtk_file_dialog_set_title (dialog, _("Export as PDF"));
   gtk_file_dialog_set_filters (dialog, G_LIST_MODEL (filters));
   gtk_file_dialog_set_initial_name (dialog, "Book1.pdf");
@@ -684,12 +684,12 @@ on_import_pdf_response (GObject *source, GAsyncResult *result, gpointer data)
       if (o42_pdf_import (self->sheet, file, &error))
         o42_grid_refresh (self->grid);
       else
-        show_error (self, "office42 could not import that PDF.", error);
+        show_error (self, _("office42 could not import that PDF."), error);
       g_object_unref (file);
     }
   else if (error != NULL && !g_error_matches (error, GTK_DIALOG_ERROR,
                                               GTK_DIALOG_ERROR_DISMISSED))
-    show_error (self, "office42 could not open that PDF.", error);
+    show_error (self, _("office42 could not open that PDF."), error);
 
   g_clear_error (&error);
   window_sync (self);
@@ -707,7 +707,7 @@ on_export_book_pdf_response (GObject *source, GAsyncResult *result, gpointer dat
   if (file == NULL)
     return;
   if (!o42_pdf_export_book (self->book, file, &error))
-    show_error (self, "office42 could not write the PDF.", error);
+    show_error (self, _("office42 could not write the PDF."), error);
   g_clear_error (&error);
   g_object_unref (file);
 }
@@ -721,7 +721,7 @@ action_export_book_pdf (GSimpleAction *a, GVariant *p, gpointer data)
 
   (void) a; (void) p;
 
-  g_list_store_append (filters, pattern_filter ("PDF Documents (*.pdf)", "*.pdf"));
+  g_list_store_append (filters, pattern_filter (_("PDF Documents (*.pdf)"), "*.pdf"));
   gtk_file_dialog_set_title (dialog, _("Export Book as PDF"));
   gtk_file_dialog_set_filters (dialog, G_LIST_MODEL (filters));
   gtk_file_dialog_set_initial_name (dialog, "Book1.pdf");
@@ -741,7 +741,7 @@ action_import_pdf (GSimpleAction *a, GVariant *p, gpointer data)
 
   (void) a; (void) p;
 
-  g_list_store_append (filters, pattern_filter ("PDF Documents (*.pdf)", "*.pdf"));
+  g_list_store_append (filters, pattern_filter (_("PDF Documents (*.pdf)"), "*.pdf"));
   gtk_file_dialog_set_title (dialog, _("Import from PDF"));
   gtk_file_dialog_set_filters (dialog, G_LIST_MODEL (filters));
   gtk_file_dialog_open (dialog, GTK_WINDOW (self), NULL,
@@ -847,13 +847,13 @@ action_paste_special (GSimpleAction *a, GVariant *p, gpointer data)
   O42Window *self = data;
   PastePrompt *prompt;
   GtkWidget *content, *buttons, *ok;
-  static const char *names[4] = { "_All", "_Values", "_Formats", "F_ormulas" };
+  static const char *names[4] = { N_("_All"), N_("_Values"), N_("_Formats"), N_("F_ormulas") };
 
   (void) a; (void) p;
 
   if (!o42_grid_has_own_copy (self->grid))
     {
-      show_error (self, "Copy some cells first; Paste Special works on office42's own copy.", NULL);
+      show_error (self, _("Copy some cells first; Paste Special works on office42's own copy."), NULL);
       return;
     }
 
@@ -864,7 +864,7 @@ action_paste_special (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content), gtk_label_new (_("Paste")));
   for (int i = 0; i < 4; i++)
     {
-      prompt->mode[i] = gtk_check_button_new_with_mnemonic (names[i]);
+      prompt->mode[i] = gtk_check_button_new_with_mnemonic (_(names[i]));
       if (i > 0)
         gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->mode[i]),
                                     GTK_CHECK_BUTTON (prompt->mode[0]));
@@ -967,7 +967,9 @@ on_replace_all (GtkWidget *w, gpointer data)
                              needle, with,
                              gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->match_case)));
 
-  message = g_strdup_printf ("%d replacement%s made.", count, count == 1 ? "" : "s");
+  message = g_strdup_printf (ngettext ("%d replacement made.",
+                                       "%d replacements made.", count),
+                             count);
   gtk_label_set_text (GTK_LABEL (prompt->status), message);
   g_free (message);
 
@@ -1074,7 +1076,8 @@ action_insert_note (GSimpleAction *a, GVariant *p, gpointer data)
   existing = o42_sheet_get_note (self->sheet, prompt->row, prompt->col);
 
   name = o42_ref_name (prompt->row, prompt->col);
-  heading = g_strdup_printf ("Note on %s:", name);
+  /* Translators: %s is a cell reference such as B4. */
+  heading = g_strdup_printf (_("Note on %s:"), name);
   prompt->dialog = dialog_frame (self, _("Cell Note"), TRUE, &content, &buttons);
   gtk_box_append (GTK_BOX (content), gtk_label_new (heading));
   g_free (heading);
@@ -1146,7 +1149,8 @@ action_insert_link (GSimpleAction *a, GVariant *p, gpointer data)
   existing = o42_sheet_get_link (self->sheet, prompt->row, prompt->col);
 
   name = o42_ref_name (prompt->row, prompt->col);
-  heading = g_strdup_printf ("Link on %s to:", name);
+  /* Translators: %s is a cell reference such as B4. */
+  heading = g_strdup_printf (_("Link on %s to:"), name);
   prompt->dialog = dialog_frame (self, _("Hyperlink"), TRUE, &content, &buttons);
   gtk_box_append (GTK_BOX (content), gtk_label_new (heading));
   g_free (heading);
@@ -1258,7 +1262,7 @@ on_name_add (GtkWidget *w, gpointer data)
 
   if (!ok || !o42_book_define_name (self->book, name, target, &range))
     {
-      show_error (self, "A name needs letters, digits and underscores, and refers to a range such as =Sheet1!$A$1:$B$9.", NULL);
+      show_error (self, _("A name needs letters, digits and underscores, and refers to a range such as =Sheet1!$A$1:$B$9."), NULL);
       return;
     }
 
@@ -1365,8 +1369,8 @@ action_split_panes (GSimpleAction *a, GVariant *p, gpointer data)
   window_sync (self);
   gtk_label_set_text (GTK_LABEL (self->status_label),
                       o42_grid_is_split (self->grid)
-                      ? "The window is split: the mouse wheel scrolls the pane it is over."
-                      : "The split is gone.");
+                      ? _("The window is split: the mouse wheel scrolls the pane it is over.")
+                      : _("The split is gone."));
 }
 
 void
@@ -1581,7 +1585,7 @@ action_options (GSimpleAction *a, GVariant *p, gpointer data)
     gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->fixed), o42_entry_fixed_decimals () >= 0);
     gtk_box_append (GTK_BOX (content), prompt->fixed);
 
-    prompt->iterations = labelled (grid, 0, "At most:",
+    prompt->iterations = labelled (grid, 0, _("At most:"),
                                    gtk_spin_button_new_with_range (1, 10000, 1));
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->iterations), max);
     prompt->tolerance = labelled (grid, 1, _("Until it moves less than:"), gtk_entry_new ());
@@ -1609,7 +1613,7 @@ action_help_contents (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   GtkWidget *content, *buttons, *dialog, *label;
-  static const char *TEXT =
+  static const char *TEXT = N_(
     "Type into a cell and press Enter; Tab moves right and Enter goes back\n"
     "to the column the row began in.  F2 edits in place, Delete clears,\n"
     "Escape cancels.  A formula starts with =, as in =SUM(A1:A9) or\n"
@@ -1632,12 +1636,12 @@ action_help_contents (GSimpleAction *a, GVariant *p, gpointer data)
     "\n"
     "A form control from Insert > Control is worked by a plain click;\n"
     "Ctrl+click takes hold of it, and Format > Control gives it the cell\n"
-    "it drives.";
+    "it drives.");
 
   (void) a; (void) p;
 
   dialog = dialog_frame (self, _("office42 Help"), FALSE, &content, &buttons);
-  label = gtk_label_new (TEXT);
+  label = gtk_label_new (_(TEXT));
   gtk_label_set_xalign (GTK_LABEL (label), 0.0);
   gtk_box_append (GTK_BOX (content), label);
   dialog_button (buttons, _("Close"), G_CALLBACK (on_dialog_close_clicked), dialog);
@@ -1841,7 +1845,7 @@ on_print_done (GtkPrintOperation *op, GtkPrintOperationResult result, gpointer d
     {
       GError *error = NULL;
       gtk_print_operation_get_error (op, &error);
-      show_error (self, "office42 could not print.", error);
+      show_error (self, _("office42 could not print."), error);
       g_clear_error (&error);
     }
 }
@@ -2017,7 +2021,7 @@ preview_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer
 static void
 preview_update (PreviewPrompt *prompt)
 {
-  char *text = g_strdup_printf ("Page %d of %d", prompt->page + 1, MAX (1, preview_count (prompt)));
+  char *text = g_strdup_printf (_("Page %d of %d"), prompt->page + 1, MAX (1, preview_count (prompt)));
   int within = 0;
   O42Pages *pages = preview_page (prompt, &within);
 
@@ -2488,8 +2492,9 @@ on_custom_hf (GtkWidget *button, gpointer entry)
   gtk_window_present (GTK_WINDOW (hf->dialog));
 }
 
-static const char *const NOTES_NAMES[] = { "(None)", "At end of sheet", "As displayed on sheet", NULL };
-static const char *const ERRORS_NAMES[] = { "displayed", "<blank>", "--", "#N/A", NULL };
+static const char *const NOTES_NAMES[] = { N_("(None)"), N_("At end of sheet"), N_("As displayed on sheet"), NULL };
+/* Translators: Page Setup's "Cell errors as:" choices. */
+static const char *const ERRORS_NAMES[] = { N_("displayed"), N_("<blank>"), "--", "#N/A", NULL };
 
 static void
 on_setup_ok (GtkWidget *w, gpointer data)
@@ -2619,8 +2624,9 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
         double w, h;
         char *label;
         o42_paper_size (o42_paper_nth (i), &w, &h);
-        label = inches ? g_strdup_printf ("%s (%.1f x %.1f in)", o42_paper_name (o42_paper_nth (i)), w / 72, h / 72)
-                       : g_strdup_printf ("%s (%.0f x %.0f mm)", o42_paper_name (o42_paper_nth (i)), w / 72 * 25.4, h / 72 * 25.4);
+        /* Translators: a paper name such as A4, then its width and height. */
+        label = inches ? g_strdup_printf (_("%s (%.1f x %.1f in)"), o42_paper_name (o42_paper_nth (i)), w / 72, h / 72)
+                       : g_strdup_printf (_("%s (%.0f x %.0f mm)"), o42_paper_name (o42_paper_nth (i)), w / 72 * 25.4, h / 72 * 25.4);
         gtk_string_list_append (papers, label);
         g_free (label);
         if (o42_paper_nth (i) == setup->paper)
@@ -2712,8 +2718,8 @@ action_page_setup_tab (O42Window *self, int tab, PreviewPrompt *preview)
   }
   prompt->titles = labelled (grid, 1, _("Rows to repeat at top:"), gtk_entry_new ());
   prompt->title_cols = labelled (grid, 2, _("Columns to repeat at left:"), gtk_entry_new ());
-  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->titles), _("$1:$2"));
-  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->title_cols), _("$A:$B"));
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->titles), "$1:$2");
+  gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->title_cols), "$A:$B");
   {
     char *tr = o42_print_titles_text (setup->title_row_first, setup->title_rows, TRUE);
     char *tc = o42_print_titles_text (setup->title_col_first, setup->title_cols, FALSE);
@@ -2842,6 +2848,15 @@ typedef struct {
   GtkWidget     *summary;
 } WizardPrompt;
 
+/* A function's summary in the user's language: the engine keeps them in
+ * English.  An empty one (a script's function may have none) stays
+ * empty, since gettext answers "" with the catalogue's header. */
+static const char *
+summary_text (const char *summary)
+{
+  return summary != NULL && *summary != '\0' ? _(summary) : summary;
+}
+
 static void
 wizard_fill (WizardPrompt *prompt, const char *filter)
 {
@@ -2860,6 +2875,7 @@ wizard_fill (WizardPrompt *prompt, const char *filter)
       gboolean hit;
 
       o42_function_help (names[i], NULL, &summary);
+      summary = summary_text (summary);
       lsummary = g_utf8_casefold (summary != NULL ? summary : "", -1);
       hit = (*folded == '\0' || strstr (lname, folded) != NULL || strstr (lsummary, folded) != NULL);
       g_free (lname);
@@ -2895,7 +2911,7 @@ on_wizard_selection (GObject *model, GParamSpec *pspec, gpointer data)
   if (name != NULL && o42_function_help (name, &signature, &summary))
     {
       gtk_label_set_text (GTK_LABEL (prompt->signature), signature);
-      gtk_label_set_text (GTK_LABEL (prompt->summary), summary);
+      gtk_label_set_text (GTK_LABEL (prompt->summary), summary_text (summary));
     }
   else
     {
@@ -3081,8 +3097,8 @@ on_whatif_ok (GtkWidget *w, gpointer data)
     o42_ref_parse (col_text, &cr, &cc, NULL);
 
   if (!o42_sheet_data_table (self->sheet, &prompt->range, rr, rc, cr, cc))
-    show_error (self, "A what-if table needs a row or a column input cell, "
-                      "and a selection bigger than one cell.", NULL);
+    show_error (self, _("A what-if table needs a row or a column input cell, "
+                        "and a selection bigger than one cell."), NULL);
   else
     {
       o42_sheet_set_modified (self->sheet, TRUE);
@@ -3113,8 +3129,9 @@ action_whatif (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_entry_set_activates_default (GTK_ENTRY (prompt->col_input), TRUE);
   gtk_box_append (GTK_BOX (content), grid);
   gtk_box_append (GTK_BOX (content),
-                  gtk_label_new ("The values run along the top row, down the left column, "
-                                 "or both;"));
+                  /* Translators: the next line goes on "the formula goes in the corner". */
+                  gtk_label_new (_("The values run along the top row, down the left column, "
+                                   "or both;")));
   gtk_box_append (GTK_BOX (content),
                   gtk_label_new (_("the formula goes in the corner, and the inside is filled in.")));
 
@@ -3652,7 +3669,7 @@ action_delete_sheet (GSimpleAction *a, GVariant *p, gpointer data)
 {
   O42Window *self = data;
   GtkAlertDialog *dialog;
-  const char *buttons[] = { "_OK", "_Cancel", NULL };
+  const char *buttons[] = { _("_OK"), _("_Cancel"), NULL };
   char *message;
 
   (void) a; (void) p;
@@ -3662,7 +3679,8 @@ action_delete_sheet (GSimpleAction *a, GVariant *p, gpointer data)
   if (o42_book_n_sheets (self->book) < 2)
     return;
 
-  message = g_strdup_printf ("Delete %s?  The sheet will be gone for good.",
+  /* Translators: %s is the sheet's name. */
+  message = g_strdup_printf (_("Delete %s?  The sheet will be gone for good."),
                              o42_sheet_get_name (self->sheet));
   dialog = gtk_alert_dialog_new ("%s", message);
   gtk_alert_dialog_set_buttons (dialog, buttons);
@@ -3697,7 +3715,7 @@ on_rename_ok (GtkWidget *w, gpointer data)
       gtk_window_destroy (GTK_WINDOW (prompt->dialog));
     }
   else
-    show_error (self, "That name cannot be used for a sheet.", NULL);
+    show_error (self, _("That name cannot be used for a sheet."), NULL);
 }
 
 static void
@@ -3784,8 +3802,8 @@ cells_prompt (O42Window *self, gboolean insert)
 {
   CellsPrompt *prompt = g_new0 (CellsPrompt, 1);
   GtkWidget *content, *buttons, *ok;
-  static const char *insert_names[4] = { "Shift cells _right", "Shift cells _down", "Entire r_ow", "Entire _column" };
-  static const char *delete_names[4] = { "Shift cells _left", "Shift cells _up", "Entire r_ow", "Entire _column" };
+  static const char *insert_names[4] = { N_("Shift cells _right"), N_("Shift cells _down"), N_("Entire r_ow"), N_("Entire _column") };
+  static const char *delete_names[4] = { N_("Shift cells _left"), N_("Shift cells _up"), N_("Entire r_ow"), N_("Entire _column") };
   const char *const *names = insert ? insert_names : delete_names;
 
   prompt->window = self;
@@ -3794,7 +3812,7 @@ cells_prompt (O42Window *self, gboolean insert)
 
   for (int i = 0; i < 4; i++)
     {
-      prompt->choice[i] = gtk_check_button_new_with_mnemonic (names[i]);
+      prompt->choice[i] = gtk_check_button_new_with_mnemonic (_(names[i]));
       if (i > 0)
         gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->choice[i]),
                                     GTK_CHECK_BUTTON (prompt->choice[0]));
@@ -3904,7 +3922,13 @@ action_insert_chart (GSimpleAction *a, GVariant *p, gpointer data)
   o42_grid_get_selection (self->grid, &sel);
   a_name = o42_ref_name (sel.row0, sel.col0);
   b_name = o42_ref_name (sel.row1, sel.col1);
-  range_text = g_strdup_printf ("Chart of %s:%s", a_name, b_name);
+  {
+    char *range = g_strdup_printf ("%s:%s", a_name, b_name);
+
+    /* Translators: %s is the range the chart plots, such as A1:C9. */
+    range_text = g_strdup_printf (_("Chart of %s"), range);
+    g_free (range);
+  }
 
   prompt->window = self;
   prompt->dialog = dialog_frame (self, _("Chart Wizard"), TRUE, &content, &buttons);
@@ -4069,8 +4093,8 @@ action_format_control (GSimpleAction *a, GVariant *p, gpointer data)
     }
   if (shape == NULL)
     {
-      show_error (self, "Ctrl+click a control first: a plain click works it, "
-                        "Ctrl+click takes hold of it.", NULL);
+      show_error (self, _("Ctrl+click a control first: a plain click works it, "
+                          "Ctrl+click takes hold of it."), NULL);
       return;
     }
 
@@ -4085,27 +4109,27 @@ action_format_control (GSimpleAction *a, GVariant *p, gpointer data)
 
   if (shape->kind != O42_SHAPE_SPINNER && shape->kind != O42_SHAPE_SCROLLBAR &&
       shape->kind != O42_SHAPE_LISTBOX && shape->kind != O42_SHAPE_COMBO)
-    prompt->caption = control_entry (grid, row++, "Caption:", shape->text);
+    prompt->caption = control_entry (grid, row++, _("Caption:"), shape->text);
 
   if (shape->kind != O42_SHAPE_BUTTON && shape->kind != O42_SHAPE_LABEL &&
       shape->kind != O42_SHAPE_GROUPBOX)
-    prompt->link = control_entry (grid, row++, "Cell link:", shape->link);
+    prompt->link = control_entry (grid, row++, _("Cell link:"), shape->link);
 
   if (shape->kind == O42_SHAPE_LISTBOX || shape->kind == O42_SHAPE_COMBO)
-    prompt->source = control_entry (grid, row++, "Input range:", shape->source);
+    prompt->source = control_entry (grid, row++, _("Input range:"), shape->source);
 
   if (shape->kind == O42_SHAPE_BUTTON)
-    prompt->script = control_entry (grid, row++, "Script:", shape->script);
+    prompt->script = control_entry (grid, row++, _("Script:"), shape->script);
 
   if (shape->kind == O42_SHAPE_SPINNER || shape->kind == O42_SHAPE_SCROLLBAR)
     {
-      prompt->min = labelled (grid, row++, "Minimum:",
+      prompt->min = labelled (grid, row++, _("Minimum:"),
                               gtk_spin_button_new_with_range (-1e9, 1e9, 1));
-      prompt->max = labelled (grid, row++, "Maximum:",
+      prompt->max = labelled (grid, row++, _("Maximum:"),
                               gtk_spin_button_new_with_range (-1e9, 1e9, 1));
-      prompt->step = labelled (grid, row++, "Increment:",
+      prompt->step = labelled (grid, row++, _("Increment:"),
                                gtk_spin_button_new_with_range (0, 1e6, 1));
-      prompt->page = labelled (grid, row++, "Page change:",
+      prompt->page = labelled (grid, row++, _("Page change:"),
                                gtk_spin_button_new_with_range (0, 1e6, 1));
       gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->min), shape->min);
       gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->max), shape->max);
@@ -4135,7 +4159,7 @@ on_grid_run_script (O42Grid *grid, const char *name, gpointer data)
   (void) grid;
   if (code == NULL)
     {
-      show_error (self, "This button names a script the book has not got.", NULL);
+      show_error (self, _("This button names a script the book has not got."), NULL);
       return;
     }
   window_run_script (self, name, code);
@@ -4159,7 +4183,7 @@ window_db (O42Window *self, gboolean complain)
   if (!o42_db_available ())
     {
       if (complain)
-        show_error (self, "This build of office42 has no SQLite in it.", NULL);
+        show_error (self, _("This build of office42 has no SQLite in it."), NULL);
       return NULL;
     }
   if (self->db != NULL &&
@@ -4170,13 +4194,13 @@ window_db (O42Window *self, gboolean complain)
   if (o42_book_database (self->book, NULL) == NULL)
     {
       if (complain)
-        show_error (self, "This book has no database: Data > Database > Connect "
-                          "opens one, or Embed New puts one inside the book.", NULL);
+        show_error (self, _("This book has no database: Data > Database > Connect "
+                            "opens one, or Embed New puts one inside the book."), NULL);
       return NULL;
     }
   self->db = o42_db_for_book (self->book, &error);
   if (self->db == NULL && complain)
-    show_error (self, "The database would not open.", error);
+    show_error (self, _("The database would not open."), error);
   g_clear_error (&error);
   return self->db;
 }
@@ -4222,7 +4246,7 @@ action_db_connect (GSimpleAction *a, GVariant *p, gpointer data)
   (void) a; (void) p;
   if (!o42_db_available ())
     {
-      show_error (self, "This build of office42 has no SQLite in it.", NULL);
+      show_error (self, _("This build of office42 has no SQLite in it."), NULL);
       return;
     }
 
@@ -4255,7 +4279,7 @@ action_db_embed (GSimpleAction *a, GVariant *p, gpointer data)
   (void) a; (void) p;
   if (!o42_db_available ())
     {
-      show_error (self, "This build of office42 has no SQLite in it.", NULL);
+      show_error (self, _("This build of office42 has no SQLite in it."), NULL);
       return;
     }
 
@@ -4265,7 +4289,7 @@ action_db_embed (GSimpleAction *a, GVariant *p, gpointer data)
   fd = g_file_open_tmp ("office42-XXXXXX.sqlite", &path, NULL);
   if (fd < 0)
     {
-      show_error (self, "There was nowhere to put the database.", NULL);
+      show_error (self, _("There was nowhere to put the database."), NULL);
       return;
     }
   g_close (fd, NULL);
@@ -4317,7 +4341,7 @@ on_query_ok (GtkWidget *w, gpointer data)
   if (!o42_db_query_into (db, self->sheet, sql, at.row0, at.col0,
                           gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->headings)),
                           &at, &error))
-    show_error (self, "The query failed.", error);
+    show_error (self, _("The query failed."), error);
   else
     {
       o42_sheet_set_modified (self->sheet, TRUE);
@@ -4400,8 +4424,8 @@ action_db_query (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->headings), TRUE);
   gtk_box_append (GTK_BOX (content), prompt->headings);
   gtk_box_append (GTK_BOX (content),
-                  gtk_label_new ("The answer is laid out from the active cell, and "
-                                 "Data > Refresh Queries runs it again."));
+                  gtk_label_new (_("The answer is laid out from the active cell, and "
+                                   "Data > Refresh Queries runs it again.")));
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_query_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
@@ -4424,15 +4448,16 @@ action_db_refresh (GSimpleAction *a, GVariant *p, gpointer data)
     return;
   done = o42_db_refresh (db, self->sheet, &error);
   if (done < 0)
-    show_error (self, "A query failed.", error);
+    show_error (self, _("A query failed."), error);
   else
     {
       o42_sheet_set_modified (self->sheet, TRUE);
       o42_grid_refresh (self->grid);
       window_sync (self);
       {
-        char *said = g_strdup_printf (done == 1 ? "%d query refreshed"
-                                                : "%d queries refreshed", done);
+        char *said = g_strdup_printf (ngettext ("%d query refreshed",
+                                                "%d queries refreshed", done),
+                                      done);
 
         gtk_label_set_text (GTK_LABEL (self->status_label), said);
         g_free (said);
@@ -4464,13 +4489,14 @@ on_db_send_ok (GtkWidget *w, gpointer data)
       if (!o42_db_put_range (db, self->sheet, &prompt->range, table,
                              gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->headings)),
                              &error))
-        show_error (self, "The rows would not go in.", error);
+        show_error (self, _("The rows would not go in."), error);
       else
         {
           o42_sheet_stale_formulas (self->sheet);
           o42_grid_refresh (self->grid);
           {
-            char *said = g_strdup_printf ("The selection went into %s", table);
+            /* Translators: %s is the name of a table in the database. */
+            char *said = g_strdup_printf (_("The selection went into %s"), table);
 
             gtk_label_set_text (GTK_LABEL (self->status_label), said);
             g_free (said);
@@ -4508,8 +4534,8 @@ action_db_send (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->headings), TRUE);
   gtk_box_append (GTK_BOX (content), prompt->headings);
   gtk_box_append (GTK_BOX (content),
-                  gtk_label_new ("The selection is added to the table, which is made "
-                                 "if it is not there."));
+                  gtk_label_new (_("The selection is added to the table, which is made "
+                                   "if it is not there.")));
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_db_send_ok), prompt);
   dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
@@ -4574,7 +4600,7 @@ action_order (GSimpleAction *a, GVariant *p, gpointer data)
       o42_grid_selected_chart (self->grid) == NULL &&
       !o42_grid_has_selected_object (self->grid))
     {
-      show_error (self, "Click a picture, shape or chart first; Format > Order moves the selected one.", NULL);
+      show_error (self, _("Click a picture, shape or chart first; Format > Order moves the selected one."), NULL);
       return;
     }
   o42_grid_reorder_selected (self->grid, order);
@@ -4710,7 +4736,7 @@ action_format_shape (GSimpleAction *a, GVariant *p, gpointer data)
     }
   if (shape == NULL)
     {
-      show_error (self, "Click a shape first; Format > Shape works on the selected one.", NULL);
+      show_error (self, _("Click a shape first; Format > Shape works on the selected one."), NULL);
       return;
     }
   line_kind = shape->kind == O42_SHAPE_LINE || shape->kind == O42_SHAPE_ARROW;
@@ -4907,7 +4933,7 @@ action_format_picture (GSimpleAction *a, GVariant *p, gpointer data)
     }
   if (pic == NULL)
     {
-      show_error (self, "Click a picture first; Format > Picture works on the selected one.", NULL);
+      show_error (self, _("Click a picture first; Format > Picture works on the selected one."), NULL);
       return;
     }
 
@@ -5111,8 +5137,8 @@ action_style (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_box_append (GTK_BOX (content), row);
 
   {
-    GtkWidget *hint = gtk_label_new ("Define takes the active cell's formatting; redefining a style "
-                                     "restyles every cell wearing it.");
+    GtkWidget *hint = gtk_label_new (_("Define takes the active cell's formatting; redefining a style "
+                                       "restyles every cell wearing it."));
     gtk_label_set_wrap (GTK_LABEL (hint), TRUE);
     gtk_label_set_max_width_chars (GTK_LABEL (hint), 40);
     gtk_label_set_xalign (GTK_LABEL (hint), 0.0);
@@ -5219,7 +5245,7 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
     }
   if (chart == NULL)
     {
-      show_error (self, "Click a chart first; Format > Chart works on the selected chart.", NULL);
+      show_error (self, _("Click a chart first; Format > Chart works on the selected chart."), NULL);
       return;
     }
 
@@ -5284,7 +5310,7 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
 
     prompt->trend = labelled (grid, 7, _("Trendline:"), drop_down_of (trends));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->trend), (guint) chart->trend);
-    prompt->trend_order = labelled (grid, 8, "Order or period:",
+    prompt->trend_order = labelled (grid, 8, _("Order or period:"),
                                     gtk_spin_button_new_with_range (2, 6, 1));
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->trend_order),
                                CLAMP (chart->trend_order, 2, 6));
@@ -5311,10 +5337,10 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
 
     prompt->marker = labelled (grid, 11, _("Point marker:"), drop_down_of (markers));
     gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->marker), (guint) chart->marker);
-    prompt->marker_size = labelled (grid, 12, "Marker size:",
+    prompt->marker_size = labelled (grid, 12, _("Marker size:"),
                                     gtk_spin_button_new_with_range (0, 40, 1));
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->marker_size), chart->marker_size);
-    prompt->marker_picture = labelled (grid, 13, "Picture number:",
+    prompt->marker_picture = labelled (grid, 13, _("Picture number:"),
                                        gtk_spin_button_new_with_range (0, 9999, 1));
     gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->marker_picture), chart->marker_picture);
   }
@@ -5322,7 +5348,7 @@ action_format_chart (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_entry_set_placeholder_text (GTK_ENTRY (prompt->font), _("Sans"));
   gtk_editable_set_text (GTK_EDITABLE (prompt->font),
                          chart->font_family != NULL ? chart->font_family : "");
-  prompt->font_size = labelled (grid, 15, "Text size:",
+  prompt->font_size = labelled (grid, 15, _("Text size:"),
                                 gtk_spin_button_new_with_range (0, 72, 1));
   gtk_spin_button_set_value (GTK_SPIN_BUTTON (prompt->font_size), chart->font_size);
 
@@ -5804,7 +5830,7 @@ o42_window_open_file (O42Window *self, GFile *file)
 
   if (!ok)
     {
-      show_error (self, "office42 could not open that file.", error);
+      show_error (self, _("office42 could not open that file."), error);
       g_clear_error (&error);
     }
   else
@@ -5911,7 +5937,7 @@ window_save_to (O42Window *self, GFile *file)
 
   if (!ok)
     {
-      show_error (self, "office42 could not save the file.", error);
+      show_error (self, _("office42 could not save the file."), error);
       g_clear_error (&error);
       self->close_after_save = FALSE;
       return FALSE;
@@ -5922,9 +5948,13 @@ window_save_to (O42Window *self, GFile *file)
    * saved either way, and this says what did not go in. */
   if ((file_is_xlsx (file) || file_is_ods (file)) && o42_xlsx_dropped_cells > 0)
     {
-      char *said = g_strdup_printf ("%d cells lie beyond the 1,048,576 rows this "
-                                    "kind of file can hold, and were not written. "
-                                    "Save as .gnumeric to keep them.",
+      char *said = g_strdup_printf (ngettext ("%d cell lies beyond the 1,048,576 rows this "
+                                              "kind of file can hold, and was not written. "
+                                              "Save as .gnumeric to keep it.",
+                                              "%d cells lie beyond the 1,048,576 rows this "
+                                              "kind of file can hold, and were not written. "
+                                              "Save as .gnumeric to keep them.",
+                                              o42_xlsx_dropped_cells),
                                     o42_xlsx_dropped_cells);
 
       show_error (self, said, NULL);
@@ -5932,9 +5962,13 @@ window_save_to (O42Window *self, GFile *file)
     }
   if (file_is_xls (file) && o42_xls_dropped_cells > 0)
     {
-      char *said = g_strdup_printf ("%d cells lie outside the 65,536 rows by 256 "
-                                    "columns an .xls file can hold, and were not "
-                                    "written. Save as .xlsx or .gnumeric to keep them.",
+      char *said = g_strdup_printf (ngettext ("%d cell lies outside the 65,536 rows by 256 "
+                                              "columns an .xls file can hold, and was not "
+                                              "written. Save as .xlsx or .gnumeric to keep it.",
+                                              "%d cells lie outside the 65,536 rows by 256 "
+                                              "columns an .xls file can hold, and were not "
+                                              "written. Save as .xlsx or .gnumeric to keep them.",
+                                              o42_xls_dropped_cells),
                                     o42_xls_dropped_cells);
 
       show_error (self, said, NULL);
@@ -5979,7 +6013,7 @@ excel_filter (void)
 {
   static const char *const suffixes[] = { "xlsx", "xlsm", "xls", NULL };
 
-  return suffix_filter ("Excel Files (*.xlsx, *.xlsm, *.xls)", suffixes);
+  return suffix_filter (_("Excel Files (*.xlsx, *.xlsm, *.xls)"), suffixes);
 }
 
 /* Everything the program can read, for the book that is not Excel's. */
@@ -5991,7 +6025,7 @@ spreadsheet_filter (void)
     "csv", "txt", "prn", "dif", "slk", "tex", "wk1", "wks", "123", NULL
   };
 
-  return suffix_filter ("All Spreadsheets", suffixes);
+  return suffix_filter (_("All Spreadsheets"), suffixes);
 }
 
 /* The formats a book can be read from or written in, in the order the
@@ -6010,19 +6044,19 @@ book_filters (gboolean opening)
     }
   if (!opening)
     {
-      g_list_store_append (filters, pattern_filter ("Excel Workbooks (*.xlsx)", "*.xlsx"));
-      g_list_store_append (filters, pattern_filter ("Excel Macro-Enabled Workbooks (*.xlsm)", "*.xlsm"));
-      g_list_store_append (filters, pattern_filter ("Excel 97-2003 Workbooks (*.xls)", "*.xls"));
+      g_list_store_append (filters, pattern_filter (_("Excel Workbooks (*.xlsx)"), "*.xlsx"));
+      g_list_store_append (filters, pattern_filter (_("Excel Macro-Enabled Workbooks (*.xlsm)"), "*.xlsm"));
+      g_list_store_append (filters, pattern_filter (_("Excel 97-2003 Workbooks (*.xls)"), "*.xls"));
     }
-  g_list_store_append (filters, pattern_filter ("Gnumeric Spreadsheets (*.gnumeric)", "*.gnumeric"));
-  g_list_store_append (filters, pattern_filter ("OpenDocument Spreadsheets (*.ods, *.fods)", "*.ods"));
-  g_list_store_append (filters, pattern_filter ("Web Pages (*.html)", "*.html"));
-  g_list_store_append (filters, pattern_filter ("Comma-Separated Values (*.csv)", "*.csv"));
-  g_list_store_append (filters, pattern_filter ("Data Interchange Format (*.dif)", "*.dif"));
+  g_list_store_append (filters, pattern_filter (_("Gnumeric Spreadsheets (*.gnumeric)"), "*.gnumeric"));
+  g_list_store_append (filters, pattern_filter (_("OpenDocument Spreadsheets (*.ods, *.fods)"), "*.ods"));
+  g_list_store_append (filters, pattern_filter (_("Web Pages (*.html)"), "*.html"));
+  g_list_store_append (filters, pattern_filter (_("Comma-Separated Values (*.csv)"), "*.csv"));
+  g_list_store_append (filters, pattern_filter (_("Data Interchange Format (*.dif)"), "*.dif"));
   g_list_store_append (filters, pattern_filter ("SYLK (*.slk)", "*.slk"));
-  g_list_store_append (filters, pattern_filter ("LaTeX Tables (*.tex)", "*.tex"));
-  g_list_store_append (filters, pattern_filter ("Lotus 1-2-3 Worksheets (*.wk1)", "*.wk1"));
-  g_list_store_append (filters, pattern_filter ("All Files", "*"));
+  g_list_store_append (filters, pattern_filter (_("LaTeX Tables (*.tex)"), "*.tex"));
+  g_list_store_append (filters, pattern_filter (_("Lotus 1-2-3 Worksheets (*.wk1)"), "*.wk1"));
+  g_list_store_append (filters, pattern_filter (_("All Files"), "*"));
 
   return G_LIST_MODEL (filters);
 }
@@ -6079,7 +6113,7 @@ on_save_as_response (GObject *source, GAsyncResult *result, gpointer data)
       self->close_after_save = FALSE;
       if (error != NULL && !g_error_matches (error, GTK_DIALOG_ERROR,
                                               GTK_DIALOG_ERROR_DISMISSED))
-        show_error (self, "office42 could not save the file.", error);
+        show_error (self, _("office42 could not save the file."), error);
     }
 
   g_clear_error (&error);
@@ -6153,7 +6187,7 @@ on_open_response (GObject *source, GAsyncResult *result, gpointer data)
     }
   else if (error != NULL && !g_error_matches (error, GTK_DIALOG_ERROR,
                                               GTK_DIALOG_ERROR_DISMISSED))
-    show_error (self, "office42 could not open that file.", error);
+    show_error (self, _("office42 could not open that file."), error);
 
   g_clear_error (&error);
 }
@@ -6211,7 +6245,7 @@ o42_window_close_request (GtkWindow *window)
 {
   O42Window *self = O42_WINDOW (window);
   GtkAlertDialog *dialog;
-  const char *buttons[] = { "_Save", "Do_n't Save", "_Cancel", NULL };
+  const char *buttons[] = { _("_Save"), _("Do_n't Save"), _("_Cancel"), NULL };
   char *name, *message;
 
   if (o42_grid_is_editing (self->grid))
@@ -6243,7 +6277,8 @@ o42_window_close_request (GtkWindow *window)
     return GDK_EVENT_PROPAGATE;      /* close */
 
   name = (self->file != NULL) ? g_file_get_basename (self->file) : g_strdup ("Book1");
-  message = g_strdup_printf ("Save changes to %s?", name);
+  /* Translators: %s is the book's file name, such as Book1. */
+  message = g_strdup_printf (_("Save changes to %s?"), name);
 
   dialog = gtk_alert_dialog_new ("%s", message);
   gtk_alert_dialog_set_detail (dialog, _("Your changes will be lost if you don't save them."));
@@ -6395,10 +6430,10 @@ action_about (GSimpleAction *a, GVariant *p, gpointer data)
                          "program-name", "Office42 Spreadsheet",
                          "version", O42_VERSION,
                          "logo", logo,
-                         "comments", "Also known as Numbers42.\n"
-                                     "A spreadsheet in the shape of Excel 97, at parity with its features and Gnumeric's arithmetic, "
-                                     "written in C on GTK 4, Pango and Cairo.\n"
-                                     "Source: github.com/office-42/office42",
+                         "comments", _("Also known as Numbers42.\n"
+                                       "A spreadsheet in the shape of Excel 97, at parity with its features and Gnumeric's arithmetic, "
+                                       "written in C on GTK 4, Pango and Cairo.\n"
+                                       "Source: github.com/office-42/office42"),
                          "website", "https://office42.net",
                          "website-label", "office42.net",
                          "copyright", "Copyright \302\251 2026 The office42 authors",
@@ -6707,26 +6742,26 @@ build_standard_bar (void)
 
   gtk_widget_add_css_class (bar, "o42-toolbar");
 
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-new",   "New",   "win.new"));
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-open",  "Open",  "win.open"));
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-save",  "Save",  "win.save"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-new",   _("New"),   "win.new"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-open",  _("Open"),  "win.open"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-save",  _("Save"),  "win.save"));
   gtk_box_append (GTK_BOX (bar), tool_separator ());
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-print", "Print", "win.print"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-print", _("Print"), "win.print"));
   gtk_box_append (GTK_BOX (bar), tool_separator ());
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-cut",   "Cut",   "win.cut"));
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-copy",  "Copy",  "win.copy"));
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-paste", "Paste", "win.paste"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-cut",   _("Cut"),   "win.cut"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-copy",  _("Copy"),  "win.copy"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-paste", _("Paste"), "win.paste"));
   gtk_box_append (GTK_BOX (bar), tool_separator ());
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-undo",  "Undo",  "win.undo"));
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-redo",  "Redo",  "win.redo"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-undo",  _("Undo"),  "win.undo"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-redo",  _("Redo"),  "win.redo"));
   gtk_box_append (GTK_BOX (bar), tool_separator ());
   /* The sigma and the fx are letters, not pictures; Excel 97 drew them as
    * letters too.  They stay set in type. */
   gtk_box_append (GTK_BOX (bar), text_button ("\316\243", _("AutoSum"), "win.autosum", "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), text_button ("fx", _("Function Wizard"), "win.insert-function", "o42-glyph-italic"));
   gtk_box_append (GTK_BOX (bar), tool_separator ());
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-sort",  "Sort",  "win.sort"));
-  gtk_box_append (GTK_BOX (bar), icon_button ("o42-chart", "Chart Wizard", "win.insert-chart"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-sort",  _("Sort"),  "win.sort"));
+  gtk_box_append (GTK_BOX (bar), icon_button ("o42-chart", _("Chart Wizard"), "win.insert-chart"));
 
   return bar;
 }
@@ -6800,7 +6835,7 @@ build_format_bar (O42Window *self)
                                         "o42-align-center",
                                         "o42-align-right" };
   static const char *align_targets[3] = { "left", "center", "right" };
-  static const char *align_tips[3] = { "Align Left", "Center", "Align Right" };
+  static const char *align_tips[3] = { N_("Align Left"), N_("Center"), N_("Align Right") };
 
   gtk_widget_add_css_class (bar, "o42-toolbar");
 
@@ -6850,7 +6885,7 @@ build_format_bar (O42Window *self)
 
   for (int i = 0; i < 3; i++)
     {
-      self->align_btn[i] = icon_target_button (align_icons[i], align_tips[i],
+      self->align_btn[i] = icon_target_button (align_icons[i], _(align_tips[i]),
                                               "win.align", align_targets[i]);
       gtk_box_append (GTK_BOX (bar), self->align_btn[i]);
     }
@@ -6859,13 +6894,13 @@ build_format_bar (O42Window *self)
 
   /* Excel's Currency Style button puts on the Accounting format, with
    * the symbol at the edge; Ctrl+Shift+4 is the Currency format. */
-  gtk_box_append (GTK_BOX (bar), target_button ("$", "Currency Style", "win.number", "accounting", "o42-glyph"));
-  gtk_box_append (GTK_BOX (bar), target_button ("%", "Percent Style",  "win.number", "percent",  "o42-glyph"));
-  gtk_box_append (GTK_BOX (bar), target_button (",", "Comma Style",    "win.number", "comma",    "o42-glyph"));
+  gtk_box_append (GTK_BOX (bar), target_button ("$", _("Currency Style"), "win.number", "accounting", "o42-glyph"));
+  gtk_box_append (GTK_BOX (bar), target_button ("%", _("Percent Style"),  "win.number", "percent",  "o42-glyph"));
+  gtk_box_append (GTK_BOX (bar), target_button (",", _("Comma Style"),    "win.number", "comma",    "o42-glyph"));
   gtk_box_append (GTK_BOX (bar), icon_int_target_button ("o42-increase-decimal",
-                                                        "Increase Decimal", "win.decimals", 1));
+                                                        _("Increase Decimal"), "win.decimals", 1));
   gtk_box_append (GTK_BOX (bar), icon_int_target_button ("o42-decrease-decimal",
-                                                        "Decrease Decimal", "win.decimals", -1));
+                                                        _("Decrease Decimal"), "win.decimals", -1));
 
   return bar;
 }
@@ -6910,7 +6945,7 @@ on_name_box_activate (GtkEntry *entry, gpointer data)
     {
       o42_grid_get_selection (self->grid, &range);
       if (!o42_book_define_name (self->book, text, self->sheet, &range))
-        show_error (self, "That cannot be used as a name.", NULL);
+        show_error (self, _("That cannot be used as a name."), NULL);
       o42_grid_refresh (self->grid);
     }
 
@@ -7370,7 +7405,7 @@ host_message (gpointer user, O42Book *book, const char *text)
   O42Window *self = host_window (user, book);
   GtkAlertDialog *dialog = gtk_alert_dialog_new ("%s", text);
   GMainLoop *loop = g_main_loop_new (NULL, FALSE);
-  const char *buttons[] = { "OK", NULL };
+  const char *buttons[] = { _("OK"), NULL };
 
   gtk_alert_dialog_set_buttons (dialog, buttons);
   gtk_alert_dialog_set_modal (dialog, TRUE);
