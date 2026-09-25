@@ -2148,7 +2148,9 @@ complete_offer (O42Grid *self)
 
         if (o42_function_help (name, &signature, &summary) && summary != NULL)
           {
-            GtkWidget *note = gtk_label_new (summary);
+            /* The engine hands out English; a script's own function may
+             * have an empty summary, which the catalogue must not see. */
+            GtkWidget *note = gtk_label_new (*summary != '\0' ? _(summary) : summary);
 
             gtk_label_set_xalign (GTK_LABEL (note), 0.0);
             gtk_label_set_ellipsize (GTK_LABEL (note), PANGO_ELLIPSIZE_END);
@@ -4137,9 +4139,13 @@ typedef struct {
   GtkWidget *window, *op, *value;
 } CustomFilter;
 
+/* Read back by position, never by text, so they are translated where
+ * the drop-down is built. */
 static const char *CUSTOM_OPS[] = {
-  "equals", "does not equal", "is greater than", "is greater than or equal to",
-  "is less than", "is less than or equal to", "begins with", "ends with", "contains", NULL
+  /* Translators: the conditions of the Custom AutoFilter dialog, read
+   * after "Show rows where the column:". */
+  N_("equals"), N_("does not equal"), N_("is greater than"), N_("is greater than or equal to"),
+  N_("is less than"), N_("is less than or equal to"), N_("begins with"), N_("ends with"), N_("contains"), NULL
 };
 
 static void
@@ -4190,7 +4196,13 @@ show_custom_filter (O42Grid *self, int col)
   gtk_widget_set_margin_start (box, 12); gtk_widget_set_margin_end (box, 12);
   gtk_widget_set_margin_top (box, 12); gtk_widget_set_margin_bottom (box, 12);
   gtk_box_append (GTK_BOX (box), gtk_label_new (_("Show rows where the column:")));
-  cf->op = gtk_drop_down_new_from_strings (CUSTOM_OPS);
+  {
+    const char *ops[G_N_ELEMENTS (CUSTOM_OPS)];
+
+    for (gsize i = 0; i < G_N_ELEMENTS (CUSTOM_OPS); i++)
+      ops[i] = CUSTOM_OPS[i] != NULL ? _(CUSTOM_OPS[i]) : NULL;
+    cf->op = gtk_drop_down_new_from_strings (ops);
+  }
   cf->value = gtk_entry_new ();
   gtk_editable_set_width_chars (GTK_EDITABLE (cf->value), 14);
   if (current != NULL)
@@ -8153,20 +8165,20 @@ cell_menu (O42Grid *self)
   GMenu *cells = g_menu_new ();
   GMenu *look = g_menu_new ();
 
-  menu_add (edit, "Cu_t", "win.cut");
-  menu_add (edit, "_Copy", "win.copy");
-  menu_add (edit, "_Paste", "win.paste");
-  menu_add (edit, "Paste _Special...", "win.paste-special");
+  menu_add (edit, _("Cu_t"), "win.cut");
+  menu_add (edit, _("_Copy"), "win.copy");
+  menu_add (edit, _("_Paste"), "win.paste");
+  menu_add (edit, _("Paste _Special..."), "win.paste-special");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (edit));
 
-  menu_add (cells, "_Insert Cells...", "win.insert-cells");
-  menu_add (cells, "_Delete Cells...", "win.delete-cells");
-  menu_add (cells, "Clear Co_ntents", "win.clear");
+  menu_add (cells, _("_Insert Cells..."), "win.insert-cells");
+  menu_add (cells, _("_Delete Cells..."), "win.delete-cells");
+  menu_add (cells, _("Clear Co_ntents"), "win.clear");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (cells));
 
-  menu_add (look, "_Format Cells...", "win.format-cells");
-  menu_add (look, "Insert N_ote...", "win.insert-note");
-  menu_add (look, "_Hyperlink...", "win.insert-link");
+  menu_add (look, _("_Format Cells..."), "win.format-cells");
+  menu_add (look, _("Insert N_ote..."), "win.insert-note");
+  menu_add (look, _("_Hyperlink..."), "win.insert-link");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (look));
 
   g_object_unref (edit);
@@ -8183,18 +8195,18 @@ row_menu (void)
   GMenu *edit = g_menu_new ();
   GMenu *rows = g_menu_new ();
 
-  menu_add (edit, "Cu_t", "win.cut");
-  menu_add (edit, "_Copy", "win.copy");
-  menu_add (edit, "_Paste", "win.paste");
+  menu_add (edit, _("Cu_t"), "win.cut");
+  menu_add (edit, _("_Copy"), "win.copy");
+  menu_add (edit, _("_Paste"), "win.paste");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (edit));
 
-  menu_add (rows, "_Insert Rows", "win.insert-rows");
-  menu_add (rows, "_Delete Rows", "win.delete-rows");
-  menu_add (rows, "Clear Co_ntents", "win.clear");
-  menu_add (rows, "Row _Height...", "win.row-height");
-  menu_add (rows, "H_ide", "win.hide-rows");
-  menu_add (rows, "_Unhide", "win.unhide-rows");
-  menu_add (rows, "_Format Cells...", "win.format-cells");
+  menu_add (rows, _("_Insert Rows"), "win.insert-rows");
+  menu_add (rows, _("_Delete Rows"), "win.delete-rows");
+  menu_add (rows, _("Clear Co_ntents"), "win.clear");
+  menu_add (rows, _("Row _Height..."), "win.row-height");
+  menu_add (rows, _("H_ide"), "win.hide-rows");
+  menu_add (rows, _("_Unhide"), "win.unhide-rows");
+  menu_add (rows, _("_Format Cells..."), "win.format-cells");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (rows));
 
   g_object_unref (edit);
@@ -8209,19 +8221,19 @@ column_menu (void)
   GMenu *edit = g_menu_new ();
   GMenu *cols = g_menu_new ();
 
-  menu_add (edit, "Cu_t", "win.cut");
-  menu_add (edit, "_Copy", "win.copy");
-  menu_add (edit, "_Paste", "win.paste");
+  menu_add (edit, _("Cu_t"), "win.cut");
+  menu_add (edit, _("_Copy"), "win.copy");
+  menu_add (edit, _("_Paste"), "win.paste");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (edit));
 
-  menu_add (cols, "_Insert Columns", "win.insert-columns");
-  menu_add (cols, "_Delete Columns", "win.delete-columns");
-  menu_add (cols, "Clear Co_ntents", "win.clear");
-  menu_add (cols, "Column _Width...", "win.column-width");
-  menu_add (cols, "_AutoFit", "win.autofit");
-  menu_add (cols, "H_ide", "win.hide-columns");
-  menu_add (cols, "_Unhide", "win.unhide-columns");
-  menu_add (cols, "_Format Cells...", "win.format-cells");
+  menu_add (cols, _("_Insert Columns"), "win.insert-columns");
+  menu_add (cols, _("_Delete Columns"), "win.delete-columns");
+  menu_add (cols, _("Clear Co_ntents"), "win.clear");
+  menu_add (cols, _("Column _Width..."), "win.column-width");
+  menu_add (cols, _("_AutoFit"), "win.autofit");
+  menu_add (cols, _("H_ide"), "win.hide-columns");
+  menu_add (cols, _("_Unhide"), "win.unhide-columns");
+  menu_add (cols, _("_Format Cells..."), "win.format-cells");
   g_menu_append_section (menu, NULL, G_MENU_MODEL (cols));
 
   g_object_unref (edit);
@@ -8237,24 +8249,24 @@ object_menu (O42Grid *self)
   GMenu *menu = g_menu_new ();
 
   if (self->selected_is_chart)
-    menu_add (menu, "Format C_hart...", "win.format-chart");
+    menu_add (menu, _("Format C_hart..."), "win.format-chart");
   else if (self->selected_is_shape)
     {
-      menu_add (menu, "Format Sha_pe...", "win.format-shape");
-      menu_add (menu, "Format Contro_l...", "win.format-control");
+      menu_add (menu, _("Format Sha_pe..."), "win.format-shape");
+      menu_add (menu, _("Format Contro_l..."), "win.format-control");
     }
   else
-    menu_add (menu, "Format P_icture...", "win.format-picture");
-  menu_add (menu, "_Group Objects", "win.group-objects");
-  menu_add (menu, "_Ungroup Objects", "win.ungroup-objects");
+    menu_add (menu, _("Format P_icture..."), "win.format-picture");
+  menu_add (menu, _("_Group Objects"), "win.group-objects");
+  menu_add (menu, _("_Ungroup Objects"), "win.ungroup-objects");
   {
     GMenu *order = g_menu_new ();
 
-    menu_add (order, "Bring to _Front", "win.order::front");
-    menu_add (order, "Send to _Back", "win.order::back");
-    menu_add (order, "Bring F_orward", "win.order::forward");
-    menu_add (order, "Send Back_ward", "win.order::backward");
-    g_menu_append_submenu (menu, "O_rder", G_MENU_MODEL (order));
+    menu_add (order, _("Bring to _Front"), "win.order::front");
+    menu_add (order, _("Send to _Back"), "win.order::back");
+    menu_add (order, _("Bring F_orward"), "win.order::forward");
+    menu_add (order, _("Send Back_ward"), "win.order::backward");
+    g_menu_append_submenu (menu, _("O_rder"), G_MENU_MODEL (order));
     g_object_unref (order);
   }
   return menu;
@@ -8464,7 +8476,9 @@ on_query_tooltip (GtkWidget *widget, int x, int y, gboolean keyboard,
   note = o42_sheet_get_note (self->sheet, row, col);
   if (note == NULL && o42_sheet_get_link (self->sheet, row, col) != NULL)
     {
-      char *tip = g_strdup_printf ("%s\nCtrl+click to follow", o42_sheet_get_link (self->sheet, row, col));
+      /* Translators: the tooltip of a cell with a hyperlink; %s is where
+       * the link goes, a web address or a cell reference. */
+      char *tip = g_strdup_printf (_("%s\nCtrl+click to follow"), o42_sheet_get_link (self->sheet, row, col));
       gtk_tooltip_set_text (tooltip, tip);
       g_free (tip);
       return TRUE;

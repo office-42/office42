@@ -7,6 +7,7 @@
 #include "o42-scan.h"
 #include "o42-image.h"
 
+#include <glib/gi18n.h>
 #include <glib/gstdio.h>
 #include <string.h>
 
@@ -86,7 +87,7 @@ o42_scan_acquire (char **format, int *width, int *height, GError **error)
       FAILED (CoCreateInstance (&clsid, NULL, CLSCTX_INPROC_SERVER, &IID_IDispatch, (void **) &dialog)))
     {
       g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
-                           "Windows Image Acquisition is not available on this computer.");
+                           _("Windows Image Acquisition is not available on this computer."));
       if (inited) CoUninitialize ();
       return NULL;
     }
@@ -130,19 +131,21 @@ o42_scan_acquire (char **format, int *width, int *height, GError **error)
           if (SUCCEEDED (hr))
             bytes = take_file (path, &fmt, width, height, error);
           else
-            g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                         "The picture could not be saved (0x%08lx).", (unsigned long) hr);
+            /* Translators: %08lx is a Windows error code in hexadecimal. */
+            g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED, _("The picture could not be saved (0x%08lx)."),
+                         (unsigned long) hr);
           g_free (path);
         }
       IDispatch_Release (image.pdispVal);
     }
   else if (FAILED (hr) && (unsigned long) hr != 0x80210015UL /* WIA_S_NO_DEVICE_AVAILABLE */ &&
            (unsigned long) hr != 0x80070057UL /* E_INVALIDARG: no device */)
-    g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                 "No picture came from the scanner or camera (0x%08lx).", (unsigned long) hr);
+    /* Translators: %08lx is a Windows error code in hexadecimal. */
+    g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED, _("No picture came from the scanner or camera (0x%08lx)."),
+                 (unsigned long) hr);
   else if (FAILED (hr))
     g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                         "No scanner or camera is connected.");
+                         _("No scanner or camera is connected."));
 
   IDispatch_Release (dialog);
   if (inited)
@@ -190,9 +193,14 @@ o42_scan_acquire (char **format, int *width, int *height, GError **error)
   }
   if (!g_spawn_check_wait_status (status, NULL))
     {
-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED, "scanimage could not scan: %s",
-                   stderr_text != NULL && *stderr_text != '\0' ? g_strstrip (stderr_text)
-                                                               : "is a scanner connected?");
+      if (stderr_text != NULL && *stderr_text != '\0')
+        /* Translators: scanimage is the name of SANE's scanning program;
+         * %s is what it said went wrong. */
+        g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED, _("scanimage could not scan: %s"),
+                     g_strstrip (stderr_text));
+      else
+        g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                             _("scanimage could not scan: is a scanner connected?"));
       g_unlink (path);
     }
   else
