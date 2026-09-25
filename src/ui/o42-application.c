@@ -257,6 +257,14 @@ o42_application_startup (GApplication *app)
 {
   G_APPLICATION_CLASS (o42_application_parent_class)->startup (app);
 
+  /* GTK lays its widgets out right to left for Arabic or Urdu only when
+   * its own catalogue for the language is installed, which a Windows
+   * build does not carry; office42's catalogue says it as well.
+   * Translators: write "default:RTL" if your language is written right
+   * to left and "default:LTR" otherwise -- nothing else. */
+  if (g_strcmp0 (_("default:LTR"), "default:RTL") == 0)
+    gtk_widget_set_default_direction (GTK_TEXT_DIR_RTL);
+
   load_css ();
   load_icons ();
   apply_prefs ();
