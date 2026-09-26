@@ -10,7 +10,8 @@ worked out before.
 | `formats.xlsx`, `formats.xls` | number formats (grouped, currency, percent, scientific, negative, date, boolean), alignment, italic and underline, text turned 45 degrees, wrapped text, a merged title, colours, borders, column widths and a tall row |
 | `formulas.xlsx`, `formulas.xls` | a ten-row table, and fifty formulas over it -- the aggregates, the criteria functions, lookup, text, dates, money, statistics and an array formula -- each beside its own text |
 | `*.fods` | the flat OpenDocument each was written from |
-| `accounts.gnumeric` | a year of double-entry accounts over seven sheets, with four charts: the book on the README's screenshot |
+| `fjordline.gnumeric` | a year of an outdoor-gear retailer's accounts over eight sheets, three stores and a web shop, with named ranges, a colour scale and four charts: the book on the README's screenshot |
+| `accounts.gnumeric` | a year of double-entry accounts over seven sheets, with four charts |
 | `income-statement.gnumeric` | a one-sheet income statement, actual against budget, with two charts |
 
 ## Where they come from
@@ -52,8 +53,8 @@ included, and the formats book shows what it should down to the
 
 ## The two books office42 writes itself
 
-`accounts.txt` and `income-statement.txt` are office42-calc scripts, and
-the `.gnumeric` beside each is the book the script makes. The comment at
+`fjordline.txt`, `accounts.txt` and `income-statement.txt` are
+office42-calc scripts, and the `.gnumeric` beside each is the book the script makes. The comment at
 the top of each says how to rebuild it, and how the README's picture is
 taken.
 
@@ -89,3 +90,25 @@ office42-calc
 
 If a change to the engine breaks one of them, those lines say so in
 English rather than leaving a wrong number to be spotted.
+
+`fjordline.gnumeric` is the same kind of book for a Norwegian retailer
+with stores in Oslo, Bergen and Tromsø and a web shop, in NOK
+thousands. Its journal tags every line with the channel it belongs to,
+and every sheet after it reads the journal through five named ranges --
+`Amount`, `DrAcct`, `CrAcct`, `Qtr` and `Channel` -- so the formulas say
+what they add up:
+
+| Sheet | What is on it |
+|---|---|
+| Dashboard | four key figures, revenue by channel and quarter under a colour scale, a stacked column chart and a doughnut |
+| Profit | the profit and loss by quarter against the budget, with a bar chart of the year against it |
+| Channels | each channel's gross profit, staff, rent and freight, and what it contributes, under a colour scale, with a bar chart |
+| Balance | the balance sheet, this year beside last, and four ratios |
+| Cashflow | the cash flow worked back from the profit, with an area chart of the cash through the year |
+| Trial | the trial balance gathered from the journal with `SUMIF` |
+| Journal | ninety-three transactions as a table with a filter, a list validation on the channel and notes |
+| Accounts | the chart of accounts and what each held on 1 January |
+
+As in the other book, the Accounts, Trial, Balance and Cashflow sheets
+each end in a line that says whether the sums tie up, and the Channels
+sheet adds a fifth: that the channels add up to the profit before tax.

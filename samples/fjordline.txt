@@ -1,0 +1,1555 @@
+# The books of an outdoor-gear retailer for 2026 -- three stores and a
+# web shop -- in NOK thousands.  A journal tagged by sales channel, the
+# trial balance gathered from it, the three statements, and a page of
+# channel profitability, all drawn through the named ranges Amount,
+# DrAcct, CrAcct, Qtr and Channel.  Nothing after the journal is typed:
+# the Accounts, Trial, Balance and Cashflow sheets each end in a line
+# that says in words whether the sums still tie up.
+#
+# From the repository root:
+#   office42-calc < samples/fjordline.txt
+#   office42 --screenshot docs/images/screenshot.png --select B9 samples/fjordline.gnumeric
+
+rename Dashboard
+sheet Profit
+sheet Channels
+sheet Balance
+sheet Cashflow
+sheet Trial
+sheet Journal
+sheet Accounts
+
+# ---- Chart of accounts, and what each held on 1 January -----------------
+sheet Accounts
+A1 = Code
+B1 = Account
+C1 = Type
+D1 = Opening balance
+font A1:D1 bold,colour=FFFFFF,fill=1E5B4F
+A2 = 1000
+B2 = Cash at bank
+C2 = Asset
+D2 = 3500
+A3 = 1100
+B3 = Card and web-shop receivables
+C3 = Asset
+D3 = 600
+A4 = 1200
+B4 = Inventory
+C4 = Asset
+D4 = 6200
+A5 = 1500
+B5 = Fixtures and fittings
+C5 = Asset
+D5 = 5800
+A6 = 1510
+B6 = Accumulated depreciation
+C6 = Asset
+D6 = -2100
+A7 = 2000
+B7 = Accounts payable
+C7 = Liability
+D7 = -3400
+A8 = 2100
+B8 = Tax payable
+C8 = Liability
+D8 = -700
+A9 = 2500
+B9 = Bank loan
+C9 = Liability
+D9 = -4000
+A10 = 3000
+B10 = Share capital
+C10 = Equity
+D10 = -1500
+A11 = 3100
+B11 = Retained earnings
+C11 = Equity
+D11 = -4400
+A12 = 4000
+B12 = Store sales
+C12 = Income
+D12 = 0
+A13 = 4100
+B13 = Web-shop sales
+C13 = Income
+D13 = 0
+A14 = 5000
+B14 = Cost of goods sold
+C14 = Cost of sales
+D14 = 0
+A15 = 5100
+B15 = Freight and packaging
+C15 = Cost of sales
+D15 = 0
+A16 = 6000
+B16 = Salaries
+C16 = Expense
+D16 = 0
+A17 = 6100
+B17 = Rent
+C17 = Expense
+D17 = 0
+A18 = 6200
+B18 = Marketing
+C18 = Expense
+D18 = 0
+A19 = 6300
+B19 = IT and e-commerce
+C19 = Expense
+D19 = 0
+A20 = 6400
+B20 = Depreciation
+C20 = Expense
+D20 = 0
+A21 = 7000
+B21 = Interest payable
+C21 = Expense
+D21 = 0
+A22 = 8000
+B22 = Tax on profit
+C22 = Expense
+D22 = 0
+format D2:D22 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth A 64
+colwidth B 230
+colwidth C 120
+colwidth D 130
+A24 = Opening trial balance
+D24 = =SUM(D2:D22)
+font A24:D24 bold
+border A24:D24 top thin #1E5B4F
+format D24 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+B25 = =IF(ROUND(D24,2)=0,"The opening balances net to nothing, as a set of books must.","Out by "&TEXT(D24,"#,##0.00"))
+font B25 italic,colour=595959
+freeze A2
+tabcolour 808080
+
+# ---- The journal: a line a transaction, tagged with the channel ---------
+sheet Journal
+A1 = Date
+B1 = Ref
+C1 = Description
+D1 = Dr
+E1 = Cr
+F1 = Amount
+G1 = Quarter
+H1 = Channel
+font A1:H1 bold,colour=FFFFFF,fill=1E5B4F
+A2 = 2026-03-31
+B2 = JV-001
+C2 = Takings, Oslo store
+D2 = 1000
+E2 = 4000
+F2 = 4200
+G2 = ="Q"&ROUNDUP(MONTH(A2)/3,0)
+H2 = Oslo
+A3 = 2026-03-31
+B3 = JV-002
+C3 = Goods sold, Oslo
+D3 = 5000
+E3 = 1200
+F3 = 2184
+G3 = ="Q"&ROUNDUP(MONTH(A3)/3,0)
+H3 = Oslo
+A4 = 2026-03-31
+B4 = JV-003
+C4 = Takings, Bergen store
+D4 = 1000
+E4 = 4000
+F4 = 3100
+G4 = ="Q"&ROUNDUP(MONTH(A4)/3,0)
+H4 = Bergen
+A5 = 2026-03-31
+B5 = JV-004
+C5 = Goods sold, Bergen
+D5 = 5000
+E5 = 1200
+F5 = 1612
+G5 = ="Q"&ROUNDUP(MONTH(A5)/3,0)
+H5 = Bergen
+A6 = 2026-03-31
+B6 = JV-005
+C6 = Web-shop orders
+D6 = 1100
+E6 = 4100
+F6 = 2400
+G6 = ="Q"&ROUNDUP(MONTH(A6)/3,0)
+H6 = Online
+A7 = 2026-03-31
+B7 = JV-006
+C7 = Goods sold, Online
+D7 = 5000
+E7 = 1200
+F7 = 1320
+G7 = ="Q"&ROUNDUP(MONTH(A7)/3,0)
+H7 = Online
+A8 = 2026-02-14
+B8 = JV-007
+C8 = Stock bought from suppliers
+D8 = 1200
+E8 = 2000
+F8 = 5530
+G8 = ="Q"&ROUNDUP(MONTH(A8)/3,0)
+H8 = Head office
+A9 = 2026-03-31
+B9 = JV-008
+C9 = Paid suppliers
+D9 = 2000
+E9 = 1000
+F9 = 5360
+G9 = ="Q"&ROUNDUP(MONTH(A9)/3,0)
+H9 = Head office
+A10 = 2026-03-31
+B10 = JV-009
+C10 = Settled by the card acquirer
+D10 = 1000
+E10 = 1100
+F10 = 2260
+G10 = ="Q"&ROUNDUP(MONTH(A10)/3,0)
+H10 = Online
+A11 = 2026-03-31
+B11 = JV-010
+C11 = Freight to web-shop customers
+D11 = 5100
+E11 = 1000
+F11 = 168
+G11 = ="Q"&ROUNDUP(MONTH(A11)/3,0)
+H11 = Online
+A12 = 2026-03-31
+B12 = JV-011
+C12 = Salaries, Oslo
+D12 = 6000
+E12 = 1000
+F12 = 900
+G12 = ="Q"&ROUNDUP(MONTH(A12)/3,0)
+H12 = Oslo
+A13 = 2026-03-31
+B13 = JV-012
+C13 = Salaries, Bergen
+D13 = 6000
+E13 = 1000
+F13 = 700
+G13 = ="Q"&ROUNDUP(MONTH(A13)/3,0)
+H13 = Bergen
+A14 = 2026-03-31
+B14 = JV-013
+C14 = Salaries, Online
+D14 = 6000
+E14 = 1000
+F14 = 350
+G14 = ="Q"&ROUNDUP(MONTH(A14)/3,0)
+H14 = Online
+A15 = 2026-03-31
+B15 = JV-014
+C15 = Salaries, Head office
+D15 = 6000
+E15 = 1000
+F15 = 800
+G15 = ="Q"&ROUNDUP(MONTH(A15)/3,0)
+H15 = Head office
+A16 = 2026-01-02
+B16 = JV-015
+C16 = Rent, Oslo store
+D16 = 6100
+E16 = 1000
+F16 = 420
+G16 = ="Q"&ROUNDUP(MONTH(A16)/3,0)
+H16 = Oslo
+A17 = 2026-01-02
+B17 = JV-016
+C17 = Rent, Bergen store
+D17 = 6100
+E17 = 1000
+F17 = 300
+G17 = ="Q"&ROUNDUP(MONTH(A17)/3,0)
+H17 = Bergen
+A18 = 2026-02-14
+B18 = JV-017
+C18 = Campaigns and catalogue
+D18 = 6200
+E18 = 1000
+F18 = 500
+G18 = ="Q"&ROUNDUP(MONTH(A18)/3,0)
+H18 = Head office
+A19 = 2026-03-31
+B19 = JV-018
+C19 = Platform, licences and hosting
+D19 = 6300
+E19 = 1000
+F19 = 250
+G19 = ="Q"&ROUNDUP(MONTH(A19)/3,0)
+H19 = Online
+A20 = 2026-03-31
+B20 = JV-019
+C20 = Depreciation for the quarter
+D20 = 6400
+E20 = 1510
+F20 = 150
+G20 = ="Q"&ROUNDUP(MONTH(A20)/3,0)
+H20 = Head office
+A21 = 2026-03-31
+B21 = JV-020
+C21 = Loan interest paid
+D21 = 7000
+E21 = 1000
+F21 = 90
+G21 = ="Q"&ROUNDUP(MONTH(A21)/3,0)
+H21 = Head office
+A22 = 2026-06-30
+B22 = JV-021
+C22 = Takings, Oslo store
+D22 = 1000
+E22 = 4000
+F22 = 5600
+G22 = ="Q"&ROUNDUP(MONTH(A22)/3,0)
+H22 = Oslo
+A23 = 2026-06-30
+B23 = JV-022
+C23 = Goods sold, Oslo
+D23 = 5000
+E23 = 1200
+F23 = 2912
+G23 = ="Q"&ROUNDUP(MONTH(A23)/3,0)
+H23 = Oslo
+A24 = 2026-06-30
+B24 = JV-023
+C24 = Takings, Bergen store
+D24 = 1000
+E24 = 4000
+F24 = 4300
+G24 = ="Q"&ROUNDUP(MONTH(A24)/3,0)
+H24 = Bergen
+A25 = 2026-06-30
+B25 = JV-024
+C25 = Goods sold, Bergen
+D25 = 5000
+E25 = 1200
+F25 = 2236
+G25 = ="Q"&ROUNDUP(MONTH(A25)/3,0)
+H25 = Bergen
+A26 = 2026-06-30
+B26 = JV-025
+C26 = Web-shop orders
+D26 = 1100
+E26 = 4100
+F26 = 3100
+G26 = ="Q"&ROUNDUP(MONTH(A26)/3,0)
+H26 = Online
+A27 = 2026-06-30
+B27 = JV-026
+C27 = Goods sold, Online
+D27 = 5000
+E27 = 1200
+F27 = 1705
+G27 = ="Q"&ROUNDUP(MONTH(A27)/3,0)
+H27 = Online
+A28 = 2026-05-15
+B28 = JV-027
+C28 = Stock bought from suppliers
+D28 = 1200
+E28 = 2000
+F28 = 6990
+G28 = ="Q"&ROUNDUP(MONTH(A28)/3,0)
+H28 = Head office
+A29 = 2026-06-30
+B29 = JV-028
+C29 = Paid suppliers
+D29 = 2000
+E29 = 1000
+F29 = 6780
+G29 = ="Q"&ROUNDUP(MONTH(A29)/3,0)
+H29 = Head office
+A30 = 2026-06-30
+B30 = JV-029
+C30 = Settled by the card acquirer
+D30 = 1000
+E30 = 1100
+F30 = 3010
+G30 = ="Q"&ROUNDUP(MONTH(A30)/3,0)
+H30 = Online
+A31 = 2026-06-30
+B31 = JV-030
+C31 = Freight to web-shop customers
+D31 = 5100
+E31 = 1000
+F31 = 217
+G31 = ="Q"&ROUNDUP(MONTH(A31)/3,0)
+H31 = Online
+A32 = 2026-06-30
+B32 = JV-031
+C32 = Salaries, Oslo
+D32 = 6000
+E32 = 1000
+F32 = 900
+G32 = ="Q"&ROUNDUP(MONTH(A32)/3,0)
+H32 = Oslo
+A33 = 2026-06-30
+B33 = JV-032
+C33 = Salaries, Bergen
+D33 = 6000
+E33 = 1000
+F33 = 700
+G33 = ="Q"&ROUNDUP(MONTH(A33)/3,0)
+H33 = Bergen
+A34 = 2026-06-30
+B34 = JV-033
+C34 = Salaries, Online
+D34 = 6000
+E34 = 1000
+F34 = 350
+G34 = ="Q"&ROUNDUP(MONTH(A34)/3,0)
+H34 = Online
+A35 = 2026-06-30
+B35 = JV-034
+C35 = Salaries, Head office
+D35 = 6000
+E35 = 1000
+F35 = 800
+G35 = ="Q"&ROUNDUP(MONTH(A35)/3,0)
+H35 = Head office
+A36 = 2026-04-01
+B36 = JV-035
+C36 = Rent, Oslo store
+D36 = 6100
+E36 = 1000
+F36 = 420
+G36 = ="Q"&ROUNDUP(MONTH(A36)/3,0)
+H36 = Oslo
+A37 = 2026-04-01
+B37 = JV-036
+C37 = Rent, Bergen store
+D37 = 6100
+E37 = 1000
+F37 = 300
+G37 = ="Q"&ROUNDUP(MONTH(A37)/3,0)
+H37 = Bergen
+A38 = 2026-05-15
+B38 = JV-037
+C38 = Campaigns and catalogue
+D38 = 6200
+E38 = 1000
+F38 = 700
+G38 = ="Q"&ROUNDUP(MONTH(A38)/3,0)
+H38 = Head office
+A39 = 2026-06-30
+B39 = JV-038
+C39 = Platform, licences and hosting
+D39 = 6300
+E39 = 1000
+F39 = 250
+G39 = ="Q"&ROUNDUP(MONTH(A39)/3,0)
+H39 = Online
+A40 = 2026-06-30
+B40 = JV-039
+C40 = Depreciation for the quarter
+D40 = 6400
+E40 = 1510
+F40 = 150
+G40 = ="Q"&ROUNDUP(MONTH(A40)/3,0)
+H40 = Head office
+A41 = 2026-06-30
+B41 = JV-040
+C41 = Loan interest paid
+D41 = 7000
+E41 = 1000
+F41 = 90
+G41 = ="Q"&ROUNDUP(MONTH(A41)/3,0)
+H41 = Head office
+A42 = 2026-05-29
+B42 = JV-041
+C42 = Last year's tax paid
+D42 = 2100
+E42 = 1000
+F42 = 700
+G42 = ="Q"&ROUNDUP(MONTH(A42)/3,0)
+H42 = Head office
+A43 = 2026-06-12
+B43 = JV-042
+C43 = Loan drawn for the Tromsø store
+D43 = 1000
+E43 = 2500
+F43 = 1500
+G43 = ="Q"&ROUNDUP(MONTH(A43)/3,0)
+H43 = Head office
+A44 = 2026-06-26
+B44 = JV-043
+C44 = Fitting out the Tromsø store
+D44 = 1500
+E44 = 1000
+F44 = 2400
+G44 = ="Q"&ROUNDUP(MONTH(A44)/3,0)
+H44 = Tromsø
+A45 = 2026-09-30
+B45 = JV-044
+C45 = Takings, Oslo store
+D45 = 1000
+E45 = 4000
+F45 = 4800
+G45 = ="Q"&ROUNDUP(MONTH(A45)/3,0)
+H45 = Oslo
+A46 = 2026-09-30
+B46 = JV-045
+C46 = Goods sold, Oslo
+D46 = 5000
+E46 = 1200
+F46 = 2496
+G46 = ="Q"&ROUNDUP(MONTH(A46)/3,0)
+H46 = Oslo
+A47 = 2026-09-30
+B47 = JV-046
+C47 = Takings, Bergen store
+D47 = 1000
+E47 = 4000
+F47 = 3600
+G47 = ="Q"&ROUNDUP(MONTH(A47)/3,0)
+H47 = Bergen
+A48 = 2026-09-30
+B48 = JV-047
+C48 = Goods sold, Bergen
+D48 = 5000
+E48 = 1200
+F48 = 1872
+G48 = ="Q"&ROUNDUP(MONTH(A48)/3,0)
+H48 = Bergen
+A49 = 2026-09-30
+B49 = JV-048
+C49 = Takings, Tromsø store
+D49 = 1000
+E49 = 4000
+F49 = 1400
+G49 = ="Q"&ROUNDUP(MONTH(A49)/3,0)
+H49 = Tromsø
+A50 = 2026-09-30
+B50 = JV-049
+C50 = Goods sold, Tromsø
+D50 = 5000
+E50 = 1200
+F50 = 728
+G50 = ="Q"&ROUNDUP(MONTH(A50)/3,0)
+H50 = Tromsø
+A51 = 2026-09-30
+B51 = JV-050
+C51 = Web-shop orders
+D51 = 1100
+E51 = 4100
+F51 = 3300
+G51 = ="Q"&ROUNDUP(MONTH(A51)/3,0)
+H51 = Online
+A52 = 2026-09-30
+B52 = JV-051
+C52 = Goods sold, Online
+D52 = 5000
+E52 = 1200
+F52 = 1815
+G52 = ="Q"&ROUNDUP(MONTH(A52)/3,0)
+H52 = Online
+A53 = 2026-08-14
+B53 = JV-052
+C53 = Stock bought from suppliers
+D53 = 1200
+E53 = 2000
+F53 = 7600
+G53 = ="Q"&ROUNDUP(MONTH(A53)/3,0)
+H53 = Head office
+A54 = 2026-09-30
+B54 = JV-053
+C54 = Paid suppliers
+D54 = 2000
+E54 = 1000
+F54 = 7370
+G54 = ="Q"&ROUNDUP(MONTH(A54)/3,0)
+H54 = Head office
+A55 = 2026-09-30
+B55 = JV-054
+C55 = Settled by the card acquirer
+D55 = 1000
+E55 = 1100
+F55 = 3170
+G55 = ="Q"&ROUNDUP(MONTH(A55)/3,0)
+H55 = Online
+A56 = 2026-09-30
+B56 = JV-055
+C56 = Freight to web-shop customers
+D56 = 5100
+E56 = 1000
+F56 = 231
+G56 = ="Q"&ROUNDUP(MONTH(A56)/3,0)
+H56 = Online
+A57 = 2026-09-30
+B57 = JV-056
+C57 = Salaries, Oslo
+D57 = 6000
+E57 = 1000
+F57 = 900
+G57 = ="Q"&ROUNDUP(MONTH(A57)/3,0)
+H57 = Oslo
+A58 = 2026-09-30
+B58 = JV-057
+C58 = Salaries, Bergen
+D58 = 6000
+E58 = 1000
+F58 = 700
+G58 = ="Q"&ROUNDUP(MONTH(A58)/3,0)
+H58 = Bergen
+A59 = 2026-09-30
+B59 = JV-058
+C59 = Salaries, Tromsø
+D59 = 6000
+E59 = 1000
+F59 = 450
+G59 = ="Q"&ROUNDUP(MONTH(A59)/3,0)
+H59 = Tromsø
+A60 = 2026-09-30
+B60 = JV-059
+C60 = Salaries, Online
+D60 = 6000
+E60 = 1000
+F60 = 380
+G60 = ="Q"&ROUNDUP(MONTH(A60)/3,0)
+H60 = Online
+A61 = 2026-09-30
+B61 = JV-060
+C61 = Salaries, Head office
+D61 = 6000
+E61 = 1000
+F61 = 800
+G61 = ="Q"&ROUNDUP(MONTH(A61)/3,0)
+H61 = Head office
+A62 = 2026-07-01
+B62 = JV-061
+C62 = Rent, Oslo store
+D62 = 6100
+E62 = 1000
+F62 = 420
+G62 = ="Q"&ROUNDUP(MONTH(A62)/3,0)
+H62 = Oslo
+A63 = 2026-07-01
+B63 = JV-062
+C63 = Rent, Bergen store
+D63 = 6100
+E63 = 1000
+F63 = 300
+G63 = ="Q"&ROUNDUP(MONTH(A63)/3,0)
+H63 = Bergen
+A64 = 2026-07-01
+B64 = JV-063
+C64 = Rent, Tromsø store
+D64 = 6100
+E64 = 1000
+F64 = 200
+G64 = ="Q"&ROUNDUP(MONTH(A64)/3,0)
+H64 = Tromsø
+A65 = 2026-08-14
+B65 = JV-064
+C65 = Campaigns and catalogue
+D65 = 6200
+E65 = 1000
+F65 = 600
+G65 = ="Q"&ROUNDUP(MONTH(A65)/3,0)
+H65 = Head office
+A66 = 2026-09-30
+B66 = JV-065
+C66 = Platform, licences and hosting
+D66 = 6300
+E66 = 1000
+F66 = 260
+G66 = ="Q"&ROUNDUP(MONTH(A66)/3,0)
+H66 = Online
+A67 = 2026-09-30
+B67 = JV-066
+C67 = Depreciation for the quarter
+D67 = 6400
+E67 = 1510
+F67 = 210
+G67 = ="Q"&ROUNDUP(MONTH(A67)/3,0)
+H67 = Head office
+A68 = 2026-09-30
+B68 = JV-067
+C68 = Loan interest paid
+D68 = 7000
+E68 = 1000
+F68 = 105
+G68 = ="Q"&ROUNDUP(MONTH(A68)/3,0)
+H68 = Head office
+A69 = 2026-12-31
+B69 = JV-068
+C69 = Takings, Oslo store
+D69 = 1000
+E69 = 4000
+F69 = 6900
+G69 = ="Q"&ROUNDUP(MONTH(A69)/3,0)
+H69 = Oslo
+A70 = 2026-12-31
+B70 = JV-069
+C70 = Goods sold, Oslo
+D70 = 5000
+E70 = 1200
+F70 = 3588
+G70 = ="Q"&ROUNDUP(MONTH(A70)/3,0)
+H70 = Oslo
+A71 = 2026-12-31
+B71 = JV-070
+C71 = Takings, Bergen store
+D71 = 1000
+E71 = 4000
+F71 = 5200
+G71 = ="Q"&ROUNDUP(MONTH(A71)/3,0)
+H71 = Bergen
+A72 = 2026-12-31
+B72 = JV-071
+C72 = Goods sold, Bergen
+D72 = 5000
+E72 = 1200
+F72 = 2704
+G72 = ="Q"&ROUNDUP(MONTH(A72)/3,0)
+H72 = Bergen
+A73 = 2026-12-31
+B73 = JV-072
+C73 = Takings, Tromsø store
+D73 = 1000
+E73 = 4000
+F73 = 2600
+G73 = ="Q"&ROUNDUP(MONTH(A73)/3,0)
+H73 = Tromsø
+A74 = 2026-12-31
+B74 = JV-073
+C74 = Goods sold, Tromsø
+D74 = 5000
+E74 = 1200
+F74 = 1352
+G74 = ="Q"&ROUNDUP(MONTH(A74)/3,0)
+H74 = Tromsø
+A75 = 2026-12-31
+B75 = JV-074
+C75 = Web-shop orders
+D75 = 1100
+E75 = 4100
+F75 = 4900
+G75 = ="Q"&ROUNDUP(MONTH(A75)/3,0)
+H75 = Online
+A76 = 2026-12-31
+B76 = JV-075
+C76 = Goods sold, Online
+D76 = 5000
+E76 = 1200
+F76 = 2695
+G76 = ="Q"&ROUNDUP(MONTH(A76)/3,0)
+H76 = Online
+A77 = 2026-11-13
+B77 = JV-076
+C77 = Stock bought from suppliers
+D77 = 1200
+E77 = 2000
+F77 = 9310
+G77 = ="Q"&ROUNDUP(MONTH(A77)/3,0)
+H77 = Head office
+A78 = 2026-12-31
+B78 = JV-077
+C78 = Paid suppliers
+D78 = 2000
+E78 = 1000
+F78 = 9030
+G78 = ="Q"&ROUNDUP(MONTH(A78)/3,0)
+H78 = Head office
+A79 = 2026-12-31
+B79 = JV-078
+C79 = Settled by the card acquirer
+D79 = 1000
+E79 = 1100
+F79 = 4410
+G79 = ="Q"&ROUNDUP(MONTH(A79)/3,0)
+H79 = Online
+A80 = 2026-12-31
+B80 = JV-079
+C80 = Freight to web-shop customers
+D80 = 5100
+E80 = 1000
+F80 = 343
+G80 = ="Q"&ROUNDUP(MONTH(A80)/3,0)
+H80 = Online
+A81 = 2026-12-31
+B81 = JV-080
+C81 = Salaries, Oslo
+D81 = 6000
+E81 = 1000
+F81 = 900
+G81 = ="Q"&ROUNDUP(MONTH(A81)/3,0)
+H81 = Oslo
+A82 = 2026-12-31
+B82 = JV-081
+C82 = Salaries, Bergen
+D82 = 6000
+E82 = 1000
+F82 = 700
+G82 = ="Q"&ROUNDUP(MONTH(A82)/3,0)
+H82 = Bergen
+A83 = 2026-12-31
+B83 = JV-082
+C83 = Salaries, Tromsø
+D83 = 6000
+E83 = 1000
+F83 = 450
+G83 = ="Q"&ROUNDUP(MONTH(A83)/3,0)
+H83 = Tromsø
+A84 = 2026-12-31
+B84 = JV-083
+C84 = Salaries, Online
+D84 = 6000
+E84 = 1000
+F84 = 420
+G84 = ="Q"&ROUNDUP(MONTH(A84)/3,0)
+H84 = Online
+A85 = 2026-12-31
+B85 = JV-084
+C85 = Salaries, Head office
+D85 = 6000
+E85 = 1000
+F85 = 800
+G85 = ="Q"&ROUNDUP(MONTH(A85)/3,0)
+H85 = Head office
+A86 = 2026-10-01
+B86 = JV-085
+C86 = Rent, Oslo store
+D86 = 6100
+E86 = 1000
+F86 = 420
+G86 = ="Q"&ROUNDUP(MONTH(A86)/3,0)
+H86 = Oslo
+A87 = 2026-10-01
+B87 = JV-086
+C87 = Rent, Bergen store
+D87 = 6100
+E87 = 1000
+F87 = 300
+G87 = ="Q"&ROUNDUP(MONTH(A87)/3,0)
+H87 = Bergen
+A88 = 2026-10-01
+B88 = JV-087
+C88 = Rent, Tromsø store
+D88 = 6100
+E88 = 1000
+F88 = 200
+G88 = ="Q"&ROUNDUP(MONTH(A88)/3,0)
+H88 = Tromsø
+A89 = 2026-11-13
+B89 = JV-088
+C89 = Campaigns and catalogue
+D89 = 6200
+E89 = 1000
+F89 = 1100
+G89 = ="Q"&ROUNDUP(MONTH(A89)/3,0)
+H89 = Head office
+A90 = 2026-12-31
+B90 = JV-089
+C90 = Platform, licences and hosting
+D90 = 6300
+E90 = 1000
+F90 = 270
+G90 = ="Q"&ROUNDUP(MONTH(A90)/3,0)
+H90 = Online
+A91 = 2026-12-31
+B91 = JV-090
+C91 = Depreciation for the quarter
+D91 = 6400
+E91 = 1510
+F91 = 210
+G91 = ="Q"&ROUNDUP(MONTH(A91)/3,0)
+H91 = Head office
+A92 = 2026-12-31
+B92 = JV-091
+C92 = Loan interest paid
+D92 = 7000
+E92 = 1000
+F92 = 95
+G92 = ="Q"&ROUNDUP(MONTH(A92)/3,0)
+H92 = Head office
+A93 = 2026-12-15
+B93 = JV-092
+C93 = Loan instalment
+D93 = 2500
+E93 = 1000
+F93 = 1000
+G93 = ="Q"&ROUNDUP(MONTH(A93)/3,0)
+H93 = Head office
+A94 = 2026-12-31
+B94 = JV-093
+C94 = Tax on the year's profit
+D94 = 8000
+E94 = 2100
+F94 = 1081
+G94 = ="Q"&ROUNDUP(MONTH(A94)/3,0)
+H94 = Head office
+format F2:F94 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+font D2:E94 halign=3
+font G2:G94 halign=2
+colwidth A 96
+colwidth B 72
+colwidth C 250
+colwidth D 56
+colwidth E 56
+colwidth F 100
+colwidth G 70
+colwidth H 100
+table Journal A1:H94
+validate F2:F94 decimal greater 0
+validate H2:H94 list Oslo,Bergen,Tromsø,Online,Head office
+note D1 The account debited, and beside it the one credited. Every line moves the same amount both ways, which is what keeps the books in balance.
+note H1 Which part of the business the line belongs to. The Channels sheet and the dashboard gather the journal by it.
+name Amount F2:F94
+name DrAcct D2:D94
+name CrAcct E2:E94
+name Qtr G2:G94
+name Channel H2:H94
+A96 = Posted
+F96 = =SUM(Amount)
+font A96:H96 bold
+border A96:H96 top thin #1E5B4F
+format F96 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+C97 = =TEXT(COUNT(Amount),"#,##0")&" transactions over "&SUMPRODUCT(1/COUNTIF(Channel,Channel))&" channels, one debit against one credit apiece."
+font C97 italic,colour=595959
+freeze A2
+tabcolour 808080
+
+# ---- Trial balance: the journal gathered by account ---------------------
+sheet Trial
+A1 = Trial balance at 31 December 2026
+font A1 bold,size=13,colour=1E5B4F
+A2 = Debits are positive and credits negative, so the closing column adds to nothing.
+font A2 italic,colour=595959
+A3 = Code
+B3 = Account
+C3 = Type
+D3 = Opening
+E3 = Debits
+F3 = Credits
+G3 = Closing
+font A3:G3 bold,colour=FFFFFF,fill=1E5B4F
+A4 = =Accounts!A2
+B4 = =Accounts!B2
+C4 = =Accounts!C2
+D4 = =Accounts!D2
+E4 = =SUMIF(DrAcct,$A4,Amount)
+F4 = =SUMIF(CrAcct,$A4,Amount)
+G4 = =D4+E4-F4
+filldown A4:G24
+format D4:G24 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth A 64
+colwidth B 230
+colwidth C 120
+colwidth D 110
+colwidth E 110
+colwidth F 110
+colwidth G 110
+A26 = Totals
+D26 = =SUM(D4:D24)
+E26 = =SUM(E4:E24)
+F26 = =SUM(F4:F24)
+G26 = =SUM(G4:G24)
+font A26:G26 bold
+border A26:G26 top thin #1E5B4F
+border A26:G26 bottom double #1E5B4F
+format D26:G26 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+A27 = =IF(ROUND(G26,2)=0,"The books balance: every debit has its credit.","The books are out by "&TEXT(G26,"#,##0.00"))
+font A27 bold,colour=006100
+cond G26:G26 <> 0 red bold
+freeze A4
+tabcolour 4A8F7E
+
+# ---- Profit and loss, quarter by quarter, against the budget -----------
+sheet Profit
+A1 = Profit and loss for the year ended 31 December 2026
+font A1 bold,size=13,colour=1E5B4F
+A2 = NOK thousands. Every figure is the journal gathered by account and by quarter.
+font A2 italic,colour=595959
+A4 = Account
+B4 = Q1
+C4 = Q2
+D4 = Q3
+E4 = Q4
+F4 = Year
+G4 = Budget
+H4 = Variance
+I4 = Var %
+font A4:I4 bold,colour=FFFFFF,fill=1E5B4F
+border A4:I4 bottom medium #1E5B4F
+A5 = Revenue
+A6 = Store sales
+B6 = =SUMIFS(Amount,CrAcct,4000,Qtr,B$4)
+fillright B6:E6
+F6 = =SUM(B6:E6)
+G6 = 40000
+A7 = Web-shop sales
+B7 = =SUMIFS(Amount,CrAcct,4100,Qtr,B$4)
+fillright B7:E7
+F7 = =SUM(B7:E7)
+G7 = 15200
+A8 = Total revenue
+B8 = =SUM(B6:B7)
+fillright B8:G8
+A9 = Cost of sales
+A10 = Cost of goods sold
+B10 = =SUMIFS(Amount,DrAcct,5000,Qtr,B$4)
+fillright B10:E10
+F10 = =SUM(B10:E10)
+G10 = 28900
+A11 = Freight and packaging
+B11 = =SUMIFS(Amount,DrAcct,5100,Qtr,B$4)
+fillright B11:E11
+F11 = =SUM(B11:E11)
+G11 = 1050
+A12 = Gross profit
+B12 = =B8-SUM(B10:B11)
+fillright B12:G12
+A13 = Operating expenses
+A14 = Salaries
+B14 = =SUMIFS(Amount,DrAcct,6000,Qtr,B$4)
+fillright B14:E14
+F14 = =SUM(B14:E14)
+G14 = 11800
+A15 = Rent
+B15 = =SUMIFS(Amount,DrAcct,6100,Qtr,B$4)
+fillright B15:E15
+F15 = =SUM(B15:E15)
+G15 = 3280
+A16 = Marketing
+B16 = =SUMIFS(Amount,DrAcct,6200,Qtr,B$4)
+fillright B16:E16
+F16 = =SUM(B16:E16)
+G16 = 2500
+A17 = IT and e-commerce
+B17 = =SUMIFS(Amount,DrAcct,6300,Qtr,B$4)
+fillright B17:E17
+F17 = =SUM(B17:E17)
+G17 = 1000
+A18 = Depreciation
+B18 = =SUMIFS(Amount,DrAcct,6400,Qtr,B$4)
+fillright B18:E18
+F18 = =SUM(B18:E18)
+G18 = 750
+A19 = Total operating expenses
+B19 = =SUM(B14:B18)
+fillright B19:G19
+A20 = Operating profit
+B20 = =B12-B19
+fillright B20:G20
+A21 = Interest payable
+B21 = =SUMIFS(Amount,DrAcct,7000,Qtr,B$4)
+fillright B21:E21
+F21 = =SUM(B21:E21)
+G21 = 400
+A22 = Profit before tax
+B22 = =B20-B21
+fillright B22:G22
+A23 = Tax on profit
+B23 = =SUMIFS(Amount,DrAcct,8000,Qtr,B$4)
+fillright B23:E23
+F23 = =SUM(B23:E23)
+G23 = 1210
+A24 = Net income
+B24 = =B22-B23
+fillright B24:G24
+H6 = =F6-G6
+filldown H6:H24
+I6 = =IF(G6=0,"",H6/G6)
+filldown I6:I24
+H5 = 
+I5 = 
+H9 = 
+I9 = 
+H13 = 
+I13 = 
+format B5:H24 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format I5:I24 0.0%
+colwidth A 190
+colwidth B 84
+colwidth C 84
+colwidth D 84
+colwidth E 84
+colwidth F 96
+colwidth G 96
+colwidth H 90
+colwidth I 70
+font A5:I5 bold,fill=E8F1EE
+font A9:I9 bold,fill=E8F1EE
+font A13:I13 bold,fill=E8F1EE
+font A8:I8 bold
+border A8:I8 top thin #1E5B4F
+font A12:I12 bold
+border A12:I12 top thin #1E5B4F
+font A19:I19 bold
+border A19:I19 top thin #1E5B4F
+font A20:I20 bold
+border A20:I20 top thin #1E5B4F
+font A22:I22 bold
+border A22:I22 top thin #1E5B4F
+font A24:I24 bold
+border A24:I24 top thin #1E5B4F
+border A24:I24 top double #1E5B4F
+border A24:I24 bottom thin #1E5B4F
+indent A6:A7 1
+indent A10:A11 1
+indent A14:A18 1
+indent A21:A21 1
+indent A23:A23 1
+cond I10:I11 > 0 red bold
+cond I14:I18 > 0 red bold
+cond I6:I7 < 0 red bold
+cond I24:I24 < 0 red bold
+cond I6:I7 > 0 bold fill
+cond I24:I24 > 0 bold fill
+note E16 The Christmas catalogue went to every address in the three store towns.
+A26 = Against budget
+B26 = Actual
+C26 = Budget
+font A26:C26 bold,colour=FFFFFF,fill=1E5B4F
+A27 = Revenue
+B27 = =F8
+C27 = =G8
+A28 = Cost of sales
+B28 = =SUM(F10:F11)
+C28 = =SUM(G10:G11)
+A29 = Operating expenses
+B29 = =F19
+C29 = =G19
+A30 = Net income
+B30 = =F24
+C30 = =G24
+format B27:C30 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+chart bar A26:C30 headings stubs The year against the budget
+chartset 1 at E26
+chartset 1 size 430 200
+chartset 1 ytitle NOK thousands
+chartset 1 yformat #,##0
+freeze A5
+tabcolour 4A8F7E
+
+# ---- What each channel earns once its own costs are paid ---------------
+sheet Channels
+A1 = Channel profitability, 2026
+font A1 bold,size=13,colour=1E5B4F
+A2 = NOK thousands. Each channel's sales less the goods, staff, rent and freight it carries; head office carries the rest.
+font A2 italic,colour=595959
+A4 = Channel
+B4 = Revenue
+C4 = Goods sold
+D4 = Gross profit
+E4 = Gross %
+F4 = Staff
+G4 = Rent
+H4 = Freight and IT
+I4 = Contribution
+J4 = Contribution %
+font A4:J4 bold,colour=FFFFFF,fill=1E5B4F
+font B4:J4 halign=3
+A5 = Oslo
+A6 = Bergen
+A7 = Tromsø
+A8 = Online
+A9 = Head office
+B5 = =SUMIFS(Amount,CrAcct,4000,Channel,$A5)+SUMIFS(Amount,CrAcct,4100,Channel,$A5)
+C5 = =SUMIFS(Amount,DrAcct,5000,Channel,$A5)
+D5 = =B5-C5
+E5 = =IF(B5=0,"",D5/B5)
+F5 = =SUMIFS(Amount,DrAcct,6000,Channel,$A5)
+G5 = =SUMIFS(Amount,DrAcct,6100,Channel,$A5)
+H5 = =SUMIFS(Amount,DrAcct,5100,Channel,$A5)+SUMIFS(Amount,DrAcct,6300,Channel,$A5)
+I5 = =D5-SUM(F5:H5)
+J5 = =IF(B5=0,"",I5/B5)
+filldown B5:J8
+B9 = =SUMIFS(Amount,CrAcct,4000,Channel,$A9)+SUMIFS(Amount,CrAcct,4100,Channel,$A9)
+C9 = =SUMIFS(Amount,DrAcct,5000,Channel,$A9)
+D9 = =B9-C9
+F9 = =SUMIFS(Amount,DrAcct,6000,Channel,$A9)
+G9 = =SUMIFS(Amount,DrAcct,6100,Channel,$A9)
+H9 = =SUMIFS(Amount,DrAcct,5100,Channel,$A9)+SUMIFS(Amount,DrAcct,6300,Channel,$A9)
+I9 = =D9-SUM(F9:H9)
+A10 = Marketing, depreciation and interest
+I10 = =-(Profit!F16+Profit!F18+Profit!F21)
+A11 = Profit before tax
+B11 = =SUM(B5:B9)
+C11 = =SUM(C5:C9)
+D11 = =SUM(D5:D9)
+F11 = =SUM(F5:F9)
+G11 = =SUM(G5:G9)
+H11 = =SUM(H5:H9)
+I11 = =SUM(I5:I9)
+I11 = =SUM(I5:I10)
+E11 = =D11/B11
+J11 = =I11/B11
+format B5:D11 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format F5:I11 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format E5:E11 0.0%
+format J5:J11 0.0%
+scale J5:J8 3
+font A9:J9 italic
+font A10:J10 italic
+indent A10:A10 1
+font A11:J11 bold
+border A11:J11 top thin #1E5B4F
+border A11:J11 bottom double #1E5B4F
+A13 = =IF(ROUND(I11-Profit!F22,2)=0,"The channels add up to the profit before tax in the profit and loss.","Out by "&TEXT(I11-Profit!F22,"#,##0.00"))
+font A13 bold,colour=006100
+note A7 Opened on 1 July. The fitting-out is in the journal, and on the balance sheet as fixtures.
+colwidth A 210
+colwidth B 86
+colwidth C 86
+colwidth D 86
+colwidth E 66
+colwidth F 80
+colwidth G 70
+colwidth H 90
+colwidth I 92
+colwidth J 96
+A15 = Channel
+B15 = Contribution
+font A15:B15 bold,colour=FFFFFF,fill=1E5B4F
+A16 = =A5
+B16 = =I5
+A17 = =A6
+B17 = =I6
+A18 = =A7
+B18 = =I7
+A19 = =A8
+B19 = =I8
+format B16:B19 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+chart bar A15:B19 headings stubs What each channel contributes
+chartset 1 at D15
+chartset 1 size 430 190
+chartset 1 legend off
+chartset 1 ytitle NOK thousands
+chartset 1 yformat #,##0
+freeze A5
+tabcolour 4A8F7E
+
+# ---- Balance sheet, this year against last ----------------------------
+sheet Balance
+A1 = Balance sheet at 31 December 2026
+font A1 bold,size=13,colour=1E5B4F
+A3 = NOK thousands
+B3 = 2026
+C3 = 2025
+font A3:C3 bold,colour=FFFFFF,fill=1E5B4F
+font B3:C3 halign=3
+A4 = Assets
+A5 = Cash at bank
+B5 = =INDEX(Trial!$G$4:$G$24,MATCH(1000,Trial!$A$4:$A$24,0))
+C5 = =INDEX(Trial!$D$4:$D$24,MATCH(1000,Trial!$A$4:$A$24,0))
+A6 = Card and web-shop receivables
+B6 = =INDEX(Trial!$G$4:$G$24,MATCH(1100,Trial!$A$4:$A$24,0))
+C6 = =INDEX(Trial!$D$4:$D$24,MATCH(1100,Trial!$A$4:$A$24,0))
+A7 = Inventory
+B7 = =INDEX(Trial!$G$4:$G$24,MATCH(1200,Trial!$A$4:$A$24,0))
+C7 = =INDEX(Trial!$D$4:$D$24,MATCH(1200,Trial!$A$4:$A$24,0))
+A8 = Fixtures and fittings
+B8 = =INDEX(Trial!$G$4:$G$24,MATCH(1500,Trial!$A$4:$A$24,0))
+C8 = =INDEX(Trial!$D$4:$D$24,MATCH(1500,Trial!$A$4:$A$24,0))
+A9 = Accumulated depreciation
+B9 = =INDEX(Trial!$G$4:$G$24,MATCH(1510,Trial!$A$4:$A$24,0))
+C9 = =INDEX(Trial!$D$4:$D$24,MATCH(1510,Trial!$A$4:$A$24,0))
+A10 = Total assets
+B10 = =SUM(B5:B9)
+C10 = =SUM(C5:C9)
+A12 = Liabilities
+A13 = Accounts payable
+B13 = =-INDEX(Trial!$G$4:$G$24,MATCH(2000,Trial!$A$4:$A$24,0))
+C13 = =-INDEX(Trial!$D$4:$D$24,MATCH(2000,Trial!$A$4:$A$24,0))
+A14 = Tax payable
+B14 = =-INDEX(Trial!$G$4:$G$24,MATCH(2100,Trial!$A$4:$A$24,0))
+C14 = =-INDEX(Trial!$D$4:$D$24,MATCH(2100,Trial!$A$4:$A$24,0))
+A15 = Bank loan
+B15 = =-INDEX(Trial!$G$4:$G$24,MATCH(2500,Trial!$A$4:$A$24,0))
+C15 = =-INDEX(Trial!$D$4:$D$24,MATCH(2500,Trial!$A$4:$A$24,0))
+A16 = Total liabilities
+B16 = =SUM(B13:B15)
+C16 = =SUM(C13:C15)
+A18 = Equity
+A19 = Share capital
+B19 = =-INDEX(Trial!$G$4:$G$24,MATCH(3000,Trial!$A$4:$A$24,0))
+C19 = =-INDEX(Trial!$D$4:$D$24,MATCH(3000,Trial!$A$4:$A$24,0))
+A20 = Retained earnings
+B20 = =-INDEX(Trial!$G$4:$G$24,MATCH(3100,Trial!$A$4:$A$24,0))+Profit!F24
+C20 = =-INDEX(Trial!$D$4:$D$24,MATCH(3100,Trial!$A$4:$A$24,0))
+A21 = Total equity
+B21 = =SUM(B19:B20)
+C21 = =SUM(C19:C20)
+A22 = Total liabilities and equity
+B22 = =B16+B21
+C22 = =C16+C21
+format B4:C22 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth A 240
+colwidth B 120
+colwidth C 120
+font A4:C4 bold,fill=E8F1EE
+font A12:C12 bold,fill=E8F1EE
+font A18:C18 bold,fill=E8F1EE
+font A10:C10 bold
+border A10:C10 top thin #1E5B4F
+font A16:C16 bold
+border A16:C16 top thin #1E5B4F
+font A21:C21 bold
+border A21:C21 top thin #1E5B4F
+font A22:C22 bold
+border A22:C22 top thin #1E5B4F
+indent A5:A9 1
+indent A13:A15 1
+indent A19:A20 1
+border A22:C22 top double #1E5B4F
+border A22:C22 bottom thin #1E5B4F
+A24 = =IF(ROUND(B10-B22,2)=0,"Assets match liabilities and equity, to the krone.","Out by "&TEXT(B10-B22,"#,##0.00"))
+font A24 bold,colour=006100
+E3 = Ratio
+F3 = 2026
+font E3:F3 bold,colour=FFFFFF,fill=1E5B4F
+E4 = Current ratio
+F4 = =SUM(B5:B7)/SUM(B13:B14)
+E5 = Stock turn
+F5 = =Profit!F10/AVERAGE(B7,C7)
+E6 = Debt to equity
+F6 = =B15/B21
+E7 = Return on equity
+F7 = =Profit!F24/AVERAGE(B21,C21)
+format F4:F6 0.00"x"
+format F7 0.0%
+colwidth E 130
+colwidth F 80
+note E5 The goods sold in the year over the stock held on average: how many times the shelves were emptied.
+freeze A4
+tabcolour 4A8F7E
+
+# ---- Cash flow, worked back from the profit and the balances -----------
+sheet Cashflow
+A1 = Cash flow for the year ended 31 December 2026
+font A1 bold,size=13,colour=1E5B4F
+A3 = NOK thousands
+B3 = 2026
+font A3:B3 bold,colour=FFFFFF,fill=1E5B4F
+font B3 halign=3
+A4 = Operating
+A5 = Net income
+B5 = =Profit!F24
+A6 = Depreciation charged
+B6 = =Profit!F18
+A7 = Movement in receivables
+B7 = =-(INDEX(Trial!$G$4:$G$24,MATCH(1100,Trial!$A$4:$A$24,0))-INDEX(Trial!$D$4:$D$24,MATCH(1100,Trial!$A$4:$A$24,0)))
+A8 = Movement in inventory
+B8 = =-(INDEX(Trial!$G$4:$G$24,MATCH(1200,Trial!$A$4:$A$24,0))-INDEX(Trial!$D$4:$D$24,MATCH(1200,Trial!$A$4:$A$24,0)))
+A9 = Movement in payables
+B9 = =-(INDEX(Trial!$G$4:$G$24,MATCH(2000,Trial!$A$4:$A$24,0))-INDEX(Trial!$D$4:$D$24,MATCH(2000,Trial!$A$4:$A$24,0)))
+A10 = Movement in tax payable
+B10 = =-(INDEX(Trial!$G$4:$G$24,MATCH(2100,Trial!$A$4:$A$24,0))-INDEX(Trial!$D$4:$D$24,MATCH(2100,Trial!$A$4:$A$24,0)))
+A11 = Cash from operations
+B11 = =SUM(B5:B10)
+A13 = Investing
+A14 = Fixtures bought
+B14 = =-INDEX(Trial!$E$4:$E$24,MATCH(1500,Trial!$A$4:$A$24,0))
+A15 = Cash used in investing
+B15 = =B14
+A17 = Financing
+A18 = Loan drawn
+B18 = =INDEX(Trial!$F$4:$F$24,MATCH(2500,Trial!$A$4:$A$24,0))
+A19 = Loan repaid
+B19 = =-INDEX(Trial!$E$4:$E$24,MATCH(2500,Trial!$A$4:$A$24,0))
+A20 = Cash from financing
+B20 = =SUM(B18:B19)
+A22 = Movement in cash
+B22 = =B11+B15+B20
+A23 = Cash at 1 January
+B23 = =INDEX(Trial!$D$4:$D$24,MATCH(1000,Trial!$A$4:$A$24,0))
+A24 = Cash at 31 December
+B24 = =B22+B23
+format B5:B24 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth A 230
+colwidth B 120
+font A4:B4 bold,fill=E8F1EE
+font A13:B13 bold,fill=E8F1EE
+font A17:B17 bold,fill=E8F1EE
+font A11:B11 bold
+border A11:B11 top thin #1E5B4F
+font A15:B15 bold
+border A15:B15 top thin #1E5B4F
+font A20:B20 bold
+border A20:B20 top thin #1E5B4F
+font A22:B22 bold
+border A22:B22 top thin #1E5B4F
+font A24:B24 bold
+border A24:B24 top thin #1E5B4F
+border A24:B24 top double #1E5B4F
+border A24:B24 bottom thin #1E5B4F
+indent A5:A10 1
+indent A14:A14 1
+indent A18:A19 1
+A26 = =IF(ROUND(B24-INDEX(Trial!$G$4:$G$24,MATCH(1000,Trial!$A$4:$A$24,0)),2)=0,"The closing cash is the cash in the trial balance.","Out by "&TEXT(B24-INDEX(Trial!$G$4:$G$24,MATCH(1000,Trial!$A$4:$A$24,0)),"#,##0.00"))
+font A26 bold,colour=006100
+D3 = Quarter
+E3 = Cash at the end
+font D3:E3 bold,colour=FFFFFF,fill=1E5B4F
+D4 = Q1
+E4 = =$B$23+SUMIFS(Amount,DrAcct,1000,Qtr,D4)-SUMIFS(Amount,CrAcct,1000,Qtr,D4)
+D5 = Q2
+E5 = =E4+SUMIFS(Amount,DrAcct,1000,Qtr,D5)-SUMIFS(Amount,CrAcct,1000,Qtr,D5)
+D6 = Q3
+E6 = =E5+SUMIFS(Amount,DrAcct,1000,Qtr,D6)-SUMIFS(Amount,CrAcct,1000,Qtr,D6)
+D7 = Q4
+E7 = =E6+SUMIFS(Amount,DrAcct,1000,Qtr,D7)-SUMIFS(Amount,CrAcct,1000,Qtr,D7)
+format E4:E7 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+colwidth D 80
+colwidth E 120
+chart area D3:E7 headings stubs Cash at bank through the year
+chartset 1 at D9
+chartset 1 size 380 190
+chartset 1 ytitle NOK thousands
+chartset 1 yformat #,##0
+chartset 1 legend off
+freeze A4
+tabcolour 4A8F7E
+
+# ---- The dashboard, and the two charts on it --------------------------
+sheet Dashboard
+A1 = Fjordline Outfitters 2026
+font A1 bold,size=14
+rich A1 21 25 colour=1E5B4F,font=Georgia
+A2 = Management accounts in NOK thousands: three stores and a web shop, every figure drawn from the journal through named ranges.
+font A2 italic,colour=595959
+colwidth A 150
+colwidth B 84
+colwidth C 84
+colwidth D 84
+colwidth E 84
+colwidth F 96
+colwidth G 84
+colwidth H 110
+colwidth I 110
+merge A4:B4
+merge A5:B5
+A4 = Revenue
+A5 = =Profit!F8
+font A4:B4 bold,colour=FFFFFF,fill=1E5B4F,halign=2
+font A5:B5 bold,size=13,halign=2,fill=E8F1EE
+format A5 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+border A4:A5 left thin #1E5B4F
+border B4:B5 right thin #1E5B4F
+merge C4:D4
+merge C5:D5
+C4 = Gross margin
+C5 = =Profit!F12/Profit!F8
+font C4:D4 bold,colour=FFFFFF,fill=1E5B4F,halign=2
+font C5:D5 bold,size=13,halign=2,fill=E8F1EE
+format C5 0.0%
+border C4:C5 left thin #1E5B4F
+border D4:D5 right thin #1E5B4F
+merge E4:F4
+merge E5:F5
+E4 = Operating profit
+E5 = =Profit!F20
+font E4:F4 bold,colour=FFFFFF,fill=1E5B4F,halign=2
+font E5:F5 bold,size=13,halign=2,fill=E8F1EE
+format E5 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+border E4:E5 left thin #1E5B4F
+border F4:F5 right thin #1E5B4F
+merge G4:H4
+merge G5:H5
+G4 = Web-shop share
+G5 = =Profit!F7/Profit!F8
+font G4:H4 bold,colour=FFFFFF,fill=1E5B4F,halign=2
+font G5:H5 bold,size=13,halign=2,fill=E8F1EE
+format G5 0.0%
+border G4:G5 left thin #1E5B4F
+border H4:H5 right thin #1E5B4F
+border A5:H5 bottom thin #1E5B4F
+A7 = Revenue by channel
+font A7 bold,colour=1E5B4F
+A8 = Channel
+B8 = Q1
+C8 = Q2
+D8 = Q3
+E8 = Q4
+F8 = Year
+G8 = Share
+font A8:G8 bold,colour=FFFFFF,fill=1E5B4F
+font B8:G8 halign=3
+A9 = Oslo
+A10 = Bergen
+A11 = Tromsø
+A12 = Online
+B9 = =SUMIFS(Amount,Channel,$A9,Qtr,B$8,CrAcct,">=4000")
+fillright B9:E9
+F9 = =SUM(B9:E9)
+G9 = =F9/F$13
+filldown B9:G12
+A13 = Total
+B13 = =SUM(B9:B12)
+fillright B13:G13
+A14 = Operating margin
+B14 = =Profit!B20/B13
+fillright B14:F14
+format B9:F13 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format G9:G13 0.0%
+format B14:F14 0.0%
+font A13:G13 bold
+border A13:G13 top thin #1E5B4F
+font A14:G14 italic,colour=595959
+scale B9:E12 3
+cond B14:F14 < 0.05 red bold
+note A11 Opened on 1 July, so the first half of the year is empty.
+note A14 Operating profit as a share of revenue, quarter by quarter.
+A28 = The numbers behind the pictures
+font A28 italic,colour=595959
+A29 = Quarter
+B29 = =A9
+C29 = =A10
+D29 = =A11
+E29 = =A12
+A30 = Q1
+B30 = =B9
+C30 = =B10
+D30 = =B11
+E30 = =B12
+A31 = Q2
+B31 = =C9
+C31 = =C10
+D31 = =C11
+E31 = =C12
+A32 = Q3
+B32 = =D9
+C32 = =D10
+D32 = =D11
+E32 = =D12
+A33 = Q4
+B33 = =E9
+C33 = =E10
+D33 = =E11
+E33 = =E12
+G29 = Channel
+H29 = Revenue
+G30 = =A9
+H30 = =F9
+G31 = =A10
+H31 = =F10
+G32 = =A11
+H32 = =F11
+G33 = =A12
+H33 = =F12
+font A29:E29 bold,colour=FFFFFF,fill=1E5B4F
+font G29:H29 bold,colour=FFFFFF,fill=1E5B4F
+format B30:E33 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+format H30:H33 _(* #,##0_);_(* (#,##0);_(* "-"??_);_(@_)
+chart stacked A29:E33 headings stubs Revenue by channel and quarter
+chartset 1 at A16
+chartset 1 size 470 166
+chartset 1 ytitle NOK thousands
+chartset 1 yformat #,##0
+chart doughnut G29:H33 headings stubs Where the revenue comes from
+chartset 2 at F16
+chartset 2 size 400 166
+chartset 2 labels on
+freeze A3
+tabcolour 1E5B4F
+printarea A1:I27
+pageopt landscape on
+header &[TAB]
+footer Fjordline Outfitters  Page &[PAGE]
+
+sheet Dashboard
+select B9
+save samples/fjordline.gnumeric
