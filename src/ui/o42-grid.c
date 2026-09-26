@@ -332,7 +332,7 @@ paint_onto (O42Grid *self, int row, int col)
 
   o42_sheet_apply_fmt (self->sheet, &where, O42_FMT_ALL, &self->paint_fmt);
   self->painting = FALSE;
-  o42_set_cursor_name (GTK_WIDGET (self), "cell");
+  o42_set_cursor_name (GTK_WIDGET (self), "default");
   sheet_changed (self);
 }
 
@@ -5268,7 +5268,7 @@ on_click_pressed (GtkGestureClick *gesture,
           return;
         }
       self->painting = FALSE;
-      o42_set_cursor_name (GTK_WIDGET (self), "cell");
+      o42_set_cursor_name (GTK_WIDGET (self), "default");
     }
 
   /* A split bar can be taken hold of and moved, as in Excel. */
@@ -5831,7 +5831,7 @@ on_motion (GtkEventControllerMotion *controller,
   /* The pointer shape says what a press would do. */
   if (!self->dragging && !self->picture_drag)
     {
-      const char *cursor = "cell";
+      const char *cursor = "default";
 
       int handle = handle_at (self, x, y);
       int break_at = 0;
@@ -5854,7 +5854,6 @@ on_motion (GtkEventControllerMotion *controller,
       else if (page_break_at (self, x, y, &break_at) == 2) cursor = "col-resize";
       else if (col_boundary_at (self, x, y) >= 0) cursor = "col-resize";
       else if (row_boundary_at (self, x, y) >= 0) cursor = "row-resize";
-      else if (y < HEADER_H || x < HEADER_W)      cursor = "default";
 
       o42_set_cursor_name (GTK_WIDGET (self), cursor);
     }
@@ -8529,7 +8528,7 @@ o42_grid_init (O42Grid *self)
   GtkGesture *click;
 
   gtk_widget_set_focusable (GTK_WIDGET (self), TRUE);
-  o42_set_cursor_name (GTK_WIDGET (self), "cell");
+  o42_set_cursor_name (GTK_WIDGET (self), "default");
   /* A validation's input message can only be shown once the grid is on
    * screen; a cell chosen before that gets it then. */
   g_signal_connect_after (self, "map", G_CALLBACK (validation_prompt_update), NULL);
