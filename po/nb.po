@@ -53,6 +53,10 @@ msgstr "Lagre _som..."
 msgid "Page Set_up..."
 msgstr "Utskrifts_format..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "_Utskrift"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "Utskrifts_område"

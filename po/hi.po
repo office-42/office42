@@ -52,6 +52,10 @@ msgstr "इस रूप में सहेजें(_A)..."
 msgid "Page Set_up..."
 msgstr "पृष्ठ सेटअप(_U)..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "प्रिंटिंग(_R)"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "प्रिंट क्षेत्र(_A)"

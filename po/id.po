@@ -52,6 +52,10 @@ msgstr "Simpan _Sebagai..."
 msgid "Page Set_up..."
 msgstr "_Pengaturan Halaman..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "Pen_cetakan"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "_Area Cetak"

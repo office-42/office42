@@ -54,6 +54,10 @@ msgstr ""
 msgid "Page Set_up..."
 msgstr ""
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr ""
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr ""

@@ -52,6 +52,10 @@ msgstr "另存为(_A)..."
 msgid "Page Set_up..."
 msgstr "页面设置(_U)..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "打印设置(_R)"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "打印区域(_A)"

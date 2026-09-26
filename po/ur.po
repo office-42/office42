@@ -52,6 +52,10 @@ msgstr "_بطور محفوظ کریں..."
 msgid "Page Set_up..."
 msgstr "_صفحہ سیٹ اپ..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "پرن_ٹنگ"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "پرنٹ _ایریا"

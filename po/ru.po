@@ -53,6 +53,10 @@ msgstr "Сохранить _как..."
 msgid "Page Set_up..."
 msgstr "Параметры с_траницы..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "Пара_метры печати"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "Об_ласть печати"

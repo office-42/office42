@@ -17,21 +17,32 @@
         <item><attribute name="label" translatable="yes">_Save</attribute><attribute name="action">win.save</attribute></item>
         <item><attribute name="label" translatable="yes">Save _As...</attribute><attribute name="action">win.save-as</attribute></item>
       </section>
+      <!-- Print... stays on the File menu; everything else to do with
+           the page, the previews and the PDF is gathered under it. -->
       <section>
-        <item><attribute name="label" translatable="yes">Page Set_up...</attribute><attribute name="action">win.page-setup</attribute></item>
-        <submenu>
-          <attribute name="label" translatable="yes">Print _Area</attribute>
-          <item><attribute name="label" translatable="yes">_Set Print Area</attribute><attribute name="action">win.set-print-area</attribute></item>
-          <item><attribute name="label" translatable="yes">_Clear Print Area</attribute><attribute name="action">win.clear-print-area</attribute></item>
-        </submenu>
-        <item><attribute name="label" translatable="yes">Print Pre_view</attribute><attribute name="action">win.print-preview</attribute></item>
-        <item><attribute name="label" translatable="yes">Print Preview: Boo_k</attribute><attribute name="action">win.print-preview-book</attribute></item>
         <item><attribute name="label" translatable="yes">_Print...</attribute><attribute name="action">win.print</attribute></item>
-        <item><attribute name="label" translatable="yes">Print _Book...</attribute><attribute name="action">win.print-book</attribute></item>
+        <submenu>
+          <attribute name="label" translatable="yes">P_rinting</attribute>
+          <section>
+            <item><attribute name="label" translatable="yes">Page Set_up...</attribute><attribute name="action">win.page-setup</attribute></item>
+            <submenu>
+              <attribute name="label" translatable="yes">Print _Area</attribute>
+              <item><attribute name="label" translatable="yes">_Set Print Area</attribute><attribute name="action">win.set-print-area</attribute></item>
+              <item><attribute name="label" translatable="yes">_Clear Print Area</attribute><attribute name="action">win.clear-print-area</attribute></item>
+            </submenu>
+          </section>
+          <section>
+            <item><attribute name="label" translatable="yes">Print Pre_view</attribute><attribute name="action">win.print-preview</attribute></item>
+            <item><attribute name="label" translatable="yes">Print Preview: Boo_k</attribute><attribute name="action">win.print-preview-book</attribute></item>
+            <item><attribute name="label" translatable="yes">Print _Book...</attribute><attribute name="action">win.print-book</attribute></item>
+          </section>
+          <section>
+            <item><attribute name="label" translatable="yes">Export as P_DF...</attribute><attribute name="action">win.export-pdf</attribute></item>
+            <item><attribute name="label" translatable="yes">Export _Book as PDF...</attribute><attribute name="action">win.export-book-pdf</attribute></item>
+          </section>
+        </submenu>
       </section>
       <section>
-        <item><attribute name="label" translatable="yes">Export as P_DF...</attribute><attribute name="action">win.export-pdf</attribute></item>
-        <item><attribute name="label" translatable="yes">Export _Book as PDF...</attribute><attribute name="action">win.export-book-pdf</attribute></item>
         <item><attribute name="label" translatable="yes">I_mport from PDF...</attribute><attribute name="action">win.import-pdf</attribute></item>
       </section>
       <section>

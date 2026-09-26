@@ -52,6 +52,10 @@ msgstr "Salvar _como..."
 msgid "Page Set_up..."
 msgstr "Configurar pá_gina..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "Imp_ressão"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "Ár_ea de impressão"

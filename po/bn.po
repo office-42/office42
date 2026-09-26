@@ -52,6 +52,10 @@ msgstr "এই হিসাবে সংরক্ষণ করুন(_A)..."
 msgid "Page Set_up..."
 msgstr "পৃষ্ঠা বিন্যাস(_U)..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "মুদ্রণ ব্যবস্থা(_R)"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "মুদ্রণ এলাকা(_A)"

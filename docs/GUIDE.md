@@ -806,7 +806,11 @@ found, the menu item says so and nothing else changes.
 
 ## 14. Printing and PDF
 
-File ▸ Page Setup is Excel's dialog, four tabs over the sheet's own
+File ▸ Print is on the File menu, and everything else to do with the
+page is gathered under File ▸ Printing: Page Setup, Print Area, the
+two previews, Print Book and the two PDF exports.
+
+File ▸ Printing ▸ Page Setup is Excel's dialog, four tabs over the sheet's own
 setup, which is kept in the file whatever the format:
 
 - **Page**: portrait or landscape; the paper (Letter, Legal, A3, A4,
@@ -836,24 +840,24 @@ setup, which is kept in the file whatever the format:
   errors print as (as shown, blank, `--` or `#N/A`); and the page order,
   down then over (Excel's default) or over then down.
 
-File ▸ Set Print Area limits printing to the selection; Clear Print
+File ▸ Printing ▸ Print Area ▸ Set Print Area limits printing to the selection; Clear Print
 Area gives it back. Insert ▸ Page Break puts a break above and left of
 the active cell, or only the one when a whole row or column is
 selected. View ▸ Page Breaks is Excel's Page Break Preview: what is not
 printed is greyed, each print area edged in blue, the pages divided by
 dashed lines that can be dragged, and "Page N" written across each.
 
-File ▸ Print Preview shows the pages one at a time, fitted to the
+File ▸ Printing ▸ Print Preview shows the pages one at a time, fitted to the
 window or at life size (Zoom), with the margins as dotted lines when
 asked -- drag one and the margin moves -- and Setup opens Page Setup
 from it; Print Preview: Book pages
 through every sheet. File ▸ Print goes through the system's print
-dialog, which offers the selection as well as the sheet; File ▸ Print
-Book does every sheet of the book, one after another, each on its own
+dialog, which offers the selection as well as the sheet; File ▸ Printing ▸
+Print Book does every sheet of the book, one after another, each on its own
 paper. Print, preview and PDF lay the page out the same way to the
 point.
 
-File ▸ Export as PDF writes the sheet, and Export Book as PDF the whole
+File ▸ Printing ▸ Export as PDF writes the sheet, and Export Book as PDF the whole
 book, drawing exactly what the printer would.
 
 File ▸ Import from PDF reads a PDF back in, laying each page's text out

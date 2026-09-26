@@ -53,6 +53,10 @@ msgstr "حفظ _باسم..."
 msgid "Page Set_up..."
 msgstr "إ_عداد الصفحة..."
 
+#: data/ui/menus.ui:25
+msgid "P_rinting"
+msgstr "_الطباعة"
+
 #: data/ui/menus.ui:23
 msgid "Print _Area"
 msgstr "_ناحية الطباعة"
