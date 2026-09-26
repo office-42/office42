@@ -19,6 +19,7 @@
  * where CSS variables need 4.16. */
 @define-color o42_face #c0c0c0;
 @define-color o42_light #dfdfdf;
+@define-color o42_bar #e8e8e8;
 @define-color o42_highlight #ffffff;
 @define-color o42_shadow #808080;
 @define-color o42_dark #000000;
@@ -203,6 +204,12 @@ popover.menu contents separator {
   background-color: @o42_face;
   border-bottom: 1px solid @o42_shadow;
   padding: 2px 3px;
+}
+
+/* The toolbars a shade brighter than the silver, so the buttons stand
+ * out on them. */
+.o42-toolbar {
+  background-color: @o42_bar;
 }
 
 .o42-toolbar separator {
