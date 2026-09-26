@@ -671,12 +671,22 @@ splash_show (O42Application *self, GtkWindow *over)
   g_idle_add_full (G_PRIORITY_LOW, splash_present, splash, NULL);
 }
 
+/* The program starts maximized.  Not in screenshot mode, whose pictures
+ * are of a window of the first size. */
+static void
+present_first (O42Application *self, GtkWindow *window)
+{
+  if (self->screenshot == NULL)
+    gtk_window_maximize (window);
+  gtk_window_present (window);
+}
+
 static void
 o42_application_activate (GApplication *app)
 {
   GtkWidget *window = o42_window_new (GTK_APPLICATION (app));
 
-  gtk_window_present (GTK_WINDOW (window));
+  present_first (O42_APPLICATION (app), GTK_WINDOW (window));
   splash_show (O42_APPLICATION (app), GTK_WINDOW (window));
   arm_screenshot (O42_APPLICATION (app));
 }
@@ -692,7 +702,7 @@ o42_application_open (GApplication *app, GFile **files, int n_files,
       GtkWidget *window = o42_window_new (GTK_APPLICATION (app));
 
       o42_window_open_file (O42_WINDOW (window), files[i]);
-      gtk_window_present (GTK_WINDOW (window));
+      present_first (O42_APPLICATION (app), GTK_WINDOW (window));
       if (i == 0)
         splash_show (O42_APPLICATION (app), GTK_WINDOW (window));
     }
