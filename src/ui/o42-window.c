@@ -6431,7 +6431,7 @@ action_about (GSimpleAction *a, GVariant *p, gpointer data)
   GdkTexture *logo = gdk_texture_new_from_resource (
     "/net/office42/office42/icons/scalable/apps/net.office42.office42.svg");
   char *system = about_system_information (GTK_WIDGET (data));
-  const char *authors[] = { "Andreas R\303\270sdal", "Claude (Anthropic)", NULL };
+  const char *authors[] = { "Andreas R\303\270sdal", NULL };
 
   (void) a; (void) p;
 
