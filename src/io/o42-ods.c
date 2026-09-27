@@ -3002,13 +3002,6 @@ attr_double (const char **names, const char **values, const char *want, double f
   return v != NULL ? g_ascii_strtod (v, NULL) : fallback;
 }
 
-static int
-attr_int (const char **names, const char **values, const char *want, int fallback)
-{
-  const char *v = attr (names, values, want);
-  return v != NULL ? atoi (v) : fallback;
-}
-
 /* A count an attribute gives -- of rows or columns repeated or
  * spanned, of spaces, of digits -- held between `least` and `most`.
  * Each is a loop or a string the reader makes that long, and a file of
@@ -3026,6 +3019,16 @@ attr_count (const char **names, const char **values, const char *want,
   n = g_ascii_strtoll (v, NULL, 10);
   return (int) CLAMP (n, least, most);
 }
+
+/* The most a count of digits in a number style is taken to be: more
+ * than a format code has any use for, and Excel's own limit for the
+ * decimals, which a double has not the digits to fill anyway. */
+#define ODS_MAX_DIGITS   255
+#define ODS_MAX_DECIMALS 30
+
+/* The longest a cell's text or a header is let grow by repeated
+ * spaces: Excel's limit for the text in a cell. */
+#define ODS_MAX_TEXT 32767
 
 /* The Excel language of an ODF language tag, the other way round
  * from language_tag. */
@@ -4470,8 +4473,12 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "s") == 0 && r->in_p)
         {
-          int n = attr_int (names, values, "c", 1);
           GString *target = r->in_annotation ? r->note : r->text;
+          int n = attr_count (names, values, "c", 1, 0, ODS_MAX_TEXT);
+
+          /* No further than a cell's text can reach, however many of
+           * them there are. */
+          n = MIN (n, (int) (ODS_MAX_TEXT - MIN (target->len, ODS_MAX_TEXT)));
           for (int i = 0; i < n; i++) g_string_append_c (target, ' ');
         }
       else if (strcmp (name, "a") == 0 && r->in_p && !r->in_annotation)
@@ -4641,8 +4648,10 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       if (strcmp (name, "s") == 0 || strcmp (name, "tab") == 0)
         {
-          int n = attr_int (names, values, "c", 1);
+          int n = attr_count (names, values, "c", 1, 0, ODS_MAX_TEXT);
+
           hf_sync (r);
+          n = MIN (n, (int) (ODS_MAX_TEXT - MIN (part->len, ODS_MAX_TEXT)));
           for (int i = 0; i < n; i++)
             g_string_append_c (part, name[0] == 's' ? ' ' : '\t');
           return;
@@ -4922,17 +4931,24 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           const char *dp = attr (names, values, "decimal-places");
           const char *grouping = attr (names, values, "grouping");
           if (ns->number == O42_NUM_GENERAL) ns->number = O42_NUM_FIXED;
-          if (dp != NULL) ns->decimals = atoi (dp);
+          if (dp != NULL)
+            ns->decimals = attr_count (names, values, "decimal-places", 0, 0, ODS_MAX_DECIMALS);
           else if (ns->number == O42_NUM_FIXED) ns->number = O42_NUM_GENERAL;
           if (grouping != NULL && strcmp (grouping, "true") == 0) ns->grouping = TRUE;
           if (ns->code != NULL)
             {
               /* The digit places back as a code: "#,##0.00" and its kin. */
-              int mi = attr_int (names, values, "min-integer-digits", 1);
-              int places = dp != NULL ? atoi (dp) : 0;
-              int min_places = attr_int (names, values, "min-decimal-places", places);
+              int mi = attr_count (names, values, "min-integer-digits", 1, 0, ODS_MAX_DIGITS);
+              int places = dp != NULL ? ns->decimals : 0;
+              int min_places = attr_count (names, values, "min-decimal-places", places,
+                                           0, ODS_MAX_DECIMALS);
               double factor = attr_double (names, values, "display-factor", 1);
               GString *digits = g_string_new (NULL);
+
+              /* A comma for every thousand it divides by, which an
+               * infinite factor would never stop adding. */
+              if (!isfinite (factor))
+                factor = 1;
 
               for (int i = 0; i < mi; i++) g_string_append_c (digits, '0');
               if (mi == 0) g_string_append_c (digits, '#');
@@ -4967,9 +4983,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           /* "# ?/?", "# ??/??" or "# ?/8": the whole number when the
            * style asks for integer digits, then the numerator's places
            * over the denominator's, or over the denominator itself. */
-          int mi = attr_int (names, values, "min-integer-digits", 0);
-          int num = attr_int (names, values, "min-numerator-digits", 1);
-          int den = attr_int (names, values, "min-denominator-digits", 0);
+          int mi = attr_count (names, values, "min-integer-digits", 0, 0, ODS_MAX_DIGITS);
+          int num = attr_count (names, values, "min-numerator-digits", 1, 0, ODS_MAX_DIGITS);
+          int den = attr_count (names, values, "min-denominator-digits", 0, 0, ODS_MAX_DIGITS);
           double den_value = attr_double (names, values, "denominator-value", 0);
 
           if (mi > 0) g_string_append (ns->code, "# ");
@@ -4981,10 +4997,10 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
         }
       else if (strcmp (name, "scientific-number") == 0)
         {
-          int exp_digits = attr_int (names, values, "min-exponent-digits", 2);
-          int mi = attr_int (names, values, "min-integer-digits", 1);
+          int exp_digits = attr_count (names, values, "min-exponent-digits", 2, 0, ODS_MAX_DIGITS);
+          int mi = attr_count (names, values, "min-integer-digits", 1, 0, ODS_MAX_DIGITS);
           ns->number = O42_NUM_SCIENTIFIC;
-          ns->decimals = attr_int (names, values, "decimal-places", 2);
+          ns->decimals = attr_count (names, values, "decimal-places", 2, 0, ODS_MAX_DECIMALS);
           if (ns->code != NULL)
             {
               for (int i = 0; i < MAX (mi, 1); i++) g_string_append_c (ns->code, '0');
