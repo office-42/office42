@@ -149,6 +149,7 @@ struct _O42Sheet {
                                * one of its own; absent for the default */
   GHashTable  *row_fmts;
   int          max_row_level, max_col_level;
+  int          row_level_count[8], col_level_count[8];   /* how many at each level */
   GHashTable  *filtered_rows; /* set of int, hidden by the AutoFilter */
 
   GArray      *merges;        /* O42Range */
@@ -1964,6 +1965,7 @@ o42_sheet_invalidate_from (O42Sheet *sheet, const char *sheet_name,
 static void obj_snap_clear (ObjSnap *snap);
 static void pivot_clear (O42Pivot *pivot);
 static void level_store (O42Sheet *sheet, gboolean rows, int index, int level);
+static void levels_recount (O42Sheet *sheet, gboolean rows);
 static ObjSnap obj_snap_take (O42Sheet *sheet, ObjKind kind, int index, guint64 key);
 static void obj_snap_apply (const ObjSnap *snap);
 
@@ -5206,6 +5208,8 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
           g_hash_table_insert (sizes, key_ptr, value);
         g_hash_table_destroy (moved);
       }
+    /* The levels of rows deleted, or pushed off the end, went with them. */
+    levels_recount (sheet, rows);
 
     autofilter_apply (sheet);
   }
@@ -8657,23 +8661,54 @@ o42_sheet_undo_capture_sheet (O42Sheet *sheet, gboolean name)
 /* Outline groups                                                          */
 /* ---------------------------------------------------------------------- */
 
+/* The deepest level of an axis, from how many rows (columns) stand at
+ * each.  Asking every row for its level each time one was set made
+ * setting a level on every column of the sheet sixteen thousand times
+ * sixteen thousand steps, and a file can do that in a few lines. */
+static void
+levels_deepest (O42Sheet *sheet, gboolean rows)
+{
+  const int *count = rows ? sheet->row_level_count : sheet->col_level_count;
+  int max = 0;
+
+  for (int level = 7; level > 0 && max == 0; level--)
+    if (count[level] > 0)
+      max = level;
+  if (rows) sheet->max_row_level = max; else sheet->max_col_level = max;
+}
+
+/* The counts made again from the levels themselves, for when rows or
+ * columns have been moved or dropped wholesale. */
+static void
+levels_recount (O42Sheet *sheet, gboolean rows)
+{
+  GHashTable *table = rows ? sheet->row_levels : sheet->col_levels;
+  int *count = rows ? sheet->row_level_count : sheet->col_level_count;
+  GHashTableIter iter;
+  gpointer value;
+
+  memset (count, 0, 8 * sizeof *count);
+  g_hash_table_iter_init (&iter, table);
+  while (g_hash_table_iter_next (&iter, NULL, &value))
+    count[CLAMP (GPOINTER_TO_INT (value), 0, 7)]++;
+  levels_deepest (sheet, rows);
+}
+
 static void
 level_store (O42Sheet *sheet, gboolean rows, int index, int level)
 {
   GHashTable *table = rows ? sheet->row_levels : sheet->col_levels;
-  GHashTableIter iter;
-  gpointer key, value;
-  int max = 0;
+  int *count = rows ? sheet->row_level_count : sheet->col_level_count;
+  int was = GPOINTER_TO_INT (g_hash_table_lookup (table, GINT_TO_POINTER (index)));
 
   level = CLAMP (level, 0, 7);
   if (level == 0)
     g_hash_table_remove (table, GINT_TO_POINTER (index));
   else
     g_hash_table_insert (table, GINT_TO_POINTER (index), GINT_TO_POINTER (level));
-  g_hash_table_iter_init (&iter, table);
-  while (g_hash_table_iter_next (&iter, &key, &value))
-    max = MAX (max, GPOINTER_TO_INT (value));
-  if (rows) sheet->max_row_level = max; else sheet->max_col_level = max;
+  count[CLAMP (was, 0, 7)]--;
+  count[level]++;
+  levels_deepest (sheet, rows);
   sheet->modified = TRUE;
 }
 
