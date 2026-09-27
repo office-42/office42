@@ -284,6 +284,7 @@ typedef struct {
   GString    *cond_styles;  /* styles.xml: the named styles conditional formats switch to */
   int         next_cond;
   GString    *fill_defs;    /* styles.xml: the gradients and hatches the shapes use */
+  gboolean    flat;         /* a .fods: pictures and charts go inside their frames */
 } Styles;
 
 /* A break in a row or column style: the same size, with
@@ -1758,6 +1759,8 @@ write_validations (GString *out, O42Book *book)
   g_string_append (out, "</table:content-validations>");
 }
 
+static void ods_chart_body (GString *out, O42Sheet *sheet, const O42Chart *chart);
+
 static void
 write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, int col)
 {
@@ -1778,10 +1781,24 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
         append_frame_head (out, name, (int) i, pic->dx, pic->dy, pic->width, pic->height, end);
         g_free (end);
       }
-      g_string_append_printf (out,
-        "<draw:image xlink:href=\"Pictures/sheet%d_image%u.%s\" xlink:type=\"simple\" "
-        "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
-        sheet_index + 1, i + 1, pic->format != NULL ? pic->format : "png");
+      if (s->flat)
+        {
+          /* A flat file has no Pictures folder: the picture is in the
+           * frame, in base64. */
+          gsize size = 0;
+          const guchar *bytes = g_bytes_get_data (pic->data, &size);
+          char *encoded = g_base64_encode (bytes, size);
+
+          g_string_append_printf (out,
+            "<draw:image><office:binary-data>%s</office:binary-data></draw:image></draw:frame>",
+            encoded);
+          g_free (encoded);
+        }
+      else
+        g_string_append_printf (out,
+          "<draw:image xlink:href=\"Pictures/sheet%d_image%u.%s\" xlink:type=\"simple\" "
+          "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
+          sheet_index + 1, i + 1, pic->format != NULL ? pic->format : "png");
       g_free (name);
     }
 
@@ -1991,10 +2008,19 @@ write_cell_drawings (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, 
                            chart->width, chart->height, end);
         g_free (end);
       }
-      g_string_append_printf (out,
-        "<draw:object xlink:href=\"./Sheet%dChart%u\" xlink:type=\"simple\" "
-        "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
-        sheet_index + 1, i + 1);
+      if (s->flat)
+        {
+          /* And the chart's document is in the frame too. */
+          g_string_append (out, "<draw:object><office:document office:version=\"1.2\" "
+                                "office:mimetype=\"application/vnd.oasis.opendocument.chart\">");
+          ods_chart_body (out, sheet, chart);
+          g_string_append (out, "</office:document></draw:object></draw:frame>");
+        }
+      else
+        g_string_append_printf (out,
+          "<draw:object xlink:href=\"./Sheet%dChart%u\" xlink:type=\"simple\" "
+          "xlink:show=\"embed\" xlink:actuate=\"onLoad\"/></draw:frame>",
+          sheet_index + 1, i + 1);
       g_free (name);
     }
 }
@@ -2514,11 +2540,13 @@ write_names (GString *out, O42Book *book)
   g_list_free (names);
 }
 
+/* <office:settings>: each sheet's view, and which sheet the book opens
+ * on -- settings.xml's, or a flat file's own. */
 static void
 write_settings (GString *out, O42Book *book)
 {
   g_string_append (out,
-    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-settings " NS_HEAD "><office:settings>"
+    "<office:settings>"
     "<config:config-item-set config:name=\"ooo:view-settings\"><config:config-item-map-indexed config:name=\"Views\">"
     "<config:config-item-map-entry><config:config-item config:name=\"ViewId\" config:type=\"string\">view1</config:config-item>"
     "<config:config-item-map-named config:name=\"Tables\">");
@@ -2572,25 +2600,23 @@ write_settings (GString *out, O42Book *book)
     g_free (name);
   }
   g_string_append (out, "</config:config-item-map-entry></config:config-item-map-indexed>"
-                        "</config:config-item-set></office:settings></office:document-settings>");
+                        "</config:config-item-set></office:settings>");
 }
 
 /* ---- The parts a drawing needs beside content.xml -------------------- */
 
-/* A chart in OpenDocument is a document of its own inside the zip,
- * named by the frame that shows it.  This writes the smallest one that
- * LibreOffice and Excel both draw: the plot type, the titles, and the
- * series as ranges of the sheet the chart reads. */
-static char *
-ods_chart_document (O42Sheet *sheet, const O42Chart *chart)
+/* A chart in OpenDocument is a document of its own, inside the zip and
+ * named by the frame that shows it, or in a flat file inside the frame
+ * itself.  This writes the body of the smallest one that LibreOffice
+ * and Excel both draw: the plot type, the titles, and the series as
+ * ranges of the sheet the chart reads. */
+static void
+ods_chart_body (GString *out, O42Sheet *sheet, const O42Chart *chart)
 {
   static const char *const KINDS[] = {
     "chart:bar", "chart:line", "chart:circle", "chart:bar", "chart:area",
     "chart:scatter", "chart:bar", "chart:bar"
   };
-  GString *out = g_string_new (
-    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content " NS_HEAD ">"
-    "<office:body><office:chart>");
   const O42Range *d = &chart->data;
   const char *source = (chart->data_sheet != NULL && chart->data_sheet[0] != '\0')
                        ? chart->data_sheet : o42_sheet_get_name (sheet);
@@ -2598,6 +2624,7 @@ ods_chart_document (O42Sheet *sheet, const O42Chart *chart)
   int first_col = d->col0 + (chart->first_col_labels ? 1 : 0);
   char *title = g_markup_escape_text (chart->title != NULL ? chart->title : "", -1);
 
+  g_string_append (out, "<office:body><office:chart>");
   g_string_append_printf (out,
     "<chart:chart chart:class=\"%s\" svg:width=\"%.3fcm\" svg:height=\"%.3fcm\">",
     KINDS[chart->kind <= O42_CHART_PERCENT ? chart->kind : 0],
@@ -2640,9 +2667,19 @@ ods_chart_document (O42Sheet *sheet, const O42Chart *chart)
         g_string_free (address, TRUE);
       }
   }
-  g_string_append (out, "</chart:plot-area></chart:chart></office:chart></office:body>"
-                        "</office:document-content>");
+  g_string_append (out, "</chart:plot-area></chart:chart></office:chart></office:body>");
   g_free (title);
+}
+
+/* The chart as a document of its own, for the zip. */
+static char *
+ods_chart_document (O42Sheet *sheet, const O42Chart *chart)
+{
+  GString *out = g_string_new (
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content " NS_HEAD ">");
+
+  ods_chart_body (out, sheet, chart);
+  g_string_append (out, "</office:document-content>");
   return g_string_free (out, FALSE);
 }
 
@@ -2691,19 +2728,97 @@ write_drawing_parts (O42ZipWriter *zip, O42Book *book, GString *manifest)
     }
 }
 
+/* <office:styles>: the default cell style, the dashes and line heads the
+ * shapes name, the fills they use, and the styles conditional formats
+ * switch to -- styles.xml's, or a flat file's own. */
+static void
+write_office_styles (GString *out, Styles *s)
+{
+  g_string_append (out,
+    "<office:styles><style:default-style style:family=\"table-cell\">"
+    "<style:text-properties fo:font-family=\"Arial\" fo:font-size=\"10pt\"/></style:default-style>"
+    "<style:style style:name=\"Default\" style:family=\"table-cell\"/>"
+    /* The dashes, in lengths of the line's width, and the heads a
+     * line can wear, by the names the graphic styles use. */
+    "<draw:stroke-dash draw:name=\"Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"400%\" draw:distance=\"300%\"/>"
+    "<draw:stroke-dash draw:name=\"Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"100%\" draw:distance=\"300%\"/>"
+    "<draw:stroke-dash draw:name=\"Dash_20_Dot\" draw:display-name=\"Dash Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"400%\" draw:dots2=\"1\" draw:dots2-length=\"100%\" draw:distance=\"300%\"/>"
+    "<draw:stroke-dash draw:name=\"Long_20_Dash\" draw:display-name=\"Long Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"800%\" draw:distance=\"300%\"/>"
+    "<draw:stroke-dash draw:name=\"Short_20_Dash\" draw:display-name=\"Short Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"300%\" draw:distance=\"100%\"/>"
+    "<draw:stroke-dash draw:name=\"Short_20_Dot\" draw:display-name=\"Short Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"100%\" draw:distance=\"100%\"/>"
+    "<draw:marker draw:name=\"Triangle\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h20z\"/>"
+    "<draw:marker draw:name=\"Stealth\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30 10-9 10 9z\"/>"
+    "<draw:marker draw:name=\"Diamond\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 15 10 15 10-15z\"/>"
+    "<draw:marker draw:name=\"Circle\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0c-5.5 0-10 4.5-10 10s4.5 10 10 10 10-4.5 10-10-4.5-10-10-10z\"/>"
+    "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>");
+  g_string_append (out, s->fill_defs->str);
+  g_string_append (out, s->cond_styles->str);
+  g_string_append (out, "</office:styles>");
+}
+
+/* <office:meta>: File > Properties, as LibreOffice keeps them --
+ * meta.xml's, or a flat file's own. */
+static void
+write_meta (GString *out, O42Book *book)
+{
+  static const char *const ELEMENTS[O42_N_PROPS] = {
+    "dc:title", "dc:subject", "meta:initial-creator", NULL, NULL, NULL, "meta:keyword", "dc:description"
+  };
+  static const char *const USER[O42_N_PROPS] = {
+    NULL, NULL, NULL, "Manager", "Company", "Category", NULL, NULL
+  };
+
+  g_string_append (out, "<office:meta><meta:generator>Office42 Spreadsheet</meta:generator>");
+  for (int i = 0; i < O42_N_PROPS; i++)
+    {
+      const char *value = o42_book_property (book, (O42Property) i);
+      char *escaped;
+
+      if (*value == '\0')
+        continue;
+      escaped = g_markup_escape_text (value, -1);
+      if (ELEMENTS[i] != NULL)
+        g_string_append_printf (out, "<%s>%s</%s>", ELEMENTS[i], escaped, ELEMENTS[i]);
+      else
+        g_string_append_printf (out, "<meta:user-defined meta:name=\"%s\">%s</meta:user-defined>", USER[i], escaped);
+      g_free (escaped);
+    }
+  g_string_append (out, "</office:meta>");
+}
+
+/* <office:body>: the book's settings for calculation, its validation
+ * rules, and the tables and names already written. */
+static void
+write_body (GString *out, O42Book *book, const GString *tables)
+{
+  g_string_append (out, "<office:body><office:spreadsheet");
+  if (o42_book_protected (book))
+    g_string_append (out, " table:structure-protected=\"true\"");
+  g_string_append (out, ">");
+  if (o42_book_date_1904 (book) || o42_book_precision_as_displayed (book))
+    g_string_append_printf (out, "<table:calculation-settings%s>%s</table:calculation-settings>",
+                            o42_book_precision_as_displayed (book) ? " table:precision-as-shown=\"true\"" : "",
+                            o42_book_date_1904 (book) ? "<table:null-date table:date-value=\"1904-01-01\"/>" : "");
+  write_validations (out, book);
+  g_string_append (out, tables->str);
+  g_string_append (out, "</office:spreadsheet></office:body>");
+}
+
+#define FONT_FACES \
+  "<office:font-face-decls><style:font-face style:name=\"Arial\" svg:font-family=\"Arial\" " \
+  "xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\"/></office:font-face-decls>"
+
 gboolean
 o42_ods_save (O42Book *book, GFile *file, GError **error)
 {
-  o42_xlsx_dropped_cells = 0;
-  O42ZipWriter *zip;
   Styles s;
-  GString *body = g_string_new (NULL);
-  GString *content, *settings;
-  GBytes *bytes;
+  GString *tables = g_string_new (NULL);
+  char *base;
   gboolean ok;
 
   g_return_val_if_fail (book != NULL && G_IS_FILE (file), FALSE);
 
+  o42_xlsx_dropped_cells = 0;
   s.styles = g_string_new (NULL);
   s.col_styles = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
   s.row_styles = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
@@ -2717,121 +2832,114 @@ o42_ods_save (O42Book *book, GFile *file, GError **error)
   s.cond_styles = g_string_new (NULL);
   s.next_cond = 0;
   s.fill_defs = g_string_new (NULL);
+  /* A .fods is the flat form: one XML document with the styles, the
+   * content, the settings and the properties in it, and the pictures
+   * and charts inside their frames, where a .ods is a zip of parts. */
+  base = g_file_get_basename (file);
+  if (base != NULL)
+    {
+      char *folded = g_ascii_strdown (base, -1);
+
+      s.flat = g_str_has_suffix (folded, ".fods");
+      g_free (folded);
+    }
+  else
+    s.flat = FALSE;
+  g_free (base);
 
   for (int i = 0; i < o42_book_n_sheets (book); i++)
-    write_table (body, &s, o42_book_sheet (book, i), i);
-  write_names (body, book);
+    write_table (tables, &s, o42_book_sheet (book, i), i);
+  write_names (tables, book);
 
-  content = g_string_new ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content " NS_HEAD ">");
-  g_string_append (content, "<office:font-face-decls><style:font-face style:name=\"Arial\" svg:font-family=\"Arial\" xmlns:svg=\"urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0\"/></office:font-face-decls>");
-  g_string_append (content, "<office:automatic-styles>");
-  g_string_append (content, s.styles->str);
-  g_string_append (content, "</office:automatic-styles><office:body><office:spreadsheet");
-  if (o42_book_protected (book))
-    g_string_append (content, " table:structure-protected=\"true\"");
-  g_string_append (content, ">");
-  if (o42_book_date_1904 (book) || o42_book_precision_as_displayed (book))
-    g_string_append_printf (content, "<table:calculation-settings%s>%s</table:calculation-settings>",
-                            o42_book_precision_as_displayed (book) ? " table:precision-as-shown=\"true\"" : "",
-                            o42_book_date_1904 (book) ? "<table:null-date table:date-value=\"1904-01-01\"/>" : "");
-  write_validations (content, book);
-  g_string_append (content, body->str);
-  g_string_append (content, "</office:spreadsheet></office:body></office:document-content>");
+  if (s.flat)
+    {
+      GString *doc = g_string_new (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document " NS_HEAD " "
+        "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" "
+        "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" office:mimetype=\"" MIME "\">");
 
-  settings = g_string_new (NULL);
-  write_settings (settings, book);
+      write_meta (doc, book);
+      write_settings (doc, book);
+      g_string_append (doc, FONT_FACES);
+      write_office_styles (doc, &s);
+      /* The automatic styles of styles.xml and content.xml together:
+       * their names -- MT, pm and the rest -- are apart already. */
+      g_string_append (doc, "<office:automatic-styles>");
+      g_string_append (doc, s.hf_style_xml->str);
+      g_string_append (doc, s.page_layouts->str);
+      g_string_append (doc, s.styles->str);
+      g_string_append (doc, "</office:automatic-styles><office:master-styles>");
+      g_string_append (doc, s.master_pages->str);
+      g_string_append (doc, "</office:master-styles>");
+      write_body (doc, book, tables);
+      g_string_append (doc, "</office:document>\n");
+      ok = g_file_replace_contents (file, doc->str, doc->len, NULL, FALSE,
+                                    G_FILE_CREATE_NONE, NULL, NULL, error);
+      g_string_free (doc, TRUE);
+    }
+  else
+    {
+      O42ZipWriter *zip = o42_zip_writer_new ();
+      GString *manifest = g_string_new (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\">"
+        "<manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.2\" manifest:media-type=\"" MIME "\"/>"
+        "<manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/>"
+        "<manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>"
+        "<manifest:file-entry manifest:full-path=\"settings.xml\" manifest:media-type=\"text/xml\"/>"
+        "<manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>");
+      GString *styles = g_string_new (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles " NS_HEAD ">");
+      GString *content = g_string_new (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-content " NS_HEAD ">" FONT_FACES);
+      GString *settings = g_string_new (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-settings " NS_HEAD ">");
+      GString *meta = g_string_new (
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<office:document-meta xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "
+        "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" "
+        "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" office:version=\"1.2\">");
+      GBytes *bytes;
 
-  zip = o42_zip_writer_new ();
-  o42_zip_writer_add_stored (zip, "mimetype", MIME, strlen (MIME));
-  {
-    GString *manifest = g_string_new (
-      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\">"
-      "<manifest:file-entry manifest:full-path=\"/\" manifest:version=\"1.2\" manifest:media-type=\"" MIME "\"/>"
-      "<manifest:file-entry manifest:full-path=\"content.xml\" manifest:media-type=\"text/xml\"/>"
-      "<manifest:file-entry manifest:full-path=\"styles.xml\" manifest:media-type=\"text/xml\"/>"
-      "<manifest:file-entry manifest:full-path=\"settings.xml\" manifest:media-type=\"text/xml\"/>"
-      "<manifest:file-entry manifest:full-path=\"meta.xml\" manifest:media-type=\"text/xml\"/>");
+      g_string_append (content, "<office:automatic-styles>");
+      g_string_append (content, s.styles->str);
+      g_string_append (content, "</office:automatic-styles>");
+      write_body (content, book, tables);
+      g_string_append (content, "</office:document-content>");
 
-    GString *styles = g_string_new (
-      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<office:document-styles " NS_HEAD ">"
-      "<office:styles><style:default-style style:family=\"table-cell\">"
-      "<style:text-properties fo:font-family=\"Arial\" fo:font-size=\"10pt\"/></style:default-style>"
-      "<style:style style:name=\"Default\" style:family=\"table-cell\"/>"
-      /* The dashes, in lengths of the line's width, and the heads a
-       * line can wear, by the names the graphic styles use. */
-      "<draw:stroke-dash draw:name=\"Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"400%\" draw:distance=\"300%\"/>"
-      "<draw:stroke-dash draw:name=\"Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"100%\" draw:distance=\"300%\"/>"
-      "<draw:stroke-dash draw:name=\"Dash_20_Dot\" draw:display-name=\"Dash Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"400%\" draw:dots2=\"1\" draw:dots2-length=\"100%\" draw:distance=\"300%\"/>"
-      "<draw:stroke-dash draw:name=\"Long_20_Dash\" draw:display-name=\"Long Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"800%\" draw:distance=\"300%\"/>"
-      "<draw:stroke-dash draw:name=\"Short_20_Dash\" draw:display-name=\"Short Dash\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"300%\" draw:distance=\"100%\"/>"
-      "<draw:stroke-dash draw:name=\"Short_20_Dot\" draw:display-name=\"Short Dot\" draw:style=\"rect\" draw:dots1=\"1\" draw:dots1-length=\"100%\" draw:distance=\"100%\"/>"
-      "<draw:marker draw:name=\"Triangle\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h20z\"/>"
-      "<draw:marker draw:name=\"Stealth\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30 10-9 10 9z\"/>"
-      "<draw:marker draw:name=\"Diamond\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 15 10 15 10-15z\"/>"
-      "<draw:marker draw:name=\"Circle\" svg:viewBox=\"0 0 20 20\" svg:d=\"M10 0c-5.5 0-10 4.5-10 10s4.5 10 10 10 10-4.5 10-10-4.5-10-10-10z\"/>"
-      "<draw:marker draw:name=\"Open_20_Arrow\" draw:display-name=\"Open Arrow\" svg:viewBox=\"0 0 20 30\" svg:d=\"M10 0 0 30h3l7-21 7 21h3z\"/>");
-    g_string_append (styles, s.fill_defs->str);
-    g_string_append (styles, s.cond_styles->str);
-    g_string_append (styles, "</office:styles><office:automatic-styles>");
+      write_office_styles (styles, &s);
+      g_string_append (styles, "<office:automatic-styles>");
+      g_string_append (styles, s.hf_style_xml->str);
+      g_string_append (styles, s.page_layouts->str);
+      g_string_append (styles, "</office:automatic-styles><office:master-styles>");
+      g_string_append (styles, s.master_pages->str);
+      g_string_append (styles, "</office:master-styles></office:document-styles>");
 
-    g_string_append (styles, s.hf_style_xml->str);
-    g_string_append (styles, s.page_layouts->str);
-    g_string_append (styles, "</office:automatic-styles><office:master-styles>");
-    g_string_append (styles, s.master_pages->str);
-    g_string_append (styles, "</office:master-styles></office:document-styles>");
+      write_settings (settings, book);
+      g_string_append (settings, "</office:document-settings>");
+      write_meta (meta, book);
+      g_string_append (meta, "</office:document-meta>");
 
-    write_drawing_parts (zip, book, manifest);
-    g_string_append (manifest, "</manifest:manifest>");
-    o42_zip_writer_add (zip, "META-INF/manifest.xml", manifest->str, manifest->len);
-    g_string_free (manifest, TRUE);
-    o42_zip_writer_add (zip, "styles.xml", styles->str, styles->len);
-    g_string_free (styles, TRUE);
-  }
-  o42_zip_writer_add (zip, "content.xml", content->str, content->len);
-  o42_zip_writer_add (zip, "settings.xml", settings->str, settings->len);
+      o42_zip_writer_add_stored (zip, "mimetype", MIME, strlen (MIME));
+      write_drawing_parts (zip, book, manifest);
+      g_string_append (manifest, "</manifest:manifest>");
+      o42_zip_writer_add (zip, "META-INF/manifest.xml", manifest->str, manifest->len);
+      o42_zip_writer_add (zip, "styles.xml", styles->str, styles->len);
+      o42_zip_writer_add (zip, "content.xml", content->str, content->len);
+      o42_zip_writer_add (zip, "settings.xml", settings->str, settings->len);
+      o42_zip_writer_add (zip, "meta.xml", meta->str, meta->len);
+      bytes = o42_zip_writer_finish (zip);
+      ok = g_file_replace_contents (file, g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes),
+                                    NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);
+      g_bytes_unref (bytes);
+      g_string_free (manifest, TRUE);
+      g_string_free (styles, TRUE);
+      g_string_free (content, TRUE);
+      g_string_free (settings, TRUE);
+      g_string_free (meta, TRUE);
+    }
 
-  /* File > Properties, in meta.xml as LibreOffice keeps them. */
-  {
-    static const char *const ELEMENTS[O42_N_PROPS] = {
-      "dc:title", "dc:subject", "meta:initial-creator", NULL, NULL, NULL, "meta:keyword", "dc:description"
-    };
-    static const char *const USER[O42_N_PROPS] = {
-      NULL, NULL, NULL, "Manager", "Company", "Category", NULL, NULL
-    };
-    GString *meta = g_string_new (
-      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-      "<office:document-meta xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\" "
-      "xmlns:meta=\"urn:oasis:names:tc:opendocument:xmlns:meta:1.0\" "
-      "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" office:version=\"1.2\"><office:meta>"
-      "<meta:generator>Office42 Spreadsheet</meta:generator>");
-
-    for (int i = 0; i < O42_N_PROPS; i++)
-      {
-        const char *value = o42_book_property (book, (O42Property) i);
-        char *escaped;
-
-        if (*value == '\0')
-          continue;
-        escaped = g_markup_escape_text (value, -1);
-        if (ELEMENTS[i] != NULL)
-          g_string_append_printf (meta, "<%s>%s</%s>", ELEMENTS[i], escaped, ELEMENTS[i]);
-        else
-          g_string_append_printf (meta, "<meta:user-defined meta:name=\"%s\">%s</meta:user-defined>", USER[i], escaped);
-        g_free (escaped);
-      }
-    g_string_append (meta, "</office:meta></office:document-meta>");
-    o42_zip_writer_add (zip, "meta.xml", meta->str, meta->len);
-    g_string_free (meta, TRUE);
-  }
-  bytes = o42_zip_writer_finish (zip);
-  ok = g_file_replace_contents (file, g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes),
-                                NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);
-  g_bytes_unref (bytes);
-
-  g_string_free (content, TRUE);
-  g_string_free (settings, TRUE);
-  g_string_free (body, TRUE);
+  g_string_free (tables, TRUE);
   g_string_free (s.styles, TRUE);
   g_string_free (s.page_layouts, TRUE);
   g_string_free (s.master_pages, TRUE);
@@ -2924,6 +3032,8 @@ num_style_free (gpointer data)
   g_free (ns);
 }
 
+typedef struct OdsChartReader OdsChartReader;
+
 typedef struct {
   O42Book    *book;
   O42Sheet   *sheet;
@@ -3005,6 +3115,15 @@ typedef struct {
   int         split_cols, split_rows, hmode, vmode;
   int         setting_cursor_x, setting_cursor_y, setting_zoom, setting_grid;
   int         view_zeros;
+
+  /* What a flat file (.fods) keeps inline that a zip keeps in parts:
+   * a picture's bytes in base64 inside its draw:image, and a chart's
+   * document inside its draw:object; and the properties, which only
+   * count inside office:meta when the whole file is walked for them. */
+  GString        *binary;        /* in an office:binary-data, or NULL */
+  OdsChartReader *inline_chart;  /* in a draw:object's document, or NULL */
+  int             inline_depth;  /* elements open inside that document */
+  int             meta_open;     /* office:meta elements open */
 } Reader;
 
 static const char *
@@ -3908,10 +4027,10 @@ ods_length (const char *text)
 /* ---- Reading a chart back --------------------------------------------- */
 
 /* A chart in OpenDocument is a document of its own inside the zip; the
- * frame that shows it points at the directory it lives in.  This reads
- * as much of one as office42 draws: the kind, the title, and the cells
- * the series come from. */
-typedef struct {
+ * frame that shows it points at the directory it lives in, or in a
+ * flat file holds it.  This reads as much of one as office42 draws: the
+ * kind, the title, and the cells the series come from. */
+struct OdsChartReader {
   O42ChartKind kind;
   gboolean     kind_known;
   GString     *title;
@@ -3921,7 +4040,7 @@ typedef struct {
   gboolean     have_box;
   char        *sheet_name;   /* the sheet the series read */
   int          series;
-} OdsChartReader;
+};
 
 /* "Sheet1.$B$2:.$B$5" or "Sheet1.B2:Sheet1.B5" into a rectangle. */
 static gboolean
@@ -4045,6 +4164,50 @@ ods_chart_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer 
     g_string_append_len (c->title, text, (gssize) len);
 }
 
+/* Adds the chart a chart document was read into to the sheet, anchored
+ * where its frame is, and lets the reading go. */
+static void
+place_chart (Reader *r, OdsChartReader *c, int row, int col,
+             double dx, double dy, double width, double height)
+{
+  if (c->have_box)
+    {
+      /* The heading above or beside the numbers is part of the table
+       * the chart is drawn from, as it was when it was written. */
+      O42Range box = c->box;
+      O42Chart *chart;
+
+      if (box.row0 > 0)
+        box.row0--;
+      if (box.col0 > 0)
+        box.col0--;
+      chart = o42_sheet_add_chart (r->sheet, c->kind, &box, row, col);
+      if (chart != NULL)
+        {
+          chart->anchor = r->frame_anchor;
+          chart->first_row_labels = TRUE;
+          chart->first_col_labels = TRUE;
+          chart->dx = dx;
+          chart->dy = dy;
+          if (width > 4) chart->width = width;
+          if (height > 4) chart->height = height;
+          if (c->title->len > 0)
+            {
+              g_free (chart->title);
+              chart->title = g_strdup (c->title->str);
+            }
+          if (c->sheet_name != NULL &&
+              g_ascii_strcasecmp (c->sheet_name, o42_sheet_get_name (r->sheet)) != 0)
+            {
+              g_free (chart->data_sheet);
+              chart->data_sheet = g_strdup (c->sheet_name);
+            }
+        }
+    }
+  g_string_free (c->title, TRUE);
+  g_free (c->sheet_name);
+}
+
 /* Adds the chart the frame points at to the sheet, anchored where the
  * frame is. */
 static void
@@ -4062,11 +4225,9 @@ read_chart_object (Reader *r, const char *href, int row, int col,
     href++;
   part = g_strdup_printf ("%s/content.xml", href);
   bytes = g_hash_table_lookup (r->parts, part);
+  g_free (part);
   if (bytes == NULL)
-    {
-      g_free (part);
-      return;
-    }
+    return;
 
   memset (&c, 0, sizeof c);
   c.kind = O42_CHART_COLUMN;
@@ -4080,44 +4241,29 @@ read_chart_object (Reader *r, const char *href, int row, int col,
     g_markup_parse_context_end_parse (ctx, NULL);
     g_markup_parse_context_free (ctx);
   }
+  place_chart (r, &c, row, col, dx, dy, width, height);
+}
 
-  if (c.have_box)
+/* Adds a picture's bytes to the sheet, anchored where the frame being
+ * read is, when they are a picture office42 knows. */
+static void
+place_picture (Reader *r, GBytes *data)
+{
+  int pw, ph;
+  const char *format;
+  O42Picture *pic;
+
+  if (data == NULL || !o42_image_probe (data, &pw, &ph, &format))
+    return;
+  pic = o42_sheet_add_picture (r->sheet, data, format, pw, ph, r->row, r->cell_col);
+  if (pic != NULL)
     {
-      /* The heading above or beside the numbers is part of the table
-       * the chart is drawn from, as it was when it was written. */
-      O42Range box = c.box;
-      O42Chart *chart;
-
-      if (box.row0 > 0)
-        box.row0--;
-      if (box.col0 > 0)
-        box.col0--;
-      chart = o42_sheet_add_chart (r->sheet, c.kind, &box, row, col);
-  if (chart != NULL) chart->anchor = r->frame_anchor;
-      if (chart != NULL)
-        {
-          chart->first_row_labels = TRUE;
-          chart->first_col_labels = TRUE;
-          chart->dx = dx;
-          chart->dy = dy;
-          if (width > 4) chart->width = width;
-          if (height > 4) chart->height = height;
-          if (c.title->len > 0)
-            {
-              g_free (chart->title);
-              chart->title = g_strdup (c.title->str);
-            }
-          if (c.sheet_name != NULL &&
-              g_ascii_strcasecmp (c.sheet_name, o42_sheet_get_name (r->sheet)) != 0)
-            {
-              g_free (chart->data_sheet);
-              chart->data_sheet = g_strdup (c.sheet_name);
-            }
-        }
+      pic->anchor = r->frame_anchor;
+      pic->dx = r->frame_x;
+      pic->dy = r->frame_y;
+      if (r->frame_w > 1) pic->width = r->frame_w;
+      if (r->frame_h > 1) pic->height = r->frame_h;
     }
-  g_string_free (c.title, TRUE);
-  g_free (c.sheet_name);
-  g_free (part);
 }
 
 /* Before a header's words or a field: the codes that take the style
@@ -4249,6 +4395,16 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
   const char *name = local (element);
   (void) ctx; (void) error;
 
+  /* Inside the chart document a flat file keeps in a draw:object, every
+   * element is the chart's: its paragraphs are not the cell's, and its
+   * own little table of numbers is not a sheet. */
+  if (r->inline_chart != NULL)
+    {
+      r->inline_depth++;
+      ods_chart_start (ctx, element, names, values, r->inline_chart, error);
+      return;
+    }
+
   if (strcmp (name, "spreadsheet") == 0)
     {
       const char *locked = attr (names, values, "structure-protected");
@@ -4352,41 +4508,37 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           r->frame_h = ods_length (attr (names, values, "height"));
         }
       else if (strcmp (name, "object") == 0 && r->parts != NULL)
-        read_chart_object (r, attr (names, values, "href"), r->row, r->cell_col,
-                           r->frame_x, r->frame_y, r->frame_w, r->frame_h);
+        {
+          const char *href = attr (names, values, "href");
+
+          if (href != NULL)
+            read_chart_object (r, href, r->row, r->cell_col,
+                               r->frame_x, r->frame_y, r->frame_w, r->frame_h);
+          else
+            {
+              /* A flat file's chart is here in the frame, and is read
+               * as it comes; it is placed when the object closes. */
+              r->inline_chart = g_new0 (OdsChartReader, 1);
+              r->inline_chart->kind = O42_CHART_COLUMN;
+              r->inline_chart->title = g_string_new (NULL);
+              r->inline_depth = 0;
+            }
+        }
       else if (strcmp (name, "image") == 0 && r->parts != NULL)
         {
-          /* The picture is a file in the zip the frame points at. */
+          /* The picture is a file in the zip the frame points at, or
+           * in a flat file its base64 inside this element. */
           const char *href = attr (names, values, "href");
-          GBytes *data = NULL;
 
           if (href != NULL)
             {
               while (*href == '.' || *href == '/')
                 href++;
-              data = g_hash_table_lookup (r->parts, href);
-            }
-          if (data != NULL)
-            {
-              int pw, ph;
-              const char *format;
-
-              if (o42_image_probe (data, &pw, &ph, &format))
-                {
-                  O42Picture *pic = o42_sheet_add_picture (r->sheet, data, format, pw, ph,
-                                                           r->row, r->cell_col);
-
-                  if (pic != NULL)
-                    {
-                      pic->anchor = r->frame_anchor;
-                      pic->dx = r->frame_x;
-                      pic->dy = r->frame_y;
-                      if (r->frame_w > 1) pic->width = r->frame_w;
-                      if (r->frame_h > 1) pic->height = r->frame_h;
-                    }
-                }
+              place_picture (r, g_hash_table_lookup (r->parts, href));
             }
         }
+      else if (strcmp (name, "binary-data") == 0 && r->binary == NULL)
+        r->binary = g_string_new (NULL);
       else if (strcmp (name, "enhanced-geometry") == 0 && r->shape != NULL)
         o42_shape_apply_ods_type (r->shape, attr (names, values, "type"));
       else if (strcmp (name, "rect") == 0 || strcmp (name, "ellipse") == 0 ||
@@ -5527,6 +5679,31 @@ content_end (GMarkupParseContext *ctx, const char *element, gpointer user, GErro
   const char *name = local (element);
   (void) ctx; (void) error;
 
+  if (r->inline_chart != NULL && r->inline_depth > 0)
+    {
+      r->inline_depth--;
+      ods_chart_end (ctx, element, r->inline_chart, error);
+      return;
+    }
+  if (r->inline_chart != NULL)
+    {
+      /* The draw:object closes, and the chart in it is read. */
+      place_chart (r, r->inline_chart, r->row, r->cell_col,
+                   r->frame_x, r->frame_y, r->frame_w, r->frame_h);
+      g_clear_pointer (&r->inline_chart, g_free);
+    }
+  if (r->binary != NULL && strcmp (name, "binary-data") == 0)
+    {
+      gsize size = 0;
+      guchar *bytes = r->binary->len > 0 ? g_base64_decode (r->binary->str, &size) : NULL;
+      GBytes *data = g_bytes_new_take (bytes, size);
+
+      place_picture (r, data);
+      g_bytes_unref (data);
+      g_string_free (r->binary, TRUE);
+      r->binary = NULL;
+    }
+
   if (r->in_cell && strcmp (name, "span") == 0 && r->cell_runs != NULL)
     {
       O42TextRun run;
@@ -5690,6 +5867,12 @@ meta_start (GMarkupParseContext *ctx, const char *element, const char **names,
   O42Property which;
   (void) ctx; (void) error;
   r->meta_prop = -1;
+  /* Only what is inside office:meta: a flat file is walked whole for
+   * it, and a chart's title is not the book's. */
+  if (strcmp (name, "meta") == 0)
+    r->meta_open++;
+  if (r->meta_open == 0)
+    return;
   if (strcmp (name, "title") == 0)                r->meta_prop = O42_PROP_TITLE;
   else if (strcmp (name, "subject") == 0)         r->meta_prop = O42_PROP_SUBJECT;
   else if (strcmp (name, "initial-creator") == 0) r->meta_prop = O42_PROP_AUTHOR;
@@ -5711,7 +5894,9 @@ static void
 meta_end (GMarkupParseContext *ctx, const char *element, gpointer user, GError **error)
 {
   Reader *r = user;
-  (void) ctx; (void) element; (void) error;
+  (void) ctx; (void) error;
+  if (strcmp (local (element), "meta") == 0 && r->meta_open > 0)
+    r->meta_open--;
   if (r->meta_prop >= 0)
     {
       /* Several keywords are one list, as Excel keeps them. */
@@ -5741,6 +5926,16 @@ content_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer us
 {
   Reader *r = user;
   (void) ctx; (void) error;
+  if (r->inline_chart != NULL)
+    {
+      ods_chart_text (ctx, text, len, r->inline_chart, error);
+      return;
+    }
+  if (r->binary != NULL)
+    {
+      g_string_append_len (r->binary, text, (gssize) len);
+      return;
+    }
   if (r->in_num_style && r->num != NULL && r->num->in_fill)
     {
       /* "* " in a code: the character that fills the cell. */
@@ -6030,8 +6225,9 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
     return FALSE;
   {
     /* A flat OpenDocument file (.fods) is the one XML document with
-     * the styles, the content and the settings in it: it stands for
-     * every part at once, and is walked once for the content. */
+     * the styles, the content, the settings and the properties in it:
+     * it stands for every part at once, and is walked once for the
+     * content, once for the settings and once for the properties. */
     gsize len = 0;
     const char *head = g_bytes_get_data (archive, &len);
     gboolean flat = len > 5 && (g_str_has_prefix (head, "<?xml") || g_str_has_prefix (head, "<office:"));
@@ -6041,6 +6237,7 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
         parts = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_bytes_unref);
         g_hash_table_insert (parts, g_strdup ("content.xml"), g_bytes_ref (archive));
         g_hash_table_insert (parts, g_strdup ("settings.xml"), g_bytes_ref (archive));
+        g_hash_table_insert (parts, g_strdup ("meta.xml"), g_bytes_ref (archive));
       }
     else
       parts = o42_zip_read (archive, error);
@@ -6103,6 +6300,14 @@ o42_ods_load (O42Book *book, GFile *file, GError **error)
   g_ptr_array_unref (r.col_styles);
   g_free (r.row_style); g_free (r.cell_style); g_free (r.formula); g_free (r.value_type); g_free (r.value);
   g_free (r.cell_link);
+  if (r.binary != NULL) g_string_free (r.binary, TRUE);
+  if (r.inline_chart != NULL)
+    {
+      /* A file that ended inside a chart's document. */
+      g_string_free (r.inline_chart->title, TRUE);
+      g_free (r.inline_chart->sheet_name);
+      g_free (r.inline_chart);
+    }
   if (r.text != NULL) g_string_free (r.text, TRUE);
   if (r.note != NULL) g_string_free (r.note, TRUE);
   g_free (r.setting_table); g_free (r.setting_name);
