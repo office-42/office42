@@ -948,6 +948,11 @@ decode_array (Reader *r, const guchar **pp, const guchar *end)
   cols = p[0] + 1;
   rows = rd16 (p + 1) + 1;
   p += 3;
+  /* Every cell starts with a type byte, so an array that claims more
+   * cells than there are bytes left is not one; three bytes could
+   * otherwise ask for sixteen million empty cells. */
+  if ((gsize) rows * cols > (gsize) (end - p))
+    { n->as.array.rows = n->as.array.cols = 0; *pp = end; return n; }
   n->as.array.rows = rows;
   n->as.array.cols = cols;
   for (int i = 0; i < rows * cols && p < end; i++)
