@@ -79,7 +79,12 @@ append_style (GString *out, const O42Fmt *fmt, const O42Range *r)
     fmt->indent, fmt->locked ? 1 : 0, fmt->hidden ? 1 : 0);
   append_colour (out, fmt->colour);
   g_string_append (out, "\" Back=\"");
-  append_colour (out, fmt->fill != O42_FILL_NONE ? fmt->fill : 0xFFFFFF);
+  /* Gnumeric paints its solid pattern, Shade 1, in the background
+   * colour, where ours is the pattern's own colour edge to edge over
+   * the shading: a solid yellow pattern is a yellow Back, or it comes
+   * back white. */
+  append_colour (out, fmt->pattern == O42_PATTERN_SOLID ? fmt->pattern_colour
+                      : fmt->fill != O42_FILL_NONE ? fmt->fill : 0xFFFFFF);
   g_string_append (out, "\" PatternColor=\"");
   append_colour (out, fmt->pattern != O42_PATTERN_NONE ? fmt->pattern_colour : 0x000000);
   g_string_append_printf (out, "\" Format=\"%s\">\n", escaped);

@@ -1233,7 +1233,12 @@ cell_style (Styles *s, const O42Fmt *fmt)
   g_string_append_c (s->styles, '>');
 
   g_string_append (s->styles, "<style:table-cell-properties");
-  if (fmt->fill != O42_FILL_NONE)
+  /* OpenDocument shades a cell with one colour and no pattern; a solid
+   * pattern is its colour edge to edge, whatever lies under it, so that
+   * is the cell's colour. */
+  if (fmt->pattern == O42_PATTERN_SOLID)
+    g_string_append_printf (s->styles, " fo:background-color=\"#%06x\"", fmt->pattern_colour & 0xFFFFFF);
+  else if (fmt->fill != O42_FILL_NONE)
     g_string_append_printf (s->styles, " fo:background-color=\"#%06x\"", fmt->fill & 0xFFFFFF);
   {
     static const char *sides[4] = { "top", "bottom", "left", "right" };
