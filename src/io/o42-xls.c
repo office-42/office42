@@ -4159,6 +4159,18 @@ put_ustr_body_continued (Writer *w, const char *text, glong n_chars)
   put_ustr_body_continued_rich (w, text, n_chars, 0, NULL);
 }
 
+/* A font size, in half-points, as the twips a FONT record or a CF
+ * rule's font block holds it in.  Excel's sizes run from 1 to 409
+ * points, and a size that came from a damaged file may be anything an
+ * int holds, so it is multiplied out wide and kept in that range. */
+static guint
+font_twips (int half_points)
+{
+  gint64 twips = (gint64) half_points * 10;
+
+  return (guint) CLAMP (twips, 20, 8180);
+}
+
 static guint palette_index (Writer *w, guint32 colour);
 
 static guint
@@ -4239,7 +4251,9 @@ shape_text_font (const O42Shape *shape, O42Fmt *font)
 {
   o42_fmt_init_default (font);
   font->family = g_intern_string (shape->font != NULL ? shape->font : "Arial");
-  font->size = (int) ((shape->font_size > 0 ? shape->font_size : 10) * 2 + 0.5);
+  /* Held to Excel's largest size before it is made an int, which a
+   * size too large for one would make undefined. */
+  font->size = (int) ((shape->font_size > 0 ? MIN (shape->font_size, 409) : 10) * 2 + 0.5);
   font->bold = shape->bold ? 1 : 0;
   font->italic = shape->italic ? 1 : 0;
   font->colour = shape->text_colour;
@@ -5963,7 +5977,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
             gsize start = w->out->len;
             gboolean ts_changed = (c->mask & (O42_FMT_ITALIC | O42_FMT_STRIKEOUT)) != 0;
             for (int k = 0; k < 64; k++) put8 (w->out, 0);          /* no font name */
-            put32 (w->out, (c->mask & O42_FMT_SIZE) ? (guint32) c->fmt.size * 10 : 0xFFFFFFFFu);
+            put32 (w->out, (c->mask & O42_FMT_SIZE) ? font_twips (c->fmt.size) : 0xFFFFFFFFu);
             put32 (w->out, (c->fmt.italic && (c->mask & O42_FMT_ITALIC) ? 0x02 : 0) |
                            (c->fmt.strikeout && (c->mask & O42_FMT_STRIKEOUT) ? 0x80 : 0));
             put16 (w->out, (c->mask & O42_FMT_BOLD) ? (c->fmt.bold ? 700 : 400) : 0xFFFF);
@@ -6182,7 +6196,7 @@ static void
 write_font (Writer *w, const O42Fmt *f)
 {
   begin_record (w, R_FONT);
-  put16 (w->out, f->size * 10);
+  put16 (w->out, font_twips (f->size));
   put16 (w->out, (f->italic ? 0x02 : 0) | (f->strikeout ? 0x08 : 0));
   put16 (w->out, f->colour != 0 ? palette_index (w, f->colour) : 0x7FFF);
   put16 (w->out, f->bold ? 700 : 400);
