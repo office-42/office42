@@ -539,7 +539,10 @@ o42_escher_parse_group (const guchar *data, gsize len, GPtrArray *images, GPtrAr
       guint ver = verinst & 0x0F;
       const guchar *body = p + 8;
 
-      if (body + rlen > end)
+      /* Lengths are compared with what is left rather than added to a
+       * pointer, which a length from the file could carry past the end
+       * of memory. */
+      if (rlen > (gsize) (end - body))
         break;
       if (ver == 15)
         {
@@ -571,7 +574,8 @@ o42_escher_parse_group (const guchar *data, gsize len, GPtrArray *images, GPtrAr
                   const guchar *h = img + (two ? 32 : 16);
                   fmt = btype == ESC_BLIP_EMF ? "emf" : btype == ESC_BLIP_WMF ? "wmf" : "pict";
                   skip = (two ? 32 : 16) + 34;
-                  if (h + 34 <= body + rlen && blen >= skip && img + blen <= end)
+                  if ((gsize) (body + rlen - img) >= skip && blen >= skip &&
+                      blen <= (gsize) (end - img))
                     {
                       /* The header says how large the metafile unpacks
                        * to, and a file may say anything: a picture in a
@@ -605,7 +609,8 @@ o42_escher_parse_group (const guchar *data, gsize len, GPtrArray *images, GPtrAr
                     }
                   fmt = NULL;
                 }
-              if (fmt != NULL && img + skip <= body + rlen && blen >= skip && img + blen <= end)
+              if (fmt != NULL && skip <= (gsize) (body + rlen - img) && blen >= skip &&
+                  blen <= (gsize) (end - img))
                 {
                   g_ptr_array_add (images, g_bytes_new (img + skip, blen - skip));
                   g_ptr_array_add (formats, (gpointer) g_intern_string (fmt));
@@ -635,8 +640,11 @@ escher_read_path (O42EscherFound *cur, const guchar *vertices, gsize vlen,
   gsize each = (cb == 8) ? 8 : 4;
   /* A box of nothing (LibreOffice's) means the numbers are EMU of the
    * shape's own size, which the caller knows. */
-  gboolean raw = geo[2] - geo[0] == 0 && geo[3] - geo[1] == 0;
-  double gw = raw ? 1 : MAX (geo[2] - geo[0], 1), gh = raw ? 1 : MAX (geo[3] - geo[1], 1);
+  gboolean raw = geo[2] == geo[0] && geo[3] == geo[1];
+  /* In doubles: the box's corners are the file's, and their difference
+   * can be more than an int holds. */
+  double gw = raw ? 1 : MAX ((double) geo[2] - geo[0], 1);
+  double gh = raw ? 1 : MAX ((double) geo[3] - geo[1], 1);
   const guchar *v = vertices + 6;
   guint used = 0;
   GArray *path = g_array_new (FALSE, FALSE, sizeof (O42PathPoint));
@@ -644,8 +652,8 @@ escher_read_path (O42EscherFound *cur, const guchar *vertices, gsize vlen,
 
 #define VERTEX(i, px, py) G_STMT_START {                                            \
     const guchar *q = v + (gsize) (i) * each;                                       \
-    if (each == 8) { px = ((gint32) rd32 (q) - geo[0]) / gw; py = ((gint32) rd32 (q + 4) - geo[1]) / gh; } \
-    else { px = ((gint16) rd16 (q) - geo[0]) / gw; py = ((gint16) rd16 (q + 2) - geo[1]) / gh; } \
+    if (each == 8) { px = ((double) (gint32) rd32 (q) - geo[0]) / gw; py = ((double) (gint32) rd32 (q + 4) - geo[1]) / gh; } \
+    else { px = ((double) (gint16) rd16 (q) - geo[0]) / gw; py = ((double) (gint16) rd16 (q + 2) - geo[1]) / gh; } \
   } G_STMT_END
 
   if (6 + (gsize) n * each > vlen)
@@ -737,14 +745,17 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
       guint ver = verinst & 0x0F, inst = verinst >> 4;
       const guchar *body = p + 8;
 
-      if (body + rlen > end)
-        rlen = end - body;
+      if (rlen > (gsize) (end - body))
+        rlen = (guint32) (end - body);
       if (ver == 15)
         {
           if (type == ESC_SP_CONTAINER)
             {
+              /* A shape with no anchor is not kept, nor is its path. */
               if (in_shape && cur.col2 >= 0)
                 g_array_append_val (found, cur);
+              else if (cur.path != NULL)
+                g_array_unref (cur.path);
               memset (&cur, 0, sizeof cur);
               cur.col2 = -1;
               /* What a shape has unless its Opt says otherwise. */
@@ -778,7 +789,10 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
         {
           /* The instance counts the properties; a complex one's bytes
            * follow the table and are not properties themselves. */
-          const guchar *complex = body + 6 * MIN (inst, rlen / 6);
+          /* An offset into the body rather than a pointer: the lengths
+           * are the file's, and a pointer they carried past the end of
+           * the body would be undefined before it was compared. */
+          gsize complex = 6 * (gsize) MIN (inst, rlen / 6);
           const guchar *vertices = NULL, *segments = NULL;
           gsize n_vertex_bytes = 0, n_segment_bytes = 0;
           gint32 geo[4] = { 0, 0, 21600, 21600 };
@@ -797,21 +811,23 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
                    * itself says how long the array really is. */
                   gsize actual = v;
 
-                  if (id >= 0x0145 && id <= 0x0159 && complex + 6 <= body + rlen)
+                  if (id >= 0x0145 && id <= 0x0159 && complex <= rlen && rlen - complex >= 6)
                     {
-                      guint ne = rd16 (complex), cb = rd16 (complex + 4);
+                      guint ne = rd16 (body + complex), cb = rd16 (body + complex + 4);
                       gsize each = cb == 0xFFF0 ? 4 : cb;
                       gsize with_header = 6 + (gsize) ne * each;
 
-                      if (with_header == v + 6 || (with_header != v && with_header <= (gsize) (body + rlen - complex)))
+                      if (with_header == actual + 6 || (with_header != v && with_header <= rlen - complex))
                         actual = with_header;
                     }
-                  if (complex + actual <= body + rlen)
+                  if (complex <= rlen && actual <= rlen - complex)
                     {
-                      if (id == 0x0145) { vertices = complex; n_vertex_bytes = actual; }
-                      else if (id == 0x0146) { segments = complex; n_segment_bytes = actual; }
+                      if (id == 0x0145) { vertices = body + complex; n_vertex_bytes = actual; }
+                      else if (id == 0x0146) { segments = body + complex; n_segment_bytes = actual; }
+                      complex += actual;
                     }
-                  complex += actual;
+                  else
+                    complex = (gsize) rlen + 1;   /* nothing after it is there either */
                   continue;
                 }
               switch (id)
@@ -864,6 +880,8 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
     }
   if (in_shape && cur.col2 >= 0)
     g_array_append_val (found, cur);
+  else if (cur.path != NULL)
+    g_array_unref (cur.path);
 
   /* The angle's sign depends on the flips, which the Sp record gave
    * before the Opt: settle it now that both are known. */

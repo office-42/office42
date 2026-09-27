@@ -63,6 +63,21 @@ chain (const guint32 *fat, gsize n_fat, guint32 start)
   return sectors;
 }
 
+/* Whether `take` bytes of sector `s` lie within `len` bytes that begin
+ * with a header of `header` bytes, and if so where they start.  Found
+ * by division: a sector number from the file times the sector size can
+ * wrap round where gsize is 32 bits, and a wrapped offset passes any
+ * comparison made by adding. */
+static gboolean
+sector_fits (gsize len, gsize header, guint32 s, gsize sector_size,
+             gsize take, gsize *at)
+{
+  if (len < header || s > (len - header) / sector_size)
+    return FALSE;
+  *at = header + (gsize) s * sector_size;
+  return take <= len - *at;
+}
+
 /* Reads a chain of sectors of `sector_size` from `base` (the file for
  * regular sectors, the mini stream for mini sectors) into one buffer,
  * clipped to `size` bytes. */
@@ -78,9 +93,10 @@ read_chain (const guchar *base, gsize base_len, gsize sector_size,
 
   for (guint i = 0; i < sectors->len && out->len < size; i++)
     {
-      gsize at = header + (gsize) g_array_index (sectors, guint32, i) * sector_size;
       gsize take = MIN (sector_size, size - out->len);
-      if (at + take > base_len)
+      gsize at;
+      if (!sector_fits (base_len, header, g_array_index (sectors, guint32, i),
+                        sector_size, take, &at))
         break;
       g_byte_array_append (out, base + at, take);
     }
@@ -143,8 +159,8 @@ o42_ole2_read_stream (GBytes *file, const char *name, GError **error)
       n_difat = (guint32) (size / sector_size);
     for (guint32 ds = first_difat, k = 0; ds < FREESECT - 1 && k < n_difat; k++)
       {
-        gsize at = 512 + (gsize) ds * sector_size;
-        if (at + sector_size > size) break;
+        gsize at;
+        if (!sector_fits (size, 512, ds, sector_size, sector_size, &at)) break;
         for (guint i = 0; i + 1 < per_sector && fat_sectors->len < n_fat_sectors; i++)
           {
             guint32 s = rd32 (buf + at + i * 4);
@@ -157,8 +173,10 @@ o42_ole2_read_stream (GBytes *file, const char *name, GError **error)
     fat = g_array_new (FALSE, FALSE, sizeof (guint32));
     for (guint i = 0; i < fat_sectors->len; i++)
       {
-        gsize at = 512 + (gsize) g_array_index (fat_sectors, guint32, i) * sector_size;
-        if (at + sector_size > size) break;
+        gsize at;
+        if (!sector_fits (size, 512, g_array_index (fat_sectors, guint32, i),
+                          sector_size, sector_size, &at))
+          break;
         for (guint j = 0; j < per_sector; j++)
           {
             guint32 e = rd32 (buf + at + j * 4);

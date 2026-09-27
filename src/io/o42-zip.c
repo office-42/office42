@@ -40,6 +40,10 @@ crc32_bytes (const guchar *data, gsize n)
  * one, so there is a wide margin before an honest file is refused. */
 #define PART_FLOOR (32u * 1024 * 1024)
 #define SWELL_MAX  500
+/* The whole archive may come to SWELL_MAX times its size, and to eight
+ * times PART_FLOOR whatever its size: otherwise many small parts, each
+ * under the floor, add up to what no one part may be. */
+#define ARCHIVE_FLOOR (8 * (gsize) PART_FLOOR)
 
 /* Runs `data` through a GConverter and returns the result. */
 static GBytes *
@@ -139,10 +143,16 @@ o42_zip_read (GBytes *archive, GError **error)
   gsize cd = rd32 (buf + eocd + 16);
   GHashTable *table = g_hash_table_new_full (g_str_hash, g_str_equal, g_free,
                                              (GDestroyNotify) g_bytes_unref);
+  /* Local headers already read: two names for one entry are how a
+   * small file asks for the same gigabyte a thousand times. */
+  GHashTable *seen = g_hash_table_new (g_direct_hash, g_direct_equal);
+  gsize budget = MAX (ARCHIVE_FLOOR, size > G_MAXSIZE / SWELL_MAX ? G_MAXSIZE : size * SWELL_MAX);
 
+  /* The bounds are checked by subtraction: an offset from the file
+   * added to another can wrap round where gsize is 32 bits. */
   for (guint i = 0; i < entries; i++)
     {
-      if (cd + 46 > size || rd32 (buf + cd) != 0x02014b50)
+      if (cd > size || size - cd < 46 || rd32 (buf + cd) != 0x02014b50)
         break;
       guint method = rd16 (buf + cd + 10);
       gsize csize = rd32 (buf + cd + 20);
@@ -151,38 +161,42 @@ o42_zip_read (GBytes *archive, GError **error)
       guint xlen = rd16 (buf + cd + 30);
       guint clen = rd16 (buf + cd + 32);
       gsize local = rd32 (buf + cd + 42);
-      if (cd + 46 + nlen > size)
+      if (size - cd - 46 < nlen)
         break;
       char *name = g_strndup ((const char *) buf + cd + 46, nlen);
       cd += 46 + nlen + xlen + clen;
 
-      if (local + 30 > size || rd32 (buf + local) != 0x04034b50)
+      if (local > size || size - local < 30 || rd32 (buf + local) != 0x04034b50 ||
+          !g_hash_table_add (seen, GSIZE_TO_POINTER (local)))
         {
           g_free (name);
           continue;
         }
       gsize data = local + 30 + rd16 (buf + local + 26) + rd16 (buf + local + 28);
-      if (data + csize > size)
+      if (data > size || csize > size - data)
         {
           g_free (name);
           continue;
         }
 
       GBytes *content = NULL;
-      if (method == 0)
+      if (method == 0 && csize <= budget)
         content = g_bytes_new (buf + data, csize);
       else if (method == 8 && usize > PART_FLOOR && csize > 0 && usize / csize > SWELL_MAX)
         content = NULL;    /* a megabyte that claims to be a gigabyte */
       else if (method == 8)
-        content = inflate_bounded (buf + data, csize, usize != 0 ? usize : PART_FLOOR);
+        content = inflate_bounded (buf + data, csize,
+                                   MIN (usize != 0 ? usize : PART_FLOOR, budget));
       if (content == NULL || (usize != 0 && g_bytes_get_size (content) != usize))
         {
           g_clear_pointer (&content, g_bytes_unref);
           g_free (name);
           continue;
         }
+      budget -= g_bytes_get_size (content);
       g_hash_table_insert (table, name, content);
     }
+  g_hash_table_unref (seen);
   return table;
 }
 
