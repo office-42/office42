@@ -318,11 +318,18 @@ append_cell (Writer *w, GString *out, O42Sheet *sheet, int row, int col, guint x
       {
         O42Node *tree = o42_formula_parse (input + 1);
         const O42Table *table = strchr (input, '[') != NULL ? o42_sheet_table_at (sheet, row, col) : NULL;
+        char *typed = g_strstrip (g_strdup (input + 1));
         char *spelled;
         o42_node_prefix_functions (tree, o42_function_is_future, "_xlfn.");
         if (table != NULL)
           o42_node_qualify_structured (tree, table->name);
-        spelled = o42_node_to_string (tree);
+        /* A formula the parser cannot read goes out as it was typed, not
+         * as the error it reads as: the text is the user's. */
+        if (tree->type == O42_NODE_ERROR && g_ascii_strcasecmp (typed, o42_error_name (tree->as.error)) != 0)
+          spelled = g_strdup (typed);
+        else
+          spelled = o42_node_to_string (tree);
+        g_free (typed);
         escaped = g_markup_escape_text (spelled, -1);
         g_free (spelled);
         o42_node_free (tree);
