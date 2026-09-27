@@ -2486,6 +2486,29 @@ write_names (GString *out, O42Book *book)
           g_string_free (addr, TRUE);
           g_free (a); g_free (b); g_free (ename);
         }
+      else if (o42_book_lookup_name_formula (book, l->data) != NULL)
+        {
+          /* A name for a constant or a formula, =0.25 or =TOTAL*2, is a
+           * named expression, in OpenFormula as a cell's formula is;
+           * its references are relative to the first sheet's A1, as
+           * LibreOffice writes them. */
+          const char *formula = o42_book_lookup_name_formula (book, l->data);
+          char *with = formula[0] == '=' ? g_strdup (formula) : g_strconcat ("=", formula, NULL);
+          char *of = of_formula (with);
+          GString *base = g_string_new (NULL);
+          char *ename = g_markup_escape_text (l->data, -1);
+          char *ebase, *eof;
+
+          of_sheet_prefix (o42_sheet_get_name (o42_book_sheet (book, 0)), base);
+          g_string_append (base, "$A$1");
+          ebase = g_markup_escape_text (base->str, -1);
+          eof = g_markup_escape_text (of, -1);
+          g_string_append_printf (out, "<table:named-expression table:name=\"%s\" table:base-cell-address=\"%s\" table:expression=\"%s\"/>",
+                                  ename, ebase, eof);
+          g_free (eof); g_free (ebase); g_free (ename);
+          g_string_free (base, TRUE);
+          g_free (of); g_free (with);
+        }
     }
   g_string_append (out, "</table:named-expressions>");
   g_list_free (names);
@@ -5460,6 +5483,38 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
           o42_node_free (tree);
           g_free (ours);
           g_free (of);
+        }
+      return;
+    }
+  if (strcmp (name, "named-expression") == 0)
+    {
+      /* A name for a constant or a formula.  LibreOffice writes the
+       * expression bare, 0.25 or [$Sheet1.$B$4]*2, and OpenDocument
+       * lets it carry "of:=" as a cell's formula does; both read the
+       * same.  One that is only a reference is a name for a range. */
+      const char *nname = attr (names, values, "name");
+      const char *expr = attr (names, values, "expression");
+      if (nname != NULL && expr != NULL && *expr != '\0')
+        {
+          char *ours = formula_from_of (expr);
+          O42Node *tree = o42_formula_parse (ours + 1);
+          O42Sheet *sheet = NULL;
+          O42Range range;
+
+          if (tree != NULL && (tree->type == O42_NODE_REF || tree->type == O42_NODE_RANGE))
+            {
+              sheet = tree->sheet != NULL ? o42_book_find_sheet (r->book, tree->sheet) : o42_book_sheet (r->book, 0);
+              if (tree->type == O42_NODE_REF)
+                { range.row0 = range.row1 = tree->as.ref.row; range.col0 = range.col1 = tree->as.ref.col; }
+              else
+                range = tree->as.range;
+            }
+          if (sheet != NULL)
+            o42_book_define_name (r->book, nname, sheet, &range);
+          else if (tree != NULL && tree->type != O42_NODE_ERROR)
+            o42_book_define_name_formula (r->book, nname, ours);
+          o42_node_free (tree);
+          g_free (ours);
         }
       return;
     }
