@@ -461,6 +461,12 @@ typedef struct
   GHashTable *shared;        /* o42_key -> GBytes rgce */
   int         pending_row, pending_col;   /* formula waiting on a STRING record */
   gboolean    pending;
+  /* A formula that pointed at a shared formula not yet read -- the
+   * first cell of one, whose SHRFMLA follows it -- and where it is. */
+  gboolean    exp_waiting;
+  O42Sheet   *exp_sheet;
+  int         exp_row, exp_col;
+  guint       exp_xf, exp_srow, exp_scol;
   int         default_width;
 
   /* Notes: OBJ gives an id, TXO and its CONTINUEs the text, NOTE the cell. */
@@ -1964,6 +1970,7 @@ read_formula (Reader *r, const guchar *p, gsize len)
   O42Node *tree;
   char *text;
 
+  r->exp_waiting = FALSE;
   if (rgce + cce > end)
     return;
 
@@ -1979,7 +1986,15 @@ read_formula (Reader *r, const guchar *p, gsize len)
       GBytes *master = g_hash_table_lookup (r->shared, GSIZE_TO_POINTER ((gsize) o42_key (srow, scol)));
       if (master == NULL)
         {
-          /* Not seen yet (or an array formula): keep the cached value. */
+          /* Not seen yet (or an array formula): keep the cached value,
+           * and the formula too if a SHRFMLA for it comes next. */
+          r->exp_waiting = TRUE;
+          r->exp_sheet = r->sheet;
+          r->exp_row = row;
+          r->exp_col = col;
+          r->exp_xf = xf;
+          r->exp_srow = srow;
+          r->exp_scol = scol;
           r->pending = FALSE;
           if (result[6] == 0xFF && result[7] == 0xFF)
             {
@@ -2023,8 +2038,29 @@ read_shrfmla (Reader *r, const guchar *p, gsize len)
   guint r0 = rd16 (p), c0 = p[4];
   guint cce = rd16 (p + 8);
   if (10 + cce <= len)
-    g_hash_table_insert (r->shared, GSIZE_TO_POINTER ((gsize) o42_key (r0, c0)),
-                         g_bytes_new (p + 8, len - 8));
+    {
+      g_hash_table_insert (r->shared, GSIZE_TO_POINTER ((gsize) o42_key (r0, c0)),
+                           g_bytes_new (p + 8, len - 8));
+      /* Excel and LibreOffice write the first cell of a shared formula
+       * before the SHRFMLA that holds it, so that cell has kept only
+       * its cached value; it has its formula now.  Its STRING record,
+       * if any, comes after this one and is not wanted. */
+      if (r->exp_waiting && r->exp_sheet == r->sheet && r->sheet != NULL &&
+          r->exp_srow == r0 && r->exp_scol == c0)
+        {
+          O42Node *tree = decode_formula (r, p + 10, cce, r->exp_row, r->exp_col, TRUE,
+                                          p + 10 + cce, p + len);
+          char *text = o42_node_to_string (tree);
+          char *input = g_strconcat ("=", text, NULL);
+
+          set_cell (r, r->exp_row, r->exp_col, r->exp_xf, input);
+          g_free (input);
+          g_free (text);
+          o42_node_free (tree);
+          r->pending = FALSE;
+        }
+    }
+  r->exp_waiting = FALSE;
 }
 
 /* A number from a CF rule's formula: ptgInt or ptgNum, nothing else. */
