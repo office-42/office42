@@ -301,7 +301,7 @@ flush_cell (O42Sheet *sheet, GString *cell, gboolean *in_cell, int row, int *col
   if (*shown != '\0' && row < O42_MAX_ROWS && *col < O42_MAX_COLS)
     o42_sheet_set_input (sheet, row, *col, shown);
   g_free (shown);
-  *col += *span;
+  *col = MIN (*col + *span, O42_MAX_COLS);
   *in_cell = FALSE;
   *span = 1;
   g_string_truncate (cell, 0);
@@ -318,7 +318,7 @@ o42_html_load (O42Sheet *sheet, GFile *file, GError **error)
   int span = 1;
   gboolean in_cell = FALSE, in_row = FALSE, in_table = FALSE, skipping = FALSE;
   O42Range used;
-  GArray *pending;   /* rowspans still to skip: row, col, count */
+  GArray *pending;   /* rowspans to skip: first row, last row, col */
 
   g_return_val_if_fail (sheet != NULL && G_IS_FILE (file), FALSE);
   if (!g_file_load_contents (file, NULL, &text, &length, NULL, error))
@@ -392,25 +392,30 @@ o42_html_load (O42Sheet *sheet, GFile *file, GError **error)
               if (!closing)
                 {
                   int rowspan;
+                  gboolean pushed = TRUE;
 
                   /* A cell held open by a rowspan above pushes this
-                   * one along. */
-                  for (guint i = 0; i < pending->len; i++)
+                   * one along, as far as the spans in its way say. */
+                  while (pushed)
                     {
-                      int *e = &g_array_index (pending, int, i * 3);
-                      if (e[0] == row && e[1] == col && e[2] > 0)
-                        { col += 1; i = 0; }
+                      pushed = FALSE;
+                      for (guint i = 0; i < pending->len; i++)
+                        {
+                          int *e = &g_array_index (pending, int, i * 3);
+                          if (row >= e[0] && row <= e[1] && e[2] == col)
+                            { col += 1; pushed = TRUE; }
+                        }
                     }
                   in_cell = TRUE;
                   g_string_truncate (cell, 0);
-                  span = MAX (attr_int (attrs, "colspan", 1), 1);
-                  rowspan = MAX (attr_int (attrs, "rowspan", 1), 1);
+                  /* HTML's own limits: 1000 columns, 65534 rows. */
+                  span = CLAMP (attr_int (attrs, "colspan", 1), 1, 1000);
+                  rowspan = CLAMP (attr_int (attrs, "rowspan", 1), 1, 65534);
                   if (rowspan > 1)
-                    for (int r = 1; r < rowspan; r++)
-                      {
-                        int entry[3] = { row + r, col, 1 };
-                        g_array_append_vals (pending, entry, 3);
-                      }
+                    {
+                      int entry[3] = { row + 1, row + rowspan - 1, col };
+                      g_array_append_vals (pending, entry, 1);
+                    }
                 }
             }
           else if (in_cell && (strcmp (tag, "br") == 0 || strcmp (tag, "p") == 0))
