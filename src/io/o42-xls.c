@@ -448,6 +448,12 @@ typedef struct
   gboolean    saw_standard_width;   /* the sheet's STANDARDWIDTH was read */
   GHashTable *filter_criteria;   /* sheet index -> GPtrArray of "entry\tcriterion" */
   int         n_format5;     /* BIFF5 FORMAT records are numbered in order */
+  /* Records that name a range have the sheet do something to every cell
+   * of it; what those have asked for so far, against what the file can
+   * honestly ask for (see where each is read). */
+  gsize       array_cells;   /* the cells of ARRAY blocks, in the whole book */
+  gsize       linked_cells;  /* the cells HLINK ranges spread a link over */
+  gsize       merged_cells;  /* the cells of this sheet's merges */
 
   /* Current sheet */
   O42Sheet   *sheet;
@@ -2912,8 +2918,19 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         {
           O42Range block = o42_range_normalise (rd16 (p), p[4], rd16 (p + 2), p[5]);
           guint cce = rd16 (p + 12);
-          if (14 + cce <= len && block.row1 < O42_MAX_ROWS && block.col1 < O42_MAX_COLS)
+          gsize cells = (gsize) (block.row1 - block.row0 + 1) * (block.col1 - block.col0 + 1);
+
+          /* The sheet makes a cell of every member of the block.  Each
+           * member of an honest block has a FORMULA record of its own,
+           * twenty-six bytes at the least, so the blocks of a whole book
+           * cover no more cells than the stream has room for those; a
+           * block that would -- the whole grid, from seventeen bytes --
+           * is left out, and its cells keep the values they were saved
+           * with. */
+          if (14 + cce <= len && block.row1 < O42_MAX_ROWS && block.col1 < O42_MAX_COLS &&
+              r->array_cells + cells <= r->len / 26)
             {
+              r->array_cells += cells;
               O42Node *tree = decode_formula (r, p + 14, cce, block.row0, block.col0, FALSE,
                                               p + 14 + cce, p + len);
               char *text = o42_node_to_string (tree);
@@ -3028,7 +3045,12 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
     case R_COLINFO:
       if (len >= 10 && r->sheet)
         {
-          int first = rd16 (p), last = MIN (rd16 (p + 2), O42_MAX_COLS - 1);
+          /* BIFF8's grid is 256 columns wide, and LibreOffice ends its
+           * last COLINFO on the 257th, which is kept as it always was;
+           * a record that runs on to the 65,536th is sixteen thousand
+           * columns set from twelve bytes, and a file of them takes
+           * minutes. */
+          int first = rd16 (p), last = MIN (rd16 (p + 2), O42_XLS_MAX_COLS);
           guint width = rd16 (p + 4);
           guint flags = rd16 (p + 8);
           for (int c = first; c <= last; c++)
@@ -3133,10 +3155,31 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         {
           O42Range at = o42_range_normalise (rd16 (p), rd16 (p + 4), rd16 (p + 2), rd16 (p + 6));
           char *target = read_hlink_target (p + 8, p + len);
-          if (target != NULL)
-            for (int row = at.row0; row <= at.row1 && row < O42_MAX_ROWS; row++)
-              for (int col = at.col0; col <= at.col1 && col < O42_MAX_COLS; col++)
-                o42_sheet_set_link (r->sheet, row, col, target);
+          if (target != NULL && at.col0 < O42_MAX_COLS)
+            {
+              gsize cells;
+
+              /* A link on a range is set on each of its cells, which
+               * costs the sheet some hundred bytes a cell against the
+               * file's eight for the range, and a range over the whole
+               * grid is a billion cells.  A range is spread up to 4096
+               * cells, and 65,536 in all, which is more than a book is
+               * honestly given; past that the link goes on the range's
+               * top-left cell, which is where the .xlsx reader puts
+               * every one. */
+              at.col1 = MIN (at.col1, O42_MAX_COLS - 1);
+              cells = (gsize) (at.row1 - at.row0 + 1) * (at.col1 - at.col0 + 1);
+              if (cells > 4096 || r->linked_cells + cells > 65536)
+                {
+                  at.row1 = at.row0;
+                  at.col1 = at.col0;
+                  cells = 1;
+                }
+              r->linked_cells += cells;
+              for (int row = at.row0; row <= at.row1; row++)
+                for (int col = at.col0; col <= at.col1; col++)
+                  o42_sheet_set_link (r->sheet, row, col, target);
+            }
           g_free (target);
         }
       break;
@@ -3148,8 +3191,19 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
             {
               const guchar *q = p + 2 + i * 8;
               O42Range m = o42_range_normalise (rd16 (q), rd16 (q + 4), rd16 (q + 2), rd16 (q + 6));
-              if (m.row1 < O42_MAX_ROWS && m.col1 < O42_MAX_COLS)
-                o42_sheet_merge (r->sheet, &m);
+              gsize cells = (gsize) (m.row1 - m.row0 + 1) * (m.col1 - m.col0 + 1);
+
+              /* A merge looks at every cell it covers, so a range is
+               * held to BIFF8's grid, and -- merges never overlapping --
+               * a sheet's merges to one grid's worth of cells in all:
+               * otherwise eight bytes are a billion cells to look at,
+               * and a record holds a thousand such ranges. */
+              if (m.row1 < O42_XLS_MAX_ROWS && m.col1 < O42_XLS_MAX_COLS &&
+                  r->merged_cells + cells <= (gsize) O42_XLS_MAX_ROWS * O42_XLS_MAX_COLS)
+                {
+                  r->merged_cells += cells;
+                  o42_sheet_merge (r->sheet, &m);
+                }
             }
         }
       break;
@@ -3440,6 +3494,7 @@ read_workbook (Reader *r, GError **error)
                 r->obj_is_note = FALSE;
                 r->cf_have_range = FALSE;
                 r->saw_standard_width = FALSE;
+                r->merged_cells = 0;
                 r->chart_sheet = type == 0x0020;
                 if (r->chart_sheet)
                   {
