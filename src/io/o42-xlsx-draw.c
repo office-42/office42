@@ -24,34 +24,39 @@
 
 /* ---- geometry ---- */
 
+/* Where a row or column starts, in pixels.  The sheet answers from the
+ * few rows and columns whose size is not the default; adding up every
+ * one before it took sixteen million steps for an anchor at the foot
+ * of the sheet, and a drawing can hold thousands of anchors. */
 static double
 offset_px (O42Sheet *sheet, gboolean cols, int index)
 {
-  double px = 0;
-  for (int i = 0; i < index; i++)
-    px += cols ? o42_sheet_col_width (sheet, i) : o42_sheet_row_height (sheet, i);
-  return px;
+  if (index <= 0)
+    return 0;
+  return cols ? o42_sheet_col_offset (sheet, index) : o42_sheet_row_offset (sheet, index);
 }
 
-/* The cell a pixel position falls in, and how far into it. */
+/* The cell a pixel position falls in, and how far into it: the first
+ * one whose far edge is past the position, found by halving since the
+ * edges only grow.  A position past the sheet's last edge but one is
+ * the last cell, with no offset into it. */
 static void
 cell_at (O42Sheet *sheet, gboolean cols, double px, int *index, double *offset)
 {
   int limit = cols ? O42_MAX_COLS : O42_MAX_ROWS;
-  double at = 0;
-  for (int i = 0; i < limit - 1; i++)
+  int low = 0, high = limit - 1;
+
+  while (low < high)
     {
-      double size = cols ? o42_sheet_col_width (sheet, i) : o42_sheet_row_height (sheet, i);
-      if (px < at + size)
-        {
-          *index = i;
-          *offset = MAX (px - at, 0);
-          return;
-        }
-      at += size;
+      int mid = low + (high - low) / 2;
+
+      if (offset_px (sheet, cols, mid + 1) > px)
+        high = mid;
+      else
+        low = mid + 1;
     }
-  *index = limit - 1;
-  *offset = 0;
+  *index = low;
+  *offset = low < limit - 1 ? MAX (px - offset_px (sheet, cols, low), 0) : 0;
 }
 
 static const char *
