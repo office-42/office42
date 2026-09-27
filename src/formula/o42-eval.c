@@ -185,6 +185,16 @@ array_operand (ArrayConst *a)
  * program down rather than answer #NUM!. */
 #define ARRAY_CELLS_MAX (10 * 1000 * 1000)
 
+/* Whether an array of rows by cols is one to make.  A range may be the
+ * whole sheet, seventeen billion cells, and the functions that make an
+ * array from a range make one of its size: past ARRAY_CELLS_MAX that is
+ * not an answer but the end of the program, and the answer is #NUM!. */
+static gboolean
+array_fits (gint64 rows, gint64 cols)
+{
+  return rows >= 1 && cols >= 1 && rows * cols <= ARRAY_CELLS_MAX;
+}
+
 static ArrayConst *
 array_const_new (int rows, int cols)
 {
@@ -420,6 +430,14 @@ broadcast_binary (O42EvalContext *ctx, O42Op op, const O42Operand *oa, const O42
   operand_dims (ob, &rb, &cb);
   rows = MAX (ra, rb);
   cols = MAX (ca, cb);
+  if (!array_fits (rows, cols))
+    {
+      O42Operand big;
+
+      memset (&big, 0, sizeof big);
+      big.value = o42_value_error (O42_ERR_NUM);
+      return big;
+    }
   out = array_const_new (rows, cols);
   for (int i = 0; i < rows; i++)
     for (int j = 0; j < cols; j++)
@@ -3269,6 +3287,21 @@ fn_formulatext (O42EvalContext *ctx, O42Operand *args, int n)
 
 /* The delimiters an argument gives, one or an array of them, lowered
  * when the match ignores case. */
+/* The lower case of each character on its own: one character for one,
+ * so that a place found in the lowered copy is the same place in the
+ * text.  g_utf8_strdown makes the dotted capital I two characters, and
+ * every place found after one would have pointed past it -- past the
+ * end of the text, for the last. */
+static char *
+lower_by_char (const char *s)
+{
+  GString *out = g_string_sized_new (strlen (s));
+
+  for (const char *p = s; *p != '\0'; p = g_utf8_next_char (p))
+    g_string_append_unichar (out, g_unichar_tolower (g_utf8_get_char (p)));
+  return g_string_free (out, FALSE);
+}
+
 static GPtrArray *
 delimiters_of (O42EvalContext *ctx, const O42Operand *op, gboolean fold)
 {
@@ -3285,7 +3318,7 @@ delimiters_of (O42EvalContext *ctx, const O42Operand *op, gboolean fold)
         o42_value_clear (&v);
         if (fold)
           {
-            char *lower = g_utf8_strdown (text, -1);
+            char *lower = lower_by_char (text);
             g_free (text);
             text = lower;
           }
@@ -3338,7 +3371,7 @@ text_around (O42EvalContext *ctx, O42Operand *args, int n, gboolean before)
 
   /* The matches, in order, none overlapping; case is ignored on a
    * lowered copy, whose characters stand where the text's do. */
-  scan = match_mode != 0 ? g_utf8_strdown (text, -1) : g_strdup (text);
+  scan = match_mode != 0 ? lower_by_char (text) : g_strdup (text);
   length = strlen (text);
   hits = g_array_new (FALSE, FALSE, sizeof (gsize));
   for (const char *p = scan; *p != '\0'; )
@@ -3386,6 +3419,9 @@ text_around (O42EvalContext *ctx, O42Operand *args, int n, gboolean before)
           }
         n_hits++;
       }
+    /* An instance beyond any text's matches is simply not there; held
+     * to what an int holds before it is made one. */
+    instance = CLAMP (instance, -1e9, 1e9);
     which = instance > 0 ? (int) instance - 1 : n_hits + (int) instance;
     if (which >= 0 && which < n_hits)
       {
@@ -5704,6 +5740,12 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
             operand_dims (&rows_op, &r1, &c1);
             operand_dims (&cols_op, &r2, &c2);
             nr = MAX (r1, r2); nc = MAX (c1, c2);
+            if (!array_fits (nr, nc))
+              {
+                operand_clear (&rows_op); operand_clear (&cols_op); operand_clear (&base);
+                out->value = o42_value_error (O42_ERR_NUM);
+                return TRUE;
+              }
             a = array_const_new (nr, nc);
             for (int i = 0; i < nr; i++)
               for (int j = 0; j < nc; j++)
@@ -5712,7 +5754,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
                   double dr = 0, dc = 0;
                   O42ErrorCode err = O42_ERR_VALUE;
                   gboolean ok = o42_value_to_number (&rv, &dr, &err) && o42_value_to_number (&cv, &dc, &err);
-                  int row = base.range.row0 + (int) dr, col = base.range.col0 + (int) dc;
+                  /* In doubles until it is known to be on the sheet. */
+                  double row = base.range.row0 + trunc (dr), col = base.range.col0 + trunc (dc);
 
                   o42_value_clear (&rv); o42_value_clear (&cv);
                   if (!ok)
@@ -5720,7 +5763,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
                   else if (row < 0 || col < 0 || row >= O42_MAX_ROWS || col >= O42_MAX_COLS)
                     a->cells[i * nc + j] = o42_value_error (O42_ERR_REF);
                   else
-                    ctx->get_cell (ctx, base.sheet, row, col, &a->cells[i * nc + j]);
+                    ctx->get_cell (ctx, base.sheet, (int) row, (int) col, &a->cells[i * nc + j]);
                 }
             operand_clear (&rows_op); operand_clear (&cols_op); operand_clear (&base);
             *out = array_operand (a);
@@ -5904,13 +5947,19 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
             out->value = o42_value_bool (FALSE);
           return TRUE;
         }
+      operand_dims (&cond, &rows, &cols);
+      if (!array_fits (rows, cols))
+        {
+          operand_clear (&cond);
+          out->value = o42_value_error (O42_ERR_NUM);
+          return TRUE;
+        }
       yes = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
       memset (&no, 0, sizeof no);
       if (n_args == 3)
         no = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 2));
       else
         no.value = o42_value_bool (FALSE);
-      operand_dims (&cond, &rows, &cols);
       a = array_const_new (rows, cols);
       for (int i = 0; i < rows; i++)
         for (int j = 0; j < cols; j++)
@@ -6032,6 +6081,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
           if (!eval_number_arg (ctx, node, 0, &rows) || !eval_number_arg (ctx, node, 1, &cols) ||
               rows < 1 || cols < 1 || rows > O42_MAX_ROWS || cols > O42_MAX_COLS)
             { operand_clear (&hold); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+          if (!array_fits ((gint64) rows, (gint64) cols))
+            { operand_clear (&hold); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
           a = array_const_new ((int) rows, (int) cols);
           for (int i = 0; i < (int) rows; i++)
             for (int j = 0; j < (int) cols; j++)
@@ -6059,6 +6110,14 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
           for (int k = 0; k < n_arrays; k++)
             arrays[k] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, k));
           operand_dims (&arrays[0], &rows, &cols);
+          if (!array_fits (rows, cols))
+            {
+              for (int k = 0; k < n_arrays; k++)
+                operand_clear (&arrays[k]);
+              operand_clear (&hold);
+              out->value = o42_value_error (O42_ERR_NUM);
+              return TRUE;
+            }
           a = array_const_new (rows, cols);
           for (int i = 0; i < rows; i++)
             for (int j = 0; j < cols; j++)
@@ -6085,6 +6144,13 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
           operand_dims (&first, &rows, &cols);
           n_lines = by_row ? rows : cols;
           n_across = by_row ? cols : rows;
+          if (!array_fits (rows, cols))
+            {
+              operand_clear (&first);
+              operand_clear (&hold);
+              out->value = o42_value_error (O42_ERR_NUM);
+              return TRUE;
+            }
           a = by_row ? array_const_new (n_lines, 1) : array_const_new (1, n_lines);
           for (int i = 0; i < n_lines; i++)
             {
@@ -6112,6 +6178,14 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
           acc = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 0));
           values = eval_operand (ctx, g_ptr_array_index (node->as.call.args, 1));
           operand_dims (&values, &rows, &cols);
+          if (!array_fits (rows, cols))
+            {
+              operand_clear (&acc);
+              operand_clear (&values);
+              operand_clear (&hold);
+              out->value = o42_value_error (O42_ERR_NUM);
+              return TRUE;
+            }
           if (scan)
             a = array_const_new (rows, cols);
           for (int i = 0; i < rows; i++)
@@ -6261,6 +6335,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
       if (n_args >= 2) eval_bool_arg (ctx, node, 1, &by_col);
       if (n_args >= 3) eval_bool_arg (ctx, node, 2, &once);
       operand_dims (&src, &rows, &cols);
+      if (!array_fits (rows, cols))
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       n_items = by_col ? cols : rows;
       keys = g_ptr_array_new_with_free_func (g_free);
       counts = g_array_new (FALSE, FALSE, sizeof (int));
@@ -6336,6 +6412,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
 
       memset (bys, 0, sizeof bys);
       operand_dims (&src, &rows, &cols);
+      if (!array_fits (rows, cols))
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       if (sortby)
         {
           /* SORTBY(array, by1, [order1], by2, [order2], ...): the keys
@@ -6437,6 +6515,14 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
 
       operand_dims (&src, &rows, &cols);
       operand_dims (&inc, &ir, &ic);
+      if (!array_fits (rows, cols))
+        {
+          operand_clear (&src);
+          operand_clear (&inc);
+          g_array_free (keep, TRUE);
+          out->value = o42_value_error (O42_ERR_NUM);
+          return TRUE;
+        }
       by_col = ir == 1 && ic == cols && cols > 1 && ir != rows;
       {
         int n_items = by_col ? cols : rows;
@@ -6491,12 +6577,21 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
       ArrayConst *a;
 
       operand_dims (&src, &rows, &cols);
+      if (!array_fits (rows, cols))
+        {
+          operand_clear (&src);
+          g_array_free (wanted, TRUE);
+          out->value = o42_value_error (O42_ERR_NUM);
+          return TRUE;
+        }
       for (int i = 1; i < n_args; i++)
         {
           O42Operand pick = eval_operand (ctx, g_ptr_array_index (node->as.call.args, i));
           int pick_rows, pick_cols;
 
           operand_dims (&pick, &pick_rows, &pick_cols);
+          if (!array_fits (pick_rows, pick_cols))
+            pick_rows = pick_cols = 0;      /* no picks: #VALUE! below */
           for (int r = 0; r < pick_rows; r++)
             for (int c = 0; c < pick_cols; c++)
               {
@@ -6521,6 +6616,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
 
       if (wanted->len == 0)
         out->value = o42_value_error (O42_ERR_VALUE);
+      else if (!array_fits (by_col ? rows : (gint64) wanted->len, by_col ? (gint64) wanted->len : cols))
+        out->value = o42_value_error (O42_ERR_NUM);
       else
         {
           a = by_col ? array_const_new (rows, (int) wanted->len)
@@ -6550,7 +6647,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
     {
       gboolean vertical = node->as.call.name[0] == 'V';
       O42Operand *parts = g_new0 (O42Operand, n_args);
-      int total = 0, widest = 0;
+      gint64 sum = 0;
+      int total, widest = 0;
       ArrayConst *a;
       int at = 0;
 
@@ -6559,9 +6657,18 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
           int rows, cols;
           parts[i] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, i));
           operand_dims (&parts[i], &rows, &cols);
-          total += vertical ? rows : cols;
+          sum += vertical ? rows : cols;
           widest = MAX (widest, vertical ? cols : rows);
         }
+      if (!array_fits (sum, widest))
+        {
+          for (int i = 0; i < n_args; i++)
+            operand_clear (&parts[i]);
+          g_free (parts);
+          out->value = o42_value_error (O42_ERR_NUM);
+          return TRUE;
+        }
+      total = (int) sum;
       a = vertical ? array_const_new (total, widest) : array_const_new (widest, total);
       for (int i = 0; i < n_args; i++)
         {
@@ -6647,7 +6754,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
       {
         O42Value v = o42_eval (ctx, g_ptr_array_index (node->as.call.args, 1));
         O42ErrorCode e = O42_ERR_VALUE;
-        if (!o42_value_to_number (&v, &wrap, &e) || wrap < 1)
+        if (!o42_value_to_number (&v, &wrap, &e) || wrap < 1 ||
+            !array_fits (ceil ((double) rows * cols / wrap), wrap))
           { o42_value_clear (&v); o42_value_clear (&pad); operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
         o42_value_clear (&v);
       }
@@ -6693,6 +6801,9 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
           o42_value_clear (&v);
         }
       operand_dims (&src, &rows, &cols);
+      if (!array_fits (rows, cols))
+        { operand_clear (&src); g_array_free (kept, TRUE); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
+      ignore = CLAMP (ignore, 0, 3);
       for (int i = 0; i < rows * cols; i++)
         {
           int r = by_col ? i % rows : i / cols, c = by_col ? i / rows : i % cols;
@@ -6876,9 +6987,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
       row0 = 0; row1 = rows - 1; col0 = 0; col1 = cols - 1;
       if (has_rows)
         {
-          int k = (int) fabs (want_rows);
+          int k = (int) MIN (fabs (want_rows), (double) rows);
 
-          k = MIN (k, rows);
           if (taking)
             { if (want_rows >= 0) row1 = k - 1; else row0 = rows - k; }
           else
@@ -6886,9 +6996,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
         }
       if (has_cols)
         {
-          int k = (int) fabs (want_cols);
+          int k = (int) MIN (fabs (want_cols), (double) cols);
 
-          k = MIN (k, cols);
           if (taking)
             { if (want_cols >= 0) col1 = k - 1; else col0 = cols - k; }
           else
@@ -6897,6 +7006,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
 
       if (row1 < row0 || col1 < col0)
         out->value = o42_value_error (O42_ERR_CALC);   /* nothing left: an empty array */
+      else if (!array_fits (row1 - row0 + 1, col1 - col0 + 1))
+        out->value = o42_value_error (O42_ERR_NUM);
       else
         {
           a = array_const_new (row1 - row0 + 1, col1 - col0 + 1);
@@ -6963,7 +7074,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
         (void) split;
       }
 #define SPLIT_AT(source, delims, pieces) G_STMT_START {                              \
-        char *scan_ = match_mode != 0 ? g_utf8_strdown ((source), -1) : g_strdup (source); \
+        char *scan_ = match_mode != 0 ? lower_by_char (source) : g_strdup (source);         \
         const char *start_ = scan_;                                                  \
         for (const char *p_ = scan_; ; )                                             \
           {                                                                          \
@@ -7018,13 +7129,23 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
             cut[n_rows++] = pieces;
             widest = MAX (widest, (int) pieces->len);
           }
-        a = array_const_new (MAX ((int) n_rows, 1), MAX (widest, 1));
-        for (guint i = 0; i < n_rows; i++)
-          for (int j = 0; j < MAX (widest, 1); j++)
-            a->cells[i * MAX (widest, 1) + j] = j < (int) cut[i]->len
-              ? o42_value_text (g_ptr_array_index (cut[i], j)) : o42_value_copy (&pad);
-        if (n_rows == 0)
-          a->cells[0] = o42_value_error (O42_ERR_CALC);
+        if (!array_fits (MAX ((gint64) n_rows, 1), MAX (widest, 1)))
+          {
+            /* Many short rows under one long one: padding them all out
+             * would be the square of the text's length. */
+            a = array_const_new (1, 1);
+            a->cells[0] = o42_value_error (O42_ERR_NUM);
+          }
+        else
+          {
+            a = array_const_new (MAX ((int) n_rows, 1), MAX (widest, 1));
+            for (guint i = 0; i < n_rows; i++)
+              for (int j = 0; j < MAX (widest, 1); j++)
+                a->cells[i * MAX (widest, 1) + j] = j < (int) cut[i]->len
+                  ? o42_value_text (g_ptr_array_index (cut[i], j)) : o42_value_copy (&pad);
+            if (n_rows == 0)
+              a->cells[0] = o42_value_error (O42_ERR_CALC);
+          }
         for (guint i = 0; i < n_rows; i++)
           g_ptr_array_free (cut[i], TRUE);
         g_free (cut);
@@ -7110,6 +7231,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
       int rows, cols;
       ArrayConst *a;
       operand_dims (&src, &rows, &cols);
+      if (!array_fits (rows, cols))
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       a = array_const_new (cols, rows);
       for (int i = 0; i < rows; i++)
         for (int j = 0; j < cols; j++)
@@ -7129,6 +7252,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
       operand_dims (&y, &ry, &cy);
       if (cx != ry)
         { operand_clear (&x); operand_clear (&y); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      if (!array_fits (rx, cx) || !array_fits (ry, cy) || !array_fits (rx, cy))
+        { operand_clear (&x); operand_clear (&y); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       {
         /* Both matrices read once into flat doubles, then the plain
          * triple loop with the inner one along a row of the second, so
@@ -7669,6 +7794,12 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
           out->value = o42_value_error (O42_ERR_VALUE);
           return TRUE;
         }
+      if (!array_fits (rows, rows))
+        {
+          operand_clear (&src);
+          out->value = o42_value_error (O42_ERR_NUM);
+          return TRUE;
+        }
 
       A = g_new0 (double, (gsize) rows * cols);
       for (int r = 0; r < rows && !bad; r++)
@@ -7777,6 +7908,9 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
       operand_dims (&src, &rows, &cols);
       if (rows < 1 || cols < 1)
         { operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      /* What these make is square, of the larger side, and one more. */
+      if (!array_fits (MAX (rows, cols) + 1, MAX (rows, cols)))
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
 
       m = g_new0 (double, (gsize) rows * cols);
       for (int i = 0; i < rows; i++)
@@ -8023,6 +8157,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
       operand_dims (&src, &rows, &cols);
       if (rows != cols)
         { operand_clear (&src); out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
+      if (!array_fits (rows, 2 * (gint64) rows))
+        { operand_clear (&src); out->value = o42_value_error (O42_ERR_NUM); return TRUE; }
       /* Gauss-Jordan on [M | I]. */
       m = g_new0 (double, (gsize) rows * rows * 2);
       for (int i = 0; i < rows; i++)
@@ -8192,6 +8328,12 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
           const O42Operand *at = have_new ? &news : have_x ? &xs : NULL;
           if (at != NULL) operand_dims (at, &nrows, &ncols);
           else { nrows = rows; ncols = cols; }
+          if (!array_fits (nrows, ncols))
+            {
+              operand_clear (&ys); operand_clear (&xs); operand_clear (&news);
+              out->value = o42_value_error (O42_ERR_NUM);
+              return TRUE;
+            }
           a = array_const_new (nrows, ncols);
           for (int i = 0; i < nrows; i++)
             for (int j = 0; j < ncols; j++)
@@ -8566,6 +8708,12 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prio
             ArrayConst *a;
 
             operand_dims (&texts, &rows, &cols);
+            if (!array_fits (rows, cols))
+              {
+                operand_clear (&texts);
+                out->value = o42_value_error (O42_ERR_NUM);
+                return TRUE;
+              }
             a = array_const_new (rows, cols);
             for (int i = 0; i < rows; i++)
               for (int j = 0; j < cols; j++)
@@ -12496,6 +12644,14 @@ o42_eval_array (O42EvalContext *ctx, const O42Node *node,
       op.value = o42_value_error (O42_ERR_CALC);
     }
   operand_dims (&op, rows, cols);
+  if (!array_fits (*rows, *cols))
+    {
+      /* =B2:XFD1048576 spills no more than any other array may be. */
+      operand_clear (&op);
+      memset (&op, 0, sizeof op);
+      op.value = o42_value_error (O42_ERR_NUM);
+      *rows = *cols = 1;
+    }
   *values = g_new0 (O42Value, (gsize) *rows * *cols);
   for (int i = 0; i < *rows; i++)
     for (int j = 0; j < *cols; j++)

@@ -54,15 +54,25 @@ o42_value_number (double number)
 O42Value
 o42_value_text (const char *text)
 {
-  O42Value v = { O42_VALUE_TEXT, { 0 } };
-  v.as.text = g_strdup (text != NULL ? text : "");
-  return v;
+  return o42_value_take (g_strdup (text));
 }
 
+/* Every text function walks its text a character at a time with GLib's
+ * UTF-8 stepping, which trusts what it steps over: a lead byte at the
+ * end of a string from a file would carry it past the end.  So what is
+ * not UTF-8 is made so here, where every text value is born. */
 O42Value
 o42_value_take (char *text)
 {
   O42Value v = { O42_VALUE_TEXT, { 0 } };
+
+  if (text != NULL && !g_utf8_validate (text, -1, NULL))
+    {
+      char *valid = g_utf8_make_valid (text, -1);
+
+      g_free (text);
+      text = valid;
+    }
   v.as.text = text != NULL ? text : g_strdup ("");
   return v;
 }
@@ -141,6 +151,14 @@ o42_value_to_number (const O42Value *value, double *out, O42ErrorCode *error)
       return TRUE;
 
     case O42_VALUE_NUMBER:
+      /* An infinity or a NaN -- 1E+999, or one less another -- is no
+       * number a function can use: it would pass every range check
+       * written as "x < 1 || x > n" and become INT_MIN as an index. */
+      if (!isfinite (value->as.number))
+        {
+          if (error) *error = O42_ERR_NUM;
+          return FALSE;
+        }
       *out = value->as.number;
       return TRUE;
 
@@ -161,6 +179,11 @@ o42_value_to_number (const O42Value *value, double *out, O42ErrorCode *error)
         if (!o42_entry_parse (value->as.text, &entry))
           {
             if (error) *error = O42_ERR_VALUE;
+            return FALSE;
+          }
+        if (!isfinite (entry.number))
+          {
+            if (error) *error = O42_ERR_NUM;
             return FALSE;
           }
 
