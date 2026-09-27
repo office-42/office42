@@ -754,7 +754,10 @@ of its own.
   every note on the sheet at once, each in its box beside its cell, and
   again to put them away.
 - **Insert ▸ Hyperlink** makes a cell a link, to a place in the book
-  (`#Sheet2!A1`) or to the world outside. Ctrl+click follows it.
+  (`#Sheet2!A1`) or to the world outside. Ctrl+click follows it. A
+  web page or a mail address opens at once; anything else -- a file,
+  a share, another program's link -- is shown first and opens only if
+  you say so, since a book from someone else chose where it goes.
 
 ### Form controls
 

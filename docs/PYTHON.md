@@ -260,7 +260,9 @@ does not carry them.
 
 A book that arrives with Python in it never runs any of it on opening:
 not its scripts, and not `=PY()` in its cells, which show `#NAME?`
-until you say so. A bar under the formula bar says the Python is
+until you say so. Its buttons and its macros' Ctrl+Shift keys wait for
+the same say-so: pressing one before then shows the bar again and runs
+nothing. A bar under the formula bar says the Python is
 there, with Run Scripts, Scripts… and Hide — the counterpart of
 Excel's "Enable content". Run Scripts runs the script named
 `Auto_Open` if there is one, and otherwise all of them in order, and
