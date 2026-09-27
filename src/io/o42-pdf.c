@@ -1991,6 +1991,16 @@ o42_pdf_import (O42Sheet *sheet, GFile *file, GError **error)
                 int col = g_array_index (cols, int, c);
                 char *stripped = g_strstrip (g_strdup (cell->text->str));
 
+                /* What a PDF says is text, never a formula: "=PY(...)"
+                 * on a page must not become one in the user's book, so
+                 * a leading = is kept behind the apostrophe that forces
+                 * text. */
+                if (stripped[0] == '=')
+                  {
+                    char *quoted = g_strconcat ("'", stripped, NULL);
+                    g_free (stripped);
+                    stripped = quoted;
+                  }
                 if (*stripped != '\0' && col < O42_MAX_COLS && row < O42_MAX_ROWS)
                   o42_sheet_set_input (sheet, row, col, stripped);
 

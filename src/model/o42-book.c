@@ -1716,6 +1716,10 @@ o42_book_begin_load (O42Book *book)
 {
   g_return_if_fail (book != NULL);
   book->loading = TRUE;
+  /* What the file brings is not the user's: o42_book_end_load works out
+   * its formulas over ranges, and an =PY() among them must not run on
+   * the strength of a trust the book had before the file came in. */
+  book->scripts_trusted = FALSE;
 }
 
 void

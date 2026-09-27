@@ -222,7 +222,9 @@ void      o42_book_record_start (O42Book *book);
  * cells it reads arrive in any order -- and put off spilling a formula
  * over its block until the end, when everything it reads is there.  A
  * book of a million cells reads in seconds this way rather than
- * minutes.  The end tidies every sheet: see o42_sheet_finish_load. */
+ * minutes.  The end tidies every sheet: see o42_sheet_finish_load.
+ * The beginning takes back the book's trust in its scripts (see
+ * o42_book_scripts_trusted), since the file is not the user's. */
 void      o42_book_begin_load   (O42Book *book);
 void      o42_book_end_load     (O42Book *book);
 gboolean  o42_book_loading      (const O42Book *book);
