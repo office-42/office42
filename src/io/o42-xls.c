@@ -5302,8 +5302,10 @@ write_chart_substream (Writer *w, O42Sheet *sheet, int sheet_index, const O42Cha
   begin_record (w, C_UNITS); put16 (w->out, 0); end_record (w);
   begin_record (w, C_CHART);
   put32 (w->out, 0); put32 (w->out, 0);
-  put32 (w->out, (guint32) (chart->width * 0.75 * 65536));
-  put32 (w->out, (guint32) (chart->height * 0.75 * 65536));
+  /* Points in 16.16 fixed point: held to what that holds, since the
+   * size may have come from a file and a cast past it is undefined. */
+  put32 (w->out, (guint32) (isfinite (chart->width) ? CLAMP (chart->width * 0.75, 0, 65535) * 65536 : 0));
+  put32 (w->out, (guint32) (isfinite (chart->height) ? CLAMP (chart->height * 0.75, 0, 65535) * 65536 : 0));
   end_record (w);
   begin_record (w, C_BEGIN); end_record (w);
 
