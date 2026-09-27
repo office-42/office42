@@ -48,8 +48,10 @@ double
 o42_date_serial (int year, int month, int day)
 {
   GDate d;
-  int y = year, m = month;
-  gint32 days;
+  /* In 64 bits: month - 1 and the days after overflow an int for the
+   * extreme arguments a formula may pass. */
+  gint64 y = year, m = month;
+  gint64 days;
 
   /* Roll months over first, then add the days as a count, so that day 0
    * and day 32 mean what people use them to mean. */
@@ -66,7 +68,7 @@ o42_date_serial (int year, int month, int day)
   if (!g_date_valid (&d))
     return -1;
 
-  days = (gint32) g_date_get_julian (&d) - (gint32) epoch_julian () + (day - 1);
+  days = (gint64) g_date_get_julian (&d) - (gint64) epoch_julian () + ((gint64) day - 1);
 
   /* The 1900 leap-day bug, as Lotus and Excel have it: every day before
    * 1 March 1900 is one serial earlier than the calendar says, so that
@@ -76,14 +78,20 @@ o42_date_serial (int year, int month, int day)
   if (!date_1904 && (y < 1900 || (y == 1900 && m <= 2)))
     days -= 1;
 
-  return days;
+  return (double) days;
 }
 
 gboolean
 o42_date_from_serial (double serial, int *year, int *month, int *day)
 {
   GDate d;
-  gint32 days = (gint32) floor (serial);
+  gint32 days;
+
+  /* A serial outside what a gint32 holds is no date, and casting it
+   * would be undefined; the calendar ends in 9999 long before. */
+  if (!(serial > -2147483648.0 && serial < 2147483647.0))
+    return FALSE;
+  days = (gint32) floor (serial);
 
   if (!date_1904)
     {
@@ -524,9 +532,10 @@ o42_date_weekday (double serial)
   /* Excel's arithmetic, not the calendar's: serial 1 is a Sunday to it
    * (1 January 1900 was a Monday, but the leap day that never was puts
    * every date from March 1900 on right), and 1 January 1904 a Friday. */
-  gint32 days = (gint32) floor (serial);
+  double days = isfinite (serial) ? floor (serial) : 0;
 
+  /* In doubles, which hold any serial exactly enough for this. */
   if (date_1904)
-    return (int) (((days + 4) % 7 + 7) % 7) + 1;
-  return (int) (((days - 2) % 7 + 7) % 7) + 1;
+    return (int) fmod (fmod (days + 4, 7) + 7, 7) + 1;
+  return (int) fmod (fmod (days - 2, 7) + 7, 7) + 1;
 }

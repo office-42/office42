@@ -209,7 +209,17 @@ fn_concatenate (O42EvalContext *ctx, O42Operand *args, int n)
             g_string_append (out, text);
             g_free (text);
             o42_value_clear (&v);
+            if (out->len > O42_TEXT_MAX_BYTES)
+              {
+                g_string_free (out, TRUE);
+                return o42_value_error (O42_ERR_VALUE);
+              }
           }
+    }
+  if (g_utf8_strlen (out->str, -1) > O42_TEXT_MAX)
+    {
+      g_string_free (out, TRUE);
+      return o42_value_error (O42_ERR_VALUE);
     }
 
   return o42_value_take (g_string_free (out, FALSE));
@@ -291,7 +301,8 @@ fn_substitute (O42EvalContext *ctx, O42Operand *args, int n)
       o42_value_clear (&v);
       if (!ok || instance < 1)
         { g_free (hay); g_free (needle); g_free (with); return o42_value_error (ok ? O42_ERR_VALUE : err); }
-      instance = floor (instance);
+      /* No text has more occurrences than bytes. */
+      instance = MIN (floor (instance), (double) strlen (hay) + 1);
     }
 
   if (*needle == '\0')
@@ -317,8 +328,19 @@ fn_substitute (O42EvalContext *ctx, O42Operand *args, int n)
         else
           g_string_append (out, needle);
         p = found + nlen;
+        /* Every x of 32,767 made into 32,767 y's is a gigabyte. */
+        if (out->len > O42_TEXT_MAX_BYTES)
+          break;
       }
     g_string_append (out, p);
+    if (out->len > O42_TEXT_MAX_BYTES || g_utf8_strlen (out->str, -1) > O42_TEXT_MAX)
+      {
+        g_string_free (out, TRUE);
+        g_free (hay);
+        g_free (needle);
+        g_free (with);
+        return o42_value_error (O42_ERR_VALUE);
+      }
     result = g_string_free (out, FALSE);
   }
 
@@ -808,6 +830,36 @@ fn_regextest (O42EvalContext *ctx, O42Operand *args, int n)
   return o42_value_bool (hit);
 }
 
+/* One match's replacement, for g_regex_replace_eval: its references
+ * expanded as g_regex_replace expands them, and the whole given up once
+ * it is longer than a cell holds -- a pattern that matches every
+ * character of 32,767, each replaced by as many, is a gigabyte. */
+typedef struct {
+  const char *replacement;
+  gboolean    failed;
+} Replacing;
+
+static gboolean
+replace_match (const GMatchInfo *info, GString *result, gpointer data)
+{
+  Replacing *r = data;
+  char *expanded = g_match_info_expand_references (info, r->replacement, NULL);
+
+  if (expanded == NULL)
+    {
+      r->failed = TRUE;
+      return TRUE;
+    }
+  g_string_append (result, expanded);
+  g_free (expanded);
+  if (result->len > O42_TEXT_MAX_BYTES)
+    {
+      r->failed = TRUE;
+      return TRUE;
+    }
+  return FALSE;
+}
+
 static O42Value
 fn_regexreplace (O42EvalContext *ctx, O42Operand *args, int n)
 {
@@ -828,7 +880,13 @@ fn_regexreplace (O42EvalContext *ctx, O42Operand *args, int n)
     { g_free (text); g_free (replacement); return o42_value_error (error); }
 
   if (occurrence == 0)
-    result = g_regex_replace (re, text, -1, 0, replacement, 0, &err);
+    {
+      Replacing r = { replacement, FALSE };
+
+      result = g_regex_replace_eval (re, text, -1, 0, 0, replace_match, &r, &err);
+      if (r.failed)
+        g_clear_pointer (&result, g_free);
+    }
   else
     {
       /* Only the nth match (from the end when negative): the others
@@ -847,6 +905,7 @@ fn_regexreplace (O42EvalContext *ctx, O42Operand *args, int n)
           g_match_info_next (info, NULL);
         }
       g_match_info_free (info);
+      occurrence = CLAMP (occurrence, -1e9, 1e9);
       which = occurrence > 0 ? (int) occurrence - 1 : (int) starts->len + (int) occurrence;
       if (which < 0 || which >= (int) starts->len)
         result = g_strdup (text);
@@ -865,6 +924,8 @@ fn_regexreplace (O42EvalContext *ctx, O42Operand *args, int n)
   g_regex_unref (re);
   g_free (text);
   g_free (replacement);
+  if (result != NULL && g_utf8_strlen (result, -1) > O42_TEXT_MAX)
+    g_clear_pointer (&result, g_free);
   if (result == NULL)
     { g_clear_error (&err); return o42_value_error (O42_ERR_VALUE); }
   return o42_value_take (result);

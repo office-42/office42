@@ -50,7 +50,10 @@ fn_date (O42EvalContext *ctx, O42Operand *args, int n)
   if (y >= 0 && y < 1900)
     y += 1900;
 
-  serial = o42_date_serial ((int) y, (int) m, (int) d);
+  /* Held to what an int holds before they are made ints: anything as
+   * far out is past 9999 anyway. */
+  serial = o42_date_serial ((int) CLAMP (y, -1e9, 1e9), (int) CLAMP (m, -1e9, 1e9),
+                            (int) CLAMP (d, -1e9, 1e9));
   if (serial < 0 || serial > 2958465)
     return o42_value_error (O42_ERR_NUM);   /* before 1900 or past 9999-12-31 */
   return o42_value_number (serial);
@@ -218,6 +221,9 @@ fn_edate_eomonth (O42EvalContext *ctx, O42Operand *args, int n, gboolean end)
 
   if (serial < 0 || !o42_date_from_serial (serial, &y, &m, &d))
     return o42_value_error (O42_ERR_NUM);
+  /* 120,000 months is all of 1900 to 9999 and then some. */
+  if (months < -120000 || months > 120000)
+    return o42_value_error (O42_ERR_NUM);
 
   if (end)
     result = o42_date_serial (y, m + (int) months + 1, 0);
@@ -342,6 +348,10 @@ fn_networkdays (O42EvalContext *ctx, O42Operand *args, int n)
   start = floor (start);
   end = floor (end);
   if (end < start) { double t = start; start = end; end = t; sign = -1; }
+  /* A day at a time, so only over the calendar there is: 1E+300 would
+   * have counted for ever, d += 1 changing nothing that far out. */
+  if (start < 0 || end > 2958465)
+    return o42_value_error (O42_ERR_NUM);
 
   for (double d = start; d <= end; d += 1)
     if (!is_weekend (d) && !is_holiday (ctx, n >= 3 ? &args[2] : NULL, d))

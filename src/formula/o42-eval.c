@@ -13,6 +13,9 @@
 #include <glib/gi18n.h>
 #include <math.h>
 #include <string.h>
+#ifndef G_OS_WIN32
+#include <sys/resource.h>
+#endif
 
 /* The three the families borrow are exported under their long names;
  * this file goes on calling them what it always did. */
@@ -3229,6 +3232,10 @@ fn_networkdays_intl (O42EvalContext *ctx, O42Operand *args, int n)
   start = floor (start);
   end = floor (end);
   if (end < start) { double t = start; start = end; end = t; sign = -1; }
+  /* A day at a time, so only over the calendar there is: 1E+300 would
+   * have counted for ever, d += 1 changing nothing that far out. */
+  if (start < 0 || end > 2958465)
+    return o42_value_error (O42_ERR_NUM);
 
   for (double d = start; d <= end; d += 1)
     if (!weekend[o42_date_weekday (d)] && !is_holiday (ctx, n >= 4 ? &args[3] : NULL, d))
@@ -3558,6 +3565,12 @@ fn_arraytotext (O42EvalContext *ctx, O42Operand *args, int n)
             g_string_append (out, format != 0 ? "," : ", ");
           g_string_append (out, text);
           g_free (text);
+          /* The range is taken as written, and may be the whole sheet. */
+          if (out->len > O42_TEXT_MAX_BYTES)
+            {
+              g_string_free (out, TRUE);
+              return o42_value_error (O42_ERR_VALUE);
+            }
         }
     }
   if (format != 0)
@@ -9448,6 +9461,10 @@ fn_hypgeom_dist (O42EvalContext *ctx, O42Operand *args, int n)
   x = floor (x); draws = floor (draws); successes = floor (successes); population = floor (population);
   if (x < 0 || draws > population || successes > population || population <= 0)
     return o42_value_error (O42_ERR_NUM);
+  /* The sum is term by term: past 2^53 k++ no longer moves k, and a
+   * cumulative sum of more than ten million terms would not finish. */
+  if (x > 1e15 || (cumulative && x > 1e7))
+    return o42_value_error (O42_ERR_NUM);
   for (double k = cumulative ? 0 : x; k <= x; k++)
     if (k <= draws && k <= successes && draws - k <= population - successes)
       sum += exp (lchoose (successes, k) + lchoose (population - successes, draws - k) - lchoose (population, draws));
@@ -9471,6 +9488,8 @@ fn_negbinom_dist (O42EvalContext *ctx, O42Operand *args, int n)
   }
   f = floor (f); s = floor (s);
   if (f < 0 || s < 1 || p <= 0 || p >= 1) return o42_value_error (O42_ERR_NUM);
+  /* Term by term, as HYPGEOM.DIST: bounded so that it ends. */
+  if (f > 1e15 || (cumulative && f > 1e7)) return o42_value_error (O42_ERR_NUM);
   for (double k = cumulative ? 0 : f; k <= f; k++)
     sum += exp (lchoose (k + s - 1, s - 1)) * pow (p, s) * pow (1 - p, k);
   return o42_value_number (sum);
@@ -10493,6 +10512,8 @@ fn_binom_dist_range (O42EvalContext *ctx, O42Operand *args, int n)
   if (n >= 4) ARG_NUMBER (3, s2);
   trials = floor (trials); s1 = floor (s1); s2 = floor (s2);
   if (trials < 0 || p < 0 || p > 1 || s1 < 0 || s2 < s1 || s2 > trials) return o42_value_error (O42_ERR_NUM);
+  /* Term by term, as HYPGEOM.DIST: bounded so that it ends. */
+  if (s2 > 1e15 || s2 - s1 > 1e7) return o42_value_error (O42_ERR_NUM);
   for (double k = s1; k <= s2; k++)
     sum += exp (lchoose (trials, k)) * pow (p, k) * pow (1 - p, trials - k);
   return o42_value_number (sum);
@@ -11863,7 +11884,13 @@ binary_values (O42Op op, O42Value a, O42Value b)
         char *sa = o42_value_to_text (&a);
         char *sb = o42_value_to_text (&b);
 
-        result = o42_value_take (g_strconcat (sa, sb, NULL));
+        /* Doubling a text in REDUCE forty times would ask for a
+         * terabyte; past what a cell holds it is #VALUE!. */
+        if (strlen (sa) + strlen (sb) > O42_TEXT_MAX_BYTES ||
+            g_utf8_strlen (sa, -1) + g_utf8_strlen (sb, -1) > O42_TEXT_MAX)
+          result = o42_value_error (O42_ERR_VALUE);
+        else
+          result = o42_value_take (g_strconcat (sa, sb, NULL));
         g_free (sa);
         g_free (sb);
         goto done;
@@ -12312,12 +12339,65 @@ eval_call (O42EvalContext *ctx, const O42Node *node, Prior *prior)
   return v;
 }
 
+/* The evaluator recurses: into every operand of a formula, into each
+ * cell a formula reads that is not worked out yet, into every LAMBDA it
+ * calls.  Each has a limit of its own, but not their product, and a
+ * file can nest a LAMBDA's recursion inside a formula nested as deep as
+ * the parser allows until the C stack is gone.  So the stack itself is
+ * measured, from where the outermost evaluation began: past three
+ * quarters of what the thread was given, the formula is #NUM!. */
+static guintptr eval_stack_base;
+static gsize    eval_stack_room;
+
+static gsize
+eval_stack_size (void)
+{
+#ifndef G_OS_WIN32
+  struct rlimit limit;
+
+  if (getrlimit (RLIMIT_STACK, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY &&
+      limit.rlim_cur < 64 * 1024 * 1024)
+    return (gsize) limit.rlim_cur;
+#endif
+  return 64 * 1024 * 1024;   /* what meson.build asks for on Windows */
+}
+
+static gboolean
+eval_stack_enter (void)
+{
+  char here;
+
+  if (eval_stack_base != 0)
+    return FALSE;
+  eval_stack_base = (guintptr) &here;
+  if (eval_stack_room == 0)
+    eval_stack_room = eval_stack_size () / 4 * 3;
+  return TRUE;
+}
+
+static gboolean
+eval_stack_exhausted (void)
+{
+  char here;
+  guintptr now = (guintptr) &here;
+
+  if (eval_stack_base == 0)
+    return FALSE;
+  return (now < eval_stack_base ? eval_stack_base - now : now - eval_stack_base) > eval_stack_room;
+}
+
 static O42Operand
 eval_operand (O42EvalContext *ctx, const O42Node *node)
 {
   O42Operand op;
 
   memset (&op, 0, sizeof op);
+
+  if (eval_stack_exhausted ())
+    {
+      op.value = o42_value_error (O42_ERR_NUM);
+      return op;
+    }
 
   if (node == NULL)
     {
@@ -12512,6 +12592,8 @@ eval_node (O42EvalContext *ctx, const O42Node *node)
 {
   if (node == NULL)
     return o42_value_error (O42_ERR_VALUE);
+  if (eval_stack_exhausted ())
+    return o42_value_error (O42_ERR_NUM);
 
   switch (node->type)
     {
@@ -12601,7 +12683,13 @@ o42_eval (O42EvalContext *ctx, const O42Node *node)
     array_frames = g_ptr_array_new ();
   g_ptr_array_add (array_frames, &frame);
 
-  result = eval_node (&wrapper, node);
+  {
+    gboolean outermost = eval_stack_enter ();
+
+    result = eval_node (&wrapper, node);
+    if (outermost)
+      eval_stack_base = 0;
+  }
 
   g_ptr_array_remove_index (array_frames, array_frames->len - 1);
   g_ptr_array_unref (frame.arrays);
@@ -12628,7 +12716,13 @@ o42_eval_array (O42EvalContext *ctx, const O42Node *node,
     array_frames = g_ptr_array_new ();
   g_ptr_array_add (array_frames, &frame);
 
-  op = eval_operand (&wrapper, node);
+  {
+    gboolean outermost = eval_stack_enter ();
+
+    op = eval_operand (&wrapper, node);
+    if (outermost)
+      eval_stack_base = 0;
+  }
   if (union_areas (&op) != NULL)
     {
       /* A union has no one shape to spill: the cell shows #VALUE!. */

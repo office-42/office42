@@ -371,6 +371,10 @@ fn_binomdist (O42EvalContext *ctx, O42Operand *args, int n)
   k = floor (k); trials = floor (trials);
   if (k < 0 || k > trials || p < 0 || p > 1)
     return o42_value_error (O42_ERR_NUM);
+  /* Term by term: past 2^53 i += 1 no longer moves i, and a cumulative
+   * sum of more than ten million terms would not finish. */
+  if (k > 1e15 || (cumulative && k > 1e7))
+    return o42_value_error (O42_ERR_NUM);
 
   for (double i = cumulative ? 0 : k; i <= k; i += 1)
     total += exp (lgamma (trials + 1) - lgamma (i + 1) - lgamma (trials - i + 1)

@@ -142,8 +142,20 @@ o42_fmt_table_intern (O42FmtTable *table, const O42Fmt *fmt)
   gpointer found;
   O42Fmt *copy;
 
+  O42Fmt held;
+
   g_return_val_if_fail (table != NULL, 0);
   g_return_val_if_fail (fmt != NULL, 0);
+
+  /* A font size is Excel's 1 to 409 points, whatever a file says: every
+   * writer and painter multiplies it up, and a size of INT_MIN or ten
+   * million points overflowed them. */
+  if (fmt->size < 2 || fmt->size > 818)
+    {
+      held = *fmt;
+      held.size = CLAMP (fmt->size, 2, 818);
+      fmt = &held;
+    }
 
   found = g_hash_table_lookup (table->index, fmt);
   if (found != NULL)

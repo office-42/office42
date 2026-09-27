@@ -214,6 +214,10 @@ fn_randnegbinom (O42EvalContext *ctx, O42Operand *args, int n)
    * no number to give back: the distribution has none. */
   if (p <= 0 || p >= 1 || failures < 1)
     return o42_value_error (O42_ERR_NUM);
+  /* Drawn one at a time, about failures / (1 - p) draws in all: held to
+   * what finishes, and failures to what an int holds. */
+  if (failures > 1e7 || failures / (1 - p) > 1e8)
+    return o42_value_error (O42_ERR_NUM);
   /* How many successes before the given number of failures. */
   for (int seen = 0; seen < (int) failures; )
     {
@@ -570,6 +574,9 @@ fn_randnormtail (O42EvalContext *ctx, O42Operand *args, int n)
   if (sigma <= 0 || a <= 0)
     return o42_value_error (O42_ERR_NUM);
   s = a / sigma;
+  /* So far out that s squared is infinite, no draw can ever be kept. */
+  if (!isfinite (s * s))
+    return o42_value_error (O42_ERR_NUM);
   do
     {
       u = rand_uniform_open ();

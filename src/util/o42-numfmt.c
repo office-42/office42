@@ -1471,10 +1471,13 @@ format_number_section (GString *out, const Section *s, double n, O42FormatLayout
             }
           else if (dec_used < dec_places)
             {
-              char digit = dec_digits[dec_used];
+              /* The digits were worked out to at most thirty places, and
+               * a code may ask for thousands: the rest are zeros. */
+              int have = (int) strlen (dec_digits);
+              char digit = dec_used < have ? dec_digits[dec_used] : '0';
               gboolean rest_zero = TRUE;
 
-              for (const char *q = dec_digits + dec_used; *q != '\0'; q++)
+              for (const char *q = dec_digits + MIN (dec_used, have); *q != '\0'; q++)
                 if (*q != '0') rest_zero = FALSE;
 
               if (c == '0' || !rest_zero)
@@ -1568,7 +1571,12 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
           else num_places++;
         }
       else if (g_ascii_isdigit (*p) && slash != NULL)
-        fixed_den = fixed_den * 10 + (*p - '0');
+        {
+          /* A denominator of a million is already more than any code
+           * means; the digits after that would overflow the count. */
+          if (fixed_den < 1000000)
+            fixed_den = fixed_den * 10 + (*p - '0');
+        }
       else if (*p == ' ' && slash == NULL && num_places > 0 && gap == NULL)
         {
           /* The space between the whole number and the fraction: what
@@ -1580,6 +1588,13 @@ format_fraction_section (GString *out, const Section *s, double n, O42FormatLayo
     }
   if (num_places == 0) num_places = 1;
 
+  /* A number past a trillion has no fraction worth showing, and its
+   * whole part times the denominator would overflow a long. */
+  if (!(fabs (n) < 1e12))
+    {
+      g_string_append_printf (out, "%.0f", n);
+      return;
+    }
   whole = (long) floor (n);
   frac = n - whole;
 

@@ -164,6 +164,13 @@ gboolean o42_is_holiday (O42EvalContext *ctx, const O42Operand *holidays, double
 gboolean o42_collect_pairs (O42EvalContext *ctx, const O42Operand *a, const O42Operand *b,
                             GArray **xs, GArray **ys, O42ErrorCode *error);
 
+/* A cell holds 32,767 characters and no more, and text that would come
+ * to more is #VALUE!, as in Excel.  Text being built is checked as it
+ * grows, in bytes -- a character is at most four -- so that a formula
+ * cannot build a gigabyte first and be refused after. */
+#define O42_TEXT_MAX       32767
+#define O42_TEXT_MAX_BYTES (4 * O42_TEXT_MAX)
+
 /* ---- Reading arguments -------------------------------------------------- */
 
 /* Both of these return from the calling function with the error when
