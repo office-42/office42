@@ -12970,6 +12970,34 @@ data_table_compute (O42Sheet *sheet, const O42DataTable *t)
   g_free (col_was);
 }
 
+/* The inside cells of every table in or out of the dependents index.
+ * Their TABLE formulas name the input cells, so while a table is worked
+ * out each value put into an input cell would stale every one of them
+ * again: a table of n cells asked n times of n cells, which for four
+ * thousand rows was seconds and for more was minutes.  They are taken
+ * out for the working, and staled all at once when it is done. */
+static void
+data_tables_index (O42Sheet *sheet, gboolean add)
+{
+  for (guint i = 0; i < sheet->data_tables->len; i++)
+    {
+      const O42DataTable *t = &g_array_index (sheet->data_tables, O42DataTable, i);
+
+      for (int row = t->range.row0 + 1; row <= t->range.row1; row++)
+        for (int col = t->range.col0 + 1; col <= t->range.col1; col++)
+          {
+            O42Cell *cell = sheet_find (sheet, row, col);
+
+            if (cell == NULL || cell->ast == NULL)
+              continue;
+            if (add)
+              deps_add (sheet, o42_key (row, col), cell);
+            else
+              deps_remove (sheet, o42_key (row, col), cell);
+          }
+    }
+}
+
 /* Every table of the sheet, worked out again; the TABLE cells are
  * staled so that they show the new answers. */
 static void
@@ -12989,8 +13017,10 @@ data_tables_fill (O42Sheet *sheet)
       return;
     }
   sheet->filling_tables = TRUE;
+  data_tables_index (sheet, FALSE);
   for (guint i = 0; i < sheet->data_tables->len; i++)
     data_table_compute (sheet, &g_array_index (sheet->data_tables, O42DataTable, i));
+  data_tables_index (sheet, TRUE);
   sheet->tables_stale = FALSE;
   for (guint i = 0; i < sheet->data_tables->len; i++)
     {

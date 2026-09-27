@@ -2434,6 +2434,20 @@ attr_flag (const char **names, const char **values, const char *want)
   return attr_bool (names, values, want, FALSE);
 }
 
+/* The most cells an array formula's block or a What-If table may cover
+ * when a file names it.  Every one of them becomes a cell of its own,
+ * and a ref of a dozen characters can name the whole sheet, which is a
+ * quarter of a million million squares; a million is far past any block
+ * a person enters and still reads in a moment. */
+#define MAX_BLOCK_CELLS (1 << 20)
+
+/* How many squares a range covers, whichever way round its corners are. */
+static double
+range_cells (const O42Range *range)
+{
+  return (fabs ((double) range->row1 - range->row0) + 1) * (fabs ((double) range->col1 - range->col0) + 1);
+}
+
 /* A general-purpose element collector: every parser below shares the
  * same shape, a stack-less state machine keyed on element names, so one
  * struct holds all their state. */
@@ -3587,7 +3601,10 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
                 { table.col_input_row = a_row; table.col_input_col = a_col; }
               if (r->data_tables == NULL)
                 r->data_tables = g_array_new (FALSE, FALSE, sizeof (O42DataTable));
-              g_array_append_val (r->data_tables, table);
+              /* A table the size of a sheet would be a formula in every
+               * square of it: it is left as the values the file gives. */
+              if (range_cells (&table.range) <= MAX_BLOCK_CELLS)
+                g_array_append_val (r->data_tables, table);
             }
         }
       return;
@@ -4185,7 +4202,14 @@ finish_cell (Reader *r)
            (r->array_ref[used] == ':' && o42_ref_parse (r->array_ref + used + 1, &block.row1, &block.col1, NULL))))
         {
           if (r->array_ref[used] == '\0') { block.row1 = block.row0; block.col1 = block.col0; }
-          o42_sheet_set_array_formula (r->sheet, &block, input);
+          block = o42_range_normalise (block.row0, block.col0, block.row1, block.col1);
+          /* The block is the file's to name, and every cell of it is
+           * made; one bigger than any array a sheet holds is taken for
+           * what it most likely is, the formula of its first cell. */
+          if (range_cells (&block) <= MAX_BLOCK_CELLS)
+            o42_sheet_set_array_formula (r->sheet, &block, input);
+          else
+            o42_sheet_set_input (r->sheet, block.row0, block.col0, input);
         }
     }
   else if (input != NULL && input[0] != '\0' && !o42_sheet_array_range (r->sheet, r->row, r->col, NULL))
