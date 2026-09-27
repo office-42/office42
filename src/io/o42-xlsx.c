@@ -2458,6 +2458,11 @@ attr_flag (const char **names, const char **values, const char *want)
  * a person enters and still reads in a moment. */
 #define MAX_BLOCK_CELLS (1 << 20)
 
+/* The most page breaks each way that Excel lets a sheet have.  Each
+ * one is looked for among those already set and the list sorted again,
+ * and fifty thousand of them -- 124 KB of file -- took forty seconds. */
+#define MAX_BREAKS 1026
+
 /* How many squares a range covers, whichever way round its corners are. */
 static double
 range_cells (const O42Range *range)
@@ -2473,6 +2478,7 @@ typedef struct
   O42Book    *book;
   int         in_hf;            /* 1 in oddHeader, 2 in oddFooter */
   int         in_breaks;        /* 1 in rowBreaks, 2 in colBreaks */
+  int         n_breaks;         /* the breaks read from that one so far */
   gboolean    fit_to_page;      /* the sheet properties said so */
   GHashTable *sheet_rels;       /* the sheet part's relationships, id -> target */
   char       *scenario_name;    /* the scenario being read */
@@ -2564,6 +2570,7 @@ typedef struct
   char       *drawing_rid;  /* the sheet's <drawing r:id>, if any */
   char       *picture_rid;  /* the sheet's <picture r:id>: its background */
   int         filter_col;   /* the filterColumn being read, or -1 */
+  int         cols_left;    /* how many more columns <col> may still set */
 
   /* Conditional formatting being read */
   O42Range    cf_range;
@@ -3694,12 +3701,12 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
           o42_sheet_set_default_col_width (r->sheet, r->default_width);
         }
     }
-  else if (strcmp (n, "brk") == 0 && r->in_breaks)
+  else if (strcmp (n, "brk") == 0 && r->in_breaks && r->n_breaks++ < MAX_BREAKS)
     o42_sheet_toggle_page_break (r->sheet, r->in_breaks == 1, attr_int (names, values, "id", 0));
   else if (strcmp (n, "rowBreaks") == 0)
-    r->in_breaks = 1;
+    { r->in_breaks = 1; r->n_breaks = 0; }
   else if (strcmp (n, "colBreaks") == 0)
-    r->in_breaks = 2;
+    { r->in_breaks = 2; r->n_breaks = 0; }
   else if (strcmp (n, "pageMargins") == 0)
     {
       O42PrintSetup ps = *o42_sheet_print_setup (r->sheet);
@@ -3816,6 +3823,13 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       int style = attr_int (names, values, "style", 0);
       int line_fmt = -1;
       if (max >= O42_MAX_COLS) max = O42_MAX_COLS - 1;
+      /* Each column is listed once, in order, in a file Excel writes.  A
+       * file can list all 16,384 of them again in every one of
+       * thousands of 60-byte elements, each costing a pass over the
+       * sheet's columns; a few passes are allowed for, and what comes
+       * after them is passed over. */
+      max = MIN (max, MAX (min, 0) + r->cols_left - 1);
+      r->cols_left -= MAX (max - MAX (min, 0) + 1, 0);
       /* The format the whole column wears. */
       if (style > 0 && (guint) style < r->xfs->len)
         line_fmt = (int) o42_fmt_table_intern (o42_sheet_fmt_table (r->sheet),
@@ -4791,6 +4805,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           g_clear_pointer (&r.drawing_rid, g_free);
           g_clear_pointer (&r.picture_rid, g_free);
           r.filter_col = -1;
+          r.cols_left = 4 * O42_MAX_COLS;
           r.fit_to_page = FALSE;
           r.sheet_rels = o42_xlsx_read_rels (parts, part);
           ok = parse_part (parts, part, &sheet_parser, &r, error);
