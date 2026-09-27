@@ -2834,6 +2834,7 @@ typedef struct {
   char    *data_style;     /* number style name, resolved after all styles are read */
   int      width;          /* columns: px, or 0 */
   int      height;         /* rows: px, or 0 */
+  gboolean optimal_height; /* rows: the height is fitted to the text */
   guint32  tab_colour;     /* tables: the tab's colour, or O42_TAB_NO_COLOUR */
   gboolean table_hidden;   /* tables: table:display="false" */
   gboolean page_break;     /* rows and columns: fo:break-before="page" */
@@ -3008,6 +3009,24 @@ attr_int (const char **names, const char **values, const char *want, int fallbac
   return v != NULL ? atoi (v) : fallback;
 }
 
+/* A count an attribute gives -- of rows or columns repeated or
+ * spanned, of spaces, of digits -- held between `least` and `most`.
+ * Each is a loop or a string the reader makes that long, and a file of
+ * a few hundred bytes can ask for two thousand million of anything, or
+ * for more than an int holds. */
+static int
+attr_count (const char **names, const char **values, const char *want,
+            int fallback, int least, int most)
+{
+  const char *v = attr (names, values, want);
+  gint64 n;
+
+  if (v == NULL)
+    return fallback;
+  n = g_ascii_strtoll (v, NULL, 10);
+  return (int) CLAMP (n, least, most);
+}
+
 /* The Excel language of an ODF language tag, the other way round
  * from language_tag. */
 static guint
@@ -3176,10 +3195,13 @@ place_loose_controls (Reader *r)
 
       if (c != NULL && r->sheet != NULL)
         {
-          while (col < O42_MAX_COLS - 1 && x + o42_sheet_col_width (r->sheet, col) <= l->x)
-            x += o42_sheet_col_width (r->sheet, col++);
-          while (row < O42_MAX_ROWS - 1 && y + o42_sheet_row_height (r->sheet, row) <= l->y)
-            y += o42_sheet_row_height (r->sheet, row++);
+          /* Asked of the sheet, which knows where its rows start
+           * without walking them: a control a file puts a mile down
+           * would otherwise walk sixteen million rows. */
+          col = o42_sheet_col_at (r->sheet, l->x);
+          row = o42_sheet_row_at (r->sheet, l->y);
+          x = o42_sheet_col_offset (r->sheet, col);
+          y = o42_sheet_row_offset (r->sheet, row);
           place_control (r, c, row, col, l->x - x, l->y - y, l->w, l->h);
         }
       g_free (l->id);
@@ -3668,15 +3690,17 @@ validation_free (gpointer data)
 static void
 cell_finish (Reader *r)
 {
-  int repeat = MAX (r->cell_repeat, 1);
+  /* Never more cells than are left of the row, so that the next cell's
+   * column cannot overflow. */
+  int repeat = MIN (MAX (r->cell_repeat, 1), O42_MAX_COLS - r->cell_col);
   char *input = NULL;
 
   /* Whatever runs were gathered belong to this cell alone. */
   #define CLEAR_RUNS() g_clear_pointer (&r->cell_runs, g_array_unref)
 
-  if (r->sheet == NULL || r->covered)
+  if (r->sheet == NULL || r->covered || repeat <= 0 || r->row >= O42_MAX_ROWS)
     {
-      r->cell_col += repeat;
+      r->cell_col += MAX (repeat, 0);
       CLEAR_RUNS ();
       return;
     }
@@ -3746,23 +3770,31 @@ cell_finish (Reader *r)
       input = o42_entry_quote_text (r->text->str);
     }
 
-  for (int k = 0; k < repeat && r->cell_col + k < O42_MAX_COLS; k++)
+  for (int k = 0; k < repeat; k++)
     {
       int col = r->cell_col + k;
-      if (input != NULL && r->row < O42_MAX_ROWS)
+      if (input != NULL)
         o42_sheet_set_input (r->sheet, r->row, col, input);
       if (r->note != NULL && r->note->len > 0)
         o42_sheet_set_note (r->sheet, r->row, col, r->note->str);
       if (r->cell_link != NULL)
         o42_sheet_set_link (r->sheet, r->row, col, r->cell_link);
-      if (r->cell_runs != NULL && r->cell_runs->len > 0 && r->row < O42_MAX_ROWS)
+      if (r->cell_runs != NULL && r->cell_runs->len > 0)
         o42_sheet_set_runs (r->sheet, r->row, col,
                             &g_array_index (r->cell_runs, O42TextRun, 0),
                             (int) r->cell_runs->len);
-      if (r->span_cols > 1 || r->span_rows > 1)
+      if ((r->span_cols > 1 || r->span_rows > 1) && k == 0)
         {
-          O42Range m = { r->row, col, MIN (r->row + r->span_rows - 1, O42_MAX_ROWS - 1), MIN (col + r->span_cols - 1, O42_MAX_COLS - 1) };
-          o42_sheet_merge (r->sheet, &m);
+          /* The cells a merge covers come after it in the file, as
+           * covered cells whose content is not taken, so there is
+           * nothing under it to empty: the range goes straight into
+           * the sheet's list, as the .gnumeric reader does, rather
+           * than through o42_sheet_merge, which looks at every cell of
+           * a range a file may make the whole grid.  A cell repeated
+           * would only span over its own copies; the first spans. */
+          O42Range m = { r->row, col, MIN (r->row + r->span_rows - 1, O42_MAX_ROWS - 1),
+                         MIN (col + r->span_cols - 1, O42_MAX_COLS - 1) };
+          g_array_append_val (o42_sheet_merges (r->sheet), m);
         }
       if (repeat <= 64 || input != NULL)
         {
@@ -3782,21 +3814,41 @@ cell_finish (Reader *r)
 static void
 row_finish (Reader *r)
 {
-  int repeat = MAX (r->row_repeat, 1);
-  if (r->sheet != NULL)
+  /* Never more rows than are left of the grid, so that the next row's
+   * number cannot overflow. */
+  int repeat = MIN (MAX (r->row_repeat, 1), O42_MAX_ROWS - r->row);
+
+  if (r->sheet != NULL && repeat > 0)
     {
       Style *st = r->row_style != NULL ? g_hash_table_lookup (r->styles, r->row_style) : NULL;
-      int last = MIN (r->row + repeat, O42_MAX_ROWS);
+      int height = st != NULL ? st->height : 0;
+      int last = r->row + repeat;
+
       if (st != NULL && st->page_break && r->row > 0 && !o42_sheet_page_break (r->sheet, TRUE, r->row))
         o42_sheet_toggle_page_break (r->sheet, TRUE, r->row);
-      if (repeat <= 512 || r->cell_col > 0)
+      /* The rows of a run are laid out one at a time.  A long run --
+       * LibreOffice ends every sheet with one that reaches its last row
+       * -- is laid out only where that says something: a height the
+       * rows would not have anyway, since an optimal height is only
+       * what LibreOffice measured the empty rows at, or that they are
+       * hidden.  And a long one stops at LibreOffice's and Excel's last
+       * row, which is as far as a real file's runs reach, rather than
+       * lay out sixteen million rows for a line of XML. */
+      if (repeat > 512)
+        {
+          if (st != NULL && (st->optimal_height ||
+                             st->height == o42_sheet_row_height (r->sheet, O42_MAX_ROWS - 1)))
+            height = 0;
+          last = MIN (last, O42_EXCEL_MAX_ROWS);
+        }
+      if (height > 0 || r->row_hidden)
         for (int k = r->row; k < last; k++)
           {
-            if (st != NULL && st->height > 0) o42_sheet_set_row_height (r->sheet, k, st->height);
+            if (height > 0) o42_sheet_set_row_height (r->sheet, k, height);
             if (r->row_hidden) o42_sheet_set_row_hidden (r->sheet, k, TRUE);
           }
     }
-  r->row += repeat;
+  r->row += MAX (repeat, 0);
 }
 
 /* A length as OpenDocument writes it -- 3.5cm, 42mm, 12pt, 1in -- in
@@ -4692,7 +4744,10 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       else if (strcmp (name, "table-row-properties") == 0)
         {
           const char *brk = attr (names, values, "break-before");
+          const char *optimal = attr (names, values, "use-optimal-row-height");
+
           st->height = length_px (attr (names, values, "row-height"));
+          st->optimal_height = optimal != NULL && strcmp (optimal, "true") == 0;
           st->page_break = brk != NULL && strcmp (brk, "page") == 0;
         }
       else if (strcmp (name, "graphic-properties") == 0)
@@ -5252,14 +5307,20 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
     }
   if (strcmp (name, "table-column") == 0 && r->sheet != NULL)
     {
-      int repeat = attr_int (names, values, "number-columns-repeated", 1);
+      /* Never more columns than are left: a repeat past the grid, or a
+       * negative one that walked the column back before the first,
+       * took col_styles out of its bounds. */
+      int repeat = MIN (attr_count (names, values, "number-columns-repeated", 1, 1, O42_MAX_COLS),
+                        O42_MAX_COLS - r->col);
       const char *sname = attr (names, values, "style-name");
       const char *cell_style_name = attr (names, values, "default-cell-style-name");
       const char *vis = attr (names, values, "visibility");
       Style *st = sname != NULL ? g_hash_table_lookup (r->styles, sname) : NULL;
+      if (repeat <= 0)
+        return;
       if (st != NULL && st->page_break && r->col > 0 && !o42_sheet_page_break (r->sheet, FALSE, r->col))
         o42_sheet_toggle_page_break (r->sheet, FALSE, r->col);
-      for (int k = 0; k < repeat && r->col + k < O42_MAX_COLS; k++)
+      for (int k = 0; k < repeat; k++)
         {
           if (st != NULL && st->width > 0) o42_sheet_set_col_width (r->sheet, r->col + k, st->width);
           if (vis != NULL && strcmp (vis, "collapse") == 0) o42_sheet_set_col_hidden (r->sheet, r->col + k, TRUE);
@@ -5276,7 +5337,7 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
   if (strcmp (name, "table-row") == 0 && r->sheet != NULL)
     {
       const char *vis = attr (names, values, "visibility");
-      r->row_repeat = attr_int (names, values, "number-rows-repeated", 1);
+      r->row_repeat = attr_count (names, values, "number-rows-repeated", 1, 1, O42_MAX_ROWS);
       g_free (r->row_style);
       r->row_style = g_strdup (attr (names, values, "style-name"));
       r->row_hidden = vis != NULL && strcmp (vis, "collapse") == 0;
@@ -5335,9 +5396,9 @@ content_start (GMarkupParseContext *ctx, const char *element, const char **names
       r->covered = name[0] == 'c';
       g_free (r->cell_valid);
       r->cell_valid = g_strdup (attr (names, values, "content-validation-name"));
-      r->cell_repeat = attr_int (names, values, "number-columns-repeated", 1);
-      r->span_cols = attr_int (names, values, "number-columns-spanned", 1);
-      r->span_rows = attr_int (names, values, "number-rows-spanned", 1);
+      r->cell_repeat = attr_count (names, values, "number-columns-repeated", 1, 1, O42_MAX_COLS);
+      r->span_cols = attr_count (names, values, "number-columns-spanned", 1, 1, O42_MAX_COLS);
+      r->span_rows = attr_count (names, values, "number-rows-spanned", 1, 1, O42_MAX_ROWS);
       g_free (r->cell_style);  r->cell_style = g_strdup (attr (names, values, "style-name"));
       g_free (r->formula);     r->formula = g_strdup (attr (names, values, "formula"));
       g_free (r->value_type);  r->value_type = g_strdup (attr (names, values, "value-type"));
