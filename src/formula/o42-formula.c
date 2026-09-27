@@ -46,7 +46,19 @@ typedef struct {
   const char *input;
   const char *p;
   Token       tok;
+  int         depth;      /* brackets, calls and signs open around here */
+  gboolean    too_deep;
 } Parser;
+
+/* Excel's own limits on a formula: 8192 characters, and nothing like a
+ * thousand levels of nesting.  A formula from a file may say anything,
+ * and the parser, and everything that walks the tree it builds, goes
+ * one C frame deeper for each level: without a limit a few hundred
+ * kilobytes of brackets overrun the stack.  The length bounds the tree
+ * the operators build (1+1+...+1 is as deep as it is long), the depth
+ * the recursion of the parser itself. */
+#define FORMULA_MAX_CHARS 8192
+#define FORMULA_MAX_DEPTH 1024
 
 static void
 token_clear (Token *t)
@@ -454,6 +466,7 @@ o42_node_free (O42Node *node)
 /* ---------------------------------------------------------------------- */
 
 static O42Node *parse_expr (Parser *ps);
+static O42Node *parse_unary (Parser *ps);
 static O42Node *parse_whole_range (Parser *ps, gboolean cols, int first, gboolean first_abs,
                                    const char *sheet, const char *sheet_last);
 static gboolean parse_row_only (const char *text, int *row, gboolean *abs);
@@ -767,8 +780,11 @@ parse_col_only (const char *text, int *col, gboolean *abs)
   *abs = (*text == '$');
   if (*abs)
     text++;
+  /* Only the first three letters are counted: a column is no more, and
+   * a long run of letters would overflow the count before it failed. */
   for (; g_ascii_isalpha (*text); text++, n++)
-    value = value * 26 + (g_ascii_toupper (*text) - 'A' + 1);
+    if (n < 3)
+      value = value * 26 + (g_ascii_toupper (*text) - 'A' + 1);
   if (n < 1 || n > 3 || *text != '\0' || value > O42_MAX_COLS)
     return FALSE;
   *col = value - 1;
@@ -943,7 +959,7 @@ parse_postfix (Parser *ps)
  * Excel's precedence, and it surprises people often enough to be worth
  * saying out loud. */
 static O42Node *
-parse_unary (Parser *ps)
+parse_unary_inner (Parser *ps)
 {
   if (op_is (ps, "-"))
     {
@@ -965,6 +981,27 @@ parse_unary (Parser *ps)
     }
 
   return parse_postfix (ps);
+}
+
+/* Every level of nesting -- a bracket, a call, a sign -- comes through
+ * here, so this is where it is counted.  Past the limit the rest of the
+ * text is passed over and the whole formula becomes an error. */
+static O42Node *
+parse_unary (Parser *ps)
+{
+  O42Node *n;
+
+  if (ps->too_deep || ps->depth >= FORMULA_MAX_DEPTH)
+    {
+      ps->too_deep = TRUE;
+      while (ps->tok.type != TOK_END)
+        next_token (ps);
+      return node_error (O42_ERR_VALUE);
+    }
+  ps->depth++;
+  n = parse_unary_inner (ps);
+  ps->depth--;
+  return n;
 }
 
 static O42Node *
@@ -1072,9 +1109,20 @@ o42_formula_parse (const char *text)
 {
   Parser ps;
   O42Node *node;
+  char *valid = NULL;
 
   if (text == NULL || *text == '\0')
     return node_error (O42_ERR_NAME);
+  /* Text from a file may not be UTF-8, and the strings in a formula
+   * become values that every text function walks a character at a
+   * time: a broken sequence at the end would walk them past it. */
+  if (!g_utf8_validate (text, -1, NULL))
+    text = valid = g_utf8_make_valid (text, -1);
+  if (g_utf8_strlen (text, -1) > FORMULA_MAX_CHARS)
+    {
+      g_free (valid);
+      return node_error (O42_ERR_VALUE);
+    }
 
   memset (&ps, 0, sizeof ps);
   ps.input = text;
@@ -1084,6 +1132,12 @@ o42_formula_parse (const char *text)
   node = parse_expr (&ps);
 
   token_clear (&ps.tok);
+  if (ps.too_deep)
+    {
+      o42_node_free (node);
+      node = node_error (O42_ERR_VALUE);
+    }
+  g_free (valid);
   return node;
 }
 

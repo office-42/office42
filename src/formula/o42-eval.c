@@ -5619,10 +5619,55 @@ r1c1_to_a1 (const char *text, int row, int col)
   return result;
 }
 
-/* TRUE if `node` is a call to a reference-returning function; then
- * `out` holds its result, a range or an error value. */
+/* Arguments eval_range_call has worked out before it leaves a call to
+ * eval_call_operand after all -- IFERROR of an array, CHOOSE with an
+ * array of indices -- which takes them from here rather than work them
+ * out again.  Twice at every level of a nest of such calls is twice
+ * again for each level: twenty IFERRORs deep took half a minute. */
+typedef struct {
+  O42Operand ops[4];
+  gboolean   have[4];
+} Prior;
+
+static void
+prior_keep (Prior *prior, int index, O42Operand *op)
+{
+  if (prior != NULL && index >= 0 && index < (int) G_N_ELEMENTS (prior->ops) && !prior->have[index])
+    {
+      prior->ops[index] = *op;
+      prior->have[index] = TRUE;
+    }
+  else
+    operand_clear (op);
+}
+
 static gboolean
-eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
+prior_take (Prior *prior, int index, O42Operand *op)
+{
+  if (prior == NULL || index < 0 || index >= (int) G_N_ELEMENTS (prior->ops) || !prior->have[index])
+    return FALSE;
+  *op = prior->ops[index];
+  prior->have[index] = FALSE;
+  return TRUE;
+}
+
+static void
+prior_clear (Prior *prior)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (prior->ops); i++)
+    if (prior->have[i])
+      {
+        operand_clear (&prior->ops[i]);
+        prior->have[i] = FALSE;
+      }
+}
+
+/* TRUE if `node` is a call to a reference-returning function; then
+ * `out` holds its result, a range or an error value.  FALSE leaves the
+ * call to eval_call_operand, with what was worked out on the way kept
+ * in `prior`. */
+static gboolean
+eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out, Prior *prior)
 {
   int n_args;
 
@@ -5736,7 +5781,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           O42ErrorCode e = O42_ERR_VALUE;
 
           if (operand_is_multi (&t))
-            { operand_clear (&t); return FALSE; }
+            { prior_keep (prior, i, &t); return FALSE; }
           c = operand_value (ctx, &t);
           operand_clear (&t);
           memset (out, 0, sizeof *out);
@@ -5762,7 +5807,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       O42Value v;
 
       if (operand_is_multi (&subject))
-        { operand_clear (&subject); return FALSE; }
+        { prior_keep (prior, 0, &subject); return FALSE; }
       v = operand_value (ctx, &subject);
       operand_clear (&subject);
       memset (out, 0, sizeof *out);
@@ -5799,7 +5844,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       gboolean only_na = node->as.call.name[2] == 'N';
 
       if (operand_is_multi (&first))
-        { operand_clear (&first); return FALSE; }
+        { prior_keep (prior, 0, &first); return FALSE; }
       if (first.value.type == O42_VALUE_ERROR &&
           (!only_na || first.value.as.error == O42_ERR_NA))
         {
@@ -8372,7 +8417,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       O42ErrorCode e = O42_ERR_VALUE;
 
       if (operand_is_multi (&which))
-        { operand_clear (&which); return FALSE; }
+        { prior_keep (prior, 0, &which); return FALSE; }
       v = operand_value (ctx, &which);
       operand_clear (&which);
       if (v.type == O42_VALUE_ERROR)
@@ -8380,7 +8425,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
       if (!o42_value_to_number (&v, &index, &e))
         { o42_value_clear (&v); out->value = o42_value_error (e); return TRUE; }
       o42_value_clear (&v);
-      if (index < 1 || index >= n_args)
+      if (!(index >= 1 && index < n_args))
         { out->value = o42_value_error (O42_ERR_VALUE); return TRUE; }
       *out = eval_operand (ctx, g_ptr_array_index (node->as.call.args, (int) index));
       return TRUE;
@@ -8414,7 +8459,7 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           /* An error where the array was meant is the answer. */
           if (src.value.type == O42_VALUE_ERROR)
             { *out = src; return TRUE; }
-          operand_clear (&src);
+          prior_keep (prior, 0, &src);
           return FALSE;
         }
       for (int k = 1; k < n_args; k++)
@@ -8425,8 +8470,8 @@ eval_range_call (O42EvalContext *ctx, const O42Node *node, O42Operand *out)
           nums[k - 1] = eval_operand (ctx, g_ptr_array_index (node->as.call.args, k));
           if (operand_is_multi (&nums[k - 1]))
             {
-              for (int m = 1; m <= k; m++) operand_clear (&nums[m - 1]);
-              operand_clear (&src);
+              prior_keep (prior, k, &nums[k - 1]);
+              prior_keep (prior, 0, &src);
               return FALSE;
             }
           v = operand_value (ctx, &nums[k - 1]);
@@ -11756,21 +11801,18 @@ eval_binary (O42EvalContext *ctx, const O42Node *node)
 }
 
 static O42Value
-eval_unary (O42EvalContext *ctx, const O42Node *node)
+unary_value (O42EvalContext *ctx, O42Op op, O42Operand *oa)
 {
-  O42Operand oa = eval_operand (ctx, node->as.op.a);
-  O42Value a = operand_value (ctx, &oa);
+  O42Value a = operand_value (ctx, oa);
   O42Value result;
   double x = 0;
   O42ErrorCode err = O42_ERR_VALUE;
-
-  operand_clear (&oa);
 
   if (a.type == O42_VALUE_ERROR)
     return a;
 
   /* A unary plus changes nothing: =+"a" is "a", as in Excel. */
-  if (node->as.op.op == O42_OP_POS)
+  if (op == O42_OP_POS)
     return a;
 
   if (!o42_value_to_number (&a, &x, &err))
@@ -11779,7 +11821,7 @@ eval_unary (O42EvalContext *ctx, const O42Node *node)
       return o42_value_error (err);
     }
 
-  switch (node->as.op.op)
+  switch (op)
     {
     case O42_OP_NEG:     result = o42_value_number (-x);      break;
     case O42_OP_PERCENT: result = o42_value_number (x / 100); break;
@@ -11788,6 +11830,16 @@ eval_unary (O42EvalContext *ctx, const O42Node *node)
     }
 
   o42_value_clear (&a);
+  return result;
+}
+
+static O42Value
+eval_unary (O42EvalContext *ctx, const O42Node *node)
+{
+  O42Operand oa = eval_operand (ctx, node->as.op.a);
+  O42Value result = unary_value (ctx, node->as.op.op, &oa);
+
+  operand_clear (&oa);
   return result;
 }
 
@@ -11953,7 +12005,7 @@ lift_call (O42EvalContext *ctx, const O42Function *fn, const External *ext,
 }
 
 static O42Operand
-eval_call_operand (O42EvalContext *ctx, const O42Node *node)
+eval_call_operand (O42EvalContext *ctx, const O42Node *node, Prior *prior)
 {
   const O42Function *fn = find_function (node->as.call.name);
   const External *ext = fn == NULL ? find_external (node->as.call.name) : NULL;
@@ -12015,8 +12067,9 @@ eval_call_operand (O42EvalContext *ctx, const O42Node *node)
   operands = (n_args > 0) ? g_new0 (O42Operand, n_args) : NULL;
 
   for (int i = 0; i < n_args; i++)
-    operands[i] = eval_operand (ctx,
-                                g_ptr_array_index (node->as.call.args, i));
+    if (!prior_take (prior, i, &operands[i]))
+      operands[i] = eval_operand (ctx,
+                                  g_ptr_array_index (node->as.call.args, i));
 
   {
     /* A 3-D range, Sheet1:Sheet3!A1:B2, becomes one range per sheet, so
@@ -12102,9 +12155,9 @@ eval_call_operand (O42EvalContext *ctx, const O42Node *node)
 }
 
 static O42Value
-eval_call (O42EvalContext *ctx, const O42Node *node)
+eval_call (O42EvalContext *ctx, const O42Node *node, Prior *prior)
 {
-  O42Operand op = eval_call_operand (ctx, node);
+  O42Operand op = eval_call_operand (ctx, node, prior);
   O42Value v = operand_value (ctx, &op);
 
   operand_clear (&op);
@@ -12214,9 +12267,15 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
       }
 
     case O42_NODE_CALL:
-      if (eval_range_call (ctx, node, &op))
+      {
+        Prior prior;
+
+        memset (&prior, 0, sizeof prior);
+        if (!eval_range_call (ctx, node, &op, &prior))
+          op = eval_call_operand (ctx, node, &prior);
+        prior_clear (&prior);
         return op;
-      return eval_call_operand (ctx, node);
+      }
 
     case O42_NODE_ARRAY:
       {
@@ -12286,7 +12345,10 @@ eval_operand (O42EvalContext *ctx, const O42Node *node)
         else if (operand_is_multi (&oa))
           op = oa, oa.is_range = FALSE, oa.value = o42_value_empty ();
         else
-          op.value = eval_node (ctx, node);
+          /* The operand is in hand: evaluating the node again would
+           * work it out twice, and a chain of signs twice at every
+           * link -- =----...-1 took hours at fifty. */
+          op.value = unary_value (ctx, node->as.op.op, &oa);
         operand_clear (&oa);
         return op;
       }
@@ -12352,13 +12414,19 @@ eval_node (O42EvalContext *ctx, const O42Node *node)
     case O42_NODE_CALL:
       {
         O42Operand op;
-        if (eval_range_call (ctx, node, &op))
+        O42Value v;
+        Prior prior;
+
+        memset (&prior, 0, sizeof prior);
+        if (eval_range_call (ctx, node, &op, &prior))
           {
-            O42Value v = operand_value (ctx, &op);
+            v = operand_value (ctx, &op);
             operand_clear (&op);
-            return v;
           }
-        return eval_call (ctx, node);
+        else
+          v = eval_call (ctx, node, &prior);
+        prior_clear (&prior);
+        return v;
       }
 
     default:
