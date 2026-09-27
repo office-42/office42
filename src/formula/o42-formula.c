@@ -1131,6 +1131,15 @@ o42_formula_parse (const char *text)
   next_token (&ps);
   node = parse_expr (&ps);
 
+  /* What the parser did not take is not ignored: =SUM(1,2))+5 would
+   * otherwise show +5 and add nothing, the cell saying one thing and
+   * working out another.  Such a formula is #NAME?, as one the parser
+   * cannot read at all is. */
+  if (!ps.too_deep && ps.tok.type != TOK_END)
+    {
+      o42_node_free (node);
+      node = node_error (O42_ERR_NAME);
+    }
   token_clear (&ps.tok);
   if (ps.too_deep)
     {
