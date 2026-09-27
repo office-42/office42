@@ -7548,3 +7548,7 @@ msgstr "স্ক্রিপ্ট চালান(_R)"
 #: src/ui/o42-window.c:7768
 msgid "_Scripts..."
 msgstr "স্ক্রিপ্ট(_S)..."
+
+#: src/ui/o42-grid.c:5285
+msgid "This link does not go to a web page. Open it anyway?"
+msgstr "এই লিংকটি কোনো ওয়েব পৃষ্ঠায় যায় না। তবুও খুলবেন?"

@@ -109,6 +109,9 @@ void o42_window_show_sheet (O42Window *self, int index);
 /* Runs one of the book's scripts, and takes away the bar that offers
  * to run them. */
 gboolean o42_window_run_script (O42Window *self, const char *name, const char *code);
+/* Whether the book's scripts may run from a button or a shortcut; when
+ * not, shows the bar that offers to run them. */
+gboolean o42_window_scripts_allowed (O42Window *self);
 void     o42_window_fire_event (O42Window *self, const char *event, const O42Range *range);
 
 /* The Scripts dialog's half of the step debugger: shows the line and

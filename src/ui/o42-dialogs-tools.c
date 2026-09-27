@@ -2857,7 +2857,7 @@ action_run_macro (GSimpleAction *a, GVariant *p, gpointer data)
   const char *code = sname != NULL ? o42_book_script_code (self->book, sname) : NULL;
 
   (void) a;
-  if (code == NULL)
+  if (code == NULL || !o42_window_scripts_allowed (self))
     return;
   if (o42_grid_is_editing (self->grid))
     o42_grid_commit_edit (self->grid);

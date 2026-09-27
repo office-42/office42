@@ -4153,6 +4153,23 @@ action_format_control (GSimpleAction *a, GVariant *p, gpointer data)
 }
 
 /* A button on the sheet was pressed. */
+/* A button or a shortcut asking for one of the book's scripts runs it
+ * only once the user has let the book's Python run: a file's button is
+ * the file's, and one click on it is not the user's say-so.  Until
+ * then the bar that offers to run them is shown again, and nothing
+ * runs. */
+gboolean
+o42_window_scripts_allowed (O42Window *self)
+{
+  if (o42_book_scripts_trusted (self->book))
+    return TRUE;
+  gtk_label_set_text (GTK_LABEL (self->scripts_bar_label),
+                      _("This book has Python scripts in it. They have not been run."));
+  gtk_widget_set_visible (self->scripts_bar_run, TRUE);
+  gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), TRUE);
+  return FALSE;
+}
+
 static void
 on_grid_run_script (O42Grid *grid, const char *name, gpointer data)
 {
@@ -4165,6 +4182,8 @@ on_grid_run_script (O42Grid *grid, const char *name, gpointer data)
       show_error (self, _("This button names a script the book has not got."), NULL);
       return;
     }
+  if (!o42_window_scripts_allowed (self))
+    return;
   window_run_script (self, name, code);
   window_sync (self);
 }

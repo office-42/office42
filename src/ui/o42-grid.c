@@ -3076,6 +3076,50 @@ end_edit (O42Grid *self)
 /* Data > Validation, on an entry the active cell's rule refuses: Stop
  * announces it and drops it; Warning asks whether to keep it anyway
  * and puts it in when told yes; Information tells and keeps it. */
+/* Whether a link goes where a browser or a mail program takes it,
+ * which is what a spreadsheet's links are for and safe to hand to the
+ * system as it stands. */
+static gboolean
+link_is_web (const char *target)
+{
+  static const char *const web[] = { "http", "https", "mailto", "ftp" };
+  char *scheme = g_uri_parse_scheme (target);
+  gboolean is_web = FALSE;
+
+  for (guint i = 0; scheme != NULL && i < G_N_ELEMENTS (web); i++)
+    if (g_ascii_strcasecmp (scheme, web[i]) == 0)
+      is_web = TRUE;
+  g_free (scheme);
+  return is_web;
+}
+
+static void
+link_launch (O42Grid *self, const char *target)
+{
+  GtkUriLauncher *launcher = gtk_uri_launcher_new (target);
+  GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
+
+  gtk_uri_launcher_launch (launcher, GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL, NULL, NULL, NULL);
+  g_object_unref (launcher);
+}
+
+typedef struct {
+  O42Grid *grid;
+  char    *target;
+} LinkAsk;
+
+static void
+on_link_answered (GObject *source, GAsyncResult *result, gpointer data)
+{
+  LinkAsk *ask = data;
+
+  if (gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result, NULL) == 0)
+    link_launch (ask->grid, ask->target);
+  g_object_unref (ask->grid);
+  g_free (ask->target);
+  g_free (ask);
+}
+
 typedef struct {
   O42Grid *grid;
   int      row, col;
@@ -5231,12 +5275,27 @@ on_click_pressed (GtkGestureClick *gesture,
             o42_grid_select_range (self, &tree->as.range);
           o42_node_free (tree);
         }
+      else if (link_is_web (target))
+        link_launch (self, target);
       else
         {
-          GtkUriLauncher *launcher = gtk_uri_launcher_new (target);
+          /* Anything else -- a file, a share, a program's own scheme --
+           * is the file's say-so, and may run something: the user is
+           * asked first, and shown where it goes. */
+          GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", _("This link does not go to a web page. Open it anyway?"));
+          const char *buttons[] = { _("_Open"), _("_Cancel"), NULL };
           GtkRoot *root = gtk_widget_get_root (GTK_WIDGET (self));
-          gtk_uri_launcher_launch (launcher, GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL, NULL, NULL, NULL);
-          g_object_unref (launcher);
+          LinkAsk *ask = g_new0 (LinkAsk, 1);
+
+          ask->grid = g_object_ref (self);
+          ask->target = g_strdup (target);
+          gtk_alert_dialog_set_detail (alert, target);
+          gtk_alert_dialog_set_buttons (alert, buttons);
+          gtk_alert_dialog_set_default_button (alert, 1);
+          gtk_alert_dialog_set_cancel_button (alert, 1);
+          gtk_alert_dialog_choose (alert, GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL,
+                                   NULL, on_link_answered, ask);
+          g_object_unref (alert);
         }
       return;
     }

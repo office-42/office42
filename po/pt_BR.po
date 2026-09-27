@@ -7629,3 +7629,7 @@ msgstr "_Executar scripts"
 #: src/ui/o42-window.c:7768
 msgid "_Scripts..."
 msgstr "_Scripts..."
+
+#: src/ui/o42-grid.c:5285
+msgid "This link does not go to a web page. Open it anyway?"
+msgstr "Este link não leva a uma página da Web. Abrir mesmo assim?"
