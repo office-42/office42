@@ -9,6 +9,44 @@
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <string.h>
 
+/* The most pixels a picture may have: ten thousand square.  A PNG of
+ * one colour packs a thousand to one, so 140 KB inside a spreadsheet
+ * can say it is twelve thousand pixels square and ask for over half a
+ * gigabyte to be decoded into, every time it is drawn.  A photograph
+ * from any camera is well inside this; a picture beyond it is not
+ * decoded at all.  No side may pass what a cairo surface can hold. */
+#define MAX_PIXELS (10000.0 * 10000.0)
+#define MAX_SIDE 32767
+
+static gboolean
+size_acceptable (int width, int height)
+{
+  return width > 0 && height > 0 && width <= MAX_SIDE && height <= MAX_SIDE &&
+         (double) width * height <= MAX_PIXELS;
+}
+
+/* What the header says, heard before any pixel is decoded. */
+typedef struct {
+  int      width, height;
+  gboolean size_only;   /* stop once the size is known */
+} Header;
+
+/* gdk-pixbuf asks this before it makes room for the pixels.  Answering
+ * with a size of nothing makes every loader stop there, which is how
+ * gdk_pixbuf_get_file_info reads a size without decoding a picture;
+ * this does the same from bytes in memory, and for a picture too big to
+ * decode at all. */
+static void
+size_prepared (GdkPixbufLoader *loader, int width, int height, gpointer user)
+{
+  Header *header = user;
+
+  header->width = width;
+  header->height = height;
+  if (header->size_only || !size_acceptable (width, height))
+    gdk_pixbuf_loader_set_size (loader, 0, 0);
+}
+
 static GdkPixbuf *
 decode (GBytes *data, const char **format)
 {
@@ -16,17 +54,22 @@ decode (GBytes *data, const char **format)
   GdkPixbuf *pixbuf = NULL;
   gsize len = 0;
   const guint8 *bytes;
+  Header header = { 0, 0, FALSE };
 
   if (data == NULL)
     return NULL;
 
   bytes = g_bytes_get_data (data, &len);
   loader = gdk_pixbuf_loader_new ();
+  g_signal_connect (loader, "size-prepared", G_CALLBACK (size_prepared), &header);
 
   if (gdk_pixbuf_loader_write (loader, bytes, len, NULL) &&
       gdk_pixbuf_loader_close (loader, NULL))
     {
       pixbuf = gdk_pixbuf_loader_get_pixbuf (loader);
+      if (pixbuf != NULL &&
+          !size_acceptable (gdk_pixbuf_get_width (pixbuf), gdk_pixbuf_get_height (pixbuf)))
+        pixbuf = NULL;
       if (pixbuf != NULL)
         {
           g_object_ref (pixbuf);
@@ -122,22 +165,56 @@ o42_image_as_png (GBytes *data)
   return g_bytes_new_take (buffer, size);
 }
 
+/* The size and format from the picture's header, without decoding it:
+ * the bytes go to the loader a piece at a time until it has said how
+ * big the picture is.  A picture too big to be decoded is refused here,
+ * so that it is never taken in to be drawn. */
 gboolean
 o42_image_probe (GBytes *data, int *width, int *height, const char **format)
 {
-  GdkPixbuf *pixbuf;
+  GdkPixbufLoader *loader;
+  GdkPixbufFormat *found;
+  Header header = { 0, 0, TRUE };
+  const guint8 *bytes;
+  gsize len = 0, at = 0;
+  gboolean ok;
 
   if (o42_image_is_metafile (data, width, height, format))
     return TRUE;
-  pixbuf = decode (data, format);
-  if (pixbuf == NULL)
+  if (data == NULL)
     return FALSE;
 
-  if (width)  *width  = gdk_pixbuf_get_width (pixbuf);
-  if (height) *height = gdk_pixbuf_get_height (pixbuf);
+  bytes = g_bytes_get_data (data, &len);
+  loader = gdk_pixbuf_loader_new ();
+  g_signal_connect (loader, "size-prepared", G_CALLBACK (size_prepared), &header);
+  while (at < len && header.width == 0)
+    {
+      gsize piece = MIN (len - at, 4096);
 
-  g_object_unref (pixbuf);
-  return TRUE;
+      if (!gdk_pixbuf_loader_write (loader, bytes + at, piece, NULL))
+        break;
+      at += piece;
+    }
+  /* A picture of fewer bytes than the loader wants to see before it
+   * picks a format is read only now, and says its size here. */
+  gdk_pixbuf_loader_close (loader, NULL);
+
+  found = gdk_pixbuf_loader_get_format (loader);
+  ok = found != NULL && size_acceptable (header.width, header.height);
+  if (ok)
+    {
+      if (width)  *width = header.width;
+      if (height) *height = header.height;
+      if (format)
+        {
+          char *name = gdk_pixbuf_format_get_name (found);
+
+          *format = g_intern_string (name != NULL ? name : "unknown");
+          g_free (name);
+        }
+    }
+  g_object_unref (loader);
+  return ok;
 }
 
 GBytes *
