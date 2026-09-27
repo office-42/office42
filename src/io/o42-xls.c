@@ -1767,7 +1767,10 @@ read_name (Reader *r, const guchar *p, gsize len)
       guint sflags = *p++;
       if (flags & 0x0020)
         {
-          guint id = sflags & 0x01 ? rd16 (p) : *p;
+          /* The built-in's number, as the name's one character; a
+           * record cut short before it is Consolidate_Area, which is
+           * dropped with the rest of Excel's own. */
+          guint id = sflags & 0x01 ? (p + 2 <= end ? rd16 (p) : 0) : (p < end ? *p : 0);
           p += sflags & 0x01 ? 2 : 1;
           name = g_strdup_printf ("_builtin_%u", id);
           cch = 0;
@@ -2027,6 +2030,7 @@ cf_number (const guchar *p, gsize len, double *out)
   return FALSE;
 }
 
+/* A CF record: one rule of the last CONDFMT.  `len` is at least 12. */
 static void
 read_cf (Reader *r, const guchar *p, gsize len)
 {
@@ -2975,7 +2979,11 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
       if (len >= 20 && r->sheet) read_dv (r, p, len);
       break;
     case R_CONDFMT:
-      if (len >= 12)
+      /* The rule count and a word of flags, the bounding rectangle, then
+       * the count of rectangles.  One too short for that leaves the CF
+       * records after it nowhere to go, not in the last one's range. */
+      r->cf_have_range = FALSE;
+      if (len >= 14)
         {
           guint n = rd16 (p + 12);
 
@@ -2995,7 +3003,9 @@ read_sheet_record (Reader *r, guint id, const guchar *p, gsize len)
         }
       break;
     case R_CF:
-      if (len >= 10 && r->cf_have_range && r->sheet)
+      /* The type, the operator, the two token counts and the format's
+       * two words of flags: twelve bytes before anything optional. */
+      if (len >= 12 && r->cf_have_range && r->sheet)
         read_cf (r, p, len);
       break;
     case R_ROW:
