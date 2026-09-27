@@ -7076,13 +7076,34 @@ o42_sheet_merge (O42Sheet *sheet, const O42Range *range)
         i++;
     }
 
-  for (int row = r.row0; row <= r.row1; row++)
-    for (int col = r.col0; col <= r.col1; col++)
-      if ((row != r.row0 || col != r.col0) && !o42_sheet_is_empty (sheet, row, col))
+  /* A merge a file names can be the whole sheet, and only the cells
+   * that hold something need emptying: those are walked instead of the
+   * squares when there are far fewer of them. */
+  if (range_is_vast (sheet, &r))
+    {
+      GArray *keys = cells_in_range (sheet, &r);
+
+      for (guint i = 0; i < keys->len; i++)
         {
-          op_capture (sheet, row, col);
-          set_input_internal (sheet, row, col, NULL);
+          guint64 key = g_array_index (keys, guint64, i);
+          int row = o42_key_row (key), col = o42_key_col (key);
+
+          if ((row != r.row0 || col != r.col0) && !o42_sheet_is_empty (sheet, row, col))
+            {
+              op_capture (sheet, row, col);
+              set_input_internal (sheet, row, col, NULL);
+            }
         }
+      g_array_unref (keys);
+    }
+  else
+    for (int row = r.row0; row <= r.row1; row++)
+      for (int col = r.col0; col <= r.col1; col++)
+        if ((row != r.row0 || col != r.col0) && !o42_sheet_is_empty (sheet, row, col))
+          {
+            op_capture (sheet, row, col);
+            set_input_internal (sheet, row, col, NULL);
+          }
   g_array_append_val (sheet->merges, r);
   op_end (sheet);
   sheet->modified = TRUE;
@@ -7144,17 +7165,33 @@ o42_sheet_merges (O42Sheet *sheet)
 
 /* ---- AutoFilter ------------------------------------------------------- */
 
+/* The last row of the filter that holds anything.  A file can put the
+ * filter over every row of the sheet, and the rows below the last cell
+ * are empty all the way down: Excel filters its list, which ends where
+ * the cells do, and so does this. */
+static int
+autofilter_last_row (O42Sheet *sheet)
+{
+  O42Range used;
+
+  o42_sheet_used_range (sheet, &used);
+  return MIN (sheet->filter.row1, used.row1);
+}
+
 /* Hides the rows the choices rule out and shows the rest. */
 static void
 autofilter_apply (O42Sheet *sheet)
 {
+  int last;
+
   sizes_changed (sheet);
   g_hash_table_remove_all (sheet->filtered_rows);
 
   if (!sheet->has_filter)
     return;
 
-  for (int row = sheet->filter.row0 + 1; row <= sheet->filter.row1; row++)
+  last = autofilter_last_row (sheet);
+  for (int row = sheet->filter.row0 + 1; row <= last; row++)
     {
       gboolean keep = TRUE;
       GHashTableIter iter;
@@ -7278,7 +7315,7 @@ o42_sheet_autofilter_values (O42Sheet *sheet, int col)
   g_return_val_if_fail (sheet != NULL, NULL);
 
   if (sheet->has_filter)
-    for (int row = sheet->filter.row0 + 1; row <= sheet->filter.row1; row++)
+    for (int row = sheet->filter.row0 + 1, last = autofilter_last_row (sheet); row <= last; row++)
       {
         char *shown = o42_sheet_get_display (sheet, row, col);
 

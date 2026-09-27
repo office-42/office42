@@ -4053,8 +4053,10 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       O42Range f;
       for (guint k = 0; op != NULL && k < G_N_ELEMENTS (ops); k++)
         if (strcmp (op, ops[k]) == 0) prefix = prefixes[k];
-      /* Only the first criterion of a column is kept. */
+      /* Only the first criterion of a column is kept, and only for a
+       * column the filter has: colId counts from its left edge. */
       if (val != NULL && o42_sheet_get_autofilter (r->sheet, &f) &&
+          r->filter_col <= f.col1 - f.col0 &&
           o42_sheet_autofilter_choice (r->sheet, f.col0 + r->filter_col) == NULL)
         {
           char *criterion = g_strconcat (prefix, val, NULL);
