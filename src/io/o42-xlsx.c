@@ -2617,6 +2617,15 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if (strcmp (n, "definedName") == 0)
     {
       const char *dname = attr (names, values, "name");
+
+      /* The names this reader keeps for itself -- a pivot, a print area,
+       * a name local to one sheet -- are told apart by a first byte of
+       * \001, \002 or \003, and are read back on that promise.  No name
+       * Excel allows starts with a control character, and one that
+       * arrives as "&#2;" would be taken for a print area with nothing
+       * after its tag, so it is not a name at all. */
+      if (dname != NULL && (guchar) dname[0] < 0x20)
+        return;
       if (dname != NULL && g_str_has_prefix (dname, "_o42.pivot.") && attr (names, values, "localSheetId") != NULL)
         {
           /* A pivot definition: kept with its sheet index for later. */
