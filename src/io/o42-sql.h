@@ -70,7 +70,9 @@ gboolean     o42_db_put_range (O42Db *db, O42Sheet *sheet, const O42Range *range
 O42Db       *o42_db_for_book (O42Book *book, GError **error);
 
 /* Runs every query this sheet remembers and lays each answer out again
- * where it was.  The number refreshed, or -1 on the first failure. */
+ * where it was.  The number refreshed, or -1 on the first failure.  The
+ * queries may have come in the file, so only one that reads will run:
+ * no INSERT, no ATTACH, no VACUUM INTO. */
 int          o42_db_refresh (O42Db *db, O42Sheet *sheet, GError **error);
 
 /* Runs a query and puts its answer at (row, col), remembering it on the
@@ -83,6 +85,7 @@ gboolean     o42_db_query_into (O42Db *db, O42Sheet *sheet, const char *sql,
 /* Makes SQLVALUE() work: a formula that asks the book's database a
  * question and answers with one cell of what it says.  The connection
  * is opened when it is first wanted and kept until the book changes.
+ * Only a query that reads will run, since the cell may be the file's.
  * Called with NULL to take the function away again. */
 void         o42_db_register_function (O42Book *book);
 

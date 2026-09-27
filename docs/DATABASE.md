@@ -76,6 +76,13 @@ with one cell of what it says -- the first by default, which is what a
 `row` count from one. It is `#N/A` when the book has no database and
 `#VALUE!` when the query will not run.
 
+A formula in a cell may have come in somebody else's file, so
+`SQLVALUE` only reads: a statement that would write -- `INSERT`,
+`DELETE`, `DROP`, or `ATTACH` and `VACUUM INTO`, which make files on
+the disk -- is `#VALUE!` and does nothing. Refresh Queries holds the
+queries a sheet remembers to the same rule. Writing is for
+`dbexec` and Send Selection to Table, which you run yourself.
+
 A whole table does not fit in a cell; that is what Get Data is for. The
 connection is opened once and kept, so a sheet full of `SQLVALUE` does
 not open the file a hundred times.

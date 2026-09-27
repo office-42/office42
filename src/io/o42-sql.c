@@ -125,10 +125,35 @@ column_value (sqlite3_stmt *stmt, int col)
     }
 }
 
+/* What a query that came with the book may do: read.  SQLVALUE() in a
+ * cell and the queries a sheet remembers arrive in the file, and a file
+ * must not write through them -- not to the database, and not, with
+ * ATTACH or VACUUM INTO, to a file of its choosing anywhere on the disk.
+ * SQLite asks this of every part of a statement as it prepares it. */
+static int
+authorize_reading (void *user, int action, const char *a, const char *b,
+                   const char *db, const char *trigger)
+{
+  (void) user; (void) a; (void) db; (void) trigger;
+  switch (action)
+    {
+    case SQLITE_SELECT:
+    case SQLITE_READ:
+    case SQLITE_RECURSIVE:
+      return SQLITE_OK;
+    case SQLITE_FUNCTION:
+      return b != NULL && g_ascii_strcasecmp (b, "load_extension") == 0
+             ? SQLITE_DENY : SQLITE_OK;
+    default:
+      return SQLITE_DENY;
+    }
+}
+
 #endif
 
-O42DbResult *
-o42_db_query (O42Db *db, const char *sql, GError **error)
+/* o42_db_query, and when `reading` only a statement that reads. */
+static O42DbResult *
+db_query (O42Db *db, const char *sql, gboolean reading, GError **error)
 {
 #ifdef HAVE_SQLITE
   sqlite3_stmt *stmt = NULL;
@@ -137,9 +162,22 @@ o42_db_query (O42Db *db, const char *sql, GError **error)
   int cols, rows = 0, step;
 
   g_return_val_if_fail (db != NULL && sql != NULL, NULL);
+  /* The authorizer stays for the whole run, since SQLite may prepare
+   * the statement again while it steps. */
+  if (reading)
+    sqlite3_set_authorizer (db->handle, authorize_reading, NULL);
   if (sqlite3_prepare_v2 (db->handle, sql, -1, &stmt, NULL) != SQLITE_OK)
     {
       g_set_error (error, O42_DB_ERROR, 2, "%s", sqlite3_errmsg (db->handle));
+      if (reading)
+        sqlite3_set_authorizer (db->handle, NULL, NULL);
+      return NULL;
+    }
+  if (reading && stmt != NULL && !sqlite3_stmt_readonly (stmt))
+    {
+      g_set_error (error, O42_DB_ERROR, 2, "only a query that reads may run here");
+      sqlite3_finalize (stmt);
+      sqlite3_set_authorizer (db->handle, NULL, NULL);
       return NULL;
     }
 
@@ -162,6 +200,8 @@ o42_db_query (O42Db *db, const char *sql, GError **error)
         o42_value_clear (&g_array_index (cells, O42Value, i));
       g_array_free (cells, TRUE);
       sqlite3_finalize (stmt);
+      if (reading)
+        sqlite3_set_authorizer (db->handle, NULL, NULL);
       return NULL;
     }
 
@@ -177,12 +217,20 @@ o42_db_query (O42Db *db, const char *sql, GError **error)
     }
   result->cells = (O42Value *) g_array_free (cells, FALSE);
   sqlite3_finalize (stmt);
+  if (reading)
+    sqlite3_set_authorizer (db->handle, NULL, NULL);
   return result;
 #else
-  (void) db; (void) sql;
+  (void) db; (void) sql; (void) reading;
   g_set_error (error, O42_DB_ERROR, 1, "this build of office42 has no SQLite in it");
   return NULL;
 #endif
+}
+
+O42DbResult *
+o42_db_query (O42Db *db, const char *sql, GError **error)
+{
+  return db_query (db, sql, FALSE, error);
 }
 
 gboolean
@@ -432,16 +480,16 @@ o42_db_for_book (O42Book *book, GError **error)
   return o42_db_open (path, error);
 }
 
-gboolean
-o42_db_query_into (O42Db *db, O42Sheet *sheet, const char *sql,
-                   int row, int col, gboolean headings,
-                   O42Range *filled, GError **error)
+static gboolean
+query_into (O42Db *db, O42Sheet *sheet, const char *sql,
+            int row, int col, gboolean headings, gboolean reading,
+            O42Range *filled, GError **error)
 {
   O42DbResult *result;
   O42Range where;
 
   g_return_val_if_fail (db != NULL && sheet != NULL && sql != NULL, FALSE);
-  result = o42_db_query (db, sql, error);
+  result = db_query (db, sql, reading, error);
   if (result == NULL)
     return FALSE;
 
@@ -453,6 +501,14 @@ o42_db_query_into (O42Db *db, O42Sheet *sheet, const char *sql,
   if (filled != NULL)
     *filled = where;
   return TRUE;
+}
+
+gboolean
+o42_db_query_into (O42Db *db, O42Sheet *sheet, const char *sql,
+                   int row, int col, gboolean headings,
+                   O42Range *filled, GError **error)
+{
+  return query_into (db, sheet, sql, row, col, headings, FALSE, filled, error);
 }
 
 int
@@ -494,8 +550,9 @@ o42_db_refresh (O42Db *db, O42Sheet *sheet, GError **error)
           o42_sheet_set_input (sheet, r, c, "");
       o42_sheet_end_group (sheet);
 
-      if (!o42_db_query_into (db, sheet, g_ptr_array_index (sql, i),
-                              where.row0, where.col0, with_names, NULL, error))
+      /* The sheet's queries may have come in the file: they read. */
+      if (!query_into (db, sheet, g_ptr_array_index (sql, i),
+                       where.row0, where.col0, with_names, TRUE, NULL, error))
         {
           done = -1;
           break;
@@ -576,15 +633,19 @@ function_sqlvalue (O42EvalContext *ctx, const char *name,
       o42_operand_cell (ctx, &args[i], 0, 0, &v);
       if (o42_value_to_number (&v, &n, &err))
         {
+          /* Out of an int's range is out of the answer's: #N/A. */
+          int k = n >= 1 && n <= G_MAXINT ? (int) n : 0;
+
           if (i == 1)
-            col = (int) n;
+            col = k;
           else
-            row = (int) n;
+            row = k;
         }
       o42_value_clear (&v);
     }
 
-  result = o42_db_query (db, sql, NULL);
+  /* The query is the cell's, and the cell may be the file's: it reads. */
+  result = db_query (db, sql, TRUE, NULL);
   g_free (sql);
   if (result == NULL)
     return o42_value_error (O42_ERR_VALUE);
