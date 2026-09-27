@@ -1722,6 +1722,8 @@ typedef struct {
   gboolean    in_names;         /* inside gnm:Names */
   gboolean    in_print_info;    /* inside gnm:PrintInformation */
   gboolean    saw_selection;    /* the sheet's first gnm:Selection was read */
+  int         rows_laid_out;    /* one past the last row a gnm:RowInfo reached */
+  int         cols_laid_out;    /* and column a gnm:ColInfo did, on this sheet */
   GArray     *data_tables;      /* O42DataTable, defined when the sheet ends */
   int         print_text;       /* 1 in its order, 2 orientation, 3 paper */
   GString    *text;             /* what they say */
@@ -2329,6 +2331,7 @@ start_element (GMarkupParseContext *context, const char *element,
       /* The book starts with one sheet; that one takes the file's first
        * and the rest are added after it. */
       r->saw_selection = FALSE;
+      r->rows_laid_out = r->cols_laid_out = 0;
       r->sheet_index++;
       if (r->sheet_index == 1)
         r->sheet = o42_book_sheet (r->book, 0);
@@ -2652,29 +2655,48 @@ start_element (GMarkupParseContext *context, const char *element,
 
   if (strcmp (name, "ColInfo") == 0 || strcmp (name, "RowInfo") == 0)
     {
-      int no = attr_int (names, values, "No", -1);
-      int count = attr_int (names, values, "Count", 1);
+      gboolean cols = name[0] == 'C';
+      int *laid_out = cols ? &r->cols_laid_out : &r->rows_laid_out;
+      const char *no_text = attr (names, values, "No");
+      const char *count_text = attr (names, values, "Count");
+      gint64 no = no_text != NULL ? g_ascii_strtoll (no_text, NULL, 10) : -1;
+      gint64 count = count_text != NULL ? g_ascii_strtoll (count_text, NULL, 10) : 1;
+      gint64 first, end;
       double unit = attr_double (names, values, "Unit", -1);
+      gboolean hidden = attr_int (names, values, "Hidden", 0) != 0;
+      int level = attr_int (names, values, "OutlineLevel", 0);
 
-      if (no >= 0 && unit > 0)
-        for (int i = no; i < no + count; i++)
-          {
-            gboolean hidden = attr_int (names, values, "Hidden", 0) != 0;
-            int level = attr_int (names, values, "OutlineLevel", 0);
-
-            if (name[0] == 'C')
-              {
-                o42_sheet_set_col_width (r->sheet, i, (int) (PT_TO_PX (unit) + 0.5));
-                if (hidden) o42_sheet_set_col_hidden (r->sheet, i, TRUE);
-                if (level > 0) o42_sheet_set_col_level (r->sheet, i, level);
-              }
-            else
-              {
-                o42_sheet_set_row_height (r->sheet, i, (int) (PT_TO_PX (unit) + 0.5));
-                if (hidden) o42_sheet_set_row_hidden (r->sheet, i, TRUE);
-                if (level > 0) o42_sheet_set_row_level (r->sheet, i, level);
-              }
-          }
+      /* A run is laid out here a row at a time, and the grid has
+       * sixteen million rows: each run of a file of a few hundred
+       * bytes could ask for all of them, and No + Count could pass
+       * what an int holds.  Gnumeric lists its runs in order and each
+       * row once, so a run is not let go back over rows one before it
+       * reached; and a run of more than a few hundred rows goes no
+       * further than Excel's last row, which is as far as a real
+       * file's runs reach. */
+      if (no < 0 || no >= (cols ? O42_MAX_COLS : O42_MAX_ROWS) || unit <= 0)
+        return;
+      first = MAX (no, *laid_out);
+      end = no + CLAMP (count, 1, cols ? O42_MAX_COLS : O42_MAX_ROWS);
+      end = MIN (end, cols ? O42_MAX_COLS : O42_MAX_ROWS);
+      if (!cols && count > 512)
+        end = MIN (end, O42_EXCEL_MAX_ROWS);
+      *laid_out = (int) MAX (*laid_out, end);
+      for (int i = (int) first; i < end; i++)
+        {
+          if (cols)
+            {
+              o42_sheet_set_col_width (r->sheet, i, (int) (PT_TO_PX (unit) + 0.5));
+              if (hidden) o42_sheet_set_col_hidden (r->sheet, i, TRUE);
+              if (level > 0) o42_sheet_set_col_level (r->sheet, i, level);
+            }
+          else
+            {
+              o42_sheet_set_row_height (r->sheet, i, (int) (PT_TO_PX (unit) + 0.5));
+              if (hidden) o42_sheet_set_row_hidden (r->sheet, i, TRUE);
+              if (level > 0) o42_sheet_set_row_level (r->sheet, i, level);
+            }
+        }
       return;
     }
 
@@ -3208,9 +3230,20 @@ finish_cell (Reader *r)
 
   if (r->cell_rows > 0 && r->cell_cols > 0 && text[0] == '=')
     {
-      O42Range block = { r->cell_row, r->cell_col,
-                         MIN (r->cell_row + r->cell_rows - 1, O42_MAX_ROWS - 1),
-                         MIN (r->cell_col + r->cell_cols - 1, O42_MAX_COLS - 1) };
+      /* The block as far as the grid goes.  Every cell of it is made,
+       * so one of more than a million cells -- a whole column of
+       * Excel's, and more than any real array formula spans -- is
+       * taken in its head cell alone rather than let a line of XML
+       * fill the memory. */
+      gint64 rows = MIN (r->cell_rows, O42_MAX_ROWS - r->cell_row);
+      gint64 cols = MIN (r->cell_cols, O42_MAX_COLS - r->cell_col);
+      O42Range block = { r->cell_row, r->cell_col, r->cell_row, r->cell_col };
+
+      if (rows * cols <= (1 << 20))
+        {
+          block.row1 = r->cell_row + (int) rows - 1;
+          block.col1 = r->cell_col + (int) cols - 1;
+        }
       o42_sheet_set_array_formula (r->sheet, &block, text);
     }
   else
