@@ -3975,21 +3975,31 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     g_string_append_len (r->content, text, (gssize) length);
 }
 
+/* How much XML a gzipped file may unpack to: a hundred times its own
+ * size, which spreadsheet XML -- ten or twenty to one -- stays well
+ * inside and a file made to swell does not, but never less than 256 MB
+ * nor more than a gigabyte. */
+#define GZIP_MAX_RATIO 100
+#define GZIP_FLOOR     ((goffset) 256 << 20)
+#define GZIP_CEILING   ((goffset) 1 << 30)
+
 /* The file as a stream of its XML, gunzipped when it is gzipped: the
  * XML of a big book is hundreds of megabytes, and is parsed as it is
- * read rather than held whole. */
+ * read rather than held whole.  `limit` is set to the most XML the
+ * stream may give, or -1 when the file is not packed and its own size
+ * is the limit. */
 static GInputStream *
-open_maybe_gzipped (GFile *file, GError **error)
+open_maybe_gzipped (GFile *file, goffset *limit, GError **error)
 {
   GFileInputStream *raw = g_file_read (file, NULL, error);
   GBufferedInputStream *buffered;
   const guchar *head;
   gsize n = 0;
 
+  *limit = -1;
   if (raw == NULL)
     return NULL;
   buffered = G_BUFFERED_INPUT_STREAM (g_buffered_input_stream_new (G_INPUT_STREAM (raw)));
-  g_object_unref (raw);
   g_buffered_input_stream_fill (buffered, 2, NULL, NULL);
   head = g_buffered_input_stream_peek_buffer (buffered, &n);
   if (n >= 2 && head[0] == 0x1f && head[1] == 0x8b)
@@ -3997,12 +4007,40 @@ open_maybe_gzipped (GFile *file, GError **error)
       GZlibDecompressor *decompressor = g_zlib_decompressor_new (G_ZLIB_COMPRESSOR_FORMAT_GZIP);
       GInputStream *unzipped = g_converter_input_stream_new (G_INPUT_STREAM (buffered),
                                                              G_CONVERTER (decompressor));
+      GFileInfo *info = g_file_input_stream_query_info (raw, G_FILE_ATTRIBUTE_STANDARD_SIZE,
+                                                        NULL, NULL);
+      goffset packed = info != NULL ? g_file_info_get_size (info) : 0;
 
+      *limit = CLAMP (packed * GZIP_MAX_RATIO, GZIP_FLOOR, GZIP_CEILING);
+      g_clear_object (&info);
+      g_object_unref (raw);
       g_object_unref (decompressor);
       g_object_unref (buffered);
       return unzipped;
     }
+  g_object_unref (raw);
   return G_INPUT_STREAM (buffered);
+}
+
+/* The next piece of the XML, or -1 with `error` set, which it is too
+ * when the stream has given more than `limit` bytes in all. */
+static gssize
+read_xml (GInputStream *xml, char *chunk, gsize size, goffset limit, goffset *total,
+          GError **error)
+{
+  gssize got = g_input_stream_read (xml, chunk, size, NULL, error);
+
+  if (got > 0)
+    *total += got;
+  if (got > 0 && limit >= 0 && *total > limit)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                   "This file unpacks to more than %" G_GINT64_FORMAT " MB, far more "
+                   "than a spreadsheet of its size holds, and was not read.",
+                   (gint64) (limit >> 20));
+      return -1;
+    }
+  return got;
 }
 
 gboolean
@@ -4016,19 +4054,20 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   GInputStream *xml;
   char *chunk;
   gssize got;
+  goffset limit, total = 0;
   gboolean ok;
   O42Range everything = { 0, 0, O42_MAX_ROWS - 1, O42_MAX_COLS - 1 };
 
   g_return_val_if_fail (book != NULL, FALSE);
   g_return_val_if_fail (G_IS_FILE (file), FALSE);
 
-  xml = open_maybe_gzipped (file, error);
+  xml = open_maybe_gzipped (file, &limit, error);
   if (xml == NULL)
     return FALSE;
 
   /* The first piece says whether this is a Gnumeric file at all. */
   chunk = g_malloc (1 << 20);
-  got = g_input_stream_read (xml, chunk, 1 << 20, NULL, error);
+  got = read_xml (xml, chunk, 1 << 20, limit, &total, error);
   if (got < 0)
     {
       g_free (chunk);
@@ -4091,7 +4130,7 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
       ok = g_markup_parse_context_parse (context, chunk, got, error);
       if (ok)
         {
-          got = g_input_stream_read (xml, chunk, 1 << 20, NULL, error);
+          got = read_xml (xml, chunk, 1 << 20, limit, &total, error);
           ok = got >= 0;
         }
     }
