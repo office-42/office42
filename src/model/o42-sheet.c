@@ -9489,8 +9489,12 @@ pivot_layout (O42Sheet *sheet, O42Pivot *p)
       else pivot_add_levels (col_levels, p->col_fields[i], col, p->groups);
     }
   {
-    /* The data fields: the first, then the others as "Agg:Header". */
-    DataField d = { p->data_field, p->agg, -1 };
+    /* The data fields: the first, then the others as "Agg:Header".  An
+     * aggregate that is none of the five -- a file can say any number
+     * -- sums, rather than naming itself from past the end of
+     * AGG_NAMES. */
+    DataField d = { p->data_field,
+                    (guint) p->agg < G_N_ELEMENTS (AGG_NAMES) ? p->agg : O42_PIVOT_SUM, -1 };
     if (d.field == NULL) d.field = (char *) "";
     if (d.field[0] != '=')
       d.src_col = pivot_field_col (src, &p->source, d.field);
@@ -9524,17 +9528,37 @@ pivot_layout (O42Sheet *sheet, O42Pivot *p)
   if (has_filter && (filter_col = pivot_field_col (src, &p->source, p->filter_field)) < 0)
     ok = FALSE;
 
-  /* Clear the last layout. */
+  /* Clear the last layout.  Its extent is whatever the file said it
+   * was, so the sums are made wide enough not to overflow, and a vast
+   * one has its cells emptied rather than every square of it. */
   if (p->rows > 0 && p->cols > 0)
     {
-      O42Range old = { p->row, p->col, MIN (p->row + p->rows - 1, O42_MAX_ROWS - 1),
-                       MIN (p->col + p->cols - 1, O42_MAX_COLS - 1) };
-      for (int r = old.row0; r <= old.row1; r++)
-        for (int c = old.col0; c <= old.col1; c++)
-          {
-            op_capture (sheet, r, c);
-            set_input_internal (sheet, r, c, "");
-          }
+      O42Range old;
+
+      old.row0 = CLAMP (p->row, 0, O42_MAX_ROWS - 1);
+      old.col0 = CLAMP (p->col, 0, O42_MAX_COLS - 1);
+      old.row1 = (int) MIN ((gint64) old.row0 + p->rows - 1, O42_MAX_ROWS - 1);
+      old.col1 = (int) MIN ((gint64) old.col0 + p->cols - 1, O42_MAX_COLS - 1);
+      if (range_is_vast (sheet, &old))
+        {
+          GArray *keys = cells_in_range (sheet, &old);
+
+          for (guint i = 0; i < keys->len; i++)
+            {
+              guint64 key = g_array_index (keys, guint64, i);
+
+              op_capture (sheet, o42_key_row (key), o42_key_col (key));
+              set_input_internal (sheet, o42_key_row (key), o42_key_col (key), "");
+            }
+          g_array_unref (keys);
+        }
+      else
+        for (int r = old.row0; r <= old.row1; r++)
+          for (int c = old.col0; c <= old.col1; c++)
+            {
+              op_capture (sheet, r, c);
+              set_input_internal (sheet, r, c, "");
+            }
       o42_sheet_clear_formats (sheet, &old);
     }
   if (!ok || row_levels->len < 1)
@@ -10022,7 +10046,10 @@ o42_sheet_pivot_at (O42Sheet *sheet, int row, int col)
   for (guint i = 0; i < sheet->pivots->len; i++)
     {
       O42Pivot *p = &g_array_index (sheet->pivots, O42Pivot, i);
-      if (row >= p->row && col >= p->col && row < p->row + MAX (p->rows, 1) && col < p->col + MAX (p->cols, 1))
+      /* The extent may be a file's say-so until the first layout: the
+       * sums are made in 64 bits. */
+      if (row >= p->row && col >= p->col &&
+          row < (gint64) p->row + MAX (p->rows, 1) && col < (gint64) p->col + MAX (p->cols, 1))
         return p;
     }
   return NULL;

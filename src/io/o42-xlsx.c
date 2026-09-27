@@ -4948,9 +4948,19 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                       p.row_fields = o42_pivot_fields_from_string (f[2]);
                       p.col_fields = o42_pivot_fields_from_string (f[3]);
                       p.data_field = f[4];
-                      p.agg = (O42PivotAgg) atoi (f[5]);
-                      p.rows = atoi (f[7]);
-                      p.cols = atoi (f[8]);
+                      {
+                        /* The writer spells these from a pivot of its
+                         * own; from anywhere else they are held to what
+                         * a pivot can be -- one of the five aggregates,
+                         * and a last layout that stays on the sheet --
+                         * before the layout is cleared by them. */
+                        gint64 agg = g_ascii_strtoll (f[5], NULL, 10);
+
+                        p.agg = agg >= O42_PIVOT_SUM && agg <= O42_PIVOT_MAX
+                                ? (O42PivotAgg) agg : O42_PIVOT_SUM;
+                        p.rows = (int) CLAMP (g_ascii_strtoll (f[7], NULL, 10), 0, O42_MAX_ROWS - p.row);
+                        p.cols = (int) CLAMP (g_ascii_strtoll (f[8], NULL, 10), 0, O42_MAX_COLS - p.col);
+                      }
                       if (g_strv_length (f) >= 11)
                         {
                           p.filter_field = f[9][0] ? f[9] : NULL;
