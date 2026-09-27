@@ -10,6 +10,8 @@
 
 #include <pango/pangocairo.h>
 
+#include <math.h>
+
 O42Picture *
 o42_picture_new (GBytes *data, const char *format, int pixel_w, int pixel_h)
 {
@@ -146,8 +148,16 @@ o42_picture_shown (O42Picture *picture)
   stride = cairo_image_surface_get_stride (base);
   src = cairo_image_surface_get_data (base);
   dst = cairo_image_surface_get_data (picture->adjusted);
-  b = CLAMP (picture->brightness, -1, 1) * 255;
-  c = CLAMP (picture->contrast, -1, 1);
+  /* A surface cairo could not make -- a picture too large for memory --
+   * has no pixels to write to: the picture is shown as it is. */
+  if (cairo_surface_status (picture->adjusted) != CAIRO_STATUS_SUCCESS || src == NULL || dst == NULL)
+    {
+      g_clear_pointer (&picture->adjusted, cairo_surface_destroy);
+      return base;
+    }
+  /* A file's NaN would pass CLAMP and reach a cast to an integer. */
+  b = isfinite (picture->brightness) ? CLAMP (picture->brightness, -1, 1) * 255 : 0;
+  c = isfinite (picture->contrast) ? CLAMP (picture->contrast, -1, 1) : 0;
   c = c >= 0 ? 1 + 3 * c : 1 + c;   /* a gain: up to four times, down to nothing */
   for (int y = 0; y < h; y++)
     for (int x = 0; x < w; x++)
