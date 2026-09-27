@@ -162,7 +162,10 @@ o42_dif_load (O42Sheet *sheet, GFile *file, GError **error)
             { row++; col = 0; }
           else if (strcmp (what, "EOD") == 0)
             break;
-          i++;
+          /* A file that stops short has no next line to step over:
+           * the loop's own step would go past the end of the list. */
+          if (lines[i + 1] != NULL)
+            i++;
           continue;
         }
 
@@ -195,7 +198,8 @@ o42_dif_load (O42Sheet *sheet, GFile *file, GError **error)
           else
             o42_sheet_set_input (sheet, row, col, under);
           col++;
-          i++;
+          if (lines[i + 1] != NULL)
+            i++;
         }
       else if (line[0] == '1' && line[1] == ',')
         {
@@ -217,7 +221,8 @@ o42_dif_load (O42Sheet *sheet, GFile *file, GError **error)
           o42_sheet_set_input (sheet, row, col, text);
           g_free (text);
           col++;
-          i++;
+          if (lines[i + 1] != NULL)
+            i++;
         }
     }
 
@@ -456,6 +461,17 @@ o42_sylk_save (O42Sheet *sheet, GFile *file, GError **error)
   return write_text (file, out, error);
 }
 
+/* A row or column number, or an offset, in an R1C1 reference, held to
+ * what could still name a cell: atoi of R[99999999999] overflows, and
+ * so would adding it to the cell's own row. */
+static int
+r1c1_number (const char *text)
+{
+  gint64 n = g_ascii_strtoll (text, NULL, 10);
+
+  return (int) CLAMP (n, -2 * (gint64) O42_MAX_ROWS, 2 * (gint64) O42_MAX_ROWS);
+}
+
 /* R1C1 as this cell sees it, turned into the A1 the parser reads.
  * Everything that is not a reference is copied over as it stands. */
 static char *
@@ -485,17 +501,17 @@ r1c1_to_a1 (const char *expr, int row, int col)
           gboolean row_abs = FALSE, col_abs = FALSE, good = TRUE;
 
           if (*q == '[')
-            { r = row + atoi (q + 1); q = strchr (q, ']'); good = q != NULL; if (good) q++; }
+            { r = row + r1c1_number (q + 1); q = strchr (q, ']'); good = q != NULL; if (good) q++; }
           else if (g_ascii_isdigit (*q))
-            { r = atoi (q) - 1; row_abs = TRUE; while (g_ascii_isdigit (*q)) q++; }
+            { r = r1c1_number (q) - 1; row_abs = TRUE; while (g_ascii_isdigit (*q)) q++; }
 
           if (good && (*q == 'C' || *q == 'c'))
             {
               q++;
               if (*q == '[')
-                { c = col + atoi (q + 1); q = strchr (q, ']'); good = q != NULL; if (good) q++; }
+                { c = col + r1c1_number (q + 1); q = strchr (q, ']'); good = q != NULL; if (good) q++; }
               else if (g_ascii_isdigit (*q))
-                { c = atoi (q) - 1; col_abs = TRUE; while (g_ascii_isdigit (*q)) q++; }
+                { c = r1c1_number (q) - 1; col_abs = TRUE; while (g_ascii_isdigit (*q)) q++; }
             }
           else
             good = FALSE;
@@ -570,8 +586,8 @@ o42_sylk_load (O42Sheet *sheet, GFile *file, GError **error)
                       char code = field->str[0];
                       const char *rest = field->str + 1;
 
-                      if (code == 'Y') row = MAX (atoi (rest) - 1, 0);
-                      else if (code == 'X') col = MAX (atoi (rest) - 1, 0);
+                      if (code == 'Y') row = MAX (r1c1_number (rest) - 1, 0);
+                      else if (code == 'X') col = MAX (r1c1_number (rest) - 1, 0);
                       else if (code == 'K') { g_free (value); value = g_strdup (rest); }
                       else if (code == 'E') { g_free (expr); expr = g_strdup (rest); }
                     }
