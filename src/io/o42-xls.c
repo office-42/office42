@@ -791,11 +791,22 @@ read_sst (Reader *r, GPtrArray *segs)
 
 /* ---- formula tokens to a node tree ---- */
 
+/* How deep a tree read from a file may grow.  Everything that walks a
+ * formula -- printing it, copying it, evaluating it, freeing it --
+ * recurses, and a token stream is free to nest without end: 65,000
+ * one-byte unary minuses make a chain 65,000 deep, which runs any of
+ * those off the stack.  Excel 97 holds a formula to 1024 characters and
+ * its functions to seven levels of nesting, so an honest tree never
+ * comes near this. */
+#define MAX_TREE_DEPTH 1024
+
 typedef struct
 {
   Reader   *r;
   int       base_row, base_col;   /* for the relative tokens of shared formulas */
   GPtrArray *stack;               /* O42Node* */
+  GArray   *depths;               /* guint, how deep each tree on the stack is */
+  gboolean  too_deep;
 } Decoder;
 
 static O42Node *
@@ -806,18 +817,35 @@ node_new (O42NodeType type)
   return n;
 }
 
+/* A tree onto the stack with its depth: 1 for an operand, one more than
+ * its deepest child for an operator or a call. */
 static void
-push (Decoder *d, O42Node *n)
+push (Decoder *d, O42Node *n, guint depth)
 {
   g_ptr_array_add (d->stack, n);
+  g_array_append_val (d->depths, depth);
+  if (depth > MAX_TREE_DEPTH)
+    d->too_deep = TRUE;
 }
 
+/* The top tree off the stack, raising *deepest to its depth.  An empty
+ * stack -- an operator short of operands -- gives a zero. */
 static O42Node *
-pop (Decoder *d)
+pop (Decoder *d, guint *deepest)
 {
+  guint depth = 1;
+  O42Node *n;
+
   if (d->stack->len == 0)
-    return node_new (O42_NODE_NUMBER);
-  return g_ptr_array_steal_index (d->stack, d->stack->len - 1);
+    n = node_new (O42_NODE_NUMBER);
+  else
+    {
+      depth = g_array_index (d->depths, guint, d->depths->len - 1);
+      g_array_set_size (d->depths, d->depths->len - 1);
+      n = g_ptr_array_steal_index (d->stack, d->stack->len - 1);
+    }
+  *deepest = MAX (*deepest, depth);
+  return n;
 }
 
 static const char *
@@ -964,12 +992,13 @@ static O42Node *
 decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_col, gboolean shared,
                 const guchar *extra, const guchar *extra_end)
 {
-  Decoder d = { r, base_row, base_col, g_ptr_array_new () };
+  Decoder d = { r, base_row, base_col, g_ptr_array_new (), g_array_new (FALSE, FALSE, sizeof (guint)), FALSE };
   const guchar *end = p + len;
   gboolean biff8 = r->biff >= 8;
   O42Node *result;
+  guint ignored = 0;
 
-  while (p < end)
+  while (p < end && !d.too_deep)
     {
       guint ptg = *p++;
       guint base = ptg;
@@ -997,7 +1026,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
           {
             O42Node *n = node_new (O42_NODE_ERROR);
             n->as.error = O42_ERR_VALUE;
-            push (&d, n);
+            push (&d, n, 1);
             p = end;
             break;
           }
@@ -1011,29 +1040,32 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             static const O42Op ops[] = { O42_OP_ADD, O42_OP_SUB, O42_OP_MUL, O42_OP_DIV, O42_OP_POW,
                                          O42_OP_CONCAT, O42_OP_LT, O42_OP_LE, O42_OP_EQ, O42_OP_GE,
                                          O42_OP_GT, O42_OP_NE };
-            O42Node *b = pop (&d), *a = pop (&d);
+            guint deepest = 0;
+            O42Node *b = pop (&d, &deepest), *a = pop (&d, &deepest);
             O42Node *n = node_new (O42_NODE_BINARY);
             n->as.op.op = ops[base - 0x03];
             n->as.op.a = a;
             n->as.op.b = b;
-            push (&d, n);
+            push (&d, n, deepest + 1);
           }
           break;
         case 0x0F: case 0x10:   /* intersection, union: the model has both operators */
           {
-            O42Node *b = pop (&d);
-            O42Node *a = pop (&d);
+            guint deepest = 0;
+            O42Node *b = pop (&d, &deepest);
+            O42Node *a = pop (&d, &deepest);
             O42Node *n = node_new (O42_NODE_BINARY);
             n->as.op.op = base == 0x0F ? O42_OP_ISECT : O42_OP_UNION;
             n->as.op.a = a;
             n->as.op.b = b;
-            push (&d, n);
+            push (&d, n, deepest + 1);
           }
           break;
         case 0x11:   /* range: two cells into the rectangle between them */
           {
-            O42Node *b = pop (&d);
-            O42Node *a = pop (&d);
+            guint b_depth = 0, a_depth = 0;
+            O42Node *b = pop (&d, &b_depth);
+            O42Node *a = pop (&d, &a_depth);
             if (a != NULL && b != NULL && a->type == O42_NODE_REF && b->type == O42_NODE_REF &&
                 g_strcmp0 (a->sheet, b->sheet) == 0)
               {
@@ -1044,34 +1076,35 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
                          ((b->abs & O42_ABS_ROW0) ? O42_ABS_ROW1 : 0) | ((b->abs & O42_ABS_COL0) ? O42_ABS_COL1 : 0);
                 o42_node_free (a);
                 o42_node_free (b);
-                push (&d, n);
+                push (&d, n, 1);
               }
             else
               {
                 o42_node_free (b);
-                push (&d, a);
+                push (&d, a, a_depth);
               }
           }
           break;
         case 0x12: case 0x13: case 0x14:
           {
-            O42Node *a = pop (&d);
+            guint deepest = 0;
+            O42Node *a = pop (&d, &deepest);
             O42Node *n = node_new (O42_NODE_UNARY);
             n->as.op.op = base == 0x12 ? O42_OP_POS : base == 0x13 ? O42_OP_NEG : O42_OP_PERCENT;
             n->as.op.a = a;
-            push (&d, n);
+            push (&d, n, deepest + 1);
           }
           break;
         case 0x15:   /* parentheses: the writer adds its own */
           break;
         case 0x16:   /* missing argument */
-          push (&d, node_new (O42_NODE_EMPTY));
+          push (&d, node_new (O42_NODE_EMPTY), 1);
           break;
         case 0x17:
           {
             O42Node *n = node_new (O42_NODE_STRING);
             n->as.string = read_str (r, &p, end, FALSE);
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x19:   /* attributes */
@@ -1083,9 +1116,10 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
               p += (w + 1) * 2;   /* choose: jump table */
             else if (kind & 0x10)
               {
+                guint deepest = 0;
                 GPtrArray *args = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_node_free);
-                g_ptr_array_add (args, pop (&d));
-                push (&d, make_call ("SUM", args));
+                g_ptr_array_add (args, pop (&d, &deepest));
+                push (&d, make_call ("SUM", args), deepest + 1);
               }
           }
           break;
@@ -1094,7 +1128,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             O42Node *n = node_new (O42_NODE_ERROR);
             n->as.error = error_from_biff (p < end ? *p : 0x2A);
             p++;
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x1D:
@@ -1102,7 +1136,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             O42Node *n = node_new (O42_NODE_BOOL);
             n->as.boolean = p < end && *p != 0;
             p++;
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x1E:
@@ -1110,7 +1144,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             O42Node *n = node_new (O42_NODE_NUMBER);
             n->as.number = p + 2 <= end ? rd16 (p) : 0;
             p += 2;
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x1F:
@@ -1118,19 +1152,20 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             O42Node *n = node_new (O42_NODE_NUMBER);
             n->as.number = p + 8 <= end ? rd_double (p) : 0;
             p += 8;
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x20:   /* array constant: the data follows the token stream */
           p += 7;
           if (extra != NULL && extra < extra_end)
-            push (&d, decode_array (r, &extra, extra_end));
+            push (&d, decode_array (r, &extra, extra_end), 2);   /* its cells are constants */
           else
-            push (&d, node_new (O42_NODE_EMPTY));
+            push (&d, node_new (O42_NODE_EMPTY), 1);
           break;
         case 0x21: case 0x22:
           {
             guint argc, index;
+            guint deepest = 0;
             const FnEntry *fn;
             GPtrArray *args = g_ptr_array_new_with_free_func ((GDestroyNotify) o42_node_free);
 
@@ -1153,31 +1188,31 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
                 /* An add-in function: the name was pushed first. */
                 O42Node *name_node;
                 for (guint i = 1; i < argc; i++)
-                  g_ptr_array_insert (args, 0, pop (&d));
-                name_node = pop (&d);
+                  g_ptr_array_insert (args, 0, pop (&d, &deepest));
+                name_node = pop (&d, &ignored);
                 if (name_node->type == O42_NODE_NAME)
-                  push (&d, make_call (name_node->as.name, args));
+                  push (&d, make_call (name_node->as.name, args), deepest + 1);
                 else
                   {
                     O42Node *n = node_new (O42_NODE_ERROR);
                     n->as.error = O42_ERR_NAME;
                     g_ptr_array_unref (args);
-                    push (&d, n);
+                    push (&d, n, 1);
                   }
                 o42_node_free (name_node);
               }
             else
               {
                 for (guint i = 0; i < argc; i++)
-                  g_ptr_array_insert (args, 0, pop (&d));
+                  g_ptr_array_insert (args, 0, pop (&d, &deepest));
                 if (fn != NULL)
-                  push (&d, make_call (fn->name, args));
+                  push (&d, make_call (fn->name, args), deepest + 1);
                 else
                   {
                     O42Node *n = node_new (O42_NODE_ERROR);
                     n->as.error = O42_ERR_NAME;
                     g_ptr_array_unref (args);
-                    push (&d, n);
+                    push (&d, n, 1);
                   }
               }
           }
@@ -1189,7 +1224,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             p += biff8 ? 4 : 14;
             n->as.name = g_strdup (idx >= 1 && idx <= r->names->len
                                    ? g_ptr_array_index (r->names, idx - 1) : "?");
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x24: case 0x2C:
@@ -1204,7 +1239,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             n->as.ref.row = row;
             n->as.ref.col = col;
             n->abs = abs;
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x25: case 0x2D:
@@ -1242,7 +1277,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
                 n->as.range.col1 = O42_MAX_COLS - 1;
                 n->abs |= O42_WHOLE_ROWS;
               }
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x26: p += biff8 ? 6 : 6; break;   /* memory area: skip its header */
@@ -1254,7 +1289,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             O42Node *n = node_new (O42_NODE_ERROR);
             n->as.error = O42_ERR_REF;
             p += base == 0x2A ? (biff8 ? 4 : 3) : (biff8 ? 8 : 6);
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x39:   /* an external name: an add-in function, most likely */
@@ -1275,7 +1310,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
                   }
               }
             n->as.name = g_strdup (g_str_has_prefix (text, "_xlpm.") ? text + 6 : text);
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x3A: case 0x3B:
@@ -1335,7 +1370,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
               }
             n->sheet = sheet;
             n->sheet_last = sheet_last;
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x3C: case 0x3D:
@@ -1343,7 +1378,7 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
             O42Node *n = node_new (O42_NODE_ERROR);
             n->as.error = O42_ERR_REF;
             p += biff8 ? (base == 0x3C ? 6 : 10) : (base == 0x3C ? 17 : 20);
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         case 0x01:   /* ptgExp: handled by the caller */
@@ -1355,16 +1390,25 @@ decode_formula (Reader *r, const guchar *p, gsize len, int base_row, int base_co
           {
             O42Node *n = node_new (O42_NODE_ERROR);
             n->as.error = O42_ERR_NAME;
-            push (&d, n);
+            push (&d, n, 1);
           }
           break;
         }
     }
 
-  result = pop (&d);
+  if (d.too_deep)
+    {
+      /* The formula is given up whole; what was built stops one level
+       * past the limit, so freeing it is safe. */
+      result = node_new (O42_NODE_ERROR);
+      result->as.error = O42_ERR_VALUE;
+    }
+  else
+    result = pop (&d, &ignored);
   while (d.stack->len > 0)
-    o42_node_free (pop (&d));
+    o42_node_free (pop (&d, &ignored));
   g_ptr_array_unref (d.stack);
+  g_array_unref (d.depths);
   return result;
 }
 
