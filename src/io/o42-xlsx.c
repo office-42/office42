@@ -52,11 +52,13 @@ key_equal_64 (gconstpointer a, gconstpointer b)
 
 /* Excel measures columns in characters of the default font and rows in
  * points.  At 96dpi with Calibri 11 a column of width w is about 7w+5
- * pixels; the 5 is the padding, and 7 the digit width. */
+ * pixels; the 5 is the padding, and 7 the digit width.  A size read from
+ * a file is held to a million before it is made an int, since a width
+ * of 1e300 is no number of pixels an int can hold. */
 #define PX_TO_CHARS(px) (((px) - 5) / 7.0)
-#define CHARS_TO_PX(ch) ((int) ((ch) * 7.0 + 5.0 + 0.5))
+#define CHARS_TO_PX(ch) ((int) (MIN ((ch), 1e6) * 7.0 + 5.0 + 0.5))
 #define PX_TO_PT(px)    ((px) * 0.75)
-#define PT_TO_PX(pt)    ((int) ((pt) / 0.75 + 0.5))
+#define PT_TO_PX(pt)    ((int) (MIN ((pt), 1e6) / 0.75 + 0.5))
 
 #define NS_MAIN "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 #define NS_REL  "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -2404,11 +2406,26 @@ attr_double (const char **names, const char **values, const char *want, double f
   return v ? g_ascii_strtod (v, NULL) : fallback;
 }
 
+/* A whole number as a file writes it.  What atoi makes of a number too
+ * big for an int is undefined, and so is a sum that passes one; the
+ * number is held to half of what an int can hold, which is far past
+ * any count a sheet has, so that the row after it or the column before
+ * it is still a number. */
+#define INT_LIMIT (G_MAXINT / 2)
+
+static int
+parse_int (const char *text)
+{
+  gint64 v = g_ascii_strtoll (text, NULL, 10);
+
+  return (int) CLAMP (v, -INT_LIMIT, INT_LIMIT);
+}
+
 static int
 attr_int (const char **names, const char **values, const char *want, int fallback)
 {
   const char *v = attr (names, values, want);
-  return v ? atoi (v) : fallback;
+  return v ? parse_int (v) : fallback;
 }
 
 /* An xsd:boolean, which may be spelled 1 and 0 or true and false.
@@ -2790,8 +2807,12 @@ run_property (Reader *r, GArray *runs, const char *n, const char **names, const 
     fmt->underline = attr (names, values, "val") == NULL || strcmp (attr (names, values, "val"), "none") != 0;
   else if (strcmp (n, "sz") == 0)
     {
+      /* Half-points, as the size is kept; clamped while still a
+       * double, since a file may say 1e300 or nan. */
       double points = attr_double (names, values, "val", 10);
-      fmt->size = (guint8) CLAMP ((int) (points * 2 + 0.5), 2, 800);
+      double half = points * 2 + 0.5;
+
+      fmt->size = half >= 2 ? (int) MIN (half, 800) : 2;
     }
   else if (strcmp (n, "color") == 0)
     {
@@ -3082,7 +3103,7 @@ rgb_attr (Reader *r, const char **names, const char **values)
     return (guint32) g_ascii_strtoull (rgb + strlen (rgb) - 6, NULL, 16);
   if (theme != NULL)
     {
-      int slot = atoi (theme);
+      int slot = parse_int (theme);
       const char *tint = attr (names, values, "tint");
 
       if (slot >= 0 && slot < 12)
@@ -3090,7 +3111,7 @@ rgb_attr (Reader *r, const char **names, const char **values)
     }
   if (indexed != NULL)
     {
-      int slot = atoi (indexed);
+      int slot = parse_int (indexed);
 
       if (slot >= 0 && slot < 64)
         return r->indexed[slot];
@@ -3705,7 +3726,7 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       if (!r->fit_to_page)
         ps.fit_wide = ps.fit_tall = 0;
       if ((v = attr (names, values, "paperSize")) != NULL)
-        ps.paper = atoi (v) > 0 ? atoi (v) : ps.paper;
+        ps.paper = parse_int (v) > 0 ? parse_int (v) : ps.paper;
       if ((v = attr (names, values, "orientation")) != NULL)
         ps.landscape = strcmp (v, "landscape") == 0;
       if (attr_flag (names, values, "useFirstPageNumber"))
@@ -4128,10 +4149,10 @@ finish_cell (Reader *r)
       const char *t = r->type;
       if (strcmp (t, "s") == 0)
         {
-          guint idx = (guint) atoi (r->v->str);
-          if (idx < r->strings->len)
+          int idx = parse_int (r->v->str);
+          if (idx >= 0 && (guint) idx < r->strings->len)
             {
-              GArray *runs = (idx < r->string_runs->len)
+              GArray *runs = ((guint) idx < r->string_runs->len)
                              ? g_ptr_array_index (r->string_runs, idx) : NULL;
 
               direct = o42_value_text (g_ptr_array_index (r->strings, idx));
@@ -4889,7 +4910,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           if (nm[0] == '\002')
             {
               /* Print_Area (A) or Print_Titles (T) of sheet nm+2: 'Sheet'!$A$1:$C$5 or 'Sheet'!$1:$2. */
-              O42Sheet *target = o42_book_sheet (book, atoi (nm + 2));
+              O42Sheet *target = o42_book_sheet (book, parse_int (nm + 2));
               if (target != NULL && nm[1] == 'A')
                 {
                   /* 'Sheet'!$A$1:$C$5,'Sheet'!$E$1:$F$9: each part an area. */
@@ -4934,14 +4955,17 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                       if (*start == '$') start++;
                       if (*end == '$') end++;
                       if (g_ascii_isdigit (*start))
-                        { row0 = atoi (start) - 1; row1 = atoi (end) - 1; }
+                        { row0 = parse_int (start) - 1; row1 = parse_int (end) - 1; }
                       else if (g_ascii_isalpha (*start))
                         {
+                          /* Letters past XFD name no column: the count
+                           * stops there, where the sheet clamps it,
+                           * rather than growing until it overflows. */
                           int a = 0, c = 0;
                           for (; g_ascii_isalpha (*start); start++)
-                            a = a * 26 + (g_ascii_toupper (*start) - 'A' + 1);
+                            a = MIN (a * 26 + (g_ascii_toupper (*start) - 'A' + 1), O42_MAX_COLS + 1);
                           for (; g_ascii_isalpha (*end); end++)
-                            c = c * 26 + (g_ascii_toupper (*end) - 'A' + 1);
+                            c = MIN (c * 26 + (g_ascii_toupper (*end) - 'A' + 1), O42_MAX_COLS + 1);
                           col0 = a - 1; col1 = c - 1;
                         }
                     }
@@ -4953,7 +4977,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           if (nm[0] == '\001')
             {
               /* A pivot definition on sheet nm+1, as the writer spells it. */
-              int sheet_index = atoi (nm + 1);
+              int sheet_index = parse_int (nm + 1);
               O42Sheet *target = o42_book_sheet (book, sheet_index);
               char *text = g_strdup (val);
               char **f;

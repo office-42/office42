@@ -59,6 +59,18 @@ cell_at (O42Sheet *sheet, gboolean cols, double px, int *index, double *offset)
   *offset = low < limit - 1 ? MAX (px - offset_px (sheet, cols, low), 0) : 0;
 }
 
+/* A number the file gives for something counted -- a row, a column, a
+ * number of points -- as an int.  A double that does not fit an int
+ * converts to nothing C defines, and a file may write 1e300 or "nan":
+ * the number is held to lo..hi while it is still a double. */
+static int
+to_int (double v, int lo, int hi)
+{
+  if (isnan (v))
+    return lo;
+  return (int) CLAMP (v, lo, hi);
+}
+
 static const char *
 local (const char *name)
 {
@@ -994,7 +1006,8 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if (strcmp (n, "ofPieType") == 0)
     c->of_pie = g_strcmp0 (attr (names, values, "val"), "bar") == 0 ? 2 : 1;
   else if (strcmp (n, "splitPos") == 0)
-    c->of_pie_count = (int) g_ascii_strtod (attr (names, values, "val") != NULL ? attr (names, values, "val") : "2", NULL);
+    c->of_pie_count = to_int (g_ascii_strtod (attr (names, values, "val") != NULL ? attr (names, values, "val") : "2", NULL),
+                              0, 32000);
   else if (strcmp (n, "doughnutChart") == 0)
     { c->kind = O42_CHART_DOUGHNUT; c->kind_known = TRUE; }
   else if (strcmp (n, "radarChart") == 0)
@@ -1098,7 +1111,7 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
       const char *v = attr (names, values, "val");
 
       if (v != NULL)
-        c->trend_order = CLAMP (atoi (v), 2, 6);
+        c->trend_order = to_int (g_ascii_strtod (v, NULL), 2, 6);
     }
   else if (strcmp (n, "showVal") == 0)
     {
@@ -1878,15 +1891,15 @@ draw_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **er
       double v = g_ascii_strtod (d->text->str, NULL);
       if (d->in_from)
         {
-          if (strcmp (n, "col") == 0) d->from_col = (int) v;
-          else if (strcmp (n, "row") == 0) d->from_row = (int) v;
+          if (strcmp (n, "col") == 0) d->from_col = to_int (v, 0, O42_MAX_COLS - 1);
+          else if (strcmp (n, "row") == 0) d->from_row = to_int (v, 0, O42_MAX_ROWS - 1);
           else if (strcmp (n, "colOff") == 0) d->from_coff = v / EMU_PER_PX;
           else d->from_roff = v / EMU_PER_PX;
         }
       else if (d->in_to)
         {
-          if (strcmp (n, "col") == 0) d->to_col = (int) v;
-          else if (strcmp (n, "row") == 0) d->to_row = (int) v;
+          if (strcmp (n, "col") == 0) d->to_col = to_int (v, 0, O42_MAX_COLS - 1);
+          else if (strcmp (n, "row") == 0) d->to_row = to_int (v, 0, O42_MAX_ROWS - 1);
           else if (strcmp (n, "colOff") == 0) d->to_coff = v / EMU_PER_PX;
           else d->to_roff = v / EMU_PER_PX;
         }
