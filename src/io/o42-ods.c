@@ -20,6 +20,7 @@
 #include "o42-formula.h"
 #include "o42-entry.h"
 #include "o42-date.h"
+#include "o42-numfmt.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -128,6 +129,104 @@ of_write_child (const O42Node *child, const O42Node *parent, gboolean right, GSt
   if (parens) g_string_append_c (out, ')');
 }
 
+/* Functions OpenFormula spells apart from Excel, as LibreOffice writes
+ * and reads them: the old statistics are LEGACY., Excel 2010's are
+ * COM.MICROSOFT., and a few are named otherwise.  Written under Excel's
+ * name, LEGACY.CHIDIST and the rest came to LibreOffice as #NAME?.
+ * Read back, the prefixes are stripped in formula_from_of and the other
+ * names looked up here. */
+static const struct { const char *excel, *odf; } OF_NAMES[] = {
+  { "CHIDIST", "LEGACY.CHIDIST" },
+  { "CHIINV", "LEGACY.CHIINV" },
+  { "CHITEST", "LEGACY.CHITEST" },
+  { "FDIST", "LEGACY.FDIST" },
+  { "FINV", "LEGACY.FINV" },
+  { "NORMSDIST", "LEGACY.NORMSDIST" },
+  { "NORMSINV", "LEGACY.NORMSINV" },
+  { "TDIST", "LEGACY.TDIST" },
+  { "AGGREGATE", "COM.MICROSOFT.AGGREGATE" },
+  { "BETA.DIST", "COM.MICROSOFT.BETA.DIST" },
+  { "BETA.INV", "COM.MICROSOFT.BETA.INV" },
+  { "BINOM.DIST", "COM.MICROSOFT.BINOM.DIST" },
+  { "BINOM.INV", "COM.MICROSOFT.BINOM.INV" },
+  { "CEILING", "COM.MICROSOFT.CEILING" },
+  { "CEILING.MATH", "COM.MICROSOFT.CEILING.MATH" },
+  { "CEILING.PRECISE", "COM.MICROSOFT.CEILING.PRECISE" },
+  { "CHISQ.DIST", "COM.MICROSOFT.CHISQ.DIST" },
+  { "CHISQ.DIST.RT", "COM.MICROSOFT.CHISQ.DIST.RT" },
+  { "CHISQ.INV", "COM.MICROSOFT.CHISQ.INV" },
+  { "CHISQ.INV.RT", "COM.MICROSOFT.CHISQ.INV.RT" },
+  { "CHISQ.TEST", "COM.MICROSOFT.CHISQ.TEST" },
+  { "CONCAT", "COM.MICROSOFT.CONCAT" },
+  { "CONFIDENCE.NORM", "COM.MICROSOFT.CONFIDENCE.NORM" },
+  { "CONFIDENCE.T", "COM.MICROSOFT.CONFIDENCE.T" },
+  { "COVARIANCE.P", "COM.MICROSOFT.COVARIANCE.P" },
+  { "COVARIANCE.S", "COM.MICROSOFT.COVARIANCE.S" },
+  { "ENCODEURL", "COM.MICROSOFT.ENCODEURL" },
+  { "ERF.PRECISE", "COM.MICROSOFT.ERF.PRECISE" },
+  { "ERFC.PRECISE", "COM.MICROSOFT.ERFC.PRECISE" },
+  { "EXPON.DIST", "COM.MICROSOFT.EXPON.DIST" },
+  { "F.DIST.RT", "COM.MICROSOFT.F.DIST.RT" },
+  { "F.INV.RT", "COM.MICROSOFT.F.INV.RT" },
+  { "F.TEST", "COM.MICROSOFT.F.TEST" },
+  { "FLOOR", "COM.MICROSOFT.FLOOR" },
+  { "FLOOR.MATH", "COM.MICROSOFT.FLOOR.MATH" },
+  { "FLOOR.PRECISE", "COM.MICROSOFT.FLOOR.PRECISE" },
+  { "FORECAST.LINEAR", "COM.MICROSOFT.FORECAST.LINEAR" },
+  { "GAMMA.DIST", "COM.MICROSOFT.GAMMA.DIST" },
+  { "GAMMA.INV", "COM.MICROSOFT.GAMMA.INV" },
+  { "GAMMALN.PRECISE", "COM.MICROSOFT.GAMMALN.PRECISE" },
+  { "HYPGEOM.DIST", "COM.MICROSOFT.HYPGEOM.DIST" },
+  { "IFS", "COM.MICROSOFT.IFS" },
+  { "LOGNORM.DIST", "COM.MICROSOFT.LOGNORM.DIST" },
+  { "LOGNORM.INV", "COM.MICROSOFT.LOGNORM.INV" },
+  { "MAXIFS", "COM.MICROSOFT.MAXIFS" },
+  { "MINIFS", "COM.MICROSOFT.MINIFS" },
+  { "MODE.MULT", "COM.MICROSOFT.MODE.MULT" },
+  { "MODE.SNGL", "COM.MICROSOFT.MODE.SNGL" },
+  { "NEGBINOM.DIST", "COM.MICROSOFT.NEGBINOM.DIST" },
+  { "NORM.DIST", "COM.MICROSOFT.NORM.DIST" },
+  { "NORM.INV", "COM.MICROSOFT.NORM.INV" },
+  { "NORM.S.DIST", "COM.MICROSOFT.NORM.S.DIST" },
+  { "NORM.S.INV", "COM.MICROSOFT.NORM.S.INV" },
+  { "PERCENTILE.EXC", "COM.MICROSOFT.PERCENTILE.EXC" },
+  { "PERCENTILE.INC", "COM.MICROSOFT.PERCENTILE.INC" },
+  { "PERCENTRANK.EXC", "COM.MICROSOFT.PERCENTRANK.EXC" },
+  { "PERCENTRANK.INC", "COM.MICROSOFT.PERCENTRANK.INC" },
+  { "POISSON.DIST", "COM.MICROSOFT.POISSON.DIST" },
+  { "QUARTILE.EXC", "COM.MICROSOFT.QUARTILE.EXC" },
+  { "QUARTILE.INC", "COM.MICROSOFT.QUARTILE.INC" },
+  { "RANK.AVG", "COM.MICROSOFT.RANK.AVG" },
+  { "RANK.EQ", "COM.MICROSOFT.RANK.EQ" },
+  { "STDEV.P", "COM.MICROSOFT.STDEV.P" },
+  { "STDEV.S", "COM.MICROSOFT.STDEV.S" },
+  { "SWITCH", "COM.MICROSOFT.SWITCH" },
+  { "T.DIST", "COM.MICROSOFT.T.DIST" },
+  { "T.DIST.2T", "COM.MICROSOFT.T.DIST.2T" },
+  { "T.DIST.RT", "COM.MICROSOFT.T.DIST.RT" },
+  { "T.INV", "COM.MICROSOFT.T.INV" },
+  { "T.INV.2T", "COM.MICROSOFT.T.INV.2T" },
+  { "T.TEST", "COM.MICROSOFT.T.TEST" },
+  { "TEXTJOIN", "COM.MICROSOFT.TEXTJOIN" },
+  { "VAR.P", "COM.MICROSOFT.VAR.P" },
+  { "VAR.S", "COM.MICROSOFT.VAR.S" },
+  { "WEIBULL.DIST", "COM.MICROSOFT.WEIBULL.DIST" },
+  { "Z.TEST", "COM.MICROSOFT.Z.TEST" },
+  { "EASTERSUNDAY", "ORG.OPENOFFICE.EASTERSUNDAY" },
+  { "FORMULATEXT", "FORMULA" },
+  { "SKEW.P", "SKEWP" },
+  { "TABLE", "MULTIPLE.OPERATIONS" },
+};
+
+static const char *
+of_function_name (const char *excel)
+{
+  for (guint i = 0; i < G_N_ELEMENTS (OF_NAMES); i++)
+    if (g_ascii_strcasecmp (OF_NAMES[i].excel, excel) == 0)
+      return OF_NAMES[i].odf;
+  return excel;
+}
+
 static void
 of_write (const O42Node *node, GString *out)
 {
@@ -137,8 +236,12 @@ of_write (const O42Node *node, GString *out)
     {
     case O42_NODE_NUMBER:
       {
-        char buf[G_ASCII_DTOSTR_BUF_SIZE];
-        g_string_append (out, g_ascii_dtostr (buf, sizeof buf, node->as.number));
+        /* Every digit the number needs and no more, as the formula bar
+         * shows it: g_ascii_dtostr's seventeen made 3.84 come back as
+         * 3.8399999999999999. */
+        char *text = o42_number_to_text (node->as.number, TRUE);
+        g_string_append (out, text);
+        g_free (text);
         break;
       }
     case O42_NODE_STRING:
@@ -157,7 +260,9 @@ of_write (const O42Node *node, GString *out)
       g_string_append (out, node->as.name);
       break;
     case O42_NODE_ERROR:
-      g_string_append (out, node->as.error == O42_ERR_NA ? "NA()" : "#VALUE!");
+      /* OpenFormula has the error literals; each was written as #VALUE!,
+       * so an =IF(A1,#DIV/0!,#REF!) came back other than it went. */
+      g_string_append (out, node->as.error == O42_ERR_NA ? "NA()" : o42_error_name (node->as.error));
       break;
     case O42_NODE_EMPTY:
       break;
@@ -243,7 +348,7 @@ of_write (const O42Node *node, GString *out)
       of_write_child (node->as.op.b, node, TRUE, out);
       break;
     case O42_NODE_CALL:
-      g_string_append (out, node->as.call.name);
+      g_string_append (out, of_function_name (node->as.call.name));
       g_string_append_c (out, '(');
       if (node->as.call.args != NULL)
         for (guint i = 0; i < node->as.call.args->len; i++)
@@ -263,7 +368,16 @@ of_formula (const char *input)
 {
   O42Node *tree = o42_formula_parse (input + 1);
   GString *out = g_string_new ("of:=");
-  of_write (tree, out);
+  char *typed = g_strstrip (g_strdup (input + 1));
+
+  /* A formula the parser cannot read is written as it was typed, not as
+   * the error it reads as: the text is the user's, and would otherwise
+   * be lost on saving. */
+  if (tree->type == O42_NODE_ERROR && g_ascii_strcasecmp (typed, o42_error_name (tree->as.error)) != 0)
+    g_string_append (out, typed);
+  else
+    of_write (tree, out);
+  g_free (typed);
   o42_node_free (tree);
   return g_string_free (out, FALSE);
 }
@@ -3616,6 +3730,43 @@ formula_from_of (const char *of)
       if (*p == '|' && braces > 0) { g_string_append_c (out, ';'); p++; continue; }
       if (g_str_has_prefix (p, "TRUE()")) { g_string_append (out, "TRUE"); p += 6; continue; }
       if (g_str_has_prefix (p, "FALSE()")) { g_string_append (out, "FALSE"); p += 7; continue; }
+      if (g_ascii_isalpha (*p) &&
+          (out->len == 0 || !(g_ascii_isalnum (out->str[out->len - 1]) || out->str[out->len - 1] == '_' ||
+                              out->str[out->len - 1] == '.')))
+        {
+          /* A function OpenFormula names apart from Excel: LibreOffice
+           * writes CHIDIST as LEGACY.CHIDIST, and Excel's own newer ones
+           * as COM.MICROSOFT.IFS; the name after the prefix is Excel's. */
+          static const char *const prefixes[] = { "LEGACY.", "COM.MICROSOFT.", "ORG.OPENOFFICE.",
+                                                  "ORG.LIBREOFFICE." };
+          const char *q = p;
+
+          while (g_ascii_isalnum (*q) || *q == '.' || *q == '_')
+            q++;
+          if (*q == '(')
+            {
+              for (guint k = 0; k < G_N_ELEMENTS (prefixes); k++)
+                if (g_ascii_strncasecmp (p, prefixes[k], strlen (prefixes[k])) == 0 &&
+                    (gsize) (q - p) > strlen (prefixes[k]))
+                  {
+                    p += strlen (prefixes[k]);
+                    break;
+                  }
+              /* FORMULA is FORMULATEXT, MULTIPLE.OPERATIONS is TABLE. */
+              for (guint k = 0; k < G_N_ELEMENTS (OF_NAMES); k++)
+                if (strchr (OF_NAMES[k].odf, '.') == NULL || g_str_has_prefix (OF_NAMES[k].odf, "MULTIPLE."))
+                  if ((gsize) (q - p) == strlen (OF_NAMES[k].odf) &&
+                      g_ascii_strncasecmp (p, OF_NAMES[k].odf, q - p) == 0)
+                    {
+                      g_string_append (out, OF_NAMES[k].excel);
+                      p = q;
+                      break;
+                    }
+            }
+          g_string_append_len (out, p, q - p);
+          p = q;
+          continue;
+        }
       g_string_append_c (out, *p++);
     }
   return g_string_free (out, FALSE);
