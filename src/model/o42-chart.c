@@ -229,6 +229,15 @@ chart_data_free (ChartData *d)
   g_free (d->categories);
 }
 
+/* Excel 97's limits on one chart: 255 series, 32,000 points in a series
+ * and 256,000 in all.  A range can say far more -- a whole sheet is
+ * "$A$1:$XFD$9999999" in a file -- and a double for every cell of that
+ * is more memory than there is; the chart is drawn from the series and
+ * points that fit, as many as Excel would have plotted. */
+#define CHART_MAX_SERIES 255
+#define CHART_MAX_POINTS 32000
+#define CHART_MAX_VALUES 256000
+
 /* Reads the range: series down the columns, one point per row, which is
  * how a table of categories and years is usually laid out. */
 /* The cells, read into series and points.  Which way round that is depends
@@ -250,6 +259,10 @@ chart_data_read (const O42Chart *chart, O42ChartFetch fetch, gpointer user,
   memset (d, 0, sizeof *d);
   d->n_series = rows ? MAX (0, r->row1 - row0 + 1) : MAX (0, r->col1 - col0 + 1);
   d->n_points = rows ? MAX (0, r->col1 - col0 + 1) : MAX (0, r->row1 - row0 + 1);
+  d->n_series = MIN (d->n_series, CHART_MAX_SERIES);
+  d->n_points = MIN (d->n_points, CHART_MAX_POINTS);
+  if (d->n_series > 0)
+    d->n_points = MIN (d->n_points, CHART_MAX_VALUES / d->n_series);
   d->values = g_new (double, (gsize) d->n_series * d->n_points + 1);
   d->series = g_new0 (char *, (gsize) d->n_series + 1);
   d->categories = g_new0 (char *, (gsize) d->n_points + 1);
