@@ -439,6 +439,8 @@ typedef struct
   GPtrArray  *supbook_self;  /* GINT: 1 if the supbook is this workbook */
   GPtrArray  *names;         /* char* name text, for ptgName */
   GPtrArray  *name_ranges;   /* char* "Sheet!A1:B2" or NULL per name */
+  GPtrArray  *name_formulas; /* GBytes per name: the token count and the
+                              * tokens of a name for a formula, or NULL */
   GArray     *filter_sheets; /* int: sheet index whose _FilterDatabase was seen */
   GPtrArray  *filter_ranges; /* char* range text */
   GArray     *print_names;   /* PrintName: Print_Area and Print_Titles, per sheet */
@@ -1373,6 +1375,13 @@ unref_array_or_null (gpointer array)
     g_array_unref (array);
 }
 
+static void
+unref_bytes_or_null (gpointer bytes)
+{
+  if (bytes != NULL)
+    g_bytes_unref (bytes);
+}
+
 /* ---- records ---- */
 
 static void
@@ -1839,6 +1848,26 @@ read_name (Reader *r, const guchar *p, gsize len)
       g_ptr_array_add (r->name_ranges, range_text);
       range_text = NULL;
     }
+
+  /* A name of the user's for a formula rather than a rectangle -- a
+   * constant, a LAMBDA -- keeps its tokens, to be read once every NAME
+   * is in: it may call on a name that comes after it. */
+  {
+    const char *added = g_ptr_array_index (r->names, r->names->len - 1);
+    GBytes *tokens = NULL;
+
+    if (added[0] != '\0' && g_ptr_array_index (r->name_ranges, r->name_ranges->len - 1) == NULL &&
+        cce > 0 && p + cce <= end)
+      {
+        GByteArray *a = g_byte_array_sized_new (2 + (guint) (end - p));
+        guint8 count[2] = { cce & 0xff, (cce >> 8) & 0xff };
+
+        g_byte_array_append (a, count, 2);
+        g_byte_array_append (a, p, (guint) (end - p));
+        tokens = g_byte_array_free_to_bytes (a);
+      }
+    g_ptr_array_add (r->name_formulas, tokens);
+  }
   g_free (range_text);
   g_free (name);
 }
@@ -3793,6 +3822,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.supbook_self = g_ptr_array_new ();
   r.names = g_ptr_array_new_with_free_func (g_free);
   r.name_ranges = g_ptr_array_new_with_free_func (g_free);
+  r.name_formulas = g_ptr_array_new_with_free_func (unref_bytes_or_null);
   r.filter_sheets = g_array_new (FALSE, FALSE, sizeof (int));
   r.filter_ranges = g_ptr_array_new_with_free_func (g_free);
   r.print_names = g_array_new (FALSE, FALSE, sizeof (PrintName));
@@ -3821,6 +3851,19 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
         {
           const char *nm = g_ptr_array_index (r.names, i);
           const char *val = g_ptr_array_index (r.name_ranges, i);
+          GBytes *tokens = g_ptr_array_index (r.name_formulas, i);
+          if (nm[0] != '\0' && val == NULL && tokens != NULL)
+            {
+              gsize n;
+              const guchar *t = g_bytes_get_data (tokens, &n);
+              guint cce = rd16 (t);
+              O42Node *tree = decode_formula (&r, t + 2, cce, 0, 0, FALSE, t + 2 + cce, t + n);
+              char *text = o42_node_to_string (tree);
+
+              o42_book_define_name_formula (book, nm, text);
+              g_free (text);
+              o42_node_free (tree);
+            }
           if (nm[0] == '\0' || val == NULL)
             continue;
           {
@@ -3933,6 +3976,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   g_ptr_array_unref (r.supbook_self);
   g_ptr_array_unref (r.names);
   g_ptr_array_unref (r.name_ranges);
+  g_ptr_array_unref (r.name_formulas);
   g_array_unref (r.filter_sheets);
   g_hash_table_unref (r.filter_criteria);
   g_ptr_array_unref (r.filter_ranges);
@@ -6148,6 +6192,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   Writer w;
   int n_sheets = o42_book_n_sheets (book);
   GPtrArray *sheet_cells = g_ptr_array_new ();
+  GPtrArray *name_rgce = g_ptr_array_new_with_free_func ((GDestroyNotify) g_byte_array_unref);
   GArray *boundsheet_at = g_array_new (FALSE, FALSE, sizeof (gsize));
   GBytes *stream, *whole;
   gboolean ok;
@@ -6308,6 +6353,51 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
       end_record (&w);
     }
 
+  /* Every defined name gets a NAME record, in the order ptgName counts
+   * them, or each name after a skipped one would stand for its
+   * neighbour.  A name for a formula -- a constant, a LAMBDA -- is
+   * compiled here, before the SUPBOOKs, since a function it calls may
+   * add to the add-in names listed there. */
+  {
+    GList *names = o42_book_names (book);
+    for (GList *l = names; l != NULL; l = l->next)
+      {
+        GByteArray *rgce = g_byte_array_new ();
+        GByteArray *cb = g_byte_array_new ();
+        O42Sheet *target;
+        O42Range range;
+        const char *formula = o42_book_lookup_name_formula (book, l->data);
+
+        if (o42_book_lookup_name (book, l->data, &target, &range))
+          {
+            put8 (rgce, 0x3B);
+            put16 (rgce, o42_book_sheet_index (book, target));
+            put16 (rgce, range.row0); put16 (rgce, range.row1);
+            put16 (rgce, range.col0); put16 (rgce, range.col1);
+          }
+        else if (formula != NULL)
+          {
+            O42Node *tree = o42_formula_parse (formula[0] == '=' ? formula + 1 : formula);
+            compile (&w, tree, rgce, FALSE, -1, cb);
+            o42_node_free (tree);
+          }
+        else
+          {
+            put8 (rgce, 0x1C);
+            put8 (rgce, error_to_biff (O42_ERR_REF));
+          }
+        /* The token count, then the tokens and any array constants. */
+        {
+          guint8 count[2] = { rgce->len & 0xff, (rgce->len >> 8) & 0xff };
+          g_byte_array_prepend (rgce, count, 2);
+        }
+        g_byte_array_append (rgce, cb->data, cb->len);
+        g_byte_array_unref (cb);
+        g_ptr_array_add (name_rgce, rgce);
+      }
+    g_list_free (names);
+  }
+
   /* The workbook's own sheets as a SUPBOOK, one XTI per sheet, and an
    * add-in SUPBOOK after it for functions Excel 97 lacked. */
   begin_record (&w, R_SUPBOOK);
@@ -6344,23 +6434,19 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
 
   {
     GList *names = o42_book_names (book);
-    for (GList *l = names; l != NULL; l = l->next)
+    guint at = 0;
+    for (GList *l = names; l != NULL && at < name_rgce->len; l = l->next, at++)
       {
-        O42Sheet *target;
-        O42Range range;
-        if (!o42_book_lookup_name (book, l->data, &target, &range))
-          continue;
+        GByteArray *rgce = g_ptr_array_index (name_rgce, at);
+
         begin_record (&w, R_NAME);
         put16 (w.out, 0); put8 (w.out, 0);
         put8 (w.out, MIN (char_count (l->data), 255));
-        put16 (w.out, 11);
+        put16 (w.out, rgce->data[0] | (rgce->data[1] << 8));
         put16 (w.out, 0); put16 (w.out, 0);
         put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0); put8 (w.out, 0);
         put_ustr_body (w.out, l->data);
-        put8 (w.out, 0x3B);
-        put16 (w.out, o42_book_sheet_index (book, target));
-        put16 (w.out, range.row0); put16 (w.out, range.row1);
-        put16 (w.out, range.col0); put16 (w.out, range.col1);
+        g_byte_array_append (w.out, rgce->data + 2, rgce->len - 2);
         end_record (&w);
       }
     g_list_free (names);
@@ -6615,6 +6701,7 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   g_array_unref (w.sst_offsets);
   g_array_unref (w.palette);
   g_ptr_array_unref (w.addin_names);
+  g_ptr_array_unref (name_rgce);
   g_array_unref (w.xti_spans);
   g_ptr_array_unref (w.images);
   g_ptr_array_unref (w.image_formats);
