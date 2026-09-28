@@ -73,6 +73,13 @@ main (int argc, char *argv[])
   bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
   textdomain (GETTEXT_PACKAGE);
 
+#ifdef G_OS_WIN32
+  /* The title bars are the system's own, with its snapping to the edges
+   * of the screens.  GTK draws its own on Windows, on every window and
+   * dialog, unless told not to; a GTK_CSD the user has set is kept. */
+  g_setenv ("GTK_CSD", "0", FALSE);
+#endif
+
   app = o42_application_new ();
   status = g_application_run (G_APPLICATION (app), argc, argv);
   g_object_unref (app);

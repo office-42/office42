@@ -29,8 +29,7 @@
 
 window.o42,
 window.o42 label,
-window.o42 button,
-.o42-titlebar label {
+window.o42 button {
   font-family: "MS Sans Serif", "Segoe UI", "DejaVu Sans", sans-serif;
   font-size: 13px;
   font-weight: normal;
@@ -45,7 +44,6 @@ popover.menu contents modelbutton label {
 /* --- the raised bevel ------------------------------------------------- */
 
 .o42-toolbar button,
-.o42-titlebar button,
 .o42-formulabar button {
   background-color: @o42_face;
   background-image: none;
@@ -99,45 +97,6 @@ popover.menu contents modelbutton label {
 .o42-glyph-bold      { font-weight: bold; font-family: "Times New Roman", serif; font-size: 15px; }
 .o42-glyph-italic    { font-style: italic; font-family: "Times New Roman", serif; font-size: 15px; }
 .o42-glyph-underline { text-decoration: underline; font-family: "Times New Roman", serif; font-size: 15px; }
-
-/* --- title bar -------------------------------------------------------- */
-
-.o42-titlebar {
-  background-color: @o42_title;
-  color: @o42_title_text;
-  border-bottom: 1px solid @o42_dark;
-  min-height: 24px;
-  padding: 0 2px;
-}
-
-windowhandle,
-window.o42 headerbar,
-window.o42 .titlebar {
-  min-height: 24px;
-  padding: 0;
-  margin: 0;
-  background: none;
-  border: none;
-  box-shadow: none;
-}
-
-/* Two classes, so that it outweighs ".o42-titlebar label" above. */
-.o42-titlebar .o42-titlebar-label {
-  color: @o42_title_text;
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.o42-titlebar button {
-  min-width: 20px;
-  min-height: 18px;
-  padding: 0;
-  margin: 1px;
-}
-
-.o42-titlebar:backdrop {
-  background-color: @o42_shadow;
-}
 
 /* --- menus ------------------------------------------------------------ */
 

@@ -3,8 +3,8 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Excel 97's window, top to bottom: a navy title bar, the menu bar, the
- * Standard and Formatting toolbars, the name box beside the formula bar,
+ * Excel 97's window, top to bottom, under the system's title bar: the
+ * menu bar, the Standard and Formatting toolbars, the name box beside the formula bar,
  * the grid, the sheet tabs, and a status bar.  The chrome is the same
  * Windows 3.1 silver word42 wears, because the two programs shipped side by
  * side and looked it.
@@ -95,113 +95,6 @@ static void on_application_set (GObject *object, GParamSpec *pspec, gpointer dat
 static int recent_newer_first (gconstpointer a, gconstpointer b, gpointer data);
 static void window_install_python_host (O42Window *self);
 static void action_new_window (GSimpleAction *a, GVariant *p, gpointer data);
-
-/* ---------------------------------------------------------------------- */
-/* Title bar, drawn by office42 itself                                     */
-/* ---------------------------------------------------------------------- */
-
-static void
-on_titlebar_minimise (GtkButton *b, gpointer data)
-{
-  (void) b;
-  gtk_window_minimize (GTK_WINDOW (data));
-}
-
-static void
-on_titlebar_maximise (GtkButton *b, gpointer data)
-{
-  GtkWindow *w = data;
-  (void) b;
-  if (gtk_window_is_maximized (w)) gtk_window_unmaximize (w);
-  else gtk_window_maximize (w);
-}
-
-static void
-on_titlebar_close (GtkButton *b, gpointer data)
-{
-  (void) b;
-  gtk_window_close (GTK_WINDOW (data));
-}
-
-static void
-draw_caption_glyph (GtkDrawingArea *area, cairo_t *cr,
-                    int width, int height, gpointer data)
-{
-  const char *which = data;
-  /* Drawn about the centre, at the desktop's text scale. */
-  double scale = o42_text_scale (gtk_widget_get_display (GTK_WIDGET (area)));
-  double cx = 0, cy = 0;
-
-  cairo_translate (cr, width / 2.0, height / 2.0);
-  cairo_scale (cr, scale, scale);
-  cairo_set_source_rgb (cr, 0, 0, 0);
-  cairo_set_line_width (cr, 1.0);
-
-  if (g_strcmp0 (which, "minimise") == 0)
-    {
-      cairo_rectangle (cr, cx - 3, cy + 2, 7, 2);
-      cairo_fill (cr);
-    }
-  else if (g_strcmp0 (which, "maximise") == 0)
-    {
-      cairo_rectangle (cr, cx - 4.5, cy - 4.5, 9, 9);
-      cairo_stroke (cr);
-      cairo_rectangle (cr, cx - 4.5, cy - 4.5, 9, 2);
-      cairo_fill (cr);
-    }
-  else
-    {
-      cairo_move_to (cr, cx - 3.5, cy - 3.5); cairo_line_to (cr, cx + 3.5, cy + 3.5);
-      cairo_move_to (cr, cx + 3.5, cy - 3.5); cairo_line_to (cr, cx - 3.5, cy + 3.5);
-      cairo_set_line_width (cr, 1.4);
-      cairo_stroke (cr);
-    }
-}
-
-static GtkWidget *
-caption_button (const char *glyph, const char *tip, GCallback cb, gpointer data)
-{
-  GtkWidget *button = gtk_button_new ();
-  GtkWidget *area = gtk_drawing_area_new ();
-  double scale = o42_text_scale (gdk_display_get_default ());
-
-  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (area), (int) (16 * scale + 0.5));
-  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (area), (int) (14 * scale + 0.5));
-  gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (area), draw_caption_glyph,
-                                  (gpointer) glyph, NULL);
-  gtk_button_set_child (GTK_BUTTON (button), area);
-  gtk_widget_set_tooltip_text (button, tip);
-  gtk_widget_set_valign (button, GTK_ALIGN_CENTER);
-  gtk_widget_set_focusable (button, FALSE);
-  g_signal_connect (button, "clicked", cb, data);
-
-  return button;
-}
-
-static GtkWidget *
-build_titlebar (O42Window *self)
-{
-  GtkWidget *handle = gtk_window_handle_new ();
-  GtkWidget *centre = gtk_center_box_new ();
-  GtkWidget *right = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 2);
-
-  gtk_widget_add_css_class (centre, "o42-titlebar");
-
-  self->title_label = gtk_label_new ("office42 " O42_VERSION " - Book1");
-  gtk_widget_add_css_class (self->title_label, "o42-titlebar-label");
-  gtk_center_box_set_center_widget (GTK_CENTER_BOX (centre), self->title_label);
-
-  gtk_box_append (GTK_BOX (right), caption_button ("minimise", _("Minimize"),
-                  G_CALLBACK (on_titlebar_minimise), self));
-  gtk_box_append (GTK_BOX (right), caption_button ("maximise", _("Maximize"),
-                  G_CALLBACK (on_titlebar_maximise), self));
-  gtk_box_append (GTK_BOX (right), caption_button ("close", _("Close"),
-                  G_CALLBACK (on_titlebar_close), self));
-  gtk_center_box_set_end_widget (GTK_CENTER_BOX (centre), right);
-
-  gtk_window_handle_set_child (GTK_WINDOW_HANDLE (handle), centre);
-  return handle;
-}
 
 /* ---------------------------------------------------------------------- */
 /* Actions                                                                 */
@@ -5405,10 +5298,6 @@ window_update_title (O42Window *self)
       name = numbered;
     }
 
-  title = g_strdup_printf ("Office42 Spreadsheet " O42_VERSION " - %s%s", name, modified ? "*" : "");
-  gtk_label_set_text (GTK_LABEL (self->title_label), title);
-  g_free (title);
-
   title = g_strdup_printf ("%s%s - Office42 Spreadsheet", name, modified ? "*" : "");
   gtk_window_set_title (GTK_WINDOW (self), title);
   g_free (title);
@@ -7870,7 +7759,6 @@ o42_window_init (O42Window *self)
     gtk_window_set_default_size (GTK_WINDOW (self), width, height);
   }
   gtk_widget_add_css_class (GTK_WIDGET (self), "o42");
-  gtk_window_set_titlebar (GTK_WINDOW (self), build_titlebar (self));
   gtk_window_set_title (GTK_WINDOW (self), _("Book1 - Office42 Spreadsheet"));
   gtk_window_set_icon_name (GTK_WINDOW (self), "net.office42.office42");
 

@@ -44,7 +44,6 @@ struct _O42Window {
   GtkPrintSettings *print_settings;  /* remembered between prints */
   struct _SetupPrompt *last_setup;   /* the Page Setup dialog open, if one is */
 
-  GtkWidget  *title_label;
   GtkWidget  *standard_bar, *format_bar, *formula_bar, *status_bar;  /* View turns them off */
   GMenu      *recent_menu;     /* File's recent files, filled at run time */
   GMenu      *window_menu;     /* Window's list of open windows */

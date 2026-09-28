@@ -14,6 +14,10 @@
 #include "o42-scale.h"
 
 #include <glib/gi18n.h>
+#ifdef G_OS_WIN32
+#include <windows.h>
+#include <gdk/win32/gdkwin32.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -671,13 +675,42 @@ splash_show (O42Application *self, GtkWindow *over)
   g_idle_add_full (G_PRIORITY_LOW, splash_present, splash, NULL);
 }
 
+#ifdef G_OS_WIN32
+/* Windows maximises the window once it is on the screen, not GTK: after
+ * gtk_window_maximize() GTK 4.22 keeps the window at the size of the
+ * screen once Windows restores it, and it cannot be made smaller.
+ * Maximised by Windows, it goes back to its first size and is resized
+ * like any other. */
+static void
+maximize_on_map (GtkWidget *widget, gpointer data)
+{
+  GdkSurface *surface = gtk_native_get_surface (GTK_NATIVE (widget));
+
+  (void) data;
+  g_signal_handlers_disconnect_by_func (widget, maximize_on_map, NULL);
+  if (GDK_IS_WIN32_SURFACE (surface))
+    ShowWindow (gdk_win32_surface_get_handle (surface), SW_MAXIMIZE);
+  else
+    gtk_window_maximize (GTK_WINDOW (widget));
+}
+#endif
+
 /* The program starts maximized.  Not in screenshot mode, whose pictures
  * are of a window of the first size. */
 static void
 present_first (O42Application *self, GtkWindow *window)
 {
   if (self->screenshot == NULL)
-    gtk_window_maximize (window);
+    {
+#ifdef G_OS_WIN32
+      if (gtk_widget_get_mapped (GTK_WIDGET (window)))
+        gtk_window_maximize (window);
+      else
+        g_signal_connect (window, "map", G_CALLBACK (maximize_on_map), NULL);
+#else
+      gtk_window_maximize (window);
+#endif
+    }
   gtk_window_present (window);
 }
 

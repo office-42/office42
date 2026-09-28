@@ -236,6 +236,15 @@ by the factor -- View ▸ Zoom still says 100% -- and style.css's pixel
 font and icon sizes are multiplied by it as the style sheet is loaded,
 so the cells, their text and the chrome grow together.
 
+The title bar is the system's own, not part of the look: moving the
+window, snapping it to the edges of the screens and the window menu then
+work as they do for every other program. GTK draws its own title bars on
+Windows unless `GTK_CSD` is `0`, so `main.c` sets that before GTK starts,
+leaving alone a value the user has set. The window starts maximized, and
+on Windows `ShowWindow` maximizes it, not `gtk_window_maximize`: after
+GTK's, a window Windows restores keeps the size of the screen and cannot
+be made smaller.
+
 ## Things to be careful about
 
 - **Clear every `O42Value` you own exactly once.** They own their text.
