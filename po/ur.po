@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-25 19:56+0000\n"
+"POT-Creation-Date: 2026-09-28 06:46+0000\n"
 "PO-Revision-Date: 2026-09-25 19:58+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Urdu\n"
@@ -36,11 +36,12 @@ msgstr "_کھولیں..."
 #: data/ui/menus.ui:14 src/ui/o42-dialogs-data.c:657
 #: src/ui/o42-dialogs-tools.c:1528 src/ui/o42-dialogs-tools.c:1679
 #: src/ui/o42-dialogs-tools.c:1854 src/ui/o42-dialogs-tools.c:3332
-#: src/ui/o42-dialogs-tools.c:3729 src/ui/o42-window.c:5168
+#: src/ui/o42-dialogs-tools.c:3729 src/ui/o42-window.c:5187
 msgid "_Close"
 msgstr "بن_د کریں"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6257
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1665
+#: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "محفو_ظ کریں"
 
@@ -48,1114 +49,1118 @@ msgstr "محفو_ظ کریں"
 msgid "Save _As..."
 msgstr "_بطور محفوظ کریں..."
 
-#: data/ui/menus.ui:21
-msgid "Page Set_up..."
-msgstr "_صفحہ سیٹ اپ..."
+#: data/ui/menus.ui:23 src/ui/o42-window.c:2267
+msgid "_Print..."
+msgstr "پ_رنٹ کریں..."
 
 #: data/ui/menus.ui:25
 msgid "P_rinting"
 msgstr "پرن_ٹنگ"
 
-#: data/ui/menus.ui:23
+#: data/ui/menus.ui:27
+msgid "Page Set_up..."
+msgstr "_صفحہ سیٹ اپ..."
+
+#: data/ui/menus.ui:29
 msgid "Print _Area"
 msgstr "پرنٹ _ایریا"
 
-#: data/ui/menus.ui:24
+#: data/ui/menus.ui:30
 msgid "_Set Print Area"
 msgstr "پرنٹ ایریا _سیٹ کریں"
 
-#: data/ui/menus.ui:25
+#: data/ui/menus.ui:31
 msgid "_Clear Print Area"
 msgstr "پرنٹ ایریا _صاف کریں"
 
-#: data/ui/menus.ui:27
+#: data/ui/menus.ui:35
 msgid "Print Pre_view"
 msgstr "پرنٹ _پیش نظارہ"
 
-#: data/ui/menus.ui:28
+#: data/ui/menus.ui:36
 msgid "Print Preview: Boo_k"
 msgstr "پرنٹ پیش نظارہ: _ورک بک"
 
-#: data/ui/menus.ui:29 src/ui/o42-window.c:2267
-msgid "_Print..."
-msgstr "پ_رنٹ کریں..."
-
-#: data/ui/menus.ui:30
+#: data/ui/menus.ui:37
 msgid "Print _Book..."
 msgstr "ورک بک پرن_ٹ کریں..."
 
-#: data/ui/menus.ui:33
+#: data/ui/menus.ui:40
 msgid "Export as P_DF..."
 msgstr "P_DF میں برآمد کریں..."
 
-#: data/ui/menus.ui:34
+#: data/ui/menus.ui:41
 msgid "Export _Book as PDF..."
 msgstr "ورک بک کو _PDF میں برآمد کریں..."
 
-#: data/ui/menus.ui:35
+#: data/ui/menus.ui:46
+msgid "Import _Text File..."
+msgstr "_متنی فائل درآمد کریں..."
+
+#: data/ui/menus.ui:47
 msgid "I_mport from PDF..."
 msgstr "PDF سے _درآمد کریں..."
 
-#: data/ui/menus.ui:38
+#: data/ui/menus.ui:50
 msgid "Propert_ies..."
 msgstr "_خصوصیات..."
 
-#: data/ui/menus.ui:43
+#: data/ui/menus.ui:55
 msgid "E_xit"
 msgstr "با_ہر نکلیں"
 
-#: data/ui/menus.ui:48
+#: data/ui/menus.ui:60
 msgid "_Edit"
 msgstr "_ترمیم"
 
-#: data/ui/menus.ui:50
+#: data/ui/menus.ui:62
 msgid "_Undo"
 msgstr "_کالعدم کریں"
 
-#: data/ui/menus.ui:51
+#: data/ui/menus.ui:63
 msgid "_Redo"
 msgstr "_دوبارہ کریں"
 
-#: data/ui/menus.ui:54 src/ui/o42-grid.c:8175 src/ui/o42-grid.c:8205
-#: src/ui/o42-grid.c:8231
+#: data/ui/menus.ui:66 src/ui/o42-grid.c:8233 src/ui/o42-grid.c:8263
+#: src/ui/o42-grid.c:8289
 msgid "Cu_t"
 msgstr "کا_ٹیں"
 
-#: data/ui/menus.ui:55 src/ui/o42-grid.c:8176 src/ui/o42-grid.c:8206
-#: src/ui/o42-grid.c:8232
+#: data/ui/menus.ui:67 src/ui/o42-grid.c:8234 src/ui/o42-grid.c:8264
+#: src/ui/o42-grid.c:8290
 msgid "_Copy"
 msgstr "کا_پی کریں"
 
-#: data/ui/menus.ui:56 src/ui/o42-grid.c:8177 src/ui/o42-grid.c:8207
-#: src/ui/o42-grid.c:8233
+#: data/ui/menus.ui:68 src/ui/o42-grid.c:8235 src/ui/o42-grid.c:8265
+#: src/ui/o42-grid.c:8291
 msgid "_Paste"
 msgstr "_چسپاں کریں"
 
-#: data/ui/menus.ui:57 src/ui/o42-grid.c:8178
+#: data/ui/menus.ui:69 src/ui/o42-grid.c:8236
 msgid "Paste _Special..."
 msgstr "_خصوصی چسپاں..."
 
-#: data/ui/menus.ui:58
+#: data/ui/menus.ui:70
 msgid "Paste as _Hyperlink"
 msgstr "بطور _ہائپر لنک چسپاں کریں"
 
-#: data/ui/menus.ui:62
+#: data/ui/menus.ui:74
 msgid "F_ill"
 msgstr "_بھریں"
 
-#: data/ui/menus.ui:63
+#: data/ui/menus.ui:75
 msgid "_Down"
 msgstr "_نیچے"
 
-#: data/ui/menus.ui:64
+#: data/ui/menus.ui:76
 msgctxt "fill direction"
 msgid "_Right"
 msgstr "_دائیں"
 
-#: data/ui/menus.ui:65
+#: data/ui/menus.ui:77
 msgid "_Up"
 msgstr "_اوپر"
 
-#: data/ui/menus.ui:66
+#: data/ui/menus.ui:78
 msgctxt "fill direction"
 msgid "_Left"
 msgstr "_بائیں"
 
-#: data/ui/menus.ui:67
+#: data/ui/menus.ui:79
 msgid "_Across Worksheets..."
 msgstr "_تمام ورک شیٹس میں..."
 
-#: data/ui/menus.ui:68
+#: data/ui/menus.ui:80
 msgid "_Series..."
 msgstr "_سلسلہ..."
 
-#: data/ui/menus.ui:69
+#: data/ui/menus.ui:81
 msgid "_Justify"
 msgstr "_ہموار کریں"
 
-#: data/ui/menus.ui:72
+#: data/ui/menus.ui:84
 msgid "Cle_ar"
 msgstr "_صاف کریں"
 
-#: data/ui/menus.ui:73 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
+#: data/ui/menus.ui:85 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
 msgid "_All"
 msgstr "_سب"
 
-#: data/ui/menus.ui:74 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
+#: data/ui/menus.ui:86 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
 msgid "_Formats"
 msgstr "_فارمیٹس"
 
-#: data/ui/menus.ui:75 src/ui/o42-dialogs-edit.c:235
+#: data/ui/menus.ui:87 src/ui/o42-dialogs-edit.c:235
 msgid "_Contents"
 msgstr "_مشمولات"
 
-#: data/ui/menus.ui:76
+#: data/ui/menus.ui:88
 msgid "_Notes"
 msgstr "_تبصرے"
 
-#: data/ui/menus.ui:78
+#: data/ui/menus.ui:90
 msgid "_Delete..."
 msgstr "_حذف کریں..."
 
-#: data/ui/menus.ui:79
+#: data/ui/menus.ui:91
 msgid "Delete Ro_ws"
 msgstr "_قطاریں حذف کریں"
 
-#: data/ui/menus.ui:80
+#: data/ui/menus.ui:92
 msgid "Delete Colu_mns"
 msgstr "کالم_ز حذف کریں"
 
-#: data/ui/menus.ui:81
+#: data/ui/menus.ui:93
 msgid "Delete _Sheet"
 msgstr "_شیٹ حذف کریں"
 
-#: data/ui/menus.ui:82
+#: data/ui/menus.ui:94
 msgid "Mo_ve or Copy Sheet..."
 msgstr "شیٹ _منتقل یا کاپی کریں..."
 
-#: data/ui/menus.ui:85
+#: data/ui/menus.ui:97
 msgid "Select A_ll"
 msgstr "_سب منتخب کریں"
 
-#: data/ui/menus.ui:86
+#: data/ui/menus.ui:98
 msgid "_Find..."
 msgstr "_تلاش کریں..."
 
-#: data/ui/menus.ui:87
+#: data/ui/menus.ui:99
 msgid "R_eplace..."
 msgstr "تبد_یل کریں..."
 
-#: data/ui/menus.ui:88
+#: data/ui/menus.ui:100
 msgid "_Go To..."
 msgstr "پر _جائیں..."
 
-#: data/ui/menus.ui:93
+#: data/ui/menus.ui:105
 msgid "_View"
 msgstr "من_ظر"
 
-#: data/ui/menus.ui:96 src/ui/o42-window.c:2265
+#: data/ui/menus.ui:108 src/ui/o42-window.c:2265
 msgid "_Zoom"
 msgstr "_زوم"
 
-#: data/ui/menus.ui:97 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:109 src/ui/o42-dialogs-tools.c:3786
 msgid "_200%"
 msgstr "_200%"
 
-#: data/ui/menus.ui:98
+#: data/ui/menus.ui:110
 msgid "_150%"
 msgstr "_150%"
 
-#: data/ui/menus.ui:99 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:111 src/ui/o42-dialogs-tools.c:3786
 msgid "_100%"
 msgstr "_100%"
 
-#: data/ui/menus.ui:100 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:112 src/ui/o42-dialogs-tools.c:3786
 msgid "_75%"
 msgstr "_75%"
 
-#: data/ui/menus.ui:101 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:113 src/ui/o42-dialogs-tools.c:3786
 msgid "_50%"
 msgstr "_50%"
 
-#: data/ui/menus.ui:102 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:114 src/ui/o42-dialogs-tools.c:3786
 msgid "2_5%"
 msgstr "2_5%"
 
-#: data/ui/menus.ui:103
+#: data/ui/menus.ui:115
 msgid "_Zoom..."
 msgstr "ز_وم..."
 
-#: data/ui/menus.ui:105
+#: data/ui/menus.ui:117
 msgid "_Full Screen"
 msgstr "_پوری اسکرین"
 
-#: data/ui/menus.ui:109
+#: data/ui/menus.ui:121
 msgid "_Toolbars"
 msgstr "_ٹول بارز"
 
-#: data/ui/menus.ui:110
+#: data/ui/menus.ui:122
 msgid "_Standard"
 msgstr "_معیاری"
 
-#: data/ui/menus.ui:111
+#: data/ui/menus.ui:123
 msgid "_Formatting"
 msgstr "_فارمیٹنگ"
 
-#: data/ui/menus.ui:113
+#: data/ui/menus.ui:125
 msgid "Formula _Bar"
 msgstr "_فارمولا بار"
 
-#: data/ui/menus.ui:114
+#: data/ui/menus.ui:126
 msgid "_Status Bar"
 msgstr "_اسٹیٹس بار"
 
-#: data/ui/menus.ui:115
+#: data/ui/menus.ui:127
 msgid "_Comments"
 msgstr "_تبصرے"
 
-#: data/ui/menus.ui:118
+#: data/ui/menus.ui:130
 msgid "_Freeze Panes"
 msgstr "پینز _منجمد کریں"
 
-#: data/ui/menus.ui:119
+#: data/ui/menus.ui:131
 msgid "C_ustom Views..."
 msgstr "_حسب ضرورت منظر..."
 
-#: data/ui/menus.ui:120
+#: data/ui/menus.ui:132
 msgid "_Page Breaks"
 msgstr "صفحہ _وقفے"
 
-#: data/ui/menus.ui:121
+#: data/ui/menus.ui:133
 msgid "_Header and Footer..."
 msgstr "_ہیڈر اور فوٹر..."
 
-#: data/ui/menus.ui:122
+#: data/ui/menus.ui:134
 msgid "Spli_t"
 msgstr "تق_سیم کریں"
 
-#: data/ui/menus.ui:125
+#: data/ui/menus.ui:137
 msgid "_Calculate Now"
 msgstr "ابھی حساب _کریں"
 
-#: data/ui/menus.ui:126 data/ui/menus.ui:338 src/ui/o42-dialogs-tools.c:2840
+#: data/ui/menus.ui:138 data/ui/menus.ui:350 src/ui/o42-dialogs-tools.c:2840
 msgid "_Options..."
 msgstr "ا_ختیارات..."
 
-#: data/ui/menus.ui:131
+#: data/ui/menus.ui:143
 msgid "_Insert"
 msgstr "_داخل کریں"
 
-#: data/ui/menus.ui:133 data/ui/menus.ui:212
+#: data/ui/menus.ui:145 data/ui/menus.ui:224
 msgid "C_ells..."
 msgstr "_سیلز..."
 
-#: data/ui/menus.ui:134 src/ui/o42-dialogs-edit.c:129
+#: data/ui/menus.ui:146 src/ui/o42-dialogs-edit.c:129
 msgid "_Rows"
 msgstr "_قطاریں"
 
-#: data/ui/menus.ui:135 src/ui/o42-dialogs-edit.c:129
+#: data/ui/menus.ui:147 src/ui/o42-dialogs-edit.c:129
 msgid "_Columns"
 msgstr "_کالمز"
 
-#: data/ui/menus.ui:136
+#: data/ui/menus.ui:148
 msgid "_Worksheet"
 msgstr "_ورک شیٹ"
 
-#: data/ui/menus.ui:139 data/ui/menus.ui:220
+#: data/ui/menus.ui:151 data/ui/menus.ui:232
 msgid "C_hart..."
 msgstr "_چارٹ..."
 
-#: data/ui/menus.ui:140
+#: data/ui/menus.ui:152
 msgid "_Function..."
 msgstr "_فنکشن..."
 
-#: data/ui/menus.ui:141
+#: data/ui/menus.ui:153
 msgid "N_ote..."
 msgstr "_تبصرہ..."
 
-#: data/ui/menus.ui:142
+#: data/ui/menus.ui:154
 msgid "H_yperlink..."
 msgstr "_ہائپر لنک..."
 
-#: data/ui/menus.ui:143
+#: data/ui/menus.ui:155
 msgid "Page _Break"
 msgstr "_صفحہ وقفہ"
 
-#: data/ui/menus.ui:145
+#: data/ui/menus.ui:157
 msgid "Sh_ape"
 msgstr "_شکل"
 
-#: data/ui/menus.ui:146
+#: data/ui/menus.ui:158
 msgid "_Rectangle"
 msgstr "_مستطیل"
 
-#: data/ui/menus.ui:147
+#: data/ui/menus.ui:159
 msgid "_Oval"
 msgstr "_بیضوی"
 
-#: data/ui/menus.ui:148
+#: data/ui/menus.ui:160
 msgctxt "shape"
 msgid "_Line"
 msgstr "_لکیر"
 
-#: data/ui/menus.ui:149
+#: data/ui/menus.ui:161
 msgid "_Arrow"
 msgstr "_تیر"
 
-#: data/ui/menus.ui:150
+#: data/ui/menus.ui:162
 msgid "_Text Box"
 msgstr "_ٹیکسٹ باکس"
 
-#: data/ui/menus.ui:151
+#: data/ui/menus.ui:163
 msgid "_Freeform"
 msgstr "_آزاد شکل"
 
-#: data/ui/menus.ui:153
+#: data/ui/menus.ui:165
 msgid "Rounded Rectan_gle"
 msgstr "_گول کونوں والا مستطیل"
 
-#: data/ui/menus.ui:154
+#: data/ui/menus.ui:166
 msgid "Tr_iangle"
 msgstr "م_ثلث"
 
-#: data/ui/menus.ui:155
+#: data/ui/menus.ui:167
 msgid "Right Triangle"
 msgstr "قائمہ مثلث"
 
-#: data/ui/menus.ui:156
+#: data/ui/menus.ui:168
 msgid "_Diamond"
 msgstr "مع_ین"
 
-#: data/ui/menus.ui:157
+#: data/ui/menus.ui:169
 msgid "_Pentagon"
 msgstr "م_خمس"
 
-#: data/ui/menus.ui:158
+#: data/ui/menus.ui:170
 msgid "_Hexagon"
 msgstr "م_سدس"
 
-#: data/ui/menus.ui:159
+#: data/ui/menus.ui:171
 msgid "Octagon"
 msgstr "مثمن"
 
-#: data/ui/menus.ui:160 src/ui/o42-window.c:5344
+#: data/ui/menus.ui:172 src/ui/o42-window.c:5363
 msgid "Cross"
 msgstr "کراس"
 
-#: data/ui/menus.ui:161
+#: data/ui/menus.ui:173
 msgid "_4-Point Star"
 msgstr "_4 نوکوں والا ستارہ"
 
-#: data/ui/menus.ui:162
+#: data/ui/menus.ui:174
 msgid "_5-Point Star"
 msgstr "_5 نوکوں والا ستارہ"
 
-#: data/ui/menus.ui:163
+#: data/ui/menus.ui:175
 msgid "_8-Point Star"
 msgstr "_8 نوکوں والا ستارہ"
 
-#: data/ui/menus.ui:166
+#: data/ui/menus.ui:178
 msgid "Right Arro_w"
 msgstr "_دائیں تیر"
 
-#: data/ui/menus.ui:167
+#: data/ui/menus.ui:179
 msgid "Le_ft Arrow"
 msgstr "بائیں تی_ر"
 
-#: data/ui/menus.ui:168
+#: data/ui/menus.ui:180
 msgid "_Up Arrow"
 msgstr "_اوپر تیر"
 
-#: data/ui/menus.ui:169
+#: data/ui/menus.ui:181
 msgid "Down Arrow"
 msgstr "نیچے تیر"
 
-#: data/ui/menus.ui:170
+#: data/ui/menus.ui:182
 msgid "Left-Right Arrow"
 msgstr "بائیں-دائیں تیر"
 
-#: data/ui/menus.ui:173
+#: data/ui/menus.ui:185
 msgid "Rectangular _Callout"
 msgstr "مستطیل _کال آؤٹ"
 
-#: data/ui/menus.ui:174
+#: data/ui/menus.ui:186
 msgid "Oval Callout"
 msgstr "بیضوی کال آؤٹ"
 
-#: data/ui/menus.ui:175
+#: data/ui/menus.ui:187
 msgid "Flowchart: Proc_ess"
 msgstr "فلو چارٹ: _عمل"
 
-#: data/ui/menus.ui:176
+#: data/ui/menus.ui:188
 msgid "Flowchart: Decisio_n"
 msgstr "فلو چارٹ: _فیصلہ"
 
-#: data/ui/menus.ui:177
+#: data/ui/menus.ui:189
 msgid "Flowchart: Ter_minator"
 msgstr "فلو چارٹ: _نقطۂ اختتام"
 
-#: data/ui/menus.ui:181
+#: data/ui/menus.ui:193
 msgid "Co_ntrol"
 msgstr "کن_ٹرول"
 
-#: data/ui/menus.ui:182
+#: data/ui/menus.ui:194
 msgid "_Button"
 msgstr "_بٹن"
 
-#: data/ui/menus.ui:183
+#: data/ui/menus.ui:195
 msgid "_Check Box"
 msgstr "_چیک باکس"
 
-#: data/ui/menus.ui:184
+#: data/ui/menus.ui:196
 msgid "_Option Button"
 msgstr "_آپشن بٹن"
 
-#: data/ui/menus.ui:185
+#: data/ui/menus.ui:197
 msgid "_Spinner"
 msgstr "_اسپنر"
 
-#: data/ui/menus.ui:186
+#: data/ui/menus.ui:198
 msgid "S_croll Bar"
 msgstr "اس_کرول بار"
 
-#: data/ui/menus.ui:187
+#: data/ui/menus.ui:199
 msgid "_List Box"
 msgstr "_لسٹ باکس"
 
-#: data/ui/menus.ui:188
+#: data/ui/menus.ui:200
 msgid "Co_mbo Box"
 msgstr "کو_مبو باکس"
 
-#: data/ui/menus.ui:189
+#: data/ui/menus.ui:201
 msgid "L_abel"
 msgstr "ل_یبل"
 
-#: data/ui/menus.ui:190
+#: data/ui/menus.ui:202
 msgid "_Group Box"
 msgstr "_گروپ باکس"
 
-#: data/ui/menus.ui:193
+#: data/ui/menus.ui:205
 msgid "_Name"
 msgstr "_نام"
 
-#: data/ui/menus.ui:194
+#: data/ui/menus.ui:206
 msgid "_Define..."
 msgstr "_متعین کریں..."
 
-#: data/ui/menus.ui:195
+#: data/ui/menus.ui:207
 msgid "_Paste..."
 msgstr "_چسپاں کریں..."
 
-#: data/ui/menus.ui:196
+#: data/ui/menus.ui:208
 msgid "_Create..."
 msgstr "_بنائیں..."
 
-#: data/ui/menus.ui:197
+#: data/ui/menus.ui:209
 msgid "_Apply..."
 msgstr "_لاگو کریں..."
 
-#: data/ui/menus.ui:202
+#: data/ui/menus.ui:214
 msgid "_Picture"
 msgstr "تصو_یر"
 
-#: data/ui/menus.ui:203
+#: data/ui/menus.ui:215
 msgid "_From File..."
 msgstr "_فائل سے..."
 
-#: data/ui/menus.ui:204
+#: data/ui/menus.ui:216
 msgid "From _Scanner or Camera..."
 msgstr "_اسکینر یا کیمرے سے..."
 
-#: data/ui/menus.ui:210
+#: data/ui/menus.ui:222
 msgid "F_ormat"
 msgstr "فا_رمیٹ"
 
-#: data/ui/menus.ui:213
+#: data/ui/menus.ui:225
 msgid "St_yle..."
 msgstr "_انداز..."
 
-#: data/ui/menus.ui:214
+#: data/ui/menus.ui:226
 msgid "_AutoFormat..."
 msgstr "_خودکار فارمیٹ..."
 
-#: data/ui/menus.ui:215
+#: data/ui/menus.ui:227
 msgid "Format _Painter"
 msgstr "فارمیٹ _پینٹر"
 
-#: data/ui/menus.ui:216
+#: data/ui/menus.ui:228
 msgid "_Column Width..."
 msgstr "_کالم کی چوڑائی..."
 
-#: data/ui/menus.ui:217
+#: data/ui/menus.ui:229
 msgid "_Row Height..."
 msgstr "_قطار کی اونچائی..."
 
-#: data/ui/menus.ui:218
+#: data/ui/menus.ui:230
 msgid "Column _AutoFit"
 msgstr "کالم خودکار _فٹ"
 
-#: data/ui/menus.ui:219
+#: data/ui/menus.ui:231
 msgid "Conditional _Formatting..."
 msgstr "_مشروط فارمیٹنگ..."
 
-#: data/ui/menus.ui:221
+#: data/ui/menus.ui:233
 msgid "Sha_pe..."
 msgstr "_شکل..."
 
-#: data/ui/menus.ui:222
+#: data/ui/menus.ui:234
 msgid "P_icture..."
 msgstr "_تصویر..."
 
-#: data/ui/menus.ui:223
+#: data/ui/menus.ui:235
 msgid "Contro_l..."
 msgstr "کن_ٹرول..."
 
-#: data/ui/menus.ui:224 src/ui/o42-grid.c:8267
+#: data/ui/menus.ui:236 src/ui/o42-grid.c:8325
 msgid "_Group Objects"
 msgstr "آبجیکٹس _گروپ کریں"
 
-#: data/ui/menus.ui:225
+#: data/ui/menus.ui:237
 msgid "U_ngroup Objects"
 msgstr "آب_جیکٹس کا گروپ ختم کریں"
 
-#: data/ui/menus.ui:227 src/ui/o42-grid.c:8276
+#: data/ui/menus.ui:239 src/ui/o42-grid.c:8334
 msgid "O_rder"
 msgstr "ت_رتیب"
 
-#: data/ui/menus.ui:228 src/ui/o42-grid.c:8272
+#: data/ui/menus.ui:240 src/ui/o42-grid.c:8330
 msgid "Bring to _Front"
 msgstr "سب سے _آگے لائیں"
 
-#: data/ui/menus.ui:229 src/ui/o42-grid.c:8273
+#: data/ui/menus.ui:241 src/ui/o42-grid.c:8331
 msgid "Send to _Back"
 msgstr "سب سے _پیچھے بھیجیں"
 
-#: data/ui/menus.ui:230 src/ui/o42-grid.c:8274
+#: data/ui/menus.ui:242 src/ui/o42-grid.c:8332
 msgid "Bring F_orward"
 msgstr "آگے _لائیں"
 
-#: data/ui/menus.ui:231 src/ui/o42-grid.c:8275
+#: data/ui/menus.ui:243 src/ui/o42-grid.c:8333
 msgid "Send Back_ward"
 msgstr "پیچھے _بھیجیں"
 
-#: data/ui/menus.ui:233
+#: data/ui/menus.ui:245
 msgid "_Merge Cells"
 msgstr "سیلز _ضم کریں"
 
-#: data/ui/menus.ui:234
+#: data/ui/menus.ui:246
 msgid "Unmer_ge Cells"
 msgstr "سیلز _علیحدہ کریں"
 
-#: data/ui/menus.ui:236
+#: data/ui/menus.ui:248
 msgid "S_heet"
 msgstr "ش_یٹ"
 
-#: data/ui/menus.ui:237
+#: data/ui/menus.ui:249
 msgid "_Rename..."
 msgstr "_نام تبدیل کریں..."
 
-#: data/ui/menus.ui:238 src/ui/o42-window.c:3370
+#: data/ui/menus.ui:250 src/ui/o42-window.c:3370
 msgid "Move _Left"
 msgstr "_بائیں منتقل کریں"
 
-#: data/ui/menus.ui:239
+#: data/ui/menus.ui:251
 msgid "Move R_ight"
 msgstr "_دائیں منتقل کریں"
 
-#: data/ui/menus.ui:240 data/ui/menus.ui:250 data/ui/menus.ui:256
-#: data/ui/menus.ui:400 src/ui/o42-window.c:7769
+#: data/ui/menus.ui:252 data/ui/menus.ui:262 data/ui/menus.ui:268
+#: data/ui/menus.ui:412 src/ui/o42-window.c:7926
 msgid "_Hide"
 msgstr "_چھپائیں"
 
-#: data/ui/menus.ui:241 data/ui/menus.ui:401
+#: data/ui/menus.ui:253 data/ui/menus.ui:413
 msgid "_Unhide..."
 msgstr "_ظاہر کریں..."
 
-#: data/ui/menus.ui:242
+#: data/ui/menus.ui:254
 msgid "_Background..."
 msgstr "_پس منظر..."
 
-#: data/ui/menus.ui:243
+#: data/ui/menus.ui:255
 msgid "_Delete Background"
 msgstr "پس منظر _حذف کریں"
 
-#: data/ui/menus.ui:248
+#: data/ui/menus.ui:260
 msgid "R_ow"
 msgstr "ق_طار"
 
-#: data/ui/menus.ui:249 src/ui/o42-grid.c:8240
+#: data/ui/menus.ui:261 src/ui/o42-grid.c:8298
 msgid "_AutoFit"
 msgstr "_خودکار فٹ"
 
-#: data/ui/menus.ui:251 data/ui/menus.ui:257 src/ui/o42-grid.c:8215
-#: src/ui/o42-grid.c:8242
+#: data/ui/menus.ui:263 data/ui/menus.ui:269 src/ui/o42-grid.c:8273
+#: src/ui/o42-grid.c:8300
 msgid "_Unhide"
 msgstr "_ظاہر کریں"
 
-#: data/ui/menus.ui:254
+#: data/ui/menus.ui:266
 msgid "Colu_mn"
 msgstr "کا_لم"
 
-#: data/ui/menus.ui:255
+#: data/ui/menus.ui:267
 msgid "_Standard Width..."
 msgstr "_معیاری چوڑائی..."
 
-#: data/ui/menus.ui:261 src/ui/o42-dialogs-format.c:386
-#: src/ui/o42-dialogs-format.c:555 src/ui/o42-window.c:4851
+#: data/ui/menus.ui:273 src/ui/o42-dialogs-format.c:386
+#: src/ui/o42-dialogs-format.c:555 src/ui/o42-window.c:4870
 msgid "_Bold"
 msgstr "_جلی"
 
-#: data/ui/menus.ui:262 src/ui/o42-dialogs-format.c:387
-#: src/ui/o42-dialogs-format.c:556 src/ui/o42-window.c:4853
+#: data/ui/menus.ui:274 src/ui/o42-dialogs-format.c:387
+#: src/ui/o42-dialogs-format.c:556 src/ui/o42-window.c:4872
 msgid "_Italic"
 msgstr "_ترچھا"
 
-#: data/ui/menus.ui:263 src/ui/o42-dialogs-format.c:388
+#: data/ui/menus.ui:275 src/ui/o42-dialogs-format.c:388
 msgid "_Underline"
 msgstr "خط _کشیدہ"
 
-#: data/ui/menus.ui:267
+#: data/ui/menus.ui:279
 msgid "_Alignment"
 msgstr "_صف بندی"
 
-#: data/ui/menus.ui:268 data/ui/menus.ui:275
+#: data/ui/menus.ui:280 data/ui/menus.ui:287 src/ui/o42-dialogs-file.c:1153
 msgid "_General"
 msgstr "_عمومی"
 
-#: data/ui/menus.ui:269
+#: data/ui/menus.ui:281
 msgid "_Left"
 msgstr "_بائیں"
 
-#: data/ui/menus.ui:270
+#: data/ui/menus.ui:282
 msgid "_Center"
 msgstr "_مرکز"
 
-#: data/ui/menus.ui:271
+#: data/ui/menus.ui:283
 msgid "_Right"
 msgstr "_دائیں"
 
-#: data/ui/menus.ui:274
+#: data/ui/menus.ui:286
 msgid "_Number"
 msgstr "_نمبر"
 
-#: data/ui/menus.ui:276
+#: data/ui/menus.ui:288
 msgid "_Fixed"
 msgstr "_مقررہ"
 
-#: data/ui/menus.ui:277
+#: data/ui/menus.ui:289
 msgctxt "number format"
 msgid "_Comma"
 msgstr "_کاما"
 
-#: data/ui/menus.ui:278
+#: data/ui/menus.ui:290
 msgid "C_urrency"
 msgstr "ک_رنسی"
 
-#: data/ui/menus.ui:279
+#: data/ui/menus.ui:291
 msgid "_Percent"
 msgstr "_فیصد"
 
-#: data/ui/menus.ui:280
+#: data/ui/menus.ui:292
 msgid "_Scientific"
 msgstr "_سائنسی"
 
-#: data/ui/menus.ui:281 src/ui/o42-dialogs-edit.c:130 src/ui/o42-window.c:2436
+#: data/ui/menus.ui:293 src/ui/o42-dialogs-edit.c:130 src/ui/o42-window.c:2436
 msgid "_Date"
 msgstr "_تاریخ"
 
-#: data/ui/menus.ui:282
+#: data/ui/menus.ui:294
 msgid "_Time"
 msgstr "_وقت"
 
-#: data/ui/menus.ui:283
+#: data/ui/menus.ui:295
 msgid "Date and Ti_me"
 msgstr "تاریخ اور و_قت"
 
-#: data/ui/menus.ui:289
+#: data/ui/menus.ui:301
 msgid "_Tools"
 msgstr "_ٹولز"
 
-#: data/ui/menus.ui:291
+#: data/ui/menus.ui:303
 msgid "_Goal Seek..."
 msgstr "_گول سیک..."
 
-#: data/ui/menus.ui:292
+#: data/ui/menus.ui:304
 msgid "_Euro Conversion..."
 msgstr "_یورو تبدیلی..."
 
-#: data/ui/menus.ui:293
+#: data/ui/menus.ui:305
 msgid "Sol_ver..."
 msgstr "_سالور..."
 
-#: data/ui/menus.ui:295
+#: data/ui/menus.ui:307
 msgid "_Protection"
 msgstr "_تحفظ"
 
-#: data/ui/menus.ui:296
+#: data/ui/menus.ui:308
 msgid "Protect _Sheet..."
 msgstr "_شیٹ محفوظ کریں..."
 
-#: data/ui/menus.ui:297
+#: data/ui/menus.ui:309
 msgid "Protect _Workbook..."
 msgstr "_ورک بک محفوظ کریں..."
 
-#: data/ui/menus.ui:302
+#: data/ui/menus.ui:314
 msgid "_Auditing"
 msgstr "_آڈیٹنگ"
 
-#: data/ui/menus.ui:303
+#: data/ui/menus.ui:315
 msgid "Trace _Precedents"
 msgstr "_ماخذ سیلز کا سراغ لگائیں"
 
-#: data/ui/menus.ui:304
+#: data/ui/menus.ui:316
 msgid "Trace _Dependents"
 msgstr "_تابع سیلز کا سراغ لگائیں"
 
-#: data/ui/menus.ui:305
+#: data/ui/menus.ui:317
 msgid "Trace _Error"
 msgstr "_خرابی کا سراغ لگائیں"
 
-#: data/ui/menus.ui:306
+#: data/ui/menus.ui:318
 msgid "_Remove All Arrows"
 msgstr "_سب تیر ہٹائیں"
 
-#: data/ui/menus.ui:307
+#: data/ui/menus.ui:319
 msgid "_Evaluate Formula..."
 msgstr "فارمولے کی _جانچ کریں..."
 
-#: data/ui/menus.ui:308
+#: data/ui/menus.ui:320
 msgid "Show _Watch Window"
 msgstr "_واچ ونڈو دکھائیں"
 
-#: data/ui/menus.ui:313
+#: data/ui/menus.ui:325
 msgid "_Macro"
 msgstr "_میکرو"
 
-#: data/ui/menus.ui:315
+#: data/ui/menus.ui:327
 msgid "_Macros..."
 msgstr "_میکروز..."
 
-#: data/ui/menus.ui:316
+#: data/ui/menus.ui:328
 msgid "_Record Macro"
 msgstr "میکرو _ریکارڈ کریں"
 
-#: data/ui/menus.ui:317
+#: data/ui/menus.ui:329
 msgid "S_top Recording"
 msgstr "ریکارڈنگ _بند کریں"
 
-#: data/ui/menus.ui:318
+#: data/ui/menus.ui:330
 msgid "Use Re_lative References"
 msgstr "_نسبتی حوالے استعمال کریں"
 
-#: data/ui/menus.ui:321
+#: data/ui/menus.ui:333
 msgid "_Scripts in this Book..."
 msgstr "اس ورک بک میں _اسکرپٹس..."
 
-#: data/ui/menus.ui:322
+#: data/ui/menus.ui:334
 msgid "S_tep Into Script"
 msgstr "اسکرپٹ میں _قدم بہ قدم چلیں"
 
-#: data/ui/menus.ui:323
+#: data/ui/menus.ui:335
 msgid "_Python Console..."
 msgstr "_Python کنسول..."
 
-#: data/ui/menus.ui:324
+#: data/ui/menus.ui:336
 msgid "Run Python Script _File..."
 msgstr "Python اسکرپٹ _فائل چلائیں..."
 
-#: data/ui/menus.ui:329
+#: data/ui/menus.ui:341
 msgid "Statistical _Analysis..."
 msgstr "_شماریاتی تجزیہ..."
 
-#: data/ui/menus.ui:330
+#: data/ui/menus.ui:342
 msgid "_Spelling..."
 msgstr "_ہجے..."
 
-#: data/ui/menus.ui:331
+#: data/ui/menus.ui:343
 msgid "_AutoCorrect..."
 msgstr "خودکار _درستی..."
 
-#: data/ui/menus.ui:333
+#: data/ui/menus.ui:345
 msgid "_Wizards"
 msgstr "_وزرڈز"
 
-#: data/ui/menus.ui:334
+#: data/ui/menus.ui:346
 msgid "_Conditional Sum..."
 msgstr "_مشروط جمع..."
 
-#: data/ui/menus.ui:335
+#: data/ui/menus.ui:347
 msgid "_Lookup..."
 msgstr "_تلاش..."
 
-#: data/ui/menus.ui:337
+#: data/ui/menus.ui:349
 msgid "Custom _Lists..."
 msgstr "حسب ضرورت _فہرستیں..."
 
-#: data/ui/menus.ui:343
+#: data/ui/menus.ui:355
 msgid "_Data"
 msgstr "_ڈیٹا"
 
-#: data/ui/menus.ui:345
+#: data/ui/menus.ui:357
 msgid "_Sort..."
 msgstr "_ترتیب دیں..."
 
-#: data/ui/menus.ui:346
+#: data/ui/menus.ui:358
 msgid "F_orm..."
 msgstr "_فارم..."
 
-#: data/ui/menus.ui:348
+#: data/ui/menus.ui:360
 msgid "_Filter"
 msgstr "ف_لٹر"
 
-#: data/ui/menus.ui:349
+#: data/ui/menus.ui:361
 msgid "Auto_Filter"
 msgstr "_خودکار فلٹر"
 
-#: data/ui/menus.ui:350
+#: data/ui/menus.ui:362
 msgid "_Show All"
 msgstr "_سب دکھائیں"
 
-#: data/ui/menus.ui:351
+#: data/ui/menus.ui:363
 msgid "Ad_vanced Filter..."
 msgstr "_اعلیٰ فلٹر..."
 
-#: data/ui/menus.ui:353
+#: data/ui/menus.ui:365
 msgid "Te_xt to Columns..."
 msgstr "_متن کو کالمز میں..."
 
-#: data/ui/menus.ui:354
+#: data/ui/menus.ui:366
 msgid "_Validation..."
 msgstr "تو_ثیق..."
 
-#: data/ui/menus.ui:355
+#: data/ui/menus.ui:367
 msgid "Circle _Invalid Data"
 msgstr "_غلط ڈیٹا پر دائرے لگائیں"
 
-#: data/ui/menus.ui:356
+#: data/ui/menus.ui:368
 msgid "Clear Validation Circles"
 msgstr "توثیق کے دائرے صاف کریں"
 
-#: data/ui/menus.ui:359
+#: data/ui/menus.ui:371
 msgid "_Table..."
 msgstr "_ٹیبل..."
 
-#: data/ui/menus.ui:360
+#: data/ui/menus.ui:372
 msgid "_What-If Table..."
 msgstr "_کیا-اگر ٹیبل..."
 
-#: data/ui/menus.ui:361
+#: data/ui/menus.ui:373
 msgid "Sc_enarios..."
 msgstr "منظر_نامے..."
 
-#: data/ui/menus.ui:362
+#: data/ui/menus.ui:374
 msgid "Co_nsolidate..."
 msgstr "_یکجا کریں..."
 
-#: data/ui/menus.ui:363
+#: data/ui/menus.ui:375
 msgid "Su_btotals..."
 msgstr "_ذیلی میزان..."
 
-#: data/ui/menus.ui:364
+#: data/ui/menus.ui:376
 msgid "Remove _Duplicates..."
 msgstr "_دہرے اندراجات ہٹائیں..."
 
-#: data/ui/menus.ui:367
+#: data/ui/menus.ui:379
 msgid "_Pivot Table..."
 msgstr "_پیوٹ ٹیبل..."
 
-#: data/ui/menus.ui:368
+#: data/ui/menus.ui:380
 msgid "Re_fresh Pivot Table"
 msgstr "پیوٹ ٹیبل تا_زہ کریں"
 
-#: data/ui/menus.ui:372
+#: data/ui/menus.ui:384
 msgid "Data_base"
 msgstr "ڈیٹا _بیس"
 
-#: data/ui/menus.ui:373
+#: data/ui/menus.ui:385
 msgid "_Connect..."
 msgstr "_مربوط کریں..."
 
-#: data/ui/menus.ui:374
+#: data/ui/menus.ui:386
 msgid "_Embed New Database"
 msgstr "نیا ڈیٹا بیس _شامل کریں"
 
-#: data/ui/menus.ui:375
+#: data/ui/menus.ui:387
 msgid "_Get Data..."
 msgstr "ڈیٹا _حاصل کریں..."
 
-#: data/ui/menus.ui:376
+#: data/ui/menus.ui:388
 msgid "_Refresh Queries"
 msgstr "_کوئریز تازہ کریں"
 
-#: data/ui/menus.ui:377
+#: data/ui/menus.ui:389
 msgid "_Send Selection to Table..."
 msgstr "انتخاب _ٹیبل میں بھیجیں..."
 
-#: data/ui/menus.ui:382
+#: data/ui/menus.ui:394
 msgid "_Group and Outline"
 msgstr "_گروپ اور خاکہ"
 
-#: data/ui/menus.ui:383
+#: data/ui/menus.ui:395
 msgid "Group _Rows"
 msgstr "_قطاریں گروپ کریں"
 
-#: data/ui/menus.ui:384
+#: data/ui/menus.ui:396
 msgid "Group _Columns"
 msgstr "_کالمز گروپ کریں"
 
-#: data/ui/menus.ui:385
+#: data/ui/menus.ui:397
 msgid "Ungroup R_ows"
 msgstr "قطا_روں کا گروپ ختم کریں"
 
-#: data/ui/menus.ui:386
+#: data/ui/menus.ui:398
 msgid "Ungroup Co_lumns"
 msgstr "کال_مز کا گروپ ختم کریں"
 
-#: data/ui/menus.ui:387
+#: data/ui/menus.ui:399
 msgid "_Show Detail"
 msgstr "_تفصیل دکھائیں"
 
-#: data/ui/menus.ui:388
+#: data/ui/menus.ui:400
 msgid "_Hide Detail"
 msgstr "تفصیل _چھپائیں"
 
-#: data/ui/menus.ui:389
+#: data/ui/menus.ui:401
 msgid "_Auto Outline"
 msgstr "_خودکار خاکہ"
 
-#: data/ui/menus.ui:390
+#: data/ui/menus.ui:402
 msgid "Cl_ear Outline"
 msgstr "خاکہ _صاف کریں"
 
-#: data/ui/menus.ui:391
+#: data/ui/menus.ui:403
 msgid "_Settings..."
 msgstr "ترت_یبات..."
 
-#: data/ui/menus.ui:397
+#: data/ui/menus.ui:409
 msgid "_Window"
 msgstr "_ونڈو"
 
-#: data/ui/menus.ui:399
+#: data/ui/menus.ui:411
 msgid "_New Window"
 msgstr "_نئی ونڈو"
 
-#: data/ui/menus.ui:408
+#: data/ui/menus.ui:420
 msgid "_Help"
 msgstr "_مدد"
 
-#: data/ui/menus.ui:410
+#: data/ui/menus.ui:422
 msgctxt "help"
 msgid "_Contents"
 msgstr "_فہرست مضامین"
 
-#: data/ui/menus.ui:413
+#: data/ui/menus.ui:425
 msgid "_About office42"
 msgstr "office42 _کے بارے میں"
 
-#: src/formula/o42-eval.c:11176
+#: src/formula/o42-eval.c:11390
 msgid "Gnumeric's: the Fourier transform of a sequence, or its inverse."
 msgstr "Gnumeric کا: کسی تسلسل کا فوریئر ٹرانسفارم، یا اس کا معکوس۔"
 
-#: src/formula/o42-eval.c:11177
+#: src/formula/o42-eval.c:11391
 msgid "How many values fall in each bin."
 msgstr "ہر خانے (bin) میں کتنی قدریں آتی ہیں۔"
 
-#: src/formula/o42-eval.c:11178
+#: src/formula/o42-eval.c:11392
 msgid "Gnumeric's: Hodrick and Prescott's trend and what is left over."
 msgstr "Gnumeric کا: ہوڈرک اور پریسکاٹ کا رجحان اور جو باقی بچتا ہے۔"
 
-#: src/formula/o42-eval.c:11179
+#: src/formula/o42-eval.c:11393
 msgid "Gnumeric's: the ordinates read off at the targets, six ways."
 msgstr "Gnumeric کا: اہداف پر پڑھے گئے آرڈینیٹ، چھ طریقوں سے۔"
 
-#: src/formula/o42-eval.c:11180
+#: src/formula/o42-eval.c:11394
 msgid "Gnumeric's: how much each row of a design matrix pulls on the fit."
 msgstr "Gnumeric کا: ڈیزائن میٹرکس کی ہر قطار فٹ پر کتنا اثر ڈالتی ہے۔"
 
-#: src/formula/o42-eval.c:11181
+#: src/formula/o42-eval.c:11395
 msgid "The least-squares line, with its statistics."
 msgstr "کم از کم مربعات کی لکیر، اس کے شماریات کے ساتھ۔"
 
-#: src/formula/o42-eval.c:11182
+#: src/formula/o42-eval.c:11396
 msgid ""
 "Gnumeric's fit of y = a + b ln(sign (x - c)): sign, a, b, c and the "
 "residuals."
 msgstr ""
 "Gnumeric کا y = a + b ln(sign (x - c)) کا فٹ: sign، a، b، c اور باقیات۔"
 
-#: src/formula/o42-eval.c:11183
+#: src/formula/o42-eval.c:11397
 msgid ""
 "Gnumeric's: the least-squares fit of y = m ln(x) + b, with its statistics."
 msgstr ""
 "Gnumeric کا: y = m ln(x) + b کا کم از کم مربعات فٹ، اس کے شماریات کے ساتھ۔"
 
-#: src/formula/o42-eval.c:11184
+#: src/formula/o42-eval.c:11398
 msgid "The inverse of a square matrix."
 msgstr "مربع میٹرکس کا معکوس۔"
 
-#: src/formula/o42-eval.c:11185
+#: src/formula/o42-eval.c:11399
 msgid "The product of two matrices."
 msgstr "دو میٹرکسز کا حاصل ضرب۔"
 
-#: src/formula/o42-eval.c:11186
+#: src/formula/o42-eval.c:11400
 msgid "Gnumeric's: how much of each frequency is in a series."
 msgstr "Gnumeric کا: کسی سلسلے میں ہر فریکوئنسی کتنی موجود ہے۔"
 
-#: src/formula/o42-eval.c:11187
+#: src/formula/o42-eval.c:11401
 msgid "A rectangle turned on its side."
 msgstr "ایک مستطیل جسے پہلو کے بل گھما دیا گیا ہو۔"
 
-#: src/formula/o42-eval.c:11188
+#: src/formula/o42-eval.c:11402
 msgid "The columns named, in the order named."
 msgstr "بتائے گئے کالمز، بتائی گئی ترتیب میں۔"
 
-#: src/formula/o42-eval.c:11189
+#: src/formula/o42-eval.c:11403
 msgid "The rows named, in the order named."
 msgstr "بتائی گئی قطاریں، بتائی گئی ترتیب میں۔"
 
-#: src/formula/o42-eval.c:11190
+#: src/formula/o42-eval.c:11404
 msgid "So many rows and columns from the near end, or the far one."
 msgstr "قریبی سرے سے، یا دور والے سرے سے، اتنی قطاریں اور کالمز۔"
 
-#: src/formula/o42-eval.c:11191
+#: src/formula/o42-eval.c:11405
 msgid "The arrays one under another, short ones padded with #N/A."
 msgstr "ارے ایک کے نیچے ایک، چھوٹے ارے #N/A سے پُر کیے ہوئے۔"
 
-#: src/formula/o42-eval.c:11192
+#: src/formula/o42-eval.c:11406
 msgid "The arrays side by side, short ones padded with #N/A."
 msgstr "ارے ساتھ ساتھ، چھوٹے ارے #N/A سے پُر کیے ہوئے۔"
 
-#: src/formula/o42-eval.c:11193
+#: src/formula/o42-eval.c:11407
 msgid "The array grown to a size, the new cells #N/A or the padding."
 msgstr "ارے کو ایک سائز تک بڑھایا گیا، نئے سیلز میں #N/A یا بھرائی کی قدر۔"
 
-#: src/formula/o42-eval.c:11194
+#: src/formula/o42-eval.c:11408
 msgid "A vector folded into rows of so many."
 msgstr "ایک ویکٹر، مقررہ تعداد کی قطاروں میں لپیٹا ہوا۔"
 
-#: src/formula/o42-eval.c:11195
+#: src/formula/o42-eval.c:11409
 msgid "A vector folded into columns of so many."
 msgstr "ایک ویکٹر، مقررہ تعداد کے کالمز میں لپیٹا ہوا۔"
 
-#: src/formula/o42-eval.c:11196
+#: src/formula/o42-eval.c:11410
 msgid "An array as one column, blanks or errors left out when asked."
 msgstr "ایک ارے بطور ایک کالم، کہنے پر خالی سیلز یا خرابیاں نکال کر۔"
 
-#: src/formula/o42-eval.c:11197
+#: src/formula/o42-eval.c:11411
 msgid "An array as one row, blanks or errors left out when asked."
 msgstr "ایک ارے بطور ایک قطار، کہنے پر خالی سیلز یا خرابیاں نکال کر۔"
 
-#: src/formula/o42-eval.c:11198
+#: src/formula/o42-eval.c:11412
 msgid "The identity matrix of a size."
 msgstr "دیے گئے سائز کا شناختی میٹرکس۔"
 
-#: src/formula/o42-eval.c:11199
+#: src/formula/o42-eval.c:11413
 msgid "The range without its empty outer rows and columns."
 msgstr "رینج، اس کی خالی بیرونی قطاروں اور کالمز کے بغیر۔"
 
-#: src/formula/o42-eval.c:11200
+#: src/formula/o42-eval.c:11414
 msgid ""
 "What a regular expression matches: the first match, all of them, or the "
 "groups."
 msgstr "ریگولر ایکسپریشن کیا میچ کرتا ہے: پہلا میچ، تمام میچ، یا گروپس۔"
 
-#: src/formula/o42-eval.c:11201
+#: src/formula/o42-eval.c:11415
 msgid "A value from a pivot table; #REF! here, whose pivots are plain cells."
 msgstr "پیوٹ ٹیبل سے ایک قدر؛ یہاں #REF!، کیونکہ یہاں پیوٹ سادہ سیلز ہیں۔"
 
-#: src/formula/o42-eval.c:11202
+#: src/formula/o42-eval.c:11416
 msgid "The rectangle with so many rows and columns left off."
 msgstr "مستطیل، جس سے اتنی قطاریں اور کالمز ہٹا دیے گئے ہوں۔"
 
-#: src/formula/o42-eval.c:11203
+#: src/formula/o42-eval.c:11417
 msgid "A text cut into a rectangle at its delimiters."
 msgstr "متن، جسے اس کے حد بندوں پر کاٹ کر مستطیل بنایا گیا ہو۔"
 
-#: src/formula/o42-eval.c:11204
+#: src/formula/o42-eval.c:11418
 msgid "Every value that turns up as often as the commonest."
 msgstr "ہر وہ قدر جو سب سے عام قدر جتنی بار آتی ہے۔"
 
-#: src/formula/o42-eval.c:11205
+#: src/formula/o42-eval.c:11419
 msgid ""
 "Gnumeric's: the lower triangle whose product with its transpose is the "
 "matrix."
@@ -1163,359 +1168,359 @@ msgstr ""
 "Gnumeric کا: وہ زیریں مثلثی میٹرکس جس کا اپنے ٹرانسپوز سے حاصل ضرب یہ میٹرکس "
 "ہو۔"
 
-#: src/formula/o42-eval.c:11206
+#: src/formula/o42-eval.c:11420
 msgid ""
 "Gnumeric's: the eigenvalues of a symmetric matrix, each with its vector "
 "under it."
 msgstr ""
 "Gnumeric کا: متناظر میٹرکس کی آئیگن ویلیوز، ہر ایک کے نیچے اس کا ویکٹر۔"
 
-#: src/formula/o42-eval.c:11207
+#: src/formula/o42-eval.c:11421
 msgid "Gnumeric's: Moore and Penrose's inverse, which any matrix has."
 msgstr "Gnumeric کا: مور اور پینروز کا معکوس، جو ہر میٹرکس کا ہوتا ہے۔"
 
-#: src/formula/o42-eval.c:11268
+#: src/formula/o42-eval.c:11482
 msgid "The absolute value of a number."
 msgstr "کسی عدد کی مطلق قدر۔"
 
-#: src/formula/o42-eval.c:11269
+#: src/formula/o42-eval.c:11483
 msgid "The arccosine, in radians."
 msgstr "آرک کوسائن، ریڈینز میں۔"
 
-#: src/formula/o42-eval.c:11270
+#: src/formula/o42-eval.c:11484
 msgid "The inverse hyperbolic cosine."
 msgstr "معکوس ہائپربولک کوسائن۔"
 
-#: src/formula/o42-eval.c:11271
+#: src/formula/o42-eval.c:11485
 msgid "The arccotangent, in radians."
 msgstr "آرک کوٹینجنٹ، ریڈینز میں۔"
 
-#: src/formula/o42-eval.c:11272
+#: src/formula/o42-eval.c:11486
 msgid "The inverse hyperbolic cotangent."
 msgstr "معکوس ہائپربولک کوٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11273
+#: src/formula/o42-eval.c:11487
 msgid "A cell reference as text."
 msgstr "سیل حوالہ بطور متن۔"
 
-#: src/formula/o42-eval.c:11274
+#: src/formula/o42-eval.c:11488
 msgid "Anderson and Darling's test: the chance a sample this far from normal."
 msgstr "اینڈرسن-ڈارلنگ ٹیسٹ: نمونے کا نارمل سے اتنا دور ہونے کا امکان۔"
 
-#: src/formula/o42-eval.c:11275
+#: src/formula/o42-eval.c:11489
 msgid "TRUE if every argument is TRUE."
 msgstr "TRUE اگر ہر دلیل TRUE ہو۔"
 
-#: src/formula/o42-eval.c:11276
+#: src/formula/o42-eval.c:11490
 msgid "A Roman numeral as a number."
 msgstr "رومن ہندسہ بطور عدد۔"
 
-#: src/formula/o42-eval.c:11277
+#: src/formula/o42-eval.c:11491
 msgid "The number of areas in a reference: one."
 msgstr "حوالے میں علاقوں کی تعداد: ایک۔"
 
-#: src/formula/o42-eval.c:11278
+#: src/formula/o42-eval.c:11492
 msgid "A rectangle as text, plainly or in braces."
 msgstr "مستطیل بطور متن، سادہ یا خمیدہ قوسین میں۔"
 
-#: src/formula/o42-eval.c:11279
+#: src/formula/o42-eval.c:11493
 msgid "Ascension Thursday, thirty-nine days after Easter."
 msgstr "صعود کی جمعرات، ایسٹر کے انتالیس دن بعد۔"
 
-#: src/formula/o42-eval.c:11280
+#: src/formula/o42-eval.c:11494
 msgid "Ash Wednesday, forty-six days before Easter."
 msgstr "راکھ کا بدھ، ایسٹر سے چھیالیس دن پہلے۔"
 
-#: src/formula/o42-eval.c:11281
+#: src/formula/o42-eval.c:11495
 msgid "The arcsine, in radians."
 msgstr "آرک سائن، ریڈینز میں۔"
 
-#: src/formula/o42-eval.c:11282
+#: src/formula/o42-eval.c:11496
 msgid "The inverse hyperbolic sine."
 msgstr "معکوس ہائپربولک سائن۔"
 
-#: src/formula/o42-eval.c:11283
+#: src/formula/o42-eval.c:11497
 msgid "The arctangent, in radians."
 msgstr "آرک ٹینجنٹ، ریڈینز میں۔"
 
-#: src/formula/o42-eval.c:11284
+#: src/formula/o42-eval.c:11498
 msgid "The arctangent of y/x, in radians, in the right quadrant."
 msgstr "y/x کا آرک ٹینجنٹ، ریڈینز میں، درست ربع میں۔"
 
-#: src/formula/o42-eval.c:11285
+#: src/formula/o42-eval.c:11499
 msgid "The inverse hyperbolic tangent."
 msgstr "معکوس ہائپربولک ٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11286
+#: src/formula/o42-eval.c:11500
 msgid "The arithmetic mean; text and blanks in a range are skipped."
 msgstr "حسابی اوسط؛ رینج میں متن اور خالی سیلز چھوڑ دیے جاتے ہیں۔"
 
-#: src/formula/o42-eval.c:11287
+#: src/formula/o42-eval.c:11501
 msgid "The average, counting text as 0 and TRUE as 1."
 msgstr "اوسط، متن کو 0 اور TRUE کو 1 گن کر۔"
 
-#: src/formula/o42-eval.c:11288
+#: src/formula/o42-eval.c:11502
 msgid "The mean of the cells that meet a condition."
 msgstr "ان سیلز کی اوسط جو ایک شرط پوری کریں۔"
 
-#: src/formula/o42-eval.c:11289
+#: src/formula/o42-eval.c:11503
 msgid "The mean of the cells meeting every condition."
 msgstr "ان سیلز کی اوسط جو ہر شرط پوری کریں۔"
 
-#: src/formula/o42-eval.c:11290
+#: src/formula/o42-eval.c:11504
 msgid "A number as text in another base."
 msgstr "ایک عدد، کسی اور اساس میں بطور متن۔"
 
-#: src/formula/o42-eval.c:11291
+#: src/formula/o42-eval.c:11505
 msgid "The beta function."
 msgstr "بیٹا فنکشن۔"
 
-#: src/formula/o42-eval.c:11292
+#: src/formula/o42-eval.c:11506
 msgid "The beta distribution, density or cumulative."
 msgstr "بیٹا تقسیم، کثافت یا مجموعی۔"
 
-#: src/formula/o42-eval.c:11293
+#: src/formula/o42-eval.c:11507
 msgid "The logarithm of the beta function."
 msgstr "بیٹا فنکشن کا لوگارتھم۔"
 
-#: src/formula/o42-eval.c:11294
+#: src/formula/o42-eval.c:11508
 msgid "The probability of a range of successes."
 msgstr "کامیابیوں کی ایک حد کا احتمال۔"
 
-#: src/formula/o42-eval.c:11295 src/formula/o42-eval.c:11325
+#: src/formula/o42-eval.c:11509 src/formula/o42-eval.c:11539
 msgid ""
 "The smallest value whose cumulative binomial distribution reaches alpha."
 msgstr "وہ کم ترین قدر جس کی مجموعی دو رقمی تقسیم alpha تک پہنچ جائے۔"
 
-#: src/formula/o42-eval.c:11296
+#: src/formula/o42-eval.c:11510
 msgid "Each column of an array through a function."
 msgstr "ارے کا ہر کالم، ایک فنکشن سے گزار کر۔"
 
-#: src/formula/o42-eval.c:11297
+#: src/formula/o42-eval.c:11511
 msgid "Each row of an array through a function."
 msgstr "ارے کی ہر قطار، ایک فنکشن سے گزار کر۔"
 
-#: src/formula/o42-eval.c:11298
+#: src/formula/o42-eval.c:11512
 msgid "The Cauchy, Lorentz or Breit-Wigner distribution."
 msgstr "کوشی، لورینٹز یا برائٹ-وِگنر تقسیم۔"
 
-#: src/formula/o42-eval.c:11299
+#: src/formula/o42-eval.c:11513
 msgid "Rounded up to the next whole number."
 msgstr "اگلے مکمل عدد تک اوپر گول کیا ہوا۔"
 
-#: src/formula/o42-eval.c:11300
+#: src/formula/o42-eval.c:11514
 msgid "Rounds up, away from zero, to a multiple of significance."
 msgstr "صفر سے دور، significance کے مضرب تک اوپر گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11301 src/formula/o42-eval.c:11428
+#: src/formula/o42-eval.c:11515 src/formula/o42-eval.c:11642
 msgid "Rounds up to a multiple of the significance."
 msgstr "significance کے مضرب تک اوپر گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11302
+#: src/formula/o42-eval.c:11516
 msgid "Rounded up towards plus infinity, whatever the sign."
 msgstr "علامت جو بھی ہو، مثبت لامتناہی کی طرف اوپر گول کیا ہوا۔"
 
-#: src/formula/o42-eval.c:11303
+#: src/formula/o42-eval.c:11517
 msgid "The chi-squared distribution, density or cumulative."
 msgstr "کائی مربع تقسیم، کثافت یا مجموعی۔"
 
-#: src/formula/o42-eval.c:11304
+#: src/formula/o42-eval.c:11518
 msgid "The inverse of the left-tailed chi-squared distribution."
 msgstr "بائیں دم والی کائی مربع تقسیم کا معکوس۔"
 
-#: src/formula/o42-eval.c:11305 src/formula/o42-eval.c:11308
+#: src/formula/o42-eval.c:11519 src/formula/o42-eval.c:11522
 msgid "The chi-squared test for independence."
 msgstr "آزادی کے لیے کائی مربع ٹیسٹ۔"
 
-#: src/formula/o42-eval.c:11306
+#: src/formula/o42-eval.c:11520
 msgid "The chi-squared distribution, as Gnumeric names it."
 msgstr "کائی مربع تقسیم، جس نام سے Gnumeric اسے پکارتا ہے۔"
 
-#: src/formula/o42-eval.c:11307
+#: src/formula/o42-eval.c:11521
 msgid "The value of chi-squared with the given probability below it."
 msgstr "کائی مربع کی وہ قدر جس سے نیچے دیا گیا احتمال ہو۔"
 
-#: src/formula/o42-eval.c:11309
+#: src/formula/o42-eval.c:11523
 msgid "The value at a given position in the list."
 msgstr "فہرست میں دیے گئے مقام پر موجود قدر۔"
 
-#: src/formula/o42-eval.c:11310
+#: src/formula/o42-eval.c:11524
 msgid "The column number of a reference, or of this cell."
 msgstr "کسی حوالے کا، یا اس سیل کا، کالم نمبر۔"
 
-#: src/formula/o42-eval.c:11311
+#: src/formula/o42-eval.c:11525
 msgid "How many ways k things can be chosen from n."
 msgstr "n میں سے k چیزیں کتنے طریقوں سے چنی جا سکتی ہیں۔"
 
-#: src/formula/o42-eval.c:11312
+#: src/formula/o42-eval.c:11526
 msgid "Combinations with repetition."
 msgstr "تکرار کے ساتھ امتزاجات۔"
 
-#: src/formula/o42-eval.c:11313
+#: src/formula/o42-eval.c:11527
 msgid "Half the width of a confidence interval, by Student's t."
 msgstr "اعتماد وقفے کی نصف چوڑائی، اسٹوڈنٹ کے t کے ذریعے۔"
 
-#: src/formula/o42-eval.c:11314
+#: src/formula/o42-eval.c:11528
 msgid "A measurement in other units: CONVERT(1,\"mi\",\"km\")."
 msgstr "پیمائش دوسری اکائیوں میں: CONVERT(1,\"mi\",\"km\")۔"
 
-#: src/formula/o42-eval.c:11315
+#: src/formula/o42-eval.c:11529
 msgid "The cosine of an angle in radians."
 msgstr "ریڈینز میں کسی زاویے کا کوسائن۔"
 
-#: src/formula/o42-eval.c:11316
+#: src/formula/o42-eval.c:11530
 msgid "The hyperbolic cosine."
 msgstr "ہائپربولک کوسائن۔"
 
-#: src/formula/o42-eval.c:11317
+#: src/formula/o42-eval.c:11531
 msgid "The cotangent."
 msgstr "کوٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11318
+#: src/formula/o42-eval.c:11532
 msgid "The hyperbolic cotangent."
 msgstr "ہائپربولک کوٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11319
+#: src/formula/o42-eval.c:11533
 msgid "How many of the arguments are numbers."
 msgstr "دلائل میں سے کتنے اعداد ہیں۔"
 
-#: src/formula/o42-eval.c:11320
+#: src/formula/o42-eval.c:11534
 msgid "How many of the arguments are not blank."
 msgstr "دلائل میں سے کتنے خالی نہیں ہیں۔"
 
-#: src/formula/o42-eval.c:11321
+#: src/formula/o42-eval.c:11535
 msgid "How many cells in a range are blank."
 msgstr "رینج میں کتنے سیلز خالی ہیں۔"
 
-#: src/formula/o42-eval.c:11322
+#: src/formula/o42-eval.c:11536
 msgid "How many cells meet a condition such as \">5\" or \"a*\"."
 msgstr "کتنے سیلز \">5\" یا \"a*\" جیسی شرط پوری کرتے ہیں۔"
 
-#: src/formula/o42-eval.c:11323
+#: src/formula/o42-eval.c:11537
 msgid "How many cells meet every condition."
 msgstr "کتنے سیلز ہر شرط پوری کرتے ہیں۔"
 
-#: src/formula/o42-eval.c:11324
+#: src/formula/o42-eval.c:11538
 msgid "The sample covariance."
 msgstr "نمونے کا مشترکہ تغیر (covariance)۔"
 
-#: src/formula/o42-eval.c:11326
+#: src/formula/o42-eval.c:11540
 msgid "Cronbach's alpha: how far the items measure one thing."
 msgstr "کرونباخ کا الفا: آئٹمز کس حد تک ایک ہی چیز کی پیمائش کرتے ہیں۔"
 
-#: src/formula/o42-eval.c:11327
+#: src/formula/o42-eval.c:11541
 msgid "The cosecant."
 msgstr "کوسیکنٹ۔"
 
-#: src/formula/o42-eval.c:11328
+#: src/formula/o42-eval.c:11542
 msgid "The hyperbolic cosecant."
 msgstr "ہائپربولک کوسیکنٹ۔"
 
-#: src/formula/o42-eval.c:11329
+#: src/formula/o42-eval.c:11543
 msgid "Interest paid between two periods of a loan."
 msgstr "قرض کی دو مدتوں کے درمیان ادا کیا گیا سود۔"
 
-#: src/formula/o42-eval.c:11330
+#: src/formula/o42-eval.c:11544
 msgid "Principal paid between two periods of a loan."
 msgstr "قرض کی دو مدتوں کے درمیان ادا کیا گیا اصل زر۔"
 
-#: src/formula/o42-eval.c:11331
+#: src/formula/o42-eval.c:11545
 msgid "The Julian day number of a date."
 msgstr "کسی تاریخ کا جولین دن نمبر۔"
 
-#: src/formula/o42-eval.c:11332
+#: src/formula/o42-eval.c:11546
 msgid "A date as Unix time: seconds since the start of 1970."
 msgstr "تاریخ بطور Unix وقت: 1970 کے آغاز سے سیکنڈز۔"
 
-#: src/formula/o42-eval.c:11333
+#: src/formula/o42-eval.c:11547
 msgid "The mean of a field in the records that match the criteria."
 msgstr "شرائط سے مماثل ریکارڈز میں کسی فیلڈ کی اوسط۔"
 
-#: src/formula/o42-eval.c:11334
+#: src/formula/o42-eval.c:11548
 msgid "Fixed-declining-balance depreciation."
 msgstr "مقررہ کمی پذیر بیلنس کے طریقے سے فرسودگی۔"
 
-#: src/formula/o42-eval.c:11335
+#: src/formula/o42-eval.c:11549
 msgid "How many records match the criteria and hold a number in the field."
 msgstr "کتنے ریکارڈز شرائط سے مماثل ہیں اور فیلڈ میں عدد رکھتے ہیں۔"
 
-#: src/formula/o42-eval.c:11336
+#: src/formula/o42-eval.c:11550
 msgid "How many records match the criteria and are not blank in the field."
 msgstr "کتنے ریکارڈز شرائط سے مماثل ہیں اور فیلڈ میں خالی نہیں ہیں۔"
 
-#: src/formula/o42-eval.c:11337
+#: src/formula/o42-eval.c:11551
 msgid "Depreciation by the double-declining balance method."
 msgstr "دوہرے کمی پذیر بیلنس کے طریقے سے فرسودگی۔"
 
-#: src/formula/o42-eval.c:11338
+#: src/formula/o42-eval.c:11552
 msgid "Text in another base as a number."
 msgstr "کسی اور اساس میں متن، بطور عدد۔"
 
-#: src/formula/o42-eval.c:11339
+#: src/formula/o42-eval.c:11553
 msgid "Radians to degrees."
 msgstr "ریڈینز سے ڈگریاں۔"
 
-#: src/formula/o42-eval.c:11340
+#: src/formula/o42-eval.c:11554
 msgid "The field of the one record that matches the criteria."
 msgstr "شرائط سے مماثل واحد ریکارڈ کی فیلڈ۔"
 
-#: src/formula/o42-eval.c:11341
+#: src/formula/o42-eval.c:11555
 msgid "The largest value of a field in the matching records."
 msgstr "مماثل ریکارڈز میں کسی فیلڈ کی سب سے بڑی قدر۔"
 
-#: src/formula/o42-eval.c:11342
+#: src/formula/o42-eval.c:11556
 msgid "The smallest value of a field in the matching records."
 msgstr "مماثل ریکارڈز میں کسی فیلڈ کی سب سے چھوٹی قدر۔"
 
-#: src/formula/o42-eval.c:11343
+#: src/formula/o42-eval.c:11557
 msgid "A price quoted as a fraction, as a decimal."
 msgstr "کسر میں بتائی گئی قیمت، بطور اعشاریہ۔"
 
-#: src/formula/o42-eval.c:11344
+#: src/formula/o42-eval.c:11558
 msgid "A decimal price as a fraction quote."
 msgstr "اعشاری قیمت، بطور کسری کوٹ۔"
 
-#: src/formula/o42-eval.c:11345
+#: src/formula/o42-eval.c:11559
 msgid "The product of a field in the matching records."
 msgstr "مماثل ریکارڈز میں کسی فیلڈ کا حاصل ضرب۔"
 
-#: src/formula/o42-eval.c:11346
+#: src/formula/o42-eval.c:11560
 msgid "The sample standard deviation of a field in the matching records."
 msgstr "مماثل ریکارڈز میں کسی فیلڈ کا نمونہ معیاری انحراف۔"
 
-#: src/formula/o42-eval.c:11347
+#: src/formula/o42-eval.c:11561
 msgid "Population standard deviation of matching records."
 msgstr "مماثل ریکارڈز کا آبادی معیاری انحراف۔"
 
-#: src/formula/o42-eval.c:11348
+#: src/formula/o42-eval.c:11562
 msgid "The sum of a field in the records that match the criteria."
 msgstr "شرائط سے مماثل ریکارڈز میں کسی فیلڈ کا مجموعہ۔"
 
-#: src/formula/o42-eval.c:11349
+#: src/formula/o42-eval.c:11563
 msgid "The sample variance of a field in the matching records."
 msgstr "مماثل ریکارڈز میں کسی فیلڈ کا نمونہ تغیر۔"
 
-#: src/formula/o42-eval.c:11350
+#: src/formula/o42-eval.c:11564
 msgid "Population variance of matching records."
 msgstr "مماثل ریکارڈز کا آبادی تغیر۔"
 
-#: src/formula/o42-eval.c:11351
+#: src/formula/o42-eval.c:11565
 msgid "Easter Sunday, by the Gregorian computus."
 msgstr "ایسٹر اتوار، گریگورین حساب کے مطابق۔"
 
-#: src/formula/o42-eval.c:11352
+#: src/formula/o42-eval.c:11566
 msgid "The effective annual interest rate."
 msgstr "مؤثر سالانہ شرح سود۔"
 
-#: src/formula/o42-eval.c:11353
+#: src/formula/o42-eval.c:11567
 msgid "The error value that text names."
 msgstr "وہ خرابی قدر جس کا نام متن بتاتا ہے۔"
 
-#: src/formula/o42-eval.c:11354
+#: src/formula/o42-eval.c:11568
 msgid "A number for each kind of error value."
 msgstr "ہر قسم کی خرابی قدر کے لیے ایک عدد۔"
 
-#: src/formula/o42-eval.c:11355
+#: src/formula/o42-eval.c:11569
 msgid ""
 "One of nineteen aggregates, leaving out hidden rows or errors as the options "
 "say."
@@ -1523,760 +1528,760 @@ msgstr ""
 "انیس مجموعی حسابات میں سے ایک، اختیارات کے مطابق چھپی قطاریں یا خرابیاں چھوڑ "
 "کر۔"
 
-#: src/formula/o42-eval.c:11356
+#: src/formula/o42-eval.c:11570
 msgid "Rounds away from zero to an even integer."
 msgstr "صفر سے دور، ایک جفت عدد صحیح تک گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11357
+#: src/formula/o42-eval.c:11571
 msgid "e raised to a power."
 msgstr "e کو کسی قوت تک بلند کیا گیا۔"
 
-#: src/formula/o42-eval.c:11358
+#: src/formula/o42-eval.c:11572
 msgid "exp(x) - 1, keeping the digits a small x would lose."
 msgstr "exp(x) - 1، وہ ہندسے برقرار رکھتے ہوئے جو چھوٹا x کھو دیتا۔"
 
-#: src/formula/o42-eval.c:11359
+#: src/formula/o42-eval.c:11573
 msgid "The density of the exponential power distribution."
 msgstr "قوت نمائی پاور تقسیم کی کثافت۔"
 
-#: src/formula/o42-eval.c:11360
+#: src/formula/o42-eval.c:11574
 msgid "The F distribution, density or cumulative."
 msgstr "F تقسیم، کثافت یا مجموعی۔"
 
-#: src/formula/o42-eval.c:11361
+#: src/formula/o42-eval.c:11575
 msgid "The inverse of the left-tailed F distribution."
 msgstr "بائیں دم والی F تقسیم کا معکوس۔"
 
-#: src/formula/o42-eval.c:11362
+#: src/formula/o42-eval.c:11576
 msgid "The two-tailed F-test probability."
 msgstr "دو دم والا F-ٹیسٹ احتمال۔"
 
-#: src/formula/o42-eval.c:11363
+#: src/formula/o42-eval.c:11577
 msgid "The factorial."
 msgstr "فیکٹوریل۔"
 
-#: src/formula/o42-eval.c:11364
+#: src/formula/o42-eval.c:11578
 msgid "The double factorial."
 msgstr "دوہرا فیکٹوریل۔"
 
-#: src/formula/o42-eval.c:11365
+#: src/formula/o42-eval.c:11579
 msgid "The logical value FALSE."
 msgstr "منطقی قدر FALSE۔"
 
-#: src/formula/o42-eval.c:11366
+#: src/formula/o42-eval.c:11580
 msgid "The rows (or columns) of an array where a condition holds."
 msgstr "ارے کی وہ قطاریں (یا کالمز) جہاں شرط پوری ہو۔"
 
-#: src/formula/o42-eval.c:11367
+#: src/formula/o42-eval.c:11581
 msgid "The Fisher transformation."
 msgstr "فشر ٹرانسفارمیشن۔"
 
-#: src/formula/o42-eval.c:11368
+#: src/formula/o42-eval.c:11582
 msgid "The inverse of the Fisher transformation."
 msgstr "فشر ٹرانسفارمیشن کا معکوس۔"
 
-#: src/formula/o42-eval.c:11369
+#: src/formula/o42-eval.c:11583
 msgid "Rounds down, toward zero, to a multiple of significance."
 msgstr "صفر کی طرف، significance کے مضرب تک نیچے گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11370
+#: src/formula/o42-eval.c:11584
 msgid "Rounds down to a multiple of the significance."
 msgstr "significance کے مضرب تک نیچے گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11371
+#: src/formula/o42-eval.c:11585
 msgid "Rounded down towards minus infinity, whatever the sign."
 msgstr "علامت جو بھی ہو، منفی لامتناہی کی طرف نیچے گول کیا ہوا۔"
 
-#: src/formula/o42-eval.c:11372
+#: src/formula/o42-eval.c:11586
 msgid "What was typed into a cell, formula and all."
 msgstr "سیل میں جو ٹائپ کیا گیا، فارمولے سمیت۔"
 
-#: src/formula/o42-eval.c:11373
+#: src/formula/o42-eval.c:11587
 msgid "The two-tailed F-test probability that the variances differ."
 msgstr "دو دم والا F-ٹیسٹ احتمال کہ تغیرات مختلف ہیں۔"
 
-#: src/formula/o42-eval.c:11374
+#: src/formula/o42-eval.c:11588
 msgid "The future value of regular payments."
 msgstr "باقاعدہ ادائیگیوں کی مستقبل کی قدر۔"
 
-#: src/formula/o42-eval.c:11375
+#: src/formula/o42-eval.c:11589
 msgid "The gamma function."
 msgstr "گاما فنکشن۔"
 
-#: src/formula/o42-eval.c:11376
+#: src/formula/o42-eval.c:11590
 msgid "The probability between the mean and z standard deviations."
 msgstr "اوسط اور z معیاری انحرافات کے درمیان احتمال۔"
 
-#: src/formula/o42-eval.c:11377
+#: src/formula/o42-eval.c:11591
 msgid "The greatest common divisor."
 msgstr "سب سے بڑا مشترک قاسم۔"
 
-#: src/formula/o42-eval.c:11378
+#: src/formula/o42-eval.c:11592
 msgid "How many failures before the first success."
 msgstr "پہلی کامیابی سے پہلے کتنی ناکامیاں۔"
 
-#: src/formula/o42-eval.c:11379
+#: src/formula/o42-eval.c:11593
 msgid "A value from the machine's environment."
 msgstr "مشین کے ماحول سے ایک قدر۔"
 
-#: src/formula/o42-eval.c:11380
+#: src/formula/o42-eval.c:11594
 msgid "Good Friday, two days before Easter."
 msgstr "گڈ فرائیڈے، ایسٹر سے دو دن پہلے۔"
 
-#: src/formula/o42-eval.c:11381
+#: src/formula/o42-eval.c:11595
 msgid "Values on the exponential curve fitted to the points."
 msgstr "نقاط پر فٹ کیے گئے قوت نمائی خم پر قدریں۔"
 
-#: src/formula/o42-eval.c:11382
+#: src/formula/o42-eval.c:11596
 msgid "Finds a value in the top row and returns from that column."
 msgstr "اوپری قطار میں قدر تلاش کرتا ہے اور اسی کالم سے لوٹاتا ہے۔"
 
-#: src/formula/o42-eval.c:11383
+#: src/formula/o42-eval.c:11597
 msgid "The text to show for a link."
 msgstr "لنک کے لیے دکھایا جانے والا متن۔"
 
-#: src/formula/o42-eval.c:11384 src/formula/o42-eval.c:11385
+#: src/formula/o42-eval.c:11598 src/formula/o42-eval.c:11599
 msgid "The hypergeometric distribution."
 msgstr "ہائپر جیومیٹرک تقسیم۔"
 
-#: src/formula/o42-eval.c:11386
+#: src/formula/o42-eval.c:11600
 msgid "One value if a condition holds, another if not."
 msgstr "شرط پوری ہو تو ایک قدر، ورنہ دوسری۔"
 
-#: src/formula/o42-eval.c:11387
+#: src/formula/o42-eval.c:11601
 msgid "A value, or something else if it is an error."
 msgstr "ایک قدر، یا اگر وہ خرابی ہو تو کچھ اور۔"
 
-#: src/formula/o42-eval.c:11388
+#: src/formula/o42-eval.c:11602
 msgid "A value, or something else if it is #N/A."
 msgstr "ایک قدر، یا اگر وہ #N/A ہو تو کچھ اور۔"
 
-#: src/formula/o42-eval.c:11389
+#: src/formula/o42-eval.c:11603
 msgid "The first value whose test holds."
 msgstr "پہلی قدر جس کا ٹیسٹ پورا ہو۔"
 
-#: src/formula/o42-eval.c:11390
+#: src/formula/o42-eval.c:11604
 msgid "The inverse cosine of a complex number."
 msgstr "مخلوط عدد کا معکوس کوسائن۔"
 
-#: src/formula/o42-eval.c:11391
+#: src/formula/o42-eval.c:11605
 msgid "The inverse hyperbolic cosine of a complex number."
 msgstr "مخلوط عدد کا معکوس ہائپربولک کوسائن۔"
 
-#: src/formula/o42-eval.c:11392
+#: src/formula/o42-eval.c:11606
 msgid "The inverse cotangent of a complex number."
 msgstr "مخلوط عدد کا معکوس کوٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11393
+#: src/formula/o42-eval.c:11607
 msgid "The inverse hyperbolic cotangent of a complex number."
 msgstr "مخلوط عدد کا معکوس ہائپربولک کوٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11394
+#: src/formula/o42-eval.c:11608
 msgid "The inverse cosecant of a complex number."
 msgstr "مخلوط عدد کا معکوس کوسیکنٹ۔"
 
-#: src/formula/o42-eval.c:11395
+#: src/formula/o42-eval.c:11609
 msgid "The inverse hyperbolic cosecant of a complex number."
 msgstr "مخلوط عدد کا معکوس ہائپربولک کوسیکنٹ۔"
 
-#: src/formula/o42-eval.c:11396
+#: src/formula/o42-eval.c:11610
 msgid "The inverse secant of a complex number."
 msgstr "مخلوط عدد کا معکوس سیکنٹ۔"
 
-#: src/formula/o42-eval.c:11397
+#: src/formula/o42-eval.c:11611
 msgid "The inverse hyperbolic secant of a complex number."
 msgstr "مخلوط عدد کا معکوس ہائپربولک سیکنٹ۔"
 
-#: src/formula/o42-eval.c:11398
+#: src/formula/o42-eval.c:11612
 msgid "The inverse sine of a complex number."
 msgstr "مخلوط عدد کا معکوس سائن۔"
 
-#: src/formula/o42-eval.c:11399
+#: src/formula/o42-eval.c:11613
 msgid "The inverse hyperbolic sine of a complex number."
 msgstr "مخلوط عدد کا معکوس ہائپربولک سائن۔"
 
-#: src/formula/o42-eval.c:11400
+#: src/formula/o42-eval.c:11614
 msgid "The inverse tangent of a complex number."
 msgstr "مخلوط عدد کا معکوس ٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11401
+#: src/formula/o42-eval.c:11615
 msgid "The inverse hyperbolic tangent of a complex number."
 msgstr "مخلوط عدد کا معکوس ہائپربولک ٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11402
+#: src/formula/o42-eval.c:11616
 msgid "The hyperbolic cosine of a complex number."
 msgstr "مخلوط عدد کا ہائپربولک کوسائن۔"
 
-#: src/formula/o42-eval.c:11403
+#: src/formula/o42-eval.c:11617
 msgid "The cotangent of a complex number."
 msgstr "مخلوط عدد کا کوٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11404
+#: src/formula/o42-eval.c:11618
 msgid "The hyperbolic cotangent of a complex number."
 msgstr "مخلوط عدد کا ہائپربولک کوٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11405
+#: src/formula/o42-eval.c:11619
 msgid "The cosecant of a complex number."
 msgstr "مخلوط عدد کا کوسیکنٹ۔"
 
-#: src/formula/o42-eval.c:11406
+#: src/formula/o42-eval.c:11620
 msgid "The hyperbolic cosecant of a complex number."
 msgstr "مخلوط عدد کا ہائپربولک کوسیکنٹ۔"
 
-#: src/formula/o42-eval.c:11407
+#: src/formula/o42-eval.c:11621
 msgid "One divided by a complex number."
 msgstr "ایک کو مخلوط عدد سے تقسیم کیا گیا۔"
 
-#: src/formula/o42-eval.c:11408
+#: src/formula/o42-eval.c:11622
 msgid "A complex number with its sign turned round."
 msgstr "مخلوط عدد، اس کی علامت الٹ کر۔"
 
-#: src/formula/o42-eval.c:11409
+#: src/formula/o42-eval.c:11623
 msgid "The secant of a complex number."
 msgstr "مخلوط عدد کا سیکنٹ۔"
 
-#: src/formula/o42-eval.c:11410
+#: src/formula/o42-eval.c:11624
 msgid "The hyperbolic secant of a complex number."
 msgstr "مخلوط عدد کا ہائپربولک سیکنٹ۔"
 
-#: src/formula/o42-eval.c:11411
+#: src/formula/o42-eval.c:11625
 msgid "The hyperbolic sine of a complex number."
 msgstr "مخلوط عدد کا ہائپربولک سائن۔"
 
-#: src/formula/o42-eval.c:11412
+#: src/formula/o42-eval.c:11626
 msgid "The tangent of a complex number."
 msgstr "مخلوط عدد کا ٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11413
+#: src/formula/o42-eval.c:11627
 msgid "The hyperbolic tangent of a complex number."
 msgstr "مخلوط عدد کا ہائپربولک ٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11414
+#: src/formula/o42-eval.c:11628
 msgid "The cell at a row and column of a range."
 msgstr "رینج کی کسی قطار اور کالم پر موجود سیل۔"
 
-#: src/formula/o42-eval.c:11415
+#: src/formula/o42-eval.c:11629
 msgid "The reference the text names."
 msgstr "وہ حوالہ جس کا نام متن بتاتا ہے۔"
 
-#: src/formula/o42-eval.c:11416
+#: src/formula/o42-eval.c:11630
 msgid "Rounds down to the nearest integer."
 msgstr "قریب ترین عدد صحیح تک نیچے گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11417
+#: src/formula/o42-eval.c:11631
 msgid "The interest part of one payment."
 msgstr "ایک ادائیگی کا سود والا حصہ۔"
 
-#: src/formula/o42-eval.c:11418
+#: src/formula/o42-eval.c:11632
 msgid "The internal rate of return of a series of cash flows."
 msgstr "نقد بہاؤ کے سلسلے کی اندرونی شرح منافع۔"
 
-#: src/formula/o42-eval.c:11419
+#: src/formula/o42-eval.c:11633
 msgid "TRUE for an empty cell."
 msgstr "خالی سیل کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11420
+#: src/formula/o42-eval.c:11634
 msgid "TRUE for any error but #N/A."
 msgstr "#N/A کے علاوہ کسی بھی خرابی کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11421
+#: src/formula/o42-eval.c:11635
 msgid "TRUE for any error."
 msgstr "کسی بھی خرابی کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11422
+#: src/formula/o42-eval.c:11636
 msgid "TRUE for an even number."
 msgstr "جفت عدد کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11423
+#: src/formula/o42-eval.c:11637
 msgid "Whether the cell holds a formula."
 msgstr "آیا سیل میں فارمولا ہے۔"
 
-#: src/formula/o42-eval.c:11424
+#: src/formula/o42-eval.c:11638
 msgid "TRUE for TRUE or FALSE."
 msgstr "TRUE یا FALSE کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11425
+#: src/formula/o42-eval.c:11639
 msgid "TRUE for #N/A."
 msgstr "#N/A کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11426
+#: src/formula/o42-eval.c:11640
 msgid "TRUE for anything that is not text."
 msgstr "ہر اس چیز کے لیے TRUE جو متن نہ ہو۔"
 
-#: src/formula/o42-eval.c:11427
+#: src/formula/o42-eval.c:11641
 msgid "TRUE for a number."
 msgstr "عدد کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11429
+#: src/formula/o42-eval.c:11643
 msgid "TRUE for an odd number."
 msgstr "طاق عدد کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11430
+#: src/formula/o42-eval.c:11644
 msgid "Whether a LAMBDA argument was left out."
 msgstr "آیا LAMBDA کی کوئی دلیل چھوڑ دی گئی تھی۔"
 
-#: src/formula/o42-eval.c:11431
+#: src/formula/o42-eval.c:11645
 msgid "The year the ISO 8601 week of a date belongs to."
 msgstr "وہ سال جس سے کسی تاریخ کا ISO 8601 ہفتہ تعلق رکھتا ہے۔"
 
-#: src/formula/o42-eval.c:11432
+#: src/formula/o42-eval.c:11646
 msgid "Interest paid in a period of an even-principal loan."
 msgstr "مساوی اصل زر والے قرض کی کسی مدت میں ادا کیا گیا سود۔"
 
-#: src/formula/o42-eval.c:11433
+#: src/formula/o42-eval.c:11647
 msgid "TRUE if the number is prime."
 msgstr "TRUE اگر عدد مفرد ہو۔"
 
-#: src/formula/o42-eval.c:11434
+#: src/formula/o42-eval.c:11648
 msgid "TRUE if the value is a reference."
 msgstr "TRUE اگر قدر حوالہ ہو۔"
 
-#: src/formula/o42-eval.c:11435
+#: src/formula/o42-eval.c:11649
 msgid "TRUE for text."
 msgstr "متن کے لیے TRUE۔"
 
-#: src/formula/o42-eval.c:11436
+#: src/formula/o42-eval.c:11650
 msgid "The ith prime number."
 msgstr "i-واں مفرد عدد۔"
 
-#: src/formula/o42-eval.c:11437
+#: src/formula/o42-eval.c:11651
 msgid "The kurtosis of a whole population."
 msgstr "پوری آبادی کا کرٹوسس۔"
 
-#: src/formula/o42-eval.c:11438
+#: src/formula/o42-eval.c:11652
 msgid "A function of its own, called at once or through LET."
 msgstr "اپنا بنایا ہوا فنکشن، جسے فوراً یا LET کے ذریعے بلایا جائے۔"
 
-#: src/formula/o42-eval.c:11439
+#: src/formula/o42-eval.c:11653
 msgid "The Landau distribution, by its integral."
 msgstr "لینڈاؤ تقسیم، اس کے تکمل کے ذریعے۔"
 
-#: src/formula/o42-eval.c:11440
+#: src/formula/o42-eval.c:11654
 msgid "The density of Laplace's distribution."
 msgstr "لاپلاس کی تقسیم کی کثافت۔"
 
-#: src/formula/o42-eval.c:11441
+#: src/formula/o42-eval.c:11655
 msgid "The least common multiple."
 msgstr "سب سے چھوٹا مشترک مضرب۔"
 
-#: src/formula/o42-eval.c:11442
+#: src/formula/o42-eval.c:11656
 msgid "Names values for use in a calculation."
 msgstr "حساب میں استعمال کے لیے قدروں کو نام دیتا ہے۔"
 
-#: src/formula/o42-eval.c:11443
+#: src/formula/o42-eval.c:11657
 msgid "The natural logarithm."
 msgstr "قدرتی لوگارتھم۔"
 
-#: src/formula/o42-eval.c:11444
+#: src/formula/o42-eval.c:11658
 msgid "log(1 + x), keeping the digits a small x would lose."
 msgstr "log(1 + x)، وہ ہندسے برقرار رکھتے ہوئے جو چھوٹا x کھو دیتا۔"
 
-#: src/formula/o42-eval.c:11445
+#: src/formula/o42-eval.c:11659
 msgid "The logarithm to a base, 10 if none is given."
 msgstr "کسی اساس پر لوگارتھم، اگر اساس نہ دی جائے تو 10۔"
 
-#: src/formula/o42-eval.c:11446
+#: src/formula/o42-eval.c:11660
 msgid "The logarithm to base 10."
 msgstr "اساس 10 پر لوگارتھم۔"
 
-#: src/formula/o42-eval.c:11447
+#: src/formula/o42-eval.c:11661
 msgid "The exponential curve through the points: m and b of y = b*m^x."
 msgstr "نقاط سے گزرنے والا قوت نمائی خم: y = b*m^x کے m اور b۔"
 
-#: src/formula/o42-eval.c:11448
+#: src/formula/o42-eval.c:11662
 msgid "The inverse lognormal distribution."
 msgstr "معکوس لاگ نارمل تقسیم۔"
 
-#: src/formula/o42-eval.c:11449
+#: src/formula/o42-eval.c:11663
 msgid "The density of the logistic distribution."
 msgstr "لاجسٹک تقسیم کی کثافت۔"
 
-#: src/formula/o42-eval.c:11450
+#: src/formula/o42-eval.c:11664
 msgid "The lognormal distribution."
 msgstr "لاگ نارمل تقسیم۔"
 
-#: src/formula/o42-eval.c:11451
+#: src/formula/o42-eval.c:11665
 msgid "The inverse of the cumulative lognormal distribution."
 msgstr "مجموعی لاگ نارمل تقسیم کا معکوس۔"
 
-#: src/formula/o42-eval.c:11452
+#: src/formula/o42-eval.c:11666
 msgid "Finds a value in one vector and returns from another."
 msgstr "ایک ویکٹر میں قدر تلاش کرتا ہے اور دوسرے سے لوٹاتا ہے۔"
 
-#: src/formula/o42-eval.c:11453
+#: src/formula/o42-eval.c:11667
 msgid "An array from a function of the row and column."
 msgstr "قطار اور کالم کے فنکشن سے بنا ارے۔"
 
-#: src/formula/o42-eval.c:11454
+#: src/formula/o42-eval.c:11668
 msgid "Every element of an array through a function."
 msgstr "ارے کا ہر عنصر، ایک فنکشن سے گزار کر۔"
 
-#: src/formula/o42-eval.c:11455
+#: src/formula/o42-eval.c:11669
 msgid "The position of a value in a range."
 msgstr "رینج میں کسی قدر کا مقام۔"
 
-#: src/formula/o42-eval.c:11456
+#: src/formula/o42-eval.c:11670
 msgid "The largest number."
 msgstr "سب سے بڑا عدد۔"
 
-#: src/formula/o42-eval.c:11457
+#: src/formula/o42-eval.c:11671
 msgid "The largest value, counting text as 0 and TRUE as 1."
 msgstr "سب سے بڑی قدر، متن کو 0 اور TRUE کو 1 گن کر۔"
 
-#: src/formula/o42-eval.c:11458
+#: src/formula/o42-eval.c:11672
 msgid "The largest value among the cells meeting every condition."
 msgstr "ہر شرط پوری کرنے والے سیلز میں سب سے بڑی قدر۔"
 
-#: src/formula/o42-eval.c:11459
+#: src/formula/o42-eval.c:11673
 msgid "The determinant of a square matrix."
 msgstr "مربع میٹرکس کا مقطع (determinant)۔"
 
-#: src/formula/o42-eval.c:11460
+#: src/formula/o42-eval.c:11674
 msgid "The middle value."
 msgstr "درمیانی قدر۔"
 
-#: src/formula/o42-eval.c:11461
+#: src/formula/o42-eval.c:11675
 msgid "The smallest number."
 msgstr "سب سے چھوٹا عدد۔"
 
-#: src/formula/o42-eval.c:11462
+#: src/formula/o42-eval.c:11676
 msgid "The smallest value, counting text as 0 and TRUE as 1."
 msgstr "سب سے چھوٹی قدر، متن کو 0 اور TRUE کو 1 گن کر۔"
 
-#: src/formula/o42-eval.c:11463
+#: src/formula/o42-eval.c:11677
 msgid "The smallest value among the cells meeting every condition."
 msgstr "ہر شرط پوری کرنے والے سیلز میں سب سے چھوٹی قدر۔"
 
-#: src/formula/o42-eval.c:11464
+#: src/formula/o42-eval.c:11678
 msgid "The modified internal rate of return."
 msgstr "ترمیم شدہ اندرونی شرح منافع۔"
 
-#: src/formula/o42-eval.c:11465
+#: src/formula/o42-eval.c:11679
 msgid "The remainder, with the sign of the divisor."
 msgstr "باقی، قاسم کی علامت کے ساتھ۔"
 
-#: src/formula/o42-eval.c:11466
+#: src/formula/o42-eval.c:11680
 msgid "Rounds to the nearest multiple."
 msgstr "قریب ترین مضرب تک گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11467
+#: src/formula/o42-eval.c:11681
 msgid "The multinomial of a set of numbers."
 msgstr "اعداد کے مجموعے کا کثیر رقمی (multinomial)۔"
 
-#: src/formula/o42-eval.c:11468
+#: src/formula/o42-eval.c:11682
 msgid "A value as a number; text becomes 0."
 msgstr "قدر بطور عدد؛ متن 0 بن جاتا ہے۔"
 
-#: src/formula/o42-eval.c:11469
+#: src/formula/o42-eval.c:11683
 msgid "The error value #N/A."
 msgstr "خرابی قدر #N/A۔"
 
-#: src/formula/o42-eval.c:11470 src/formula/o42-eval.c:11471
+#: src/formula/o42-eval.c:11684 src/formula/o42-eval.c:11685
 msgid "The negative binomial distribution."
 msgstr "منفی دو رقمی تقسیم۔"
 
-#: src/formula/o42-eval.c:11472
+#: src/formula/o42-eval.c:11686
 msgid "Working days between two dates, with the weekend named."
 msgstr "دو تاریخوں کے درمیان کام کے دن، ہفتہ وار تعطیل بتا کر۔"
 
-#: src/formula/o42-eval.c:11473
+#: src/formula/o42-eval.c:11687
 msgid "The nominal annual interest rate."
 msgstr "برائے نام سالانہ شرح سود۔"
 
-#: src/formula/o42-eval.c:11474
+#: src/formula/o42-eval.c:11688
 msgid "The standard normal distribution."
 msgstr "معیاری نارمل تقسیم۔"
 
-#: src/formula/o42-eval.c:11475
+#: src/formula/o42-eval.c:11689
 msgid ""
 "D'Agostino and Pearson's test for normality, from the skew and kurtosis."
 msgstr "ڈی اگسٹینو اور پیئرسن کا نارمل پن ٹیسٹ، ترچھے پن اور کرٹوسس سے۔"
 
-#: src/formula/o42-eval.c:11476
+#: src/formula/o42-eval.c:11690
 msgid "The opposite of a logical value."
 msgstr "منطقی قدر کا الٹ۔"
 
-#: src/formula/o42-eval.c:11477
+#: src/formula/o42-eval.c:11691
 msgid "How many payments an investment takes."
 msgstr "سرمایہ کاری میں کتنی ادائیگیاں لگتی ہیں۔"
 
-#: src/formula/o42-eval.c:11478
+#: src/formula/o42-eval.c:11692
 msgid "The net present value of a series of cash flows."
 msgstr "نقد بہاؤ کے سلسلے کی خالص موجودہ قدر۔"
 
-#: src/formula/o42-eval.c:11479
+#: src/formula/o42-eval.c:11693
 msgid "How many divisors a number has."
 msgstr "کسی عدد کے کتنے قاسم ہیں۔"
 
-#: src/formula/o42-eval.c:11480
+#: src/formula/o42-eval.c:11694
 msgid "The Moebius mu function of a number."
 msgstr "کسی عدد کا موبیئس mu فنکشن۔"
 
-#: src/formula/o42-eval.c:11481
+#: src/formula/o42-eval.c:11695
 msgid "How many distinct primes go into a number."
 msgstr "کتنے مختلف مفرد اعداد کسی عدد کو تقسیم کرتے ہیں۔"
 
-#: src/formula/o42-eval.c:11482
+#: src/formula/o42-eval.c:11696
 msgid "Euler's totient: how many below n are coprime to it."
 msgstr "آئلر کا ٹوشینٹ: n سے کم کتنے اعداد اس کے ساتھ ہم مفرد ہیں۔"
 
-#: src/formula/o42-eval.c:11483
+#: src/formula/o42-eval.c:11697
 msgid "How many primes there are up to n."
 msgstr "n تک کتنے مفرد اعداد ہیں۔"
 
-#: src/formula/o42-eval.c:11484
+#: src/formula/o42-eval.c:11698
 msgid "The product of the distinct primes of a number."
 msgstr "کسی عدد کے مختلف مفرد عوامل کا حاصل ضرب۔"
 
-#: src/formula/o42-eval.c:11485
+#: src/formula/o42-eval.c:11699
 msgid "What the divisors of a number add up to."
 msgstr "کسی عدد کے قاسموں کا مجموعہ۔"
 
-#: src/formula/o42-eval.c:11486
+#: src/formula/o42-eval.c:11700
 msgid "Text as a number, ignoring spaces."
 msgstr "متن بطور عدد، خالی جگہوں کو نظر انداز کرتے ہوئے۔"
 
-#: src/formula/o42-eval.c:11487
+#: src/formula/o42-eval.c:11701
 msgid "Rounds away from zero to an odd integer."
 msgstr "صفر سے دور، ایک طاق عدد صحیح تک گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11488
+#: src/formula/o42-eval.c:11702
 msgid "A reference moved and resized from another."
 msgstr "دوسرے حوالے سے منتقل کیا گیا اور سائز بدلا گیا حوالہ۔"
 
-#: src/formula/o42-eval.c:11489
+#: src/formula/o42-eval.c:11703
 msgid "TRUE if any argument is TRUE."
 msgstr "TRUE اگر کوئی بھی دلیل TRUE ہو۔"
 
-#: src/formula/o42-eval.c:11490
+#: src/formula/o42-eval.c:11704
 msgid "Owen's T function."
 msgstr "اوون کا T فنکشن۔"
 
-#: src/formula/o42-eval.c:11491
+#: src/formula/o42-eval.c:11705
 msgid "The density of Pareto's distribution."
 msgstr "پیریٹو کی تقسیم کی کثافت۔"
 
-#: src/formula/o42-eval.c:11492
+#: src/formula/o42-eval.c:11706
 msgid "Periods for an investment to reach a value."
 msgstr "سرمایہ کاری کو کسی قدر تک پہنچنے کے لیے درکار مدتیں۔"
 
-#: src/formula/o42-eval.c:11493
+#: src/formula/o42-eval.c:11707
 msgid "Pentecost, forty-nine days after Easter."
 msgstr "پینتی کوست، ایسٹر کے انچاس دن بعد۔"
 
-#: src/formula/o42-eval.c:11494
+#: src/formula/o42-eval.c:11708
 msgid "The k-th percentile, exclusive."
 msgstr "k-واں پرسنٹائل، خارجی۔"
 
-#: src/formula/o42-eval.c:11495
+#: src/formula/o42-eval.c:11709
 msgid "The rank of a value as a fraction of the set."
 msgstr "کسی قدر کا درجہ، مجموعے کے کسر کے طور پر۔"
 
-#: src/formula/o42-eval.c:11496
+#: src/formula/o42-eval.c:11710
 msgid "The rank of a value, with the ends counted out."
 msgstr "کسی قدر کا درجہ، سروں کو شمار سے باہر رکھ کر۔"
 
-#: src/formula/o42-eval.c:11497
+#: src/formula/o42-eval.c:11711
 msgid "The rank of a value as a fraction of the set, inclusive."
 msgstr "کسی قدر کا درجہ، مجموعے کے کسر کے طور پر، شمولی۔"
 
-#: src/formula/o42-eval.c:11498
+#: src/formula/o42-eval.c:11712
 msgid "How many ordered ways k things can be chosen from n."
 msgstr "n میں سے k چیزیں کتنے ترتیب وار طریقوں سے چنی جا سکتی ہیں۔"
 
-#: src/formula/o42-eval.c:11499
+#: src/formula/o42-eval.c:11713
 msgid "Permutations with repetition."
 msgstr "تکرار کے ساتھ ترتیبات (permutations)۔"
 
-#: src/formula/o42-eval.c:11500
+#: src/formula/o42-eval.c:11714
 msgid "The smallest prime that goes into a number."
 msgstr "سب سے چھوٹا مفرد عدد جو کسی عدد کو تقسیم کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11501
+#: src/formula/o42-eval.c:11715
 msgid "The standard normal density."
 msgstr "معیاری نارمل کثافت۔"
 
-#: src/formula/o42-eval.c:11502
+#: src/formula/o42-eval.c:11716
 msgid "3.14159265358979."
 msgstr "3.14159265358979۔"
 
-#: src/formula/o42-eval.c:11503
+#: src/formula/o42-eval.c:11717
 msgid "The payment on a loan."
 msgstr "قرض کی ادائیگی۔"
 
-#: src/formula/o42-eval.c:11504
+#: src/formula/o42-eval.c:11718
 msgid "A number raised to a power."
 msgstr "کسی عدد کو کسی قوت تک بلند کیا گیا۔"
 
-#: src/formula/o42-eval.c:11505
+#: src/formula/o42-eval.c:11719
 msgid "The principal part of one payment."
 msgstr "ایک ادائیگی کا اصل زر والا حصہ۔"
 
-#: src/formula/o42-eval.c:11506
+#: src/formula/o42-eval.c:11720
 msgid "The probability that a value lies between two limits."
 msgstr "احتمال کہ کوئی قدر دو حدوں کے درمیان ہو۔"
 
-#: src/formula/o42-eval.c:11507
+#: src/formula/o42-eval.c:11721
 msgid "Multiplies its arguments."
 msgstr "اپنے دلائل کو ضرب دیتا ہے۔"
 
-#: src/formula/o42-eval.c:11508
+#: src/formula/o42-eval.c:11722
 msgid "The present value of regular payments."
 msgstr "باقاعدہ ادائیگیوں کی موجودہ قدر۔"
 
-#: src/formula/o42-eval.c:11509
+#: src/formula/o42-eval.c:11723
 msgid "A quartile, exclusive."
 msgstr "کوارٹائل، خارجی۔"
 
-#: src/formula/o42-eval.c:11510
+#: src/formula/o42-eval.c:11724
 msgid "The integer part of a division."
 msgstr "تقسیم کا عدد صحیح حصہ۔"
 
-#: src/formula/o42-eval.c:11511
+#: src/formula/o42-eval.c:11725
 msgid "Degrees to radians."
 msgstr "ڈگریوں سے ریڈینز۔"
 
-#: src/formula/o42-eval.c:11512
+#: src/formula/o42-eval.c:11726
 msgid "A random number between 0 and 1."
 msgstr "0 اور 1 کے درمیان ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-eval.c:11513
+#: src/formula/o42-eval.c:11727
 msgid "An array of random numbers."
 msgstr "بے ترتیب اعداد کا ارے۔"
 
-#: src/formula/o42-eval.c:11514
+#: src/formula/o42-eval.c:11728
 msgid "A random integer in a range."
 msgstr "کسی حد میں ایک بے ترتیب عدد صحیح۔"
 
-#: src/formula/o42-eval.c:11515
+#: src/formula/o42-eval.c:11729
 msgid "The rank of a number, averaged over ties."
 msgstr "کسی عدد کا درجہ، برابر والوں میں اوسط لے کر۔"
 
-#: src/formula/o42-eval.c:11516
+#: src/formula/o42-eval.c:11730
 msgid "The interest rate per period of an annuity."
 msgstr "سالانہ وار ادائیگی (annuity) کی فی مدت شرح سود۔"
 
-#: src/formula/o42-eval.c:11517
+#: src/formula/o42-eval.c:11731
 msgid "The density of Rayleigh's distribution."
 msgstr "ریلے کی تقسیم کی کثافت۔"
 
-#: src/formula/o42-eval.c:11518
+#: src/formula/o42-eval.c:11732
 msgid "An array folded into one value."
 msgstr "ایک ارے جسے سمیٹ کر ایک قدر بنایا گیا۔"
 
-#: src/formula/o42-eval.c:11519
+#: src/formula/o42-eval.c:11733
 msgid "A number as a Roman numeral."
 msgstr "عدد بطور رومن ہندسہ۔"
 
-#: src/formula/o42-eval.c:11520
+#: src/formula/o42-eval.c:11734
 msgid "Rounds to a number of digits, halves away from zero."
 msgstr "ہندسوں کی کسی تعداد تک گول کرتا ہے، نصف صفر سے دور۔"
 
-#: src/formula/o42-eval.c:11521
+#: src/formula/o42-eval.c:11735
 msgid "Rounds toward zero."
 msgstr "صفر کی طرف گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11522
+#: src/formula/o42-eval.c:11736
 msgid "Rounds away from zero."
 msgstr "صفر سے دور گول کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11523
+#: src/formula/o42-eval.c:11737
 msgid "The row number of a reference, or of this cell."
 msgstr "کسی حوالے کا، یا اس سیل کا، قطار نمبر۔"
 
-#: src/formula/o42-eval.c:11524
+#: src/formula/o42-eval.c:11738
 msgid "The rate that grows pv to fv over nper periods."
 msgstr "وہ شرح جو pv کو nper مدتوں میں fv تک بڑھا دے۔"
 
-#: src/formula/o42-eval.c:11525
+#: src/formula/o42-eval.c:11739
 msgid "The running results of folding an array."
 msgstr "ارے سمیٹنے کے درمیانی نتائج۔"
 
-#: src/formula/o42-eval.c:11526
+#: src/formula/o42-eval.c:11740
 msgid "The secant."
 msgstr "سیکنٹ۔"
 
-#: src/formula/o42-eval.c:11527
+#: src/formula/o42-eval.c:11741
 msgid "The hyperbolic secant."
 msgstr "ہائپربولک سیکنٹ۔"
 
-#: src/formula/o42-eval.c:11528
+#: src/formula/o42-eval.c:11742
 msgid "An array of numbers in sequence."
 msgstr "ترتیب وار اعداد کا ارے۔"
 
-#: src/formula/o42-eval.c:11529
+#: src/formula/o42-eval.c:11743
 msgid "A power series."
 msgstr "طاقتی سلسلہ (power series)۔"
 
-#: src/formula/o42-eval.c:11530
+#: src/formula/o42-eval.c:11744
 msgid "The number of the sheet, counting from one."
 msgstr "شیٹ کا نمبر، ایک سے گنتی کرتے ہوئے۔"
 
-#: src/formula/o42-eval.c:11531
+#: src/formula/o42-eval.c:11745
 msgid "How many sheets the book has."
 msgstr "ورک بک میں کتنی شیٹس ہیں۔"
 
-#: src/formula/o42-eval.c:11532
+#: src/formula/o42-eval.c:11746
 msgid "1, 0 or -1 by the sign of a number."
 msgstr "عدد کی علامت کے مطابق 1، 0 یا -1۔"
 
-#: src/formula/o42-eval.c:11533
+#: src/formula/o42-eval.c:11747
 msgid "The sine of an angle in radians."
 msgstr "ریڈینز میں کسی زاویے کا سائن۔"
 
-#: src/formula/o42-eval.c:11534
+#: src/formula/o42-eval.c:11748
 msgid "The hyperbolic sine."
 msgstr "ہائپربولک سائن۔"
 
-#: src/formula/o42-eval.c:11535
+#: src/formula/o42-eval.c:11749
 msgid "The skewness of a population."
 msgstr "آبادی کا ترچھا پن۔"
 
-#: src/formula/o42-eval.c:11536
+#: src/formula/o42-eval.c:11750
 msgid "The skew of a whole population."
 msgstr "پوری آبادی کا ترچھا پن۔"
 
-#: src/formula/o42-eval.c:11537
+#: src/formula/o42-eval.c:11751
 msgid "Straight-line depreciation for one period."
 msgstr "ایک مدت کے لیے خط مستقیم فرسودگی۔"
 
-#: src/formula/o42-eval.c:11538
+#: src/formula/o42-eval.c:11752
 msgid "The chance a standard normal falls between the two."
 msgstr "امکان کہ معیاری نارمل قدر دونوں کے درمیان ہو۔"
 
-#: src/formula/o42-eval.c:11539
+#: src/formula/o42-eval.c:11753
 msgid "An array sorted by one of its columns."
 msgstr "ارے، اپنے کسی کالم کے مطابق ترتیب دیا ہوا۔"
 
-#: src/formula/o42-eval.c:11540
+#: src/formula/o42-eval.c:11754
 msgid "An array sorted by another."
 msgstr "ارے، کسی دوسرے کے مطابق ترتیب دیا ہوا۔"
 
-#: src/formula/o42-eval.c:11541
+#: src/formula/o42-eval.c:11755
 msgid "The square root."
 msgstr "جذر المربع۔"
 
-#: src/formula/o42-eval.c:11542
+#: src/formula/o42-eval.c:11756
 msgid "The square root of a number times pi."
 msgstr "کسی عدد ضرب pi کا جذر المربع۔"
 
-#: src/formula/o42-eval.c:11543
+#: src/formula/o42-eval.c:11757
 msgid "The median of grouped data, interpolated inside its bin."
 msgstr "گروہ بند ڈیٹا کا وسطانیہ، اس کے خانے کے اندر درون یابی کے ساتھ۔"
 
-#: src/formula/o42-eval.c:11544
+#: src/formula/o42-eval.c:11758
 msgid "Sample standard deviation, counting text as 0 and TRUE as 1."
 msgstr "نمونہ معیاری انحراف، متن کو 0 اور TRUE کو 1 گن کر۔"
 
-#: src/formula/o42-eval.c:11545
+#: src/formula/o42-eval.c:11759
 msgid "Population standard deviation, counting text as 0 and TRUE as 1."
 msgstr "آبادی معیاری انحراف، متن کو 0 اور TRUE کو 1 گن کر۔"
 
-#: src/formula/o42-eval.c:11546
+#: src/formula/o42-eval.c:11760
 msgid "The standard error of the predicted y for each x."
 msgstr "ہر x کے لیے متوقع y کی معیاری خرابی۔"
 
-#: src/formula/o42-eval.c:11547
+#: src/formula/o42-eval.c:11761
 msgid ""
 "An aggregate chosen by number: 1 AVERAGE, 2 COUNT, 3 COUNTA, 4 MAX, 5 MIN, 6 "
 "PRODUCT, 7 STDEV, 8 STDEVP, 9 SUM, 10 VAR, 11 VARP."
@@ -2284,176 +2289,176 @@ msgstr ""
 "نمبر سے منتخب مجموعی حساب: 1 AVERAGE، 2 COUNT، 3 COUNTA، 4 MAX، 5 MIN، 6 "
 "PRODUCT، 7 STDEV، 8 STDEVP، 9 SUM، 10 VAR، 11 VARP۔"
 
-#: src/formula/o42-eval.c:11548
+#: src/formula/o42-eval.c:11762
 msgid "Adds its arguments; text in a range is skipped."
 msgstr "اپنے دلائل جمع کرتا ہے؛ رینج میں متن چھوڑ دیا جاتا ہے۔"
 
-#: src/formula/o42-eval.c:11549
+#: src/formula/o42-eval.c:11763
 msgid "The sum, counting text as 0 and TRUE as 1."
 msgstr "مجموعہ، متن کو 0 اور TRUE کو 1 گن کر۔"
 
-#: src/formula/o42-eval.c:11550
+#: src/formula/o42-eval.c:11764
 msgid "Adds the cells that meet a condition."
 msgstr "شرط پوری کرنے والے سیلز جمع کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11551
+#: src/formula/o42-eval.c:11765
 msgid "Adds the cells meeting every condition."
 msgstr "ہر شرط پوری کرنے والے سیلز جمع کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11552
+#: src/formula/o42-eval.c:11766
 msgid "Multiplies ranges cell by cell and adds the products."
 msgstr "رینجز کو سیل بہ سیل ضرب دیتا ہے اور حاصل ضرب جمع کرتا ہے۔"
 
-#: src/formula/o42-eval.c:11553
+#: src/formula/o42-eval.c:11767
 msgid "The sum of the squares."
 msgstr "مربعوں کا مجموعہ۔"
 
-#: src/formula/o42-eval.c:11554
+#: src/formula/o42-eval.c:11768
 msgid "The sum of the differences of squares."
 msgstr "مربعوں کے فرق کا مجموعہ۔"
 
-#: src/formula/o42-eval.c:11555
+#: src/formula/o42-eval.c:11769
 msgid "The sum of the sums of squares."
 msgstr "مربعوں کے مجموعوں کا مجموعہ۔"
 
-#: src/formula/o42-eval.c:11556
+#: src/formula/o42-eval.c:11770
 msgid "The sum of the squares of differences."
 msgstr "فرق کے مربعوں کا مجموعہ۔"
 
-#: src/formula/o42-eval.c:11557
+#: src/formula/o42-eval.c:11771
 msgid "The result matching a value, or the default."
 msgstr "کسی قدر سے مماثل نتیجہ، یا طے شدہ قدر۔"
 
-#: src/formula/o42-eval.c:11558
+#: src/formula/o42-eval.c:11772
 msgid "Sum-of-years'-digits depreciation for one period."
 msgstr "ایک مدت کے لیے سالوں کے ہندسوں کے مجموعے والی فرسودگی۔"
 
-#: src/formula/o42-eval.c:11559
+#: src/formula/o42-eval.c:11773
 msgid "A value if it is text, otherwise empty text."
 msgstr "قدر اگر متن ہو، ورنہ خالی متن۔"
 
-#: src/formula/o42-eval.c:11560
+#: src/formula/o42-eval.c:11774
 msgid "Student's t distribution, density or cumulative."
 msgstr "اسٹوڈنٹ کی t تقسیم، کثافت یا مجموعی۔"
 
-#: src/formula/o42-eval.c:11561
+#: src/formula/o42-eval.c:11775
 msgid "Both tails of Student's t distribution."
 msgstr "اسٹوڈنٹ کی t تقسیم کی دونوں دمیں۔"
 
-#: src/formula/o42-eval.c:11562
+#: src/formula/o42-eval.c:11776
 msgid "The right tail of Student's t distribution."
 msgstr "اسٹوڈنٹ کی t تقسیم کی دائیں دم۔"
 
-#: src/formula/o42-eval.c:11563
+#: src/formula/o42-eval.c:11777
 msgid "The inverse of the left-tailed t distribution."
 msgstr "بائیں دم والی t تقسیم کا معکوس۔"
 
-#: src/formula/o42-eval.c:11564
+#: src/formula/o42-eval.c:11778
 msgid "Student's t-test probability."
 msgstr "اسٹوڈنٹ کا t-ٹیسٹ احتمال۔"
 
-#: src/formula/o42-eval.c:11565
+#: src/formula/o42-eval.c:11779
 msgid "The tangent of an angle in radians."
 msgstr "ریڈینز میں کسی زاویے کا ٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11566
+#: src/formula/o42-eval.c:11780
 msgid "The hyperbolic tangent."
 msgstr "ہائپربولک ٹینجنٹ۔"
 
-#: src/formula/o42-eval.c:11567
+#: src/formula/o42-eval.c:11781
 msgid "The part of a text after the delimiter, or the nth of them."
 msgstr "متن کا حد بند کے بعد والا حصہ، یا ان میں سے n-واں۔"
 
-#: src/formula/o42-eval.c:11568
+#: src/formula/o42-eval.c:11782
 msgid "The part of a text before the delimiter, or the nth of them."
 msgstr "متن کا حد بند سے پہلے والا حصہ، یا ان میں سے n-واں۔"
 
-#: src/formula/o42-eval.c:11569
+#: src/formula/o42-eval.c:11783
 msgid "Joins texts with a delimiter between them."
 msgstr "متون کو ان کے درمیان حد بند رکھ کر جوڑتا ہے۔"
 
-#: src/formula/o42-eval.c:11570
+#: src/formula/o42-eval.c:11784
 msgid "Values on the line fitted to the points."
 msgstr "نقاط پر فٹ کی گئی لکیر پر قدریں۔"
 
-#: src/formula/o42-eval.c:11571
+#: src/formula/o42-eval.c:11785
 msgid "The logical value TRUE."
 msgstr "منطقی قدر TRUE۔"
 
-#: src/formula/o42-eval.c:11572
+#: src/formula/o42-eval.c:11786
 msgid "Cuts a number off at a number of digits."
 msgstr "عدد کو ہندسوں کی کسی تعداد پر کاٹ دیتا ہے۔"
 
-#: src/formula/o42-eval.c:11573
+#: src/formula/o42-eval.c:11787
 msgid ""
 "Student's t-test probability: type 1 paired, 2 equal variance, 3 unequal."
 msgstr "اسٹوڈنٹ کا t-ٹیسٹ احتمال: قسم 1 جوڑی دار، 2 مساوی تغیر، 3 غیر مساوی۔"
 
-#: src/formula/o42-eval.c:11574
+#: src/formula/o42-eval.c:11788
 msgid "A number for the kind of value: 1, 2, 4, 16 or 64."
 msgstr "قدر کی قسم کے لیے ایک عدد: 1، 2، 4، 16 یا 64۔"
 
-#: src/formula/o42-eval.c:11575
+#: src/formula/o42-eval.c:11789
 msgid "The character with a Unicode code point."
 msgstr "Unicode کوڈ پوائنٹ والا حرف۔"
 
-#: src/formula/o42-eval.c:11576
+#: src/formula/o42-eval.c:11790
 msgid "The code point of the first character."
 msgstr "پہلے حرف کا کوڈ پوائنٹ۔"
 
-#: src/formula/o42-eval.c:11577
+#: src/formula/o42-eval.c:11791
 msgid "The distinct rows (or columns) of an array."
 msgstr "ارے کی منفرد قطاریں (یا کالمز)۔"
 
-#: src/formula/o42-eval.c:11578
+#: src/formula/o42-eval.c:11792
 msgid "Unix time as a date and time."
 msgstr "Unix وقت بطور تاریخ اور وقت۔"
 
-#: src/formula/o42-eval.c:11579
+#: src/formula/o42-eval.c:11793
 msgid "A value as text, plainly or with its quotes."
 msgstr "قدر بطور متن، سادہ یا اس کے واوین کے ساتھ۔"
 
-#: src/formula/o42-eval.c:11580
+#: src/formula/o42-eval.c:11794
 msgid "Sample variance, counting text as 0 and TRUE as 1."
 msgstr "نمونہ تغیر، متن کو 0 اور TRUE کو 1 گن کر۔"
 
-#: src/formula/o42-eval.c:11581
+#: src/formula/o42-eval.c:11795
 msgid "Population variance, counting text as 0 and TRUE as 1."
 msgstr "آبادی تغیر، متن کو 0 اور TRUE کو 1 گن کر۔"
 
-#: src/formula/o42-eval.c:11582
+#: src/formula/o42-eval.c:11796
 msgid "Declining-balance depreciation over part of a life."
 msgstr "عمر کے کسی حصے پر کمی پذیر بیلنس فرسودگی۔"
 
-#: src/formula/o42-eval.c:11583
+#: src/formula/o42-eval.c:11797
 msgid "Finds a value in the first column and returns from that row."
 msgstr "پہلے کالم میں قدر تلاش کرتا ہے اور اسی قطار سے لوٹاتا ہے۔"
 
-#: src/formula/o42-eval.c:11584
+#: src/formula/o42-eval.c:11798
 msgid "The date so many working days on, with the weekend named."
 msgstr "اتنے کام کے دن بعد کی تاریخ، ہفتہ وار تعطیل بتا کر۔"
 
-#: src/formula/o42-eval.c:11585
+#: src/formula/o42-eval.c:11799
 msgid "The internal rate of return of dated cash flows."
 msgstr "تاریخ وار نقد بہاؤ کی اندرونی شرح منافع۔"
 
-#: src/formula/o42-eval.c:11586
+#: src/formula/o42-eval.c:11800
 msgid "Finds a value in one vector and returns the matching one from another."
 msgstr "ایک ویکٹر میں قدر تلاش کرتا ہے اور دوسرے سے مماثل قدر لوٹاتا ہے۔"
 
-#: src/formula/o42-eval.c:11587
+#: src/formula/o42-eval.c:11801
 msgid "The position of a value in a vector."
 msgstr "ویکٹر میں کسی قدر کا مقام۔"
 
-#: src/formula/o42-eval.c:11588
+#: src/formula/o42-eval.c:11802
 msgid "The net present value of dated cash flows."
 msgstr "تاریخ وار نقد بہاؤ کی خالص موجودہ قدر۔"
 
-#: src/formula/o42-eval.c:11589
+#: src/formula/o42-eval.c:11803
 msgid "TRUE if an odd number of arguments are TRUE."
 msgstr "TRUE اگر طاق تعداد میں دلائل TRUE ہوں۔"
 
-#: src/formula/o42-eval.c:11590 src/formula/o42-eval.c:11591
+#: src/formula/o42-eval.c:11804 src/formula/o42-eval.c:11805
 msgid "The one-tailed probability of a z-test."
 msgstr "z-ٹیسٹ کا یک دم احتمال۔"
 
@@ -2473,179 +2478,179 @@ msgstr "ترمیم شدہ بیسل فنکشن Kn(x)۔"
 msgid "The Bessel function Yn(x)."
 msgstr "بیسل فنکشن Yn(x)۔"
 
-#: src/formula/o42-fn-dates.c:401
+#: src/formula/o42-fn-dates.c:411
 msgid "The serial number of a date; months and days roll over."
 msgstr "کسی تاریخ کا سیریل نمبر؛ مہینے اور دن آگے منتقل ہو جاتے ہیں۔"
 
-#: src/formula/o42-fn-dates.c:402
+#: src/formula/o42-fn-dates.c:412
 msgid "The serial number of a date written as text."
 msgstr "متن کے طور پر لکھی گئی تاریخ کا سیریل نمبر۔"
 
-#: src/formula/o42-fn-dates.c:403
+#: src/formula/o42-fn-dates.c:413
 msgid "The day of the month, 1 to 31."
 msgstr "مہینے کا دن، 1 سے 31۔"
 
-#: src/formula/o42-fn-dates.c:404
+#: src/formula/o42-fn-dates.c:414
 msgid "The number of days between two dates."
 msgstr "دو تاریخوں کے درمیان دنوں کی تعداد۔"
 
-#: src/formula/o42-fn-dates.c:405
+#: src/formula/o42-fn-dates.c:415
 msgid "Days between two dates on a 360-day year."
 msgstr "360 دن کے سال پر دو تاریخوں کے درمیان دن۔"
 
-#: src/formula/o42-fn-dates.c:406
+#: src/formula/o42-fn-dates.c:416
 msgid "The date a number of months before or after another."
 msgstr "کسی اور تاریخ سے اتنے مہینے پہلے یا بعد کی تاریخ۔"
 
-#: src/formula/o42-fn-dates.c:407
+#: src/formula/o42-fn-dates.c:417
 msgid "The last day of the month a number of months away."
 msgstr "اتنے مہینے دور والے مہینے کا آخری دن۔"
 
-#: src/formula/o42-fn-dates.c:408
+#: src/formula/o42-fn-dates.c:418
 msgid "The hour of a time, 0 to 23."
 msgstr "کسی وقت کا گھنٹہ، 0 سے 23۔"
 
-#: src/formula/o42-fn-dates.c:409
+#: src/formula/o42-fn-dates.c:419
 msgid "The minute of a time, 0 to 59."
 msgstr "کسی وقت کا منٹ، 0 سے 59۔"
 
-#: src/formula/o42-fn-dates.c:410
+#: src/formula/o42-fn-dates.c:420
 msgid "The month of a date, 1 to 12."
 msgstr "کسی تاریخ کا مہینہ، 1 سے 12۔"
 
-#: src/formula/o42-fn-dates.c:411
+#: src/formula/o42-fn-dates.c:421
 msgid "The current date and time."
 msgstr "موجودہ تاریخ اور وقت۔"
 
-#: src/formula/o42-fn-dates.c:412
+#: src/formula/o42-fn-dates.c:422
 msgid "The second of a time, 0 to 59."
 msgstr "کسی وقت کا سیکنڈ، 0 سے 59۔"
 
-#: src/formula/o42-fn-dates.c:413
+#: src/formula/o42-fn-dates.c:423
 msgid "The fraction of a day for a time."
 msgstr "کسی وقت کے لیے دن کا کسر۔"
 
-#: src/formula/o42-fn-dates.c:414
+#: src/formula/o42-fn-dates.c:424
 msgid "The fraction of a day for a time written as text."
 msgstr "متن کے طور پر لکھے گئے وقت کے لیے دن کا کسر۔"
 
-#: src/formula/o42-fn-dates.c:415
+#: src/formula/o42-fn-dates.c:425
 msgid "Today's date."
 msgstr "آج کی تاریخ۔"
 
-#: src/formula/o42-fn-dates.c:416
+#: src/formula/o42-fn-dates.c:426
 msgid "The day of the week as a number."
 msgstr "ہفتے کا دن بطور عدد۔"
 
-#: src/formula/o42-fn-dates.c:417
+#: src/formula/o42-fn-dates.c:427
 msgid "The year of a date."
 msgstr "کسی تاریخ کا سال۔"
 
-#: src/formula/o42-fn-dates.c:418
+#: src/formula/o42-fn-dates.c:428
 msgid "The working days between two dates, weekends and holidays left out."
 msgstr "دو تاریخوں کے درمیان کام کے دن، ہفتہ وار اور دیگر تعطیلات نکال کر۔"
 
-#: src/formula/o42-fn-dates.c:419
+#: src/formula/o42-fn-dates.c:429
 msgid "The date a number of working days away."
 msgstr "اتنے کام کے دن دور کی تاریخ۔"
 
-#: src/formula/o42-fn-distributions.c:542
-#: src/formula/o42-fn-distributions.c:544
+#: src/formula/o42-fn-distributions.c:546
+#: src/formula/o42-fn-distributions.c:548
 msgid "The inverse of the cumulative beta distribution."
 msgstr "مجموعی بیٹا تقسیم کا معکوس۔"
 
-#: src/formula/o42-fn-distributions.c:543
+#: src/formula/o42-fn-distributions.c:547
 msgid "The cumulative beta distribution."
 msgstr "مجموعی بیٹا تقسیم۔"
 
-#: src/formula/o42-fn-distributions.c:545
-#: src/formula/o42-fn-distributions.c:546
+#: src/formula/o42-fn-distributions.c:549
+#: src/formula/o42-fn-distributions.c:550
 msgid "The binomial distribution."
 msgstr "دو رقمی تقسیم۔"
 
-#: src/formula/o42-fn-distributions.c:547
-#: src/formula/o42-fn-distributions.c:549
+#: src/formula/o42-fn-distributions.c:551
+#: src/formula/o42-fn-distributions.c:553
 msgid "The right tail of the chi-squared distribution."
 msgstr "کائی مربع تقسیم کی دائیں دم۔"
 
-#: src/formula/o42-fn-distributions.c:548
-#: src/formula/o42-fn-distributions.c:550
+#: src/formula/o42-fn-distributions.c:552
+#: src/formula/o42-fn-distributions.c:554
 msgid "The inverse of the right-tailed chi-squared distribution."
 msgstr "دائیں دم والی کائی مربع تقسیم کا معکوس۔"
 
-#: src/formula/o42-fn-distributions.c:551
+#: src/formula/o42-fn-distributions.c:555
 msgid "The half-width of a confidence interval for a mean."
 msgstr "اوسط کے اعتماد وقفے کی نصف چوڑائی۔"
 
-#: src/formula/o42-fn-distributions.c:552
+#: src/formula/o42-fn-distributions.c:556
 msgid "Half the width of a confidence interval for a mean."
 msgstr "اوسط کے اعتماد وقفے کی آدھی چوڑائی۔"
 
-#: src/formula/o42-fn-distributions.c:553
-#: src/formula/o42-fn-distributions.c:554
+#: src/formula/o42-fn-distributions.c:557
+#: src/formula/o42-fn-distributions.c:558
 msgid "The exponential distribution."
 msgstr "قوت نمائی تقسیم۔"
 
-#: src/formula/o42-fn-distributions.c:555
-#: src/formula/o42-fn-distributions.c:557
+#: src/formula/o42-fn-distributions.c:559
+#: src/formula/o42-fn-distributions.c:561
 msgid "The right tail of the F distribution."
 msgstr "F تقسیم کی دائیں دم۔"
 
-#: src/formula/o42-fn-distributions.c:556
-#: src/formula/o42-fn-distributions.c:558
+#: src/formula/o42-fn-distributions.c:560
+#: src/formula/o42-fn-distributions.c:562
 msgid "The inverse of the right-tailed F distribution."
 msgstr "دائیں دم والی F تقسیم کا معکوس۔"
 
-#: src/formula/o42-fn-distributions.c:559
-#: src/formula/o42-fn-distributions.c:561
+#: src/formula/o42-fn-distributions.c:563
+#: src/formula/o42-fn-distributions.c:565
 msgid "The gamma distribution."
 msgstr "گاما تقسیم۔"
 
-#: src/formula/o42-fn-distributions.c:560
-#: src/formula/o42-fn-distributions.c:562
+#: src/formula/o42-fn-distributions.c:564
+#: src/formula/o42-fn-distributions.c:566
 msgid "The inverse of the cumulative gamma distribution."
 msgstr "مجموعی گاما تقسیم کا معکوس۔"
 
-#: src/formula/o42-fn-distributions.c:563
-#: src/formula/o42-fn-distributions.c:564
+#: src/formula/o42-fn-distributions.c:567
+#: src/formula/o42-fn-distributions.c:568
 msgid "The natural logarithm of the gamma function."
 msgstr "گاما فنکشن کا قدرتی لوگارتھم۔"
 
-#: src/formula/o42-fn-distributions.c:565
+#: src/formula/o42-fn-distributions.c:569
 msgid "The kurtosis of a sample."
 msgstr "نمونے کا کرٹوسس۔"
 
-#: src/formula/o42-fn-distributions.c:566
+#: src/formula/o42-fn-distributions.c:570
 msgid "The cumulative lognormal distribution."
 msgstr "مجموعی لاگ نارمل تقسیم۔"
 
-#: src/formula/o42-fn-distributions.c:567
-#: src/formula/o42-fn-distributions.c:568
+#: src/formula/o42-fn-distributions.c:571
+#: src/formula/o42-fn-distributions.c:572
 msgid "The Poisson distribution."
 msgstr "پوآسوں تقسیم۔"
 
-#: src/formula/o42-fn-distributions.c:569
+#: src/formula/o42-fn-distributions.c:573
 msgid "The skewness of a sample."
 msgstr "نمونے کا ترچھا پن۔"
 
-#: src/formula/o42-fn-distributions.c:570
+#: src/formula/o42-fn-distributions.c:574
 msgid "The inverse of the two-tailed t distribution."
 msgstr "دو دم والی t تقسیم کا معکوس۔"
 
-#: src/formula/o42-fn-distributions.c:571
+#: src/formula/o42-fn-distributions.c:575
 msgid "The tail of Student's t distribution, one or both."
 msgstr "اسٹوڈنٹ کی t تقسیم کی دم، ایک یا دونوں۔"
 
-#: src/formula/o42-fn-distributions.c:572
+#: src/formula/o42-fn-distributions.c:576
 msgid "The two-tailed inverse of Student's t distribution."
 msgstr "اسٹوڈنٹ کی t تقسیم کا دو دم والا معکوس۔"
 
-#: src/formula/o42-fn-distributions.c:573
+#: src/formula/o42-fn-distributions.c:577
 msgid "The mean with a fraction of the extremes left out."
 msgstr "انتہائی قدروں کا ایک حصہ نکال کر اوسط۔"
 
-#: src/formula/o42-fn-distributions.c:574
-#: src/formula/o42-fn-distributions.c:575
+#: src/formula/o42-fn-distributions.c:578
+#: src/formula/o42-fn-distributions.c:579
 msgid "The Weibull distribution."
 msgstr "وائبل تقسیم۔"
 
@@ -3108,123 +3113,123 @@ msgstr "اسپریڈ پر آپشن کے لیے کرک کا تخمینہ۔"
 msgid "An option paying for each interval spent in the money."
 msgstr "ایسا آپشن جو منافع کی حالت میں گزرے ہر وقفے کے لیے ادائیگی کرتا ہے۔"
 
-#: src/formula/o42-fn-random.c:695
+#: src/formula/o42-fn-random.c:702
 msgid "One or nothing, with the given chance of one."
 msgstr "ایک یا کچھ نہیں، ایک کے دیے گئے امکان کے ساتھ۔"
 
-#: src/formula/o42-fn-random.c:696
+#: src/formula/o42-fn-random.c:703
 msgid "A random number from the beta distribution."
 msgstr "بیٹا تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:697
+#: src/formula/o42-fn-random.c:704
 msgid "How many successes in so many trials."
 msgstr "اتنی آزمائشوں میں کتنی کامیابیاں۔"
 
-#: src/formula/o42-fn-random.c:698
+#: src/formula/o42-fn-random.c:705
 msgid "A random number from Cauchy's distribution."
 msgstr "کوشی کی تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:699
+#: src/formula/o42-fn-random.c:706
 msgid "A random number from the chi-squared distribution."
 msgstr "کائی مربع تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:700
+#: src/formula/o42-fn-random.c:707
 msgid "One of the values, drawn with the given weights."
 msgstr "قدروں میں سے ایک، دیے گئے وزن کے ساتھ نکالی گئی۔"
 
-#: src/formula/o42-fn-random.c:701
+#: src/formula/o42-fn-random.c:708
 msgid "A random number from the exponential distribution."
 msgstr "قوت نمائی تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:702
+#: src/formula/o42-fn-random.c:709
 msgid "A random number from the exponential power distribution."
 msgstr "قوت نمائی پاور تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:703
+#: src/formula/o42-fn-random.c:710
 msgid "A random number from Fisher's F distribution."
 msgstr "فشر کی F تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:704
+#: src/formula/o42-fn-random.c:711
 msgid "A random number from the gamma distribution."
 msgstr "گاما تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:705
+#: src/formula/o42-fn-random.c:712
 msgid "How many trials until the first success."
 msgstr "پہلی کامیابی تک کتنی آزمائشیں۔"
 
-#: src/formula/o42-fn-random.c:706
+#: src/formula/o42-fn-random.c:713
 msgid "A random number from Gumbel's first distribution."
 msgstr "گمبل کی پہلی تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:707
+#: src/formula/o42-fn-random.c:714
 msgid "A random number from Gumbel's second distribution."
 msgstr "گمبل کی دوسری تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:708
+#: src/formula/o42-fn-random.c:715
 msgid "How many of the first kind in a draw from an urn."
 msgstr "کلش سے نکالی گئی چیزوں میں پہلی قسم کی کتنی ہیں۔"
 
-#: src/formula/o42-fn-random.c:709
+#: src/formula/o42-fn-random.c:716
 msgid "A random number from Laplace's distribution."
 msgstr "لاپلاس کی تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:710
+#: src/formula/o42-fn-random.c:717
 msgid "A random number from Levy's alpha-stable distribution."
 msgstr "لیوی کی الفا-مستحکم تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:711 src/formula/o42-fn-random.c:712
+#: src/formula/o42-fn-random.c:718 src/formula/o42-fn-random.c:719
 msgid "A random number from the logarithmic distribution."
 msgstr "لوگارتھمی تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:713
+#: src/formula/o42-fn-random.c:720
 msgid "A random number from the logistic distribution."
 msgstr "لاجسٹک تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:714
+#: src/formula/o42-fn-random.c:721
 msgid "A random number from the log-normal distribution."
 msgstr "لاگ نارمل تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:715
+#: src/formula/o42-fn-random.c:722
 msgid "How many successes before so many failures."
 msgstr "اتنی ناکامیوں سے پہلے کتنی کامیابیاں۔"
 
-#: src/formula/o42-fn-random.c:716
+#: src/formula/o42-fn-random.c:723
 msgid "A random number from the normal distribution."
 msgstr "نارمل تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:717
+#: src/formula/o42-fn-random.c:724
 msgid "A random number from the tail of a normal distribution above a."
 msgstr "a سے اوپر نارمل تقسیم کی دم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:718
+#: src/formula/o42-fn-random.c:725
 msgid "A random number from Pareto's distribution."
 msgstr "پیریٹو کی تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:719
+#: src/formula/o42-fn-random.c:726
 msgid "A random number from Poisson's distribution."
 msgstr "پوآسوں کی تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:720
+#: src/formula/o42-fn-random.c:727
 msgid "A random number from Rayleigh's distribution."
 msgstr "ریلے کی تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:721
+#: src/formula/o42-fn-random.c:728
 msgid "Rayleigh's distribution from a upwards."
 msgstr "a سے اوپر کی طرف ریلے کی تقسیم۔"
 
-#: src/formula/o42-fn-random.c:722 src/formula/o42-fn-random.c:723
+#: src/formula/o42-fn-random.c:729 src/formula/o42-fn-random.c:730
 msgid "A random number from the standard normal distribution."
 msgstr "معیاری نارمل تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:724
+#: src/formula/o42-fn-random.c:731
 msgid "A random number from Student's t distribution."
 msgstr "اسٹوڈنٹ کی t تقسیم سے ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:725
+#: src/formula/o42-fn-random.c:732
 msgid "A random number between the two, evenly."
 msgstr "دونوں کے درمیان یکساں طور پر ایک بے ترتیب عدد۔"
 
-#: src/formula/o42-fn-random.c:726
+#: src/formula/o42-fn-random.c:733
 msgid "A random number from Weibull's distribution."
 msgstr "وائبل کی تقسیم سے ایک بے ترتیب عدد۔"
 
@@ -3380,39 +3385,39 @@ msgstr ""
 "اس سیل کے لیے کیا-اگر ٹیبل کا فارمولا کیا نتیجہ دیتا ہے؛ ڈیٹا > ٹیبل اسے "
 "لکھتا ہے۔"
 
-#: src/formula/o42-fn-text.c:956
+#: src/formula/o42-fn-text.c:1017
 msgid "How many characters a text has; the same as LEN here."
 msgstr "متن میں کتنے حروف ہیں؛ یہاں LEN جیسا۔"
 
-#: src/formula/o42-fn-text.c:957
+#: src/formula/o42-fn-text.c:1018
 msgid "The first characters of a text; the same as LEFT here."
 msgstr "متن کے ابتدائی حروف؛ یہاں LEFT جیسا۔"
 
-#: src/formula/o42-fn-text.c:958
+#: src/formula/o42-fn-text.c:1019
 msgid "The last characters of a text; the same as RIGHT here."
 msgstr "متن کے آخری حروف؛ یہاں RIGHT جیسا۔"
 
-#: src/formula/o42-fn-text.c:959
+#: src/formula/o42-fn-text.c:1020
 msgid "Characters from the middle of a text; the same as MID here."
 msgstr "متن کے درمیان سے حروف؛ یہاں MID جیسا۔"
 
-#: src/formula/o42-fn-text.c:960
+#: src/formula/o42-fn-text.c:1021
 msgid "Where one text starts inside another; the same as FIND here."
 msgstr "ایک متن دوسرے کے اندر کہاں سے شروع ہوتا ہے؛ یہاں FIND جیسا۔"
 
-#: src/formula/o42-fn-text.c:961
+#: src/formula/o42-fn-text.c:1022
 msgid "Where one text starts inside another; the same as SEARCH here."
 msgstr "ایک متن دوسرے کے اندر کہاں سے شروع ہوتا ہے؛ یہاں SEARCH جیسا۔"
 
-#: src/formula/o42-fn-text.c:962
+#: src/formula/o42-fn-text.c:1023
 msgid "Replaces part of a text by position; the same as REPLACE here."
 msgstr "مقام کے لحاظ سے متن کا حصہ بدلتا ہے؛ یہاں REPLACE جیسا۔"
 
-#: src/formula/o42-fn-text.c:963
+#: src/formula/o42-fn-text.c:1024
 msgid "Halfwidth letters, digits and marks made fullwidth."
 msgstr "نصف چوڑائی والے حروف، ہندسے اور علامات پوری چوڑائی میں بدلے ہوئے۔"
 
-#: src/formula/o42-fn-text.c:964
+#: src/formula/o42-fn-text.c:1025
 msgid ""
 "Halfwidth letters, digits and marks made fullwidth; Excel's newer name for "
 "JIS."
@@ -3420,129 +3425,129 @@ msgstr ""
 "نصف چوڑائی والے حروف، ہندسے اور علامات پوری چوڑائی میں بدلے ہوئے؛ JIS کا "
 "Excel میں نیا نام۔"
 
-#: src/formula/o42-fn-text.c:965
+#: src/formula/o42-fn-text.c:1026
 msgid "Fullwidth letters, digits and marks made halfwidth."
 msgstr "پوری چوڑائی والے حروف، ہندسے اور علامات نصف چوڑائی میں بدلے ہوئے۔"
 
-#: src/formula/o42-fn-text.c:966
+#: src/formula/o42-fn-text.c:1027
 msgid "Whether a regular expression matches somewhere in the text."
 msgstr "آیا ریگولر ایکسپریشن متن میں کہیں میچ کرتا ہے۔"
 
-#: src/formula/o42-fn-text.c:967
+#: src/formula/o42-fn-text.c:1028
 msgid ""
 "The text with what a regular expression matches replaced; \\1 for a group."
 msgstr "متن، جس میں ریگولر ایکسپریشن کا میچ بدل دیا گیا ہو؛ گروپ کے لیے \\1۔"
 
-#: src/formula/o42-fn-text.c:968
+#: src/formula/o42-fn-text.c:1029
 msgid "The sum of a subset as a share of the sum of the whole."
 msgstr "کسی ذیلی مجموعے کا مجموعہ، پورے کے مجموعے کے حصے کے طور پر۔"
 
-#: src/formula/o42-fn-text.c:970
+#: src/formula/o42-fn-text.c:1031
 #, no-c-format
 msgid "The text as it goes into a URL, %XX for what is not a letter or digit."
 msgstr "متن جیسا URL میں جاتا ہے، جو حرف یا ہندسہ نہ ہو اس کے لیے %XX۔"
 
-#: src/formula/o42-fn-text.c:971
+#: src/formula/o42-fn-text.c:1032
 msgid "How many columns a range spans."
 msgstr "رینج کتنے کالمز پر پھیلی ہے۔"
 
-#: src/formula/o42-fn-text.c:972
+#: src/formula/o42-fn-text.c:1033
 msgid "Joins pieces of text into one; Excel's newer name for CONCATENATE."
 msgstr "متن کے ٹکڑوں کو ایک میں جوڑتا ہے؛ CONCATENATE کا Excel میں نیا نام۔"
 
-#: src/formula/o42-fn-text.c:973
+#: src/formula/o42-fn-text.c:1034
 msgid "Joins pieces of text into one."
 msgstr "متن کے ٹکڑوں کو ایک میں جوڑتا ہے۔"
 
-#: src/formula/o42-fn-text.c:974
+#: src/formula/o42-fn-text.c:1035
 msgid "Where one text starts inside another; case matters."
 msgstr ""
 "ایک متن دوسرے کے اندر کہاں سے شروع ہوتا ہے؛ بڑے اور چھوٹے حروف میں فرق کیا "
 "جاتا ہے۔"
 
-#: src/formula/o42-fn-text.c:975
+#: src/formula/o42-fn-text.c:1036
 msgid "The first characters of a text."
 msgstr "متن کے ابتدائی حروف۔"
 
-#: src/formula/o42-fn-text.c:976
+#: src/formula/o42-fn-text.c:1037
 msgid "How many characters a text has."
 msgstr "متن میں کتنے حروف ہیں۔"
 
-#: src/formula/o42-fn-text.c:977
+#: src/formula/o42-fn-text.c:1038
 msgid "Text in lower case."
 msgstr "متن چھوٹے حروف میں۔"
 
-#: src/formula/o42-fn-text.c:978
+#: src/formula/o42-fn-text.c:1039
 msgid "Characters from the middle of a text."
 msgstr "متن کے درمیان سے حروف۔"
 
-#: src/formula/o42-fn-text.c:979
+#: src/formula/o42-fn-text.c:1040
 msgid "A text repeated."
 msgstr "دہرایا ہوا متن۔"
 
-#: src/formula/o42-fn-text.c:980
+#: src/formula/o42-fn-text.c:1041
 msgid "The last characters of a text."
 msgstr "متن کے آخری حروف۔"
 
-#: src/formula/o42-fn-text.c:981
+#: src/formula/o42-fn-text.c:1042
 msgid "How many rows a range spans."
 msgstr "رینج کتنی قطاروں پر پھیلی ہے۔"
 
-#: src/formula/o42-fn-text.c:982
+#: src/formula/o42-fn-text.c:1043
 msgid "Replaces old_text with new_text, every time or only the nth."
 msgstr "old_text کو new_text سے بدلتا ہے، ہر بار یا صرف n-ویں بار۔"
 
-#: src/formula/o42-fn-text.c:983
+#: src/formula/o42-fn-text.c:1044
 msgid "Text without spaces at the ends, and one between words."
 msgstr "سروں پر خالی جگہوں کے بغیر متن، اور الفاظ کے درمیان ایک خالی جگہ۔"
 
-#: src/formula/o42-fn-text.c:984
+#: src/formula/o42-fn-text.c:1045
 msgid "Text in upper case."
 msgstr "متن بڑے حروف میں۔"
 
-#: src/formula/o42-fn-text.c:985
+#: src/formula/o42-fn-text.c:1046
 msgid "Text read as a number."
 msgstr "عدد کے طور پر پڑھا گیا متن۔"
 
-#: src/formula/o42-fn-text.c:986
+#: src/formula/o42-fn-text.c:1047
 msgid "The character with a given code."
 msgstr "دیے گئے کوڈ والا حرف۔"
 
-#: src/formula/o42-fn-text.c:987
+#: src/formula/o42-fn-text.c:1048
 msgid "Removes the characters that cannot be printed."
 msgstr "ناقابل طباعت حروف ہٹاتا ہے۔"
 
-#: src/formula/o42-fn-text.c:988
+#: src/formula/o42-fn-text.c:1049
 msgid "The code of the first character."
 msgstr "پہلے حرف کا کوڈ۔"
 
-#: src/formula/o42-fn-text.c:989
+#: src/formula/o42-fn-text.c:1050
 msgid "A number as currency text."
 msgstr "عدد بطور کرنسی متن۔"
 
-#: src/formula/o42-fn-text.c:990
+#: src/formula/o42-fn-text.c:1051
 msgid "TRUE if two texts are identical, case included."
 msgstr "TRUE اگر دو متن یکساں ہوں، بڑے چھوٹے حروف سمیت۔"
 
-#: src/formula/o42-fn-text.c:991
+#: src/formula/o42-fn-text.c:1052
 msgid "A number as text with a fixed number of decimals."
 msgstr "عدد بطور متن، اعشاریہ کے بعد مقررہ ہندسوں کے ساتھ۔"
 
-#: src/formula/o42-fn-text.c:992
+#: src/formula/o42-fn-text.c:1053
 msgid "Text with each word capitalised."
 msgstr "متن جس کا ہر لفظ بڑے حرف سے شروع ہو۔"
 
-#: src/formula/o42-fn-text.c:993
+#: src/formula/o42-fn-text.c:1054
 msgid "Replaces part of a text by position."
 msgstr "مقام کے لحاظ سے متن کا حصہ بدلتا ہے۔"
 
-#: src/formula/o42-fn-text.c:994
+#: src/formula/o42-fn-text.c:1055
 msgid "Where one text starts inside another; case ignored, wildcards allowed."
 msgstr ""
 "ایک متن دوسرے کے اندر کہاں سے شروع ہوتا ہے؛ بڑے چھوٹے حروف نظر انداز، وائلڈ "
 "کارڈز کی اجازت۔"
 
-#: src/formula/o42-fn-text.c:995
+#: src/formula/o42-fn-text.c:1056
 msgid "A number as text in a format such as \"#,##0.00\"."
 msgstr "عدد بطور متن، \"#,##0.00\" جیسے فارمیٹ میں۔"
 
@@ -3555,7 +3560,7 @@ msgstr "عدد بطور متن، \"#,##0.00\" جیسے فارمیٹ میں۔"
 msgid "default:LTR"
 msgstr "default:RTL"
 
-#: src/ui/o42-application.c:664 src/ui/o42-window.c:7461
+#: src/ui/o42-application.c:664 src/ui/o42-window.c:7617
 msgid "Office42 Spreadsheet"
 msgstr "Office42 Spreadsheet"
 
@@ -3577,7 +3582,7 @@ msgstr "کالم %s"
 msgid "(none)"
 msgstr "(کوئی نہیں)"
 
-#: src/ui/o42-dialogs-data.c:125 src/ui/o42-window.c:6772
+#: src/ui/o42-dialogs-data.c:125 src/ui/o42-window.c:6928
 msgid "Sort"
 msgstr "ترتیب دیں"
 
@@ -3610,14 +3615,14 @@ msgstr "میری فہرست میں _ہیڈر قطار ہے"
 #: src/ui/o42-dialogs-tools.c:2799 src/ui/o42-dialogs-tools.c:3099
 #: src/ui/o42-dialogs-tools.c:3181 src/ui/o42-dialogs-tools.c:3426
 #: src/ui/o42-dialogs-tools.c:3488 src/ui/o42-dialogs-tools.c:3829
-#: src/ui/o42-grid.c:4187 src/ui/o42-window.c:877 src/ui/o42-window.c:1095
+#: src/ui/o42-grid.c:4231 src/ui/o42-window.c:877 src/ui/o42-window.c:1095
 #: src/ui/o42-window.c:1173 src/ui/o42-window.c:1601 src/ui/o42-window.c:2488
 #: src/ui/o42-window.c:2752 src/ui/o42-window.c:3042 src/ui/o42-window.c:3140
 #: src/ui/o42-window.c:3628 src/ui/o42-window.c:3674 src/ui/o42-window.c:3749
 #: src/ui/o42-window.c:3825 src/ui/o42-window.c:3987 src/ui/o42-window.c:4147
-#: src/ui/o42-window.c:4433 src/ui/o42-window.c:4543 src/ui/o42-window.c:4876
-#: src/ui/o42-window.c:4997 src/ui/o42-window.c:5364 src/ui/o42-window.c:5646
-#: src/ui/o42-window.c:7471
+#: src/ui/o42-window.c:4452 src/ui/o42-window.c:4562 src/ui/o42-window.c:4895
+#: src/ui/o42-window.c:5016 src/ui/o42-window.c:5383 src/ui/o42-window.c:5668
+#: src/ui/o42-window.c:7627
 msgid "_OK"
 msgstr "_ٹھیک ہے"
 
@@ -3628,20 +3633,21 @@ msgstr "_ٹھیک ہے"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-format.c:459
-#: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
-#: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
-#: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
-#: src/ui/o42-dialogs-tools.c:3182 src/ui/o42-dialogs-tools.c:3427
-#: src/ui/o42-dialogs-tools.c:3489 src/ui/o42-dialogs-tools.c:3830
-#: src/ui/o42-grid.c:4188 src/ui/o42-window.c:878 src/ui/o42-window.c:1096
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1666
+#: src/ui/o42-dialogs-format.c:459 src/ui/o42-dialogs-format.c:674
+#: src/ui/o42-dialogs-format.c:773 src/ui/o42-dialogs-format.c:830
+#: src/ui/o42-dialogs-tools.c:2424 src/ui/o42-dialogs-tools.c:2800
+#: src/ui/o42-dialogs-tools.c:3100 src/ui/o42-dialogs-tools.c:3182
+#: src/ui/o42-dialogs-tools.c:3427 src/ui/o42-dialogs-tools.c:3489
+#: src/ui/o42-dialogs-tools.c:3830 src/ui/o42-grid.c:4232
+#: src/ui/o42-grid.c:5286 src/ui/o42-window.c:878 src/ui/o42-window.c:1096
 #: src/ui/o42-window.c:1174 src/ui/o42-window.c:1602 src/ui/o42-window.c:2489
 #: src/ui/o42-window.c:2753 src/ui/o42-window.c:3043 src/ui/o42-window.c:3141
 #: src/ui/o42-window.c:3630 src/ui/o42-window.c:3674 src/ui/o42-window.c:3750
 #: src/ui/o42-window.c:3826 src/ui/o42-window.c:3988 src/ui/o42-window.c:4148
-#: src/ui/o42-window.c:4434 src/ui/o42-window.c:4544 src/ui/o42-window.c:4877
-#: src/ui/o42-window.c:4998 src/ui/o42-window.c:5365 src/ui/o42-window.c:5647
-#: src/ui/o42-window.c:6257 src/ui/o42-window.c:7472
+#: src/ui/o42-window.c:4453 src/ui/o42-window.c:4563 src/ui/o42-window.c:4896
+#: src/ui/o42-window.c:5017 src/ui/o42-window.c:5384 src/ui/o42-window.c:5669
+#: src/ui/o42-window.c:6412 src/ui/o42-window.c:7628
 msgid "_Cancel"
 msgstr "_منسوخ کریں"
 
@@ -4002,8 +4008,9 @@ msgstr ""
 "بناتا ہے۔"
 
 #: src/ui/o42-dialogs-data.c:1272 src/ui/o42-dialogs-data.c:1382
-#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-format.c:574
-#: src/ui/o42-dialogs-tools.c:307 src/ui/o42-window.c:7019
+#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-file.c:1334
+#: src/ui/o42-dialogs-format.c:574 src/ui/o42-dialogs-tools.c:307
+#: src/ui/o42-window.c:7175
 msgid "Cancel"
 msgstr "منسوخ کریں"
 
@@ -4061,7 +4068,7 @@ msgid "List"
 msgstr "فہرست"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:160 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "تاریخ"
 
@@ -4073,15 +4080,15 @@ msgstr "وقت"
 msgid "Text length"
 msgstr "متن کی لمبائی"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3134
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3178
 msgid "Stop"
 msgstr "رکیں"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3133
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3177
 msgid "Warning"
 msgstr "انتباہ"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3134
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3178
 msgid "Information"
 msgstr "معلومات"
 
@@ -4145,30 +4152,35 @@ msgstr "غلط ڈیٹا _درج ہونے کے بعد خرابی کا انتبا�
 msgid "_Clear"
 msgstr "_صاف کریں"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Comma"
 msgstr "_کاما"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Tab"
 msgstr "_Tab"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Semicolon"
 msgstr "_سیمی کولن"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "S_pace"
 msgstr "_اسپیس"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-format.c:61
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5285
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-format.c:61 src/ui/o42-dialogs-format.c:104
+#: src/ui/o42-window.c:5304
 msgid "General"
 msgstr "عمومی"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-format.c:61
-#: src/ui/o42-window.c:4835
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-format.c:61 src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "متن"
 
@@ -4451,18 +4463,395 @@ msgid "Comments:"
 msgstr "تبصرے:"
 
 #. Properties
-#: src/ui/o42-dialogs-edit.c:705 src/ui/o42-window.c:4830
+#: src/ui/o42-dialogs-edit.c:705 src/ui/o42-window.c:4849
 msgid "Properties"
 msgstr "خصوصیات"
+
+#: src/ui/o42-dialogs-file.c:33
+msgid "Unicode (UTF-8)"
+msgstr "Unicode (UTF-8)"
+
+#: src/ui/o42-dialogs-file.c:34
+msgid "Unicode (UTF-16, little-endian)"
+msgstr "Unicode (UTF-16، لٹل اینڈین)"
+
+#: src/ui/o42-dialogs-file.c:35
+msgid "Unicode (UTF-16, big-endian)"
+msgstr "Unicode (UTF-16، بگ اینڈین)"
+
+#: src/ui/o42-dialogs-file.c:36
+msgid "Windows (ANSI), Western European"
+msgstr "مغربی یورپی (Windows ANSI)"
+
+#: src/ui/o42-dialogs-file.c:37
+msgid "Windows, Central European"
+msgstr "وسطی یورپی (Windows)"
+
+#: src/ui/o42-dialogs-file.c:38
+msgid "Windows, Cyrillic"
+msgstr "سیریلک (Windows)"
+
+#: src/ui/o42-dialogs-file.c:39
+msgid "Windows, Greek"
+msgstr "یونانی (Windows)"
+
+#: src/ui/o42-dialogs-file.c:40
+msgid "Windows, Turkish"
+msgstr "ترکی (Windows)"
+
+#: src/ui/o42-dialogs-file.c:41
+msgid "Windows, Hebrew"
+msgstr "عبرانی (Windows)"
+
+#: src/ui/o42-dialogs-file.c:42
+msgid "Windows, Arabic"
+msgstr "عربی (Windows)"
+
+#: src/ui/o42-dialogs-file.c:43
+msgid "Windows, Baltic"
+msgstr "بالٹک (Windows)"
+
+#: src/ui/o42-dialogs-file.c:44
+msgid "Windows, Vietnamese"
+msgstr "ویتنامی (Windows)"
+
+#: src/ui/o42-dialogs-file.c:45
+msgid "DOS or OS/2 (PC-8)"
+msgstr "DOS یا OS/2 (PC-8)"
+
+#: src/ui/o42-dialogs-file.c:46
+msgid "DOS, Western European (PC-850)"
+msgstr "مغربی یورپی (DOS PC-850)"
+
+#: src/ui/o42-dialogs-file.c:47
+msgid "Macintosh"
+msgstr "Macintosh"
+
+#: src/ui/o42-dialogs-file.c:48
+msgid "ISO 8859-1, Western European"
+msgstr "مغربی یورپی (ISO 8859-1)"
+
+#: src/ui/o42-dialogs-file.c:49
+msgid "ISO 8859-15, Western European with the euro"
+msgstr "یورو کے ساتھ مغربی یورپی (ISO 8859-15)"
+
+#: src/ui/o42-dialogs-file.c:50
+msgid "ISO 8859-2, Central European"
+msgstr "وسطی یورپی (ISO 8859-2)"
+
+#: src/ui/o42-dialogs-file.c:51
+msgid "KOI8-R, Russian"
+msgstr "روسی (KOI8-R)"
+
+#: src/ui/o42-dialogs-file.c:52
+msgid "Japanese (Shift JIS)"
+msgstr "جاپانی (Shift JIS)"
+
+#: src/ui/o42-dialogs-file.c:53
+msgid "Japanese (EUC-JP)"
+msgstr "جاپانی (EUC-JP)"
+
+#: src/ui/o42-dialogs-file.c:54
+msgid "Chinese, Simplified (GB 18030)"
+msgstr "آسان چینی (GB 18030)"
+
+#: src/ui/o42-dialogs-file.c:55
+msgid "Chinese, Traditional (Big5)"
+msgstr "روایتی چینی (Big5)"
+
+#: src/ui/o42-dialogs-file.c:56
+msgid "Korean (EUC-KR)"
+msgstr "کوریائی (EUC-KR)"
+
+#: src/ui/o42-dialogs-file.c:160
+msgid "Skip Column"
+msgstr "کالم چھوڑیں"
+
+#: src/ui/o42-dialogs-file.c:848 src/ui/o42-dialogs-file.c:1316
+msgid "Text Import Wizard - Step 1 of 3"
+msgstr "متن درآمد وزرڈ - مرحلہ 1 از 3"
+
+#: src/ui/o42-dialogs-file.c:849
+msgid "Text Import Wizard - Step 2 of 3"
+msgstr "متن درآمد وزرڈ - مرحلہ 2 از 3"
+
+#: src/ui/o42-dialogs-file.c:850
+msgid "Text Import Wizard - Step 3 of 3"
+msgstr "متن درآمد وزرڈ - مرحلہ 3 از 3"
+
+#: src/ui/o42-dialogs-file.c:914
+msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
+msgstr "شیٹ محفوظ شدہ ہے: پہلے ٹولز > تحفظ > شیٹ کا تحفظ ختم کریں۔"
+
+#: src/ui/o42-dialogs-file.c:921
+msgid "Put the data at a cell, such as A1."
+msgstr "ڈیٹا کسی سیل پر رکھیں، جیسے A1۔"
+
+#: src/ui/o42-dialogs-file.c:987
+msgid ""
+"If this is correct, choose Next, or choose the data type that best describes "
+"your data."
+msgstr ""
+"اگر یہ درست ہے تو “اگلا” پر کلک کریں، ورنہ ڈیٹا کی وہ قسم منتخب کریں جو آپ "
+"کے ڈیٹا کو بہترین طور پر بیان کرتی ہو۔"
+
+#: src/ui/o42-dialogs-file.c:991
+msgid "_Delimited - Characters such as commas or tabs separate each field."
+msgstr "_حد بند - کاما یا ٹیب جیسے حروف ہر فیلڈ کو الگ کرتے ہیں۔"
+
+#: src/ui/o42-dialogs-file.c:993
+msgid ""
+"Fixed _width - Fields are aligned in columns with spaces between each field."
+msgstr ""
+"_مقررہ چوڑائی - فیلڈز کالمز میں سیدھ میں ہیں اور ہر فیلڈ کے درمیان اسپیسز "
+"ہیں۔"
+
+#: src/ui/o42-dialogs-file.c:997
+msgid "Original data type"
+msgstr "اصل ڈیٹا کی قسم"
+
+#: src/ui/o42-dialogs-file.c:1001
+msgid "Start import at _row:"
+msgstr "درآمد اس _قطار سے شروع کریں:"
+
+#: src/ui/o42-dialogs-file.c:1008
+msgid "File _origin:"
+msgstr "_فائل کا ماخذ:"
+
+#: src/ui/o42-dialogs-file.c:1018
+#, c-format
+msgid "Preview of file %s:"
+msgstr "فائل %s کا پیش نظارہ:"
+
+#: src/ui/o42-dialogs-file.c:1036 src/ui/o42-dialogs-file.c:1156
+#: src/ui/o42-dialogs-file.c:1605
+msgid "{none}"
+msgstr "{کوئی نہیں}"
+
+#: src/ui/o42-dialogs-file.c:1045
+msgid ""
+"This screen lets you set the delimiters your data contains. You can see how "
+"your text is affected in the preview below."
+msgstr ""
+"یہ اسکرین آپ کو وہ حد بند مقرر کرنے دیتی ہے جو آپ کے ڈیٹا میں ہیں۔ نیچے پیش "
+"نظارے میں آپ دیکھ سکتے ہیں کہ آپ کا متن کیسے متاثر ہوتا ہے۔"
+
+#: src/ui/o42-dialogs-file.c:1053 src/ui/o42-dialogs-file.c:1560
+msgid "_Other:"
+msgstr "_دیگر:"
+
+#: src/ui/o42-dialogs-file.c:1060
+msgid "Delimiters"
+msgstr "حد بند"
+
+#: src/ui/o42-dialogs-file.c:1063
+msgid "Treat consecutive delimiters as o_ne"
+msgstr "لگاتار حد بندوں کو ایک _شمار کریں"
+
+#: src/ui/o42-dialogs-file.c:1065 src/ui/o42-dialogs-file.c:1600
+msgid "Text _qualifier:"
+msgstr "متن کو گھیرنے والا _نشان:"
+
+#: src/ui/o42-dialogs-file.c:1075 src/ui/o42-dialogs-file.c:1092
+#: src/ui/o42-dialogs-file.c:1258
+msgid "Data preview"
+msgstr "ڈیٹا کا پیش نظارہ"
+
+#: src/ui/o42-dialogs-file.c:1086
+msgid ""
+"This screen lets you set field widths (column breaks). Lines with arrows "
+"signify a column break."
+msgstr ""
+"یہ اسکرین آپ کو فیلڈز کی چوڑائیاں (کالم بریکس) مقرر کرنے دیتی ہے۔ تیر والی "
+"لکیریں کالم بریک ظاہر کرتی ہیں۔"
+
+#: src/ui/o42-dialogs-file.c:1089
+msgid ""
+"To CREATE a break line, click at the desired position.\n"
+"To DELETE a break line, double click on the line.\n"
+"To MOVE a break line, click and drag it."
+msgstr ""
+"بریک لائن بنانے کے لیے، مطلوبہ جگہ پر کلک کریں۔\n"
+"بریک لائن حذف کرنے کے لیے، لائن پر ڈبل کلک کریں۔\n"
+"بریک لائن منتقل کرنے کے لیے، اسے کلک کر کے گھسیٹیں۔"
+
+#: src/ui/o42-dialogs-file.c:1153
+msgid "_Text"
+msgstr "_متن"
+
+#: src/ui/o42-dialogs-file.c:1153
+msgid "_Date:"
+msgstr "_تاریخ:"
+
+#: src/ui/o42-dialogs-file.c:1154
+msgid "Do not _import column (skip)"
+msgstr "کالم _درآمد نہ کریں (چھوڑ دیں)"
+
+#: src/ui/o42-dialogs-file.c:1156
+msgid "space"
+msgstr "اسپیس"
+
+#: src/ui/o42-dialogs-file.c:1167
+msgid ""
+"This screen lets you select each column and set the Data Format. Click a "
+"column in the preview to choose it, Shift+click to choose several."
+msgstr ""
+"یہ اسکرین آپ کو ہر کالم منتخب کر کے اس کا ڈیٹا فارمیٹ مقرر کرنے دیتی ہے۔ "
+"کوئی کالم چننے کے لیے پیش نظارے میں اس پر کلک کریں، کئی کالمز چننے کے لیے "
+"Shift+کلک کریں۔"
+
+#: src/ui/o42-dialogs-file.c:1188
+msgid "Column data format"
+msgstr "کالم ڈیٹا فارمیٹ"
+
+#: src/ui/o42-dialogs-file.c:1191
+msgid ""
+"'General' converts numeric values to numbers, date values to dates, and all "
+"remaining values to text."
+msgstr ""
+"“عمومی” عددی قدروں کو اعداد میں، تاریخ کی قدروں کو تاریخوں میں، اور باقی "
+"تمام قدروں کو متن میں تبدیل کرتا ہے۔"
+
+#: src/ui/o42-dialogs-file.c:1199
+msgid "De_cimal separator:"
+msgstr "اعشاری _فاصل:"
+
+#: src/ui/o42-dialogs-file.c:1205
+msgid "T_housands separator:"
+msgstr "_ہزاروں کا فاصل:"
+
+#: src/ui/o42-dialogs-file.c:1213
+msgid "Trailing _minus for negative numbers"
+msgstr "منفی اعداد کے لیے آخر میں مائنس کا _نشان"
+
+#: src/ui/o42-dialogs-file.c:1227
+msgid "_Advanced"
+msgstr "_اعلیٰ اختیارات"
+
+#: src/ui/o42-dialogs-file.c:1242
+msgid "_Put the data at:"
+msgstr "ڈیٹا یہاں _رکھیں:"
+
+#: src/ui/o42-dialogs-file.c:1289 src/ui/o42-dialogs-file.c:1363
+#: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
+#: src/ui/o42-window.c:6354
+msgid "office42 could not open that file."
+msgstr "office42 وہ فائل نہیں کھول سکا۔"
+
+#: src/ui/o42-dialogs-file.c:1330
+msgid "The Text Wizard has determined that your data is Fixed Width."
+msgstr "متن وزرڈ نے طے کیا ہے کہ آپ کا ڈیٹا مقررہ چوڑائی والا ہے۔"
+
+#: src/ui/o42-dialogs-file.c:1331
+msgid "The Text Wizard has determined that your data is Delimited."
+msgstr "متن وزرڈ نے طے کیا ہے کہ آپ کا ڈیٹا حد بند ہے۔"
+
+#: src/ui/o42-dialogs-file.c:1335
+msgid "< _Back"
+msgstr "< _پیچھے"
+
+#: src/ui/o42-dialogs-file.c:1336
+msgid "_Next >"
+msgstr "ا_گلا >"
+
+#: src/ui/o42-dialogs-file.c:1337
+msgid "_Finish"
+msgstr "_ختم کریں"
+
+#: src/ui/o42-dialogs-file.c:1379 src/ui/o42-window.c:6195
+msgid "Text Files (*.prn, *.txt, *.csv)"
+msgstr "متنی فائلیں (*.prn, *.txt, *.csv)"
+
+#: src/ui/o42-dialogs-file.c:1382 src/ui/o42-window.c:6207
+msgid "All Files"
+msgstr "تمام فائلیں"
+
+#: src/ui/o42-dialogs-file.c:1387
+msgid "Import Text File"
+msgstr "متنی فائل درآمد کریں"
+
+#: src/ui/o42-dialogs-file.c:1432
+msgid "Type the character to put between the fields."
+msgstr "فیلڈز کے درمیان رکھنے کے لیے حرف ٹائپ کریں۔"
+
+#: src/ui/o42-dialogs-file.c:1505
+msgid "Windows (CR LF)"
+msgstr "Windows (CR LF)"
+
+#: src/ui/o42-dialogs-file.c:1505
+msgid "Unix and macOS (LF)"
+msgstr "Unix اور macOS (LF)"
+
+#: src/ui/o42-dialogs-file.c:1533
+#, c-format
+msgid "Save %s as Text"
+msgstr "فائل %s کو بطور متن محفوظ کریں"
+
+#: src/ui/o42-dialogs-file.c:1541
+#, c-format
+msgid ""
+"A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
+"the book keeps the others until it is closed."
+msgstr ""
+"متنی فائل میں ایک ہی شیٹ ہوتی ہے۔ صرف دکھائی جانے والی شیٹ، “%s”، محفوظ کی "
+"جائے گی؛ ورک بک باقی شیٹس کو بند ہونے تک رکھے گی۔"
+
+#: src/ui/o42-dialogs-file.c:1569
+msgid "_Fixed width - the columns padded with spaces"
+msgstr "مقررہ _چوڑائی - کالمز اسپیسز سے پُر کیے گئے"
+
+#: src/ui/o42-dialogs-file.c:1572
+msgid "Between the fields"
+msgstr "فیلڈز کے درمیان"
+
+#: src/ui/o42-dialogs-file.c:1612
+msgid "_Encoding:"
+msgstr "انکو_ڈنگ:"
+
+#: src/ui/o42-dialogs-file.c:1618
+msgid ""
+"With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
+msgstr ""
+"_بائٹ آرڈر مارک کے ساتھ، جیسا کہ Excel کے “CSV UTF-8” اور “Unicode متن” میں "
+"ہوتا ہے"
+
+#: src/ui/o42-dialogs-file.c:1623
+msgid "_Lines end:"
+msgstr "_لائنوں کا اختتام:"
+
+#. A file read with a decimal comma is written with one.
+#: src/ui/o42-dialogs-file.c:1635
+msgid "_Decimal separator:"
+msgstr "اعشاری فا_صل:"
+
+#: src/ui/o42-dialogs-file.c:1639
+msgid "Point (1,234.50)"
+msgstr "نقطہ (1,234.50)"
+
+#: src/ui/o42-dialogs-file.c:1639
+msgid "Comma (1.234,50)"
+msgstr "کاما (1.234,50)"
+
+#: src/ui/o42-dialogs-file.c:1652
+msgid "Save cell contents as _shown"
+msgstr "سیل کا مواد _جیسا دکھائی دے ویسا محفوظ کریں"
+
+#: src/ui/o42-dialogs-file.c:1655
+msgid "Save _formulas rather than what they work out to"
+msgstr "_فارمولے محفوظ کریں، ان کے نتائج نہیں"
+
+#: src/ui/o42-dialogs-file.c:1658
+msgid "_Quote all text cells"
+msgstr "تمام متنی سیلز کو _واوین میں رکھیں"
 
 #. Excel 97's pie-of-pie and bar-of-pie: a pie's last slices shown
 #. * again in a second plot.
 #. In the order of O42TrendKind, so the row is the kind.
 #. In the order of O42ErrBarKind.
 #: src/ui/o42-dialogs-format.c:53 src/ui/o42-dialogs-format.c:312
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4791
-#: src/ui/o42-window.c:5302 src/ui/o42-window.c:5317 src/ui/o42-window.c:5329
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4810
+#: src/ui/o42-window.c:5321 src/ui/o42-window.c:5336 src/ui/o42-window.c:5348
+#: src/ui/o42-window.c:5362
 msgid "None"
 msgstr "کوئی نہیں"
 
@@ -4470,7 +4859,7 @@ msgstr "کوئی نہیں"
 msgid "Thin"
 msgstr "باریک"
 
-#: src/ui/o42-dialogs-format.c:53 src/ui/o42-window.c:4793
+#: src/ui/o42-dialogs-format.c:53 src/ui/o42-window.c:4812
 msgid "Medium"
 msgstr "درمیانہ"
 
@@ -4538,27 +4927,27 @@ msgstr "(1,234.10)"
 msgid "(1,234.10) in red"
 msgstr "(1,234.10) سرخ رنگ میں"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4880
 msgid "Left"
 msgstr "بائیں"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:6847
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:7003
 msgid "Center"
 msgstr "مرکز"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4880
 msgid "Right"
 msgstr "دائیں"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Bottom"
 msgstr "نیچے"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Middle"
 msgstr "درمیان"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Top"
 msgstr "اوپر"
 
@@ -4592,11 +4981,11 @@ msgstr "فارمیٹ کوڈ:"
 msgid "Alignment"
 msgstr "صف بندی"
 
-#: src/ui/o42-dialogs-format.c:358 src/ui/o42-window.c:4865
+#: src/ui/o42-dialogs-format.c:358 src/ui/o42-window.c:4884
 msgid "Horizontal:"
 msgstr "افقی:"
 
-#: src/ui/o42-dialogs-format.c:360 src/ui/o42-window.c:4867
+#: src/ui/o42-dialogs-format.c:360 src/ui/o42-window.c:4886
 msgid "Vertical:"
 msgstr "عمودی:"
 
@@ -4621,7 +5010,7 @@ msgstr "سمت بندی (ڈگری):"
 msgid "Font"
 msgstr "فونٹ"
 
-#: src/ui/o42-dialogs-format.c:376 src/ui/o42-window.c:4845
+#: src/ui/o42-dialogs-format.c:376 src/ui/o42-window.c:4864
 msgid "Font:"
 msgstr "فونٹ:"
 
@@ -4709,41 +5098,41 @@ msgstr "سیل کا سایہ"
 #. * for.
 #. In the order of O42Dash, O42Head and O42HeadSize, so the row is
 #. * the value.
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4764
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4808
 msgid "Solid"
 msgstr "ٹھوس"
 
-#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4765
+#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4784
 #, no-c-format
 msgid "75% grey"
 msgstr "75% سرمئی"
 
-#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4766
+#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4785
 #, no-c-format
 msgid "50% grey"
 msgstr "50% سرمئی"
 
-#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4767
+#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4786
 #, no-c-format
 msgid "25% grey"
 msgstr "25% سرمئی"
 
-#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4768
+#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4787
 #, no-c-format
 msgid "12.5% grey"
 msgstr "12.5% سرمئی"
 
-#: src/ui/o42-dialogs-format.c:446 src/ui/o42-window.c:4769
+#: src/ui/o42-dialogs-format.c:446 src/ui/o42-window.c:4788
 #, no-c-format
 msgid "6.25% grey"
 msgstr "6.25% سرمئی"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4770
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4789
 msgid "Horizontal"
 msgstr "افقی"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4770
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4789
 msgid "Vertical"
 msgstr "عمودی"
 
@@ -4755,19 +5144,19 @@ msgstr "وتری نیچے"
 msgid "Diagonal up"
 msgstr "وتری اوپر"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4790
 msgid "Grid"
 msgstr "گرڈ"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4790
 msgid "Trellis"
 msgstr "جالی"
 
-#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4790
 msgid "Thin horizontal"
 msgstr "باریک افقی"
 
-#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4790
 msgid "Thin vertical"
 msgstr "باریک عمودی"
 
@@ -4779,15 +5168,15 @@ msgstr "باریک وتری نیچے"
 msgid "Thin diagonal up"
 msgstr "باریک وتری اوپر"
 
-#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4772
+#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4791
 msgid "Thin grid"
 msgstr "باریک گرڈ"
 
-#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4772
+#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4791
 msgid "Thin trellis"
 msgstr "باریک جالی"
 
-#: src/ui/o42-dialogs-format.c:452 src/ui/o42-window.c:4779
+#: src/ui/o42-dialogs-format.c:452 src/ui/o42-window.c:4798
 msgid "Pattern:"
 msgstr "پیٹرن:"
 
@@ -4843,11 +5232,11 @@ msgstr "سیل کی قدر"
 msgid "Then show the cell as:"
 msgstr "تو سیل کو یوں دکھائیں:"
 
-#: src/ui/o42-dialogs-format.c:560 src/ui/o42-window.c:4859
+#: src/ui/o42-dialogs-format.c:560 src/ui/o42-window.c:4878
 msgid "Colour:"
 msgstr "رنگ:"
 
-#: src/ui/o42-dialogs-format.c:561 src/ui/o42-window.c:4859
+#: src/ui/o42-dialogs-format.c:561 src/ui/o42-window.c:4878
 msgid "Text Colour"
 msgstr "متن کا رنگ"
 
@@ -4932,7 +5321,7 @@ msgstr "ٹیمپلیٹ سے نیا"
 msgid "A .gnumeric in %s is offered here too."
 msgstr "%s میں موجود .gnumeric فائل بھی یہاں پیش کی جاتی ہے۔"
 
-#: src/ui/o42-dialogs-tools.c:306
+#: src/ui/o42-dialogs-tools.c:306 src/ui/o42-grid.c:5286
 msgid "_Open"
 msgstr "_کھولیں"
 
@@ -5026,11 +5415,6 @@ msgstr "اسکرپٹ نے کہا:"
 msgid "The script failed."
 msgstr "اسکرپٹ ناکام ہو گیا۔"
 
-#: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5842
-#: src/ui/o42-window.c:6199
-msgid "office42 could not open that file."
-msgstr "office42 وہ فائل نہیں کھول سکا۔"
-
 #: src/ui/o42-dialogs-tools.c:645
 msgid "Python scripts (*.py)"
 msgstr "Python اسکرپٹس (*.py)"
@@ -5120,8 +5504,8 @@ msgstr "_سب نظر انداز کریں"
 msgid "The dashed lines are where the pages divide."
 msgstr "ڈیش والی لکیریں وہ جگہیں ہیں جہاں صفحات تقسیم ہوتے ہیں۔"
 
-#: src/ui/o42-dialogs-tools.c:1546 src/ui/o42-window.c:7061
-#: src/ui/o42-window.c:7212 src/ui/o42-window.c:7213
+#: src/ui/o42-dialogs-tools.c:1546 src/ui/o42-window.c:7217
+#: src/ui/o42-window.c:7368 src/ui/o42-window.c:7369
 msgid "Ready"
 msgstr "تیار"
 
@@ -5651,165 +6035,172 @@ msgstr "زوم"
 msgid "Magnification"
 msgstr "تکبیر"
 
-#: src/ui/o42-grid.c:3115
+#: src/ui/o42-grid.c:3159
 msgid "Cannot change part of a data table."
 msgstr "ڈیٹا ٹیبل کا حصہ تبدیل نہیں کیا جا سکتا۔"
 
-#: src/ui/o42-grid.c:3116
+#: src/ui/o42-grid.c:3160
 msgid "Data > Table made these cells; change the edges or the formula instead."
 msgstr ""
 "یہ سیلز ڈیٹا > ٹیبل نے بنائے ہیں؛ اس کے بجائے کنارے یا فارمولا تبدیل کریں۔"
 
-#: src/ui/o42-grid.c:3129
+#: src/ui/o42-grid.c:3173
 msgid "The value is not allowed in this cell."
 msgstr "یہ قدر اس سیل میں قابل اجازت نہیں ہے۔"
 
-#: src/ui/o42-grid.c:3140
+#: src/ui/o42-grid.c:3184
 msgid "_Yes"
 msgstr "_ہاں"
 
-#: src/ui/o42-grid.c:3140
+#: src/ui/o42-grid.c:3184
 msgid "_No"
 msgstr "_نہیں"
 
-#: src/ui/o42-grid.c:3149
+#: src/ui/o42-grid.c:3193
 msgid "Continue?"
 msgstr "جاری رکھیں؟"
 
 #. Translators: the conditions of the Custom AutoFilter dialog, read
 #. * after "Show rows where the column:".
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "equals"
 msgstr "کے برابر ہے"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "does not equal"
 msgstr "کے برابر نہیں ہے"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "is greater than"
 msgstr "سے بڑا ہے"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "is greater than or equal to"
 msgstr "سے بڑا یا برابر ہے"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "is less than"
 msgstr "سے چھوٹا ہے"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "is less than or equal to"
 msgstr "سے چھوٹا یا برابر ہے"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "begins with"
 msgstr "سے شروع ہوتا ہے"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "ends with"
 msgstr "پر ختم ہوتا ہے"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "contains"
 msgstr "پر مشتمل ہے"
 
-#: src/ui/o42-grid.c:4194
+#: src/ui/o42-grid.c:4238
 msgid "Custom AutoFilter"
 msgstr "حسب ضرورت خودکار فلٹر"
 
-#: src/ui/o42-grid.c:4205
+#: src/ui/o42-grid.c:4249
 msgid "Show rows where the column:"
 msgstr "وہ قطاریں دکھائیں جہاں کالم:"
 
-#: src/ui/o42-grid.c:4276
+#: src/ui/o42-grid.c:4320
 msgid "(All)"
 msgstr "(سب)"
 
-#: src/ui/o42-grid.c:4280
+#: src/ui/o42-grid.c:4324
 msgid "(Custom...)"
 msgstr "(حسب ضرورت...)"
 
-#: src/ui/o42-grid.c:7728
+#. Anything else -- a file, a share, a program's own scheme --
+#. * is the file's say-so, and may run something: the user is
+#. * asked first, and shown where it goes.
+#: src/ui/o42-grid.c:5285
+msgid "This link does not go to a web page. Open it anyway?"
+msgstr "یہ لنک کسی ویب صفحے پر نہیں جاتا۔ کیا پھر بھی اسے کھولیں؟"
+
+#: src/ui/o42-grid.c:7786
 #, c-format
 msgid "Page %d"
 msgstr "صفحہ %d"
 
-#: src/ui/o42-grid.c:8181
+#: src/ui/o42-grid.c:8239
 msgid "_Insert Cells..."
 msgstr "_سیلز داخل کریں..."
 
-#: src/ui/o42-grid.c:8182
+#: src/ui/o42-grid.c:8240
 msgid "_Delete Cells..."
 msgstr "سیلز _حذف کریں..."
 
-#: src/ui/o42-grid.c:8183 src/ui/o42-grid.c:8212 src/ui/o42-grid.c:8238
+#: src/ui/o42-grid.c:8241 src/ui/o42-grid.c:8270 src/ui/o42-grid.c:8296
 msgid "Clear Co_ntents"
 msgstr "_مشمولات صاف کریں"
 
-#: src/ui/o42-grid.c:8186 src/ui/o42-grid.c:8216 src/ui/o42-grid.c:8243
+#: src/ui/o42-grid.c:8244 src/ui/o42-grid.c:8274 src/ui/o42-grid.c:8301
 msgid "_Format Cells..."
 msgstr "سیلز _فارمیٹ کریں..."
 
-#: src/ui/o42-grid.c:8187
+#: src/ui/o42-grid.c:8245
 msgid "Insert N_ote..."
 msgstr "_تبصرہ داخل کریں..."
 
-#: src/ui/o42-grid.c:8188
+#: src/ui/o42-grid.c:8246
 msgid "_Hyperlink..."
 msgstr "_ہائپر لنک..."
 
-#: src/ui/o42-grid.c:8210
+#: src/ui/o42-grid.c:8268
 msgid "_Insert Rows"
 msgstr "_قطاریں داخل کریں"
 
-#: src/ui/o42-grid.c:8211
+#: src/ui/o42-grid.c:8269
 msgid "_Delete Rows"
 msgstr "قطاریں _حذف کریں"
 
-#: src/ui/o42-grid.c:8213
+#: src/ui/o42-grid.c:8271
 msgid "Row _Height..."
 msgstr "قطار کی _اونچائی..."
 
-#: src/ui/o42-grid.c:8214 src/ui/o42-grid.c:8241
+#: src/ui/o42-grid.c:8272 src/ui/o42-grid.c:8299
 msgid "H_ide"
 msgstr "چ_ھپائیں"
 
-#: src/ui/o42-grid.c:8236
+#: src/ui/o42-grid.c:8294
 msgid "_Insert Columns"
 msgstr "_کالمز داخل کریں"
 
-#: src/ui/o42-grid.c:8237
+#: src/ui/o42-grid.c:8295
 msgid "_Delete Columns"
 msgstr "کالمز _حذف کریں"
 
-#: src/ui/o42-grid.c:8239
+#: src/ui/o42-grid.c:8297
 msgid "Column _Width..."
 msgstr "کالم کی _چوڑائی..."
 
-#: src/ui/o42-grid.c:8259
+#: src/ui/o42-grid.c:8317
 msgid "Format C_hart..."
 msgstr "_چارٹ فارمیٹ کریں..."
 
-#: src/ui/o42-grid.c:8262
+#: src/ui/o42-grid.c:8320
 msgid "Format Sha_pe..."
 msgstr "_شکل فارمیٹ کریں..."
 
-#: src/ui/o42-grid.c:8263
+#: src/ui/o42-grid.c:8321
 msgid "Format Contro_l..."
 msgstr "_کنٹرول فارمیٹ کریں..."
 
-#: src/ui/o42-grid.c:8266
+#: src/ui/o42-grid.c:8324
 msgid "Format P_icture..."
 msgstr "_تصویر فارمیٹ کریں..."
 
-#: src/ui/o42-grid.c:8268
+#: src/ui/o42-grid.c:8326
 msgid "_Ungroup Objects"
 msgstr "آبجیکٹس کا گروپ _ختم کریں"
 
 #. Translators: the tooltip of a cell with a hyperlink; %s is where
 #. * the link goes, a web address or a cell reference.
-#: src/ui/o42-grid.c:8488
+#: src/ui/o42-grid.c:8546
 #, c-format
 msgid ""
 "%s\n"
@@ -5936,7 +6327,7 @@ msgstr ""
 msgid "Paste Special"
 msgstr "خصوصی چسپاں"
 
-#: src/ui/o42-window.c:864 src/ui/o42-window.c:6762
+#: src/ui/o42-window.c:864 src/ui/o42-window.c:6918
 msgid "Paste"
 msgstr "چسپاں کریں"
 
@@ -6533,7 +6924,7 @@ msgstr "ٹیب کا _رنگ..."
 msgid "_No Tab Colour"
 msgstr "_کوئی ٹیب رنگ نہیں"
 
-#: src/ui/o42-window.c:3609 src/ui/o42-window.c:5642
+#: src/ui/o42-window.c:3609 src/ui/o42-window.c:5664
 msgid "Unhide"
 msgstr "ظاہر کریں"
 
@@ -6662,7 +7053,7 @@ msgstr "ک_نٹور"
 msgid "Chart of %s"
 msgstr "%s کا چارٹ"
 
-#: src/ui/o42-window.c:3937 src/ui/o42-window.c:6773
+#: src/ui/o42-window.c:3937 src/ui/o42-window.c:6929
 msgid "Chart Wizard"
 msgstr "چارٹ وزرڈ"
 
@@ -6731,15 +7122,19 @@ msgstr "صفحہ تبدیلی:"
 msgid "A plain click works the control; Ctrl+click takes hold of it."
 msgstr "سادہ کلک کنٹرول کو چلاتا ہے؛ Ctrl+کلک اسے پکڑ لیتا ہے۔"
 
-#: src/ui/o42-window.c:4165
+#: src/ui/o42-window.c:4167 src/ui/o42-window.c:5953 src/ui/o42-window.c:7919
+msgid "This book has Python scripts in it. They have not been run."
+msgstr "اس ورک بک میں Python اسکرپٹس ہیں۔ انہیں چلایا نہیں گیا۔"
+
+#: src/ui/o42-window.c:4182
 msgid "This button names a script the book has not got."
 msgstr "یہ بٹن ایسے اسکرپٹ کا نام لیتا ہے جو ورک بک میں نہیں ہے۔"
 
-#: src/ui/o42-window.c:4189 src/ui/o42-window.c:4252 src/ui/o42-window.c:4285
+#: src/ui/o42-window.c:4208 src/ui/o42-window.c:4271 src/ui/o42-window.c:4304
 msgid "This build of office42 has no SQLite in it."
 msgstr "office42 کے اس بلڈ میں SQLite نہیں ہے۔"
 
-#: src/ui/o42-window.c:4200
+#: src/ui/o42-window.c:4219
 msgid ""
 "This book has no database: Data > Database > Connect opens one, or Embed New "
 "puts one inside the book."
@@ -6747,47 +7142,47 @@ msgstr ""
 "اس ورک بک میں کوئی ڈیٹا بیس نہیں: ڈیٹا > ڈیٹا بیس > مربوط کریں ایک کھولتا "
 "ہے، یا نیا ڈیٹا بیس شامل کریں ایک ورک بک کے اندر رکھتا ہے۔"
 
-#: src/ui/o42-window.c:4206
+#: src/ui/o42-window.c:4225
 msgid "The database would not open."
 msgstr "ڈیٹا بیس نہیں کھل سکا۔"
 
-#: src/ui/o42-window.c:4257
+#: src/ui/o42-window.c:4276
 msgid "Open Database"
 msgstr "ڈیٹا بیس کھولیں"
 
-#: src/ui/o42-window.c:4260
+#: src/ui/o42-window.c:4279
 msgid "SQLite databases"
 msgstr "SQLite ڈیٹا بیسز"
 
-#: src/ui/o42-window.c:4266
+#: src/ui/o42-window.c:4285
 msgid "All files"
 msgstr "تمام فائلیں"
 
-#: src/ui/o42-window.c:4295
+#: src/ui/o42-window.c:4314
 msgid "There was nowhere to put the database."
 msgstr "ڈیٹا بیس رکھنے کی کوئی جگہ نہیں تھی۔"
 
-#: src/ui/o42-window.c:4347
+#: src/ui/o42-window.c:4366
 msgid "The query failed."
 msgstr "کوئری ناکام ہو گئی۔"
 
-#: src/ui/o42-window.c:4390
+#: src/ui/o42-window.c:4409
 msgid "Get Data"
 msgstr "ڈیٹا حاصل کریں"
 
-#: src/ui/o42-window.c:4392
+#: src/ui/o42-window.c:4411
 msgid "Tables in the database:"
 msgstr "ڈیٹا بیس میں ٹیبلز:"
 
-#: src/ui/o42-window.c:4414
+#: src/ui/o42-window.c:4433
 msgid "Query:"
 msgstr "کوئری:"
 
-#: src/ui/o42-window.c:4426
+#: src/ui/o42-window.c:4445
 msgid "Write the column _names above it"
 msgstr "اس کے اوپر کالمز کے _نام لکھیں"
 
-#: src/ui/o42-window.c:4430
+#: src/ui/o42-window.c:4449
 msgid ""
 "The answer is laid out from the active cell, and Data > Refresh Queries runs "
 "it again."
@@ -6795,44 +7190,44 @@ msgstr ""
 "جواب فعال سیل سے شروع کر کے رکھا جاتا ہے، اور ڈیٹا > کوئریز تازہ کریں اسے "
 "دوبارہ چلاتا ہے۔"
 
-#: src/ui/o42-window.c:4454
+#: src/ui/o42-window.c:4473
 msgid "A query failed."
 msgstr "ایک کوئری ناکام ہو گئی۔"
 
-#: src/ui/o42-window.c:4461
+#: src/ui/o42-window.c:4480
 #, c-format
 msgid "%d query refreshed"
 msgid_plural "%d queries refreshed"
 msgstr[0] "%d کوئری تازہ کی گئی"
 msgstr[1] "%d کوئریز تازہ کی گئیں"
 
-#: src/ui/o42-window.c:4495
+#: src/ui/o42-window.c:4514
 msgid "The rows would not go in."
 msgstr "قطاریں داخل نہیں ہو سکیں۔"
 
 #. Translators: %s is the name of a table in the database.
-#: src/ui/o42-window.c:4502
+#: src/ui/o42-window.c:4521
 #, c-format
 msgid "The selection went into %s"
 msgstr "انتخاب %s میں چلا گیا"
 
-#: src/ui/o42-window.c:4527
+#: src/ui/o42-window.c:4546
 msgid "Send to Table"
 msgstr "ٹیبل میں بھیجیں"
 
-#: src/ui/o42-window.c:4534
+#: src/ui/o42-window.c:4553
 msgid "Table:"
 msgstr "ٹیبل:"
 
-#: src/ui/o42-window.c:4536
+#: src/ui/o42-window.c:4555
 msgid "The first row _names the columns"
 msgstr "پہلی قطار کالمز کے _نام بتاتی ہے"
 
-#: src/ui/o42-window.c:4540
+#: src/ui/o42-window.c:4559
 msgid "The selection is added to the table, which is made if it is not there."
 msgstr "انتخاب ٹیبل میں شامل کیا جاتا ہے، جو موجود نہ ہو تو بنا دیا جاتا ہے۔"
 
-#: src/ui/o42-window.c:4569
+#: src/ui/o42-window.c:4588
 msgid ""
 "Click the points of the freeform; double-click the last, or click the first "
 "again to close it."
@@ -6840,296 +7235,296 @@ msgstr ""
 "آزاد شکل کے نقاط پر کلک کریں؛ آخری پر ڈبل کلک کریں، یا اسے بند کرنے کے لیے "
 "پہلے پر دوبارہ کلک کریں۔"
 
-#: src/ui/o42-window.c:4606
+#: src/ui/o42-window.c:4625
 msgid ""
 "Click a picture, shape or chart first; Format > Order moves the selected one."
 msgstr ""
 "پہلے کسی تصویر، شکل یا چارٹ پر کلک کریں؛ فارمیٹ > ترتیب منتخب آبجیکٹ کو "
 "منتقل کرتا ہے۔"
 
-#: src/ui/o42-window.c:4619
+#: src/ui/o42-window.c:4638
 msgid "_Move and size with cells"
 msgstr "سیلز کے ساتھ _منتقل اور سائز تبدیل کریں"
 
-#: src/ui/o42-window.c:4619
+#: src/ui/o42-window.c:4638
 msgid "Move but _don't size with cells"
 msgstr "منتقل کریں لیکن سیلز کے ساتھ سائز _نہ بدلیں"
 
-#: src/ui/o42-window.c:4620
+#: src/ui/o42-window.c:4639
 msgid "Don't move or si_ze with cells"
 msgstr "سیلز کے ساتھ نہ منتقل کریں نہ _سائز بدلیں"
 
-#: src/ui/o42-window.c:4742
+#: src/ui/o42-window.c:4761
 msgid "Click a shape first; Format > Shape works on the selected one."
 msgstr "پہلے کسی شکل پر کلک کریں؛ فارمیٹ > شکل منتخب شکل پر کام کرتا ہے۔"
 
-#: src/ui/o42-window.c:4750
+#: src/ui/o42-window.c:4769
 msgid "Format Shape"
 msgstr "شکل فارمیٹ کریں"
 
 #. Colors and Lines
-#: src/ui/o42-window.c:4755
+#: src/ui/o42-window.c:4774
 msgid "Colors and Lines"
 msgstr "رنگ اور لکیریں"
 
-#: src/ui/o42-window.c:4756
+#: src/ui/o42-window.c:4775
 msgid "Fill:"
 msgstr "بھرائی:"
 
-#: src/ui/o42-window.c:4756
+#: src/ui/o42-window.c:4775
 msgid "Shape Fill"
 msgstr "شکل کی بھرائی"
 
-#: src/ui/o42-window.c:4757
+#: src/ui/o42-window.c:4776
 msgid "_No fill"
 msgstr "_کوئی بھرائی نہیں"
 
-#: src/ui/o42-window.c:4764
+#: src/ui/o42-window.c:4783
 msgid "Gradient"
 msgstr "گریڈیئنٹ"
 
-#: src/ui/o42-window.c:4764
+#: src/ui/o42-window.c:4783
 msgid "Pattern"
 msgstr "پیٹرن"
 
-#: src/ui/o42-window.c:4770
+#: src/ui/o42-window.c:4789
 msgid "Down diagonal"
 msgstr "وتری نیچے"
 
-#: src/ui/o42-window.c:4770
+#: src/ui/o42-window.c:4789
 msgid "Up diagonal"
 msgstr "وتری اوپر"
 
-#: src/ui/o42-window.c:4772
+#: src/ui/o42-window.c:4791
 msgid "Thin down diagonal"
 msgstr "باریک وتری نیچے"
 
-#: src/ui/o42-window.c:4772
+#: src/ui/o42-window.c:4791
 msgid "Thin up diagonal"
 msgstr "باریک وتری اوپر"
 
-#: src/ui/o42-window.c:4774
+#: src/ui/o42-window.c:4793
 msgid "Fill style:"
 msgstr "بھرائی کا انداز:"
 
-#: src/ui/o42-window.c:4776
+#: src/ui/o42-window.c:4795
 msgid "Second colour:"
 msgstr "دوسرا رنگ:"
 
-#: src/ui/o42-window.c:4776
+#: src/ui/o42-window.c:4795
 msgid "Gradient End or Pattern Colour"
 msgstr "گریڈیئنٹ کا آخری یا پیٹرن کا رنگ"
 
-#: src/ui/o42-window.c:4777
+#: src/ui/o42-window.c:4796
 msgid "Gradient angle:"
 msgstr "گریڈیئنٹ کا زاویہ:"
 
-#: src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4802
 msgid "Line:"
 msgstr "لکیر:"
 
-#: src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4802
 msgid "Shape Line"
 msgstr "شکل کی لکیر"
 
-#: src/ui/o42-window.c:4784
+#: src/ui/o42-window.c:4803
 msgid "Line width:"
 msgstr "لکیر کی چوڑائی:"
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dash"
 msgstr "ڈیش"
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dot"
 msgstr "نقطہ"
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dash dot"
 msgstr "ڈیش نقطہ"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Long dash"
 msgstr "لمبا ڈیش"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Short dash"
 msgstr "چھوٹا ڈیش"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Short dot"
 msgstr "چھوٹا نقطہ"
 
-#: src/ui/o42-window.c:4791 src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:4810 src/ui/o42-window.c:5363
 msgid "Triangle"
 msgstr "مثلث"
 
-#: src/ui/o42-window.c:4791
+#: src/ui/o42-window.c:4810
 msgid "Stealth"
 msgstr "اسٹیلتھ"
 
-#: src/ui/o42-window.c:4791 src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:4810 src/ui/o42-window.c:5363
 msgid "Diamond"
 msgstr "معین"
 
-#: src/ui/o42-window.c:4792
+#: src/ui/o42-window.c:4811
 msgid "Oval"
 msgstr "بیضوی"
 
-#: src/ui/o42-window.c:4792
+#: src/ui/o42-window.c:4811
 msgid "Open arrow"
 msgstr "کھلا تیر"
 
-#: src/ui/o42-window.c:4793
+#: src/ui/o42-window.c:4812
 msgid "Small"
 msgstr "چھوٹا"
 
-#: src/ui/o42-window.c:4793
+#: src/ui/o42-window.c:4812
 msgid "Large"
 msgstr "بڑا"
 
-#: src/ui/o42-window.c:4795
+#: src/ui/o42-window.c:4814
 msgid "Dash:"
 msgstr "ڈیش:"
 
-#: src/ui/o42-window.c:4799
+#: src/ui/o42-window.c:4818
 msgid "Begin arrow:"
 msgstr "آغاز کا تیر:"
 
-#: src/ui/o42-window.c:4801
+#: src/ui/o42-window.c:4820
 msgid "Begin size:"
 msgstr "آغاز کا سائز:"
 
-#: src/ui/o42-window.c:4803
+#: src/ui/o42-window.c:4822
 msgid "End arrow:"
 msgstr "اختتام کا تیر:"
 
-#: src/ui/o42-window.c:4805
+#: src/ui/o42-window.c:4824
 msgid "End size:"
 msgstr "اختتام کا سائز:"
 
-#: src/ui/o42-window.c:4809
+#: src/ui/o42-window.c:4828
 msgid "_Shadow"
 msgstr "_پرچھائیں"
 
-#: src/ui/o42-window.c:4812
+#: src/ui/o42-window.c:4831
 msgid "Shadow colour:"
 msgstr "پرچھائیں کا رنگ:"
 
-#: src/ui/o42-window.c:4812
+#: src/ui/o42-window.c:4831
 msgid "Shadow Colour"
 msgstr "پرچھائیں کا رنگ"
 
-#: src/ui/o42-window.c:4813
+#: src/ui/o42-window.c:4832
 msgid "Shadow offset across:"
 msgstr "پرچھائیں کا افقی فاصلہ:"
 
-#: src/ui/o42-window.c:4815
+#: src/ui/o42-window.c:4834
 msgid "Shadow offset down:"
 msgstr "پرچھائیں کا عمودی فاصلہ:"
 
 #. Size
-#: src/ui/o42-window.c:4819
+#: src/ui/o42-window.c:4838
 msgid "Size"
 msgstr "سائز"
 
-#: src/ui/o42-window.c:4820 src/ui/o42-window.c:4961
+#: src/ui/o42-window.c:4839 src/ui/o42-window.c:4980
 msgid "Rotation (degrees):"
 msgstr "گردش (ڈگری):"
 
-#: src/ui/o42-window.c:4822 src/ui/o42-window.c:4988
+#: src/ui/o42-window.c:4841 src/ui/o42-window.c:5007
 msgid "Flip _horizontal"
 msgstr "_افقی الٹیں"
 
-#: src/ui/o42-window.c:4825 src/ui/o42-window.c:4991
+#: src/ui/o42-window.c:4844 src/ui/o42-window.c:5010
 msgid "Flip _vertical"
 msgstr "_عمودی الٹیں"
 
-#: src/ui/o42-window.c:4831 src/ui/o42-window.c:4994
+#: src/ui/o42-window.c:4850 src/ui/o42-window.c:5013
 msgid "Object positioning:"
 msgstr "آبجیکٹ کی جگہ بندی:"
 
-#: src/ui/o42-window.c:4847
+#: src/ui/o42-window.c:4866
 msgid "Size (points):"
 msgstr "سائز (پوائنٹس):"
 
-#: src/ui/o42-window.c:4857
+#: src/ui/o42-window.c:4876
 msgid "Style:"
 msgstr "انداز:"
 
-#: src/ui/o42-window.c:4861
+#: src/ui/o42-window.c:4880
 msgid "As the shape has it"
 msgstr "جیسے شکل میں ہے"
 
-#: src/ui/o42-window.c:4861
+#: src/ui/o42-window.c:4880
 msgid "Centre"
 msgstr "مرکز"
 
-#: src/ui/o42-window.c:4870
+#: src/ui/o42-window.c:4889
 msgid "_Wrap text in the shape"
 msgstr "شکل میں متن _لپیٹیں"
 
-#: src/ui/o42-window.c:4873
+#: src/ui/o42-window.c:4892
 msgid "Internal margin (pixels):"
 msgstr "اندرونی حاشیہ (پکسلز):"
 
-#: src/ui/o42-window.c:4945
+#: src/ui/o42-window.c:4964
 msgid "Click a picture first; Format > Picture works on the selected one."
 msgstr "پہلے کسی تصویر پر کلک کریں؛ فارمیٹ > تصویر منتخب تصویر پر کام کرتا ہے۔"
 
-#: src/ui/o42-window.c:4952
+#: src/ui/o42-window.c:4971
 msgid "Format Picture"
 msgstr "تصویر فارمیٹ کریں"
 
-#: src/ui/o42-window.c:4957
+#: src/ui/o42-window.c:4976
 msgid "Width (pixels):"
 msgstr "چوڑائی (پکسلز):"
 
-#: src/ui/o42-window.c:4959
+#: src/ui/o42-window.c:4978
 msgid "Height (pixels):"
 msgstr "اونچائی (پکسلز):"
 
 #. The crop, as Excel's Picture tab has it: how much of each side
 #. * is cut away.
-#: src/ui/o42-window.c:4966
+#: src/ui/o42-window.c:4985
 msgid "Crop left (%):"
 msgstr "بائیں سے کاٹیں (%):"
 
-#: src/ui/o42-window.c:4966
+#: src/ui/o42-window.c:4985
 msgid "Crop top (%):"
 msgstr "اوپر سے کاٹیں (%):"
 
-#: src/ui/o42-window.c:4967
+#: src/ui/o42-window.c:4986
 msgid "Crop right (%):"
 msgstr "دائیں سے کاٹیں (%):"
 
-#: src/ui/o42-window.c:4967
+#: src/ui/o42-window.c:4986
 msgid "Crop bottom (%):"
 msgstr "نیچے سے کاٹیں (%):"
 
 #. Excel's picture toolbar: More and Less Brightness, More and Less
 #. * Contrast, as two sliders.
-#: src/ui/o42-window.c:4977
+#: src/ui/o42-window.c:4996
 msgid "Brightness (%):"
 msgstr "چمک (%):"
 
-#: src/ui/o42-window.c:4980
+#: src/ui/o42-window.c:4999
 msgid "Contrast (%):"
 msgstr "کنٹراسٹ (%):"
 
-#: src/ui/o42-window.c:4985
+#: src/ui/o42-window.c:5004
 msgid "_Lock aspect ratio"
 msgstr "تناسب _مقفل کریں"
 
-#: src/ui/o42-window.c:5129
+#: src/ui/o42-window.c:5148
 msgid "Style"
 msgstr "انداز"
 
-#: src/ui/o42-window.c:5141
+#: src/ui/o42-window.c:5160
 msgid "Style name:"
 msgstr "انداز کا نام:"
 
-#: src/ui/o42-window.c:5149
+#: src/ui/o42-window.c:5168
 msgid ""
 "Define takes the active cell's formatting; redefining a style restyles every "
 "cell wearing it."
@@ -7137,214 +7532,210 @@ msgstr ""
 "\"متعین کریں\" فعال سیل کی فارمیٹنگ لیتا ہے؛ کسی انداز کو دوبارہ متعین کرنے "
 "سے اسے استعمال کرنے والے ہر سیل کا انداز بدل جاتا ہے۔"
 
-#: src/ui/o42-window.c:5165
+#: src/ui/o42-window.c:5184
 msgid "_Define"
 msgstr "_متعین کریں"
 
-#: src/ui/o42-window.c:5166
+#: src/ui/o42-window.c:5185
 msgid "De_lete"
 msgstr "_حذف کریں"
 
-#: src/ui/o42-window.c:5167
+#: src/ui/o42-window.c:5186
 msgid "_Apply"
 msgstr "_لاگو کریں"
 
-#: src/ui/o42-window.c:5257
+#: src/ui/o42-window.c:5276
 msgid "Click a chart first; Format > Chart works on the selected chart."
 msgstr "پہلے کسی چارٹ پر کلک کریں؛ فارمیٹ > چارٹ منتخب چارٹ پر کام کرتا ہے۔"
 
-#: src/ui/o42-window.c:5264
+#: src/ui/o42-window.c:5283
 msgid "Format Chart"
 msgstr "چارٹ فارمیٹ کریں"
 
-#: src/ui/o42-window.c:5268
+#: src/ui/o42-window.c:5287
 msgid "Chart title:"
 msgstr "چارٹ کا عنوان:"
 
-#: src/ui/o42-window.c:5269
+#: src/ui/o42-window.c:5288
 msgid "Category (X) axis title:"
 msgstr "زمرہ (X) محور کا عنوان:"
 
-#: src/ui/o42-window.c:5270
+#: src/ui/o42-window.c:5289
 msgid "Value (Y) axis title:"
 msgstr "قدر (Y) محور کا عنوان:"
 
-#: src/ui/o42-window.c:5271
+#: src/ui/o42-window.c:5290
 msgid "Value axis minimum:"
 msgstr "قدر محور کی کم از کم حد:"
 
-#: src/ui/o42-window.c:5272
+#: src/ui/o42-window.c:5291
 msgid "Value axis maximum:"
 msgstr "قدر محور کی زیادہ سے زیادہ حد:"
 
-#: src/ui/o42-window.c:5273
+#: src/ui/o42-window.c:5292
 msgid "Value axis format:"
 msgstr "قدر محور کا فارمیٹ:"
 
-#: src/ui/o42-window.c:5274
+#: src/ui/o42-window.c:5293
 msgid "Second axis from series:"
 msgstr "اس سلسلے سے دوسرا محور:"
 
-#: src/ui/o42-window.c:5280 src/ui/o42-window.c:5281
+#: src/ui/o42-window.c:5299 src/ui/o42-window.c:5300
 msgid "automatic"
 msgstr "خودکار"
 
-#: src/ui/o42-window.c:5287
+#: src/ui/o42-window.c:5306
 msgid "Show _legend"
 msgstr "_لیجنڈ دکھائیں"
 
-#: src/ui/o42-window.c:5290
+#: src/ui/o42-window.c:5309
 msgid "Show _gridlines"
 msgstr "_گرڈ لائنز دکھائیں"
 
-#: src/ui/o42-window.c:5293
+#: src/ui/o42-window.c:5312
 msgid "Show _data labels"
 msgstr "_ڈیٹا لیبلز دکھائیں"
 
-#: src/ui/o42-window.c:5296
+#: src/ui/o42-window.c:5315
 msgid "Draw in three _dimensions"
 msgstr "تین _جہتوں میں بنائیں"
 
-#: src/ui/o42-window.c:5302
+#: src/ui/o42-window.c:5321
 msgid "A second pie"
 msgstr "دوسری پائی"
 
-#: src/ui/o42-window.c:5302
+#: src/ui/o42-window.c:5321
 msgid "A bar"
 msgstr "ایک بار"
 
-#: src/ui/o42-window.c:5305
+#: src/ui/o42-window.c:5324
 msgid "Second plot for a pie's last slices:"
 msgstr "پائی کے آخری ٹکڑوں کے لیے دوسرا پلاٹ:"
 
-#: src/ui/o42-window.c:5312
+#: src/ui/o42-window.c:5331
 msgid "slices"
 msgstr "ٹکڑے"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Linear"
 msgstr "خطی"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Polynomial"
 msgstr "کثیر رقمی"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Exponential"
 msgstr "قوت نمائی"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Logarithmic"
 msgstr "لوگارتھمی"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Power"
 msgstr "طاقتی"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Moving average"
 msgstr "متحرک اوسط"
 
-#: src/ui/o42-window.c:5320
+#: src/ui/o42-window.c:5339
 msgid "Trendline:"
 msgstr "رجحان کی لکیر:"
 
-#: src/ui/o42-window.c:5322
+#: src/ui/o42-window.c:5341
 msgid "Order or period:"
 msgstr "درجہ یا مدت:"
 
-#: src/ui/o42-window.c:5329
+#: src/ui/o42-window.c:5348
 msgid "Fixed value"
 msgstr "مقررہ قدر"
 
-#: src/ui/o42-window.c:5329
+#: src/ui/o42-window.c:5348
 msgid "Percentage"
 msgstr "فیصد"
 
-#: src/ui/o42-window.c:5330
+#: src/ui/o42-window.c:5349
 msgid "Standard deviations"
 msgstr "معیاری انحرافات"
 
-#: src/ui/o42-window.c:5330
+#: src/ui/o42-window.c:5349
 msgid "Standard error"
 msgstr "معیاری خرابی"
 
-#: src/ui/o42-window.c:5333
+#: src/ui/o42-window.c:5352
 msgid "Error bars:"
 msgstr "خرابی بارز:"
 
-#: src/ui/o42-window.c:5335
+#: src/ui/o42-window.c:5354
 msgid "Error bar amount:"
 msgstr "خرابی بار کی مقدار:"
 
 #. In the order of O42MarkerKind, so the row is the kind.  The
 #. * picture is named by its number, which "Insert > Picture" gives it
 #. * and office42-calc's "pictures" prints.
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Automatic"
 msgstr "خودکار"
 
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Circle"
 msgstr "دائرہ"
 
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Square"
 msgstr "مربع"
 
-#: src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:5363
 msgid "Plus"
 msgstr "جمع"
 
-#: src/ui/o42-window.c:5345
+#: src/ui/o42-window.c:5364
 msgid "Star"
 msgstr "ستارہ"
 
-#: src/ui/o42-window.c:5345
+#: src/ui/o42-window.c:5364
 msgid "Picture"
 msgstr "تصویر"
 
-#: src/ui/o42-window.c:5347
+#: src/ui/o42-window.c:5366
 msgid "Point marker:"
 msgstr "نقطے کا نشان:"
 
-#: src/ui/o42-window.c:5349
+#: src/ui/o42-window.c:5368
 msgid "Marker size:"
 msgstr "نشان کا سائز:"
 
-#: src/ui/o42-window.c:5352
+#: src/ui/o42-window.c:5371
 msgid "Picture number:"
 msgstr "تصویر نمبر:"
 
-#: src/ui/o42-window.c:5356
+#: src/ui/o42-window.c:5375
 msgid "Text font:"
 msgstr "متن کا فونٹ:"
 
-#: src/ui/o42-window.c:5357
+#: src/ui/o42-window.c:5376
 msgid "Sans"
 msgstr "Sans"
 
-#: src/ui/o42-window.c:5360
+#: src/ui/o42-window.c:5379
 msgid "Text size:"
 msgstr "متن کا سائز:"
 
-#: src/ui/o42-window.c:5577
+#: src/ui/o42-window.c:5599
 msgid "This is the only window on show; open another before hiding it."
 msgstr "یہی واحد ظاہر ونڈو ہے؛ اسے چھپانے سے پہلے کوئی اور کھولیں۔"
 
-#: src/ui/o42-window.c:5637
+#: src/ui/o42-window.c:5659
 msgid "No window is hidden."
 msgstr "کوئی ونڈو پوشیدہ نہیں ہے۔"
 
-#: src/ui/o42-window.c:5643
+#: src/ui/o42-window.c:5665
 msgid "Unhide window:"
 msgstr "ونڈو ظاہر کریں:"
 
-#: src/ui/o42-window.c:5871 src/ui/o42-window.c:7762
-msgid "This book has Python scripts in it. They have not been run."
-msgstr "اس ورک بک میں Python اسکرپٹس ہیں۔ انہیں چلایا نہیں گیا۔"
-
-#: src/ui/o42-window.c:5872
+#: src/ui/o42-window.c:5954
 msgid ""
 "This book has Visual Basic macros, which office42 does not run; they are "
 "kept for Excel when it is saved as .xlsm."
@@ -7352,11 +7743,11 @@ msgstr ""
 "اس ورک بک میں Visual Basic میکروز ہیں، جنہیں office42 نہیں چلاتا؛ .xlsm کے "
 "طور پر محفوظ کرنے پر وہ Excel کے لیے برقرار رکھے جاتے ہیں۔"
 
-#: src/ui/o42-window.c:5949 src/ui/o42-window.c:6125
+#: src/ui/o42-window.c:6064 src/ui/o42-window.c:6270
 msgid "office42 could not save the file."
 msgstr "office42 فائل محفوظ نہیں کر سکا۔"
 
-#: src/ui/o42-window.c:5960
+#: src/ui/o42-window.c:6075
 #, c-format
 msgid ""
 "%d cell lies beyond the 1,048,576 rows this kind of file can hold, and was "
@@ -7371,7 +7762,7 @@ msgstr[1] ""
 "%d سیلز ان 1,048,576 قطاروں سے باہر ہیں جو اس قسم کی فائل رکھ سکتی ہے، اور "
 "لکھے نہیں گئے۔ انہیں رکھنے کے لیے .gnumeric کے طور پر محفوظ کریں۔"
 
-#: src/ui/o42-window.c:5974
+#: src/ui/o42-window.c:6089
 #, c-format
 msgid ""
 "%d cell lies outside the 65,536 rows by 256 columns an .xls file can hold, "
@@ -7387,81 +7778,95 @@ msgstr[1] ""
 "اور لکھے نہیں گئے۔ انہیں رکھنے کے لیے .xlsx یا .gnumeric کے طور پر محفوظ "
 "کریں۔"
 
-#: src/ui/o42-window.c:6025
+#: src/ui/o42-window.c:6102
+msgid ""
+"Some characters have no place in the encoding this text file is written in, "
+"and were saved as question marks. Save As lets you choose Unicode (UTF-8), "
+"which holds every one."
+msgstr ""
+"کچھ حروف کی اس انکوڈنگ میں کوئی جگہ نہیں جس میں یہ متنی فائل لکھی گئی ہے، اس "
+"لیے وہ سوالیہ نشانات کے طور پر محفوظ کیے گئے۔ “بطور محفوظ کریں” آپ کو "
+"Unicode (UTF-8) منتخب کرنے دیتا ہے، جس میں تمام حروف سما جاتے ہیں۔"
+
+#: src/ui/o42-window.c:6153
 msgid "Excel Files (*.xlsx, *.xlsm, *.xls)"
 msgstr "Excel فائلیں (*.xlsx, *.xlsm, *.xls)"
 
-#: src/ui/o42-window.c:6037
+#: src/ui/o42-window.c:6165
 msgid "All Spreadsheets"
 msgstr "تمام اسپریڈشیٹس"
 
-#: src/ui/o42-window.c:6056
+#: src/ui/o42-window.c:6184
 msgid "Excel Workbooks (*.xlsx)"
 msgstr "Excel ورک بکس (*.xlsx)"
 
-#: src/ui/o42-window.c:6057
+#: src/ui/o42-window.c:6185
 msgid "Excel Macro-Enabled Workbooks (*.xlsm)"
 msgstr "Excel میکرو فعال ورک بکس (*.xlsm)"
 
-#: src/ui/o42-window.c:6058
+#: src/ui/o42-window.c:6186
 msgid "Excel 97-2003 Workbooks (*.xls)"
 msgstr "Excel 97-2003 ورک بکس (*.xls)"
 
-#: src/ui/o42-window.c:6060
+#: src/ui/o42-window.c:6188
 msgid "Gnumeric Spreadsheets (*.gnumeric)"
 msgstr "Gnumeric اسپریڈشیٹس (*.gnumeric)"
 
-#: src/ui/o42-window.c:6061
+#: src/ui/o42-window.c:6189
 msgid "OpenDocument Spreadsheets (*.ods, *.fods)"
 msgstr "OpenDocument اسپریڈشیٹس (*.ods, *.fods)"
 
-#: src/ui/o42-window.c:6062
+#: src/ui/o42-window.c:6190
 msgid "Web Pages (*.html)"
 msgstr "ویب صفحات (*.html)"
 
-#: src/ui/o42-window.c:6063
-msgid "Comma-Separated Values (*.csv)"
-msgstr "کاما سے الگ قدریں (*.csv)"
+#: src/ui/o42-window.c:6199
+msgid "CSV (Comma Delimited) (*.csv)"
+msgstr "CSV (کاما سے حد بند) (*.csv)"
 
-#: src/ui/o42-window.c:6064
+#: src/ui/o42-window.c:6200
+msgid "Text (Tab Delimited) (*.txt)"
+msgstr "متن (ٹیب سے حد بند) (*.txt)"
+
+#: src/ui/o42-window.c:6201
+msgid "Formatted Text (Space Delimited) (*.prn)"
+msgstr "فارمیٹ شدہ متن (اسپیس سے حد بند) (*.prn)"
+
+#: src/ui/o42-window.c:6203
 msgid "Data Interchange Format (*.dif)"
 msgstr "ڈیٹا انٹرچینج فارمیٹ (*.dif)"
 
-#: src/ui/o42-window.c:6066
+#: src/ui/o42-window.c:6205
 msgid "LaTeX Tables (*.tex)"
 msgstr "LaTeX ٹیبلز (*.tex)"
 
-#: src/ui/o42-window.c:6067
+#: src/ui/o42-window.c:6206
 msgid "Lotus 1-2-3 Worksheets (*.wk1)"
 msgstr "Lotus 1-2-3 ورک شیٹس (*.wk1)"
 
-#: src/ui/o42-window.c:6068
-msgid "All Files"
-msgstr "تمام فائلیں"
-
-#: src/ui/o42-window.c:6141
+#: src/ui/o42-window.c:6286
 msgid "Save As"
 msgstr "بطور محفوظ کریں"
 
-#: src/ui/o42-window.c:6214 src/ui/o42-window.c:6755
+#: src/ui/o42-window.c:6369 src/ui/o42-window.c:6911
 msgid "Open"
 msgstr "کھولیں"
 
-#: src/ui/o42-window.c:6257
+#: src/ui/o42-window.c:6412
 msgid "Do_n't Save"
 msgstr "محفوظ _نہ کریں"
 
 #. Translators: %s is the book's file name, such as Book1.
-#: src/ui/o42-window.c:6290
+#: src/ui/o42-window.c:6445
 #, c-format
 msgid "Save changes to %s?"
 msgstr "کیا %s میں تبدیلیاں محفوظ کریں؟"
 
-#: src/ui/o42-window.c:6293
+#: src/ui/o42-window.c:6448
 msgid "Your changes will be lost if you don't save them."
 msgstr "اگر آپ نے تبدیلیاں محفوظ نہ کیں تو وہ ضائع ہو جائیں گی۔"
 
-#: src/ui/o42-window.c:6442
+#: src/ui/o42-window.c:6597
 msgid ""
 "Also known as Numbers42.\n"
 "A spreadsheet in the shape of Excel 97, at parity with its features and "
@@ -7473,114 +7878,113 @@ msgstr ""
 "Gnumeric کے برابر ہے، C میں GTK 4، Pango اور Cairo پر لکھی گئی۔\n"
 "ماخذ: github.com/office-42/office42"
 
-#: src/ui/o42-window.c:6754
+#: src/ui/o42-window.c:6910
 msgid "New"
 msgstr "نیا"
 
-#: src/ui/o42-window.c:6756
+#: src/ui/o42-window.c:6912
 msgid "Save"
 msgstr "محفوظ کریں"
 
-#: src/ui/o42-window.c:6758
+#: src/ui/o42-window.c:6914
 msgid "Print"
 msgstr "پرنٹ کریں"
 
-#: src/ui/o42-window.c:6760
+#: src/ui/o42-window.c:6916
 msgid "Cut"
 msgstr "کاٹیں"
 
-#: src/ui/o42-window.c:6761
+#: src/ui/o42-window.c:6917
 msgid "Copy"
 msgstr "کاپی کریں"
 
-#: src/ui/o42-window.c:6764
+#: src/ui/o42-window.c:6920
 msgid "Undo"
 msgstr "کالعدم کریں"
 
-#: src/ui/o42-window.c:6765
+#: src/ui/o42-window.c:6921
 msgid "Redo"
 msgstr "دوبارہ کریں"
 
 #. The sigma and the fx are letters, not pictures; Excel 97 drew them as
 #. * letters too.  They stay set in type.
-#: src/ui/o42-window.c:6769
+#: src/ui/o42-window.c:6925
 msgid "AutoSum"
 msgstr "خودکار جمع"
 
-#: src/ui/o42-window.c:6770
+#: src/ui/o42-window.c:6926
 msgid "Function Wizard"
 msgstr "فنکشن وزرڈ"
 
-#: src/ui/o42-window.c:6847
+#: src/ui/o42-window.c:7003
 msgid "Align Left"
 msgstr "بائیں جانب صف بندی"
 
-#: src/ui/o42-window.c:6847
+#: src/ui/o42-window.c:7003
 msgid "Align Right"
 msgstr "دائیں جانب صف بندی"
 
-#: src/ui/o42-window.c:6886
+#: src/ui/o42-window.c:7042
 msgid "Bold"
 msgstr "جلی"
 
-#: src/ui/o42-window.c:6887
+#: src/ui/o42-window.c:7043
 msgid "Italic"
 msgstr "ترچھا"
 
-#: src/ui/o42-window.c:6888
+#: src/ui/o42-window.c:7044
 msgid "Underline"
 msgstr "خط کشیدہ"
 
 #. Excel's Currency Style button puts on the Accounting format, with
 #. * the symbol at the edge; Ctrl+Shift+4 is the Currency format.
-#: src/ui/o42-window.c:6906
+#: src/ui/o42-window.c:7062
 msgid "Currency Style"
 msgstr "کرنسی انداز"
 
-#: src/ui/o42-window.c:6907
+#: src/ui/o42-window.c:7063
 msgid "Percent Style"
 msgstr "فیصد انداز"
 
-#: src/ui/o42-window.c:6908
+#: src/ui/o42-window.c:7064
 msgid "Comma Style"
 msgstr "کاما انداز"
 
-#: src/ui/o42-window.c:6910
+#: src/ui/o42-window.c:7066
 msgid "Increase Decimal"
 msgstr "اعشاریہ بڑھائیں"
 
-#: src/ui/o42-window.c:6912
+#: src/ui/o42-window.c:7068
 msgid "Decrease Decimal"
 msgstr "اعشاریہ گھٹائیں"
 
-#: src/ui/o42-window.c:6957
+#: src/ui/o42-window.c:7113
 msgid "That cannot be used as a name."
 msgstr "یہ نام کے طور پر استعمال نہیں کیا جا سکتا۔"
 
-#: src/ui/o42-window.c:7014
+#: src/ui/o42-window.c:7170
 msgid "Name Box"
 msgstr "نام باکس"
 
-#: src/ui/o42-window.c:7020
+#: src/ui/o42-window.c:7176
 msgid "Enter"
 msgstr "اندراج کریں"
 
-#: src/ui/o42-window.c:7417
+#: src/ui/o42-window.c:7573
 msgid "OK"
 msgstr "ٹھیک ہے"
 
-#: src/ui/o42-window.c:7717
+#: src/ui/o42-window.c:7874
 msgid "Book1 - Office42 Spreadsheet"
 msgstr "Book1 - Office42 Spreadsheet"
 
-#: src/ui/o42-window.c:7763
+#: src/ui/o42-window.c:7920
 msgid "_Run Scripts"
 msgstr "اسکرپٹس _چلائیں"
 
-#: src/ui/o42-window.c:7768
+#: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "_اسکرپٹس..."
 
-#: src/ui/o42-grid.c:5285
-msgid "This link does not go to a web page. Open it anyway?"
-msgstr "یہ لنک کسی ویب صفحے پر نہیں جاتا۔ کیا پھر بھی اسے کھولیں؟"
+#~ msgid "Comma-Separated Values (*.csv)"
+#~ msgstr "کاما سے الگ قدریں (*.csv)"

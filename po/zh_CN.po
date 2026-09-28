@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-25 19:56+0000\n"
+"POT-Creation-Date: 2026-09-28 06:46+0000\n"
 "PO-Revision-Date: 2026-09-25 19:58+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Chinese (simplified)\n"
@@ -36,11 +36,12 @@ msgstr "打开(_O)..."
 #: data/ui/menus.ui:14 src/ui/o42-dialogs-data.c:657
 #: src/ui/o42-dialogs-tools.c:1528 src/ui/o42-dialogs-tools.c:1679
 #: src/ui/o42-dialogs-tools.c:1854 src/ui/o42-dialogs-tools.c:3332
-#: src/ui/o42-dialogs-tools.c:3729 src/ui/o42-window.c:5168
+#: src/ui/o42-dialogs-tools.c:3729 src/ui/o42-window.c:5187
 msgid "_Close"
 msgstr "关闭(_C)"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6257
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1665
+#: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "保存(_S)"
 
@@ -48,2229 +49,2233 @@ msgstr "保存(_S)"
 msgid "Save _As..."
 msgstr "另存为(_A)..."
 
-#: data/ui/menus.ui:21
-msgid "Page Set_up..."
-msgstr "页面设置(_U)..."
+#: data/ui/menus.ui:23 src/ui/o42-window.c:2267
+msgid "_Print..."
+msgstr "打印(_P)..."
 
 #: data/ui/menus.ui:25
 msgid "P_rinting"
 msgstr "打印设置(_R)"
 
-#: data/ui/menus.ui:23
+#: data/ui/menus.ui:27
+msgid "Page Set_up..."
+msgstr "页面设置(_U)..."
+
+#: data/ui/menus.ui:29
 msgid "Print _Area"
 msgstr "打印区域(_A)"
 
-#: data/ui/menus.ui:24
+#: data/ui/menus.ui:30
 msgid "_Set Print Area"
 msgstr "设置打印区域(_S)"
 
-#: data/ui/menus.ui:25
+#: data/ui/menus.ui:31
 msgid "_Clear Print Area"
 msgstr "取消打印区域(_C)"
 
-#: data/ui/menus.ui:27
+#: data/ui/menus.ui:35
 msgid "Print Pre_view"
 msgstr "打印预览(_V)"
 
-#: data/ui/menus.ui:28
+#: data/ui/menus.ui:36
 msgid "Print Preview: Boo_k"
 msgstr "打印预览：整个工作簿(_K)"
 
-#: data/ui/menus.ui:29 src/ui/o42-window.c:2267
-msgid "_Print..."
-msgstr "打印(_P)..."
-
-#: data/ui/menus.ui:30
+#: data/ui/menus.ui:37
 msgid "Print _Book..."
 msgstr "打印整个工作簿(_B)..."
 
-#: data/ui/menus.ui:33
+#: data/ui/menus.ui:40
 msgid "Export as P_DF..."
 msgstr "导出为 PDF(_D)..."
 
-#: data/ui/menus.ui:34
+#: data/ui/menus.ui:41
 msgid "Export _Book as PDF..."
 msgstr "将工作簿导出为 PDF(_B)..."
 
-#: data/ui/menus.ui:35
+#: data/ui/menus.ui:46
+msgid "Import _Text File..."
+msgstr "导入文本文件(_T)..."
+
+#: data/ui/menus.ui:47
 msgid "I_mport from PDF..."
 msgstr "从 PDF 导入(_M)..."
 
-#: data/ui/menus.ui:38
+#: data/ui/menus.ui:50
 msgid "Propert_ies..."
 msgstr "属性(_I)..."
 
-#: data/ui/menus.ui:43
+#: data/ui/menus.ui:55
 msgid "E_xit"
 msgstr "退出(_X)"
 
-#: data/ui/menus.ui:48
+#: data/ui/menus.ui:60
 msgid "_Edit"
 msgstr "编辑(_E)"
 
-#: data/ui/menus.ui:50
+#: data/ui/menus.ui:62
 msgid "_Undo"
 msgstr "撤消(_U)"
 
-#: data/ui/menus.ui:51
+#: data/ui/menus.ui:63
 msgid "_Redo"
 msgstr "恢复(_R)"
 
-#: data/ui/menus.ui:54 src/ui/o42-grid.c:8175 src/ui/o42-grid.c:8205
-#: src/ui/o42-grid.c:8231
+#: data/ui/menus.ui:66 src/ui/o42-grid.c:8233 src/ui/o42-grid.c:8263
+#: src/ui/o42-grid.c:8289
 msgid "Cu_t"
 msgstr "剪切(_T)"
 
-#: data/ui/menus.ui:55 src/ui/o42-grid.c:8176 src/ui/o42-grid.c:8206
-#: src/ui/o42-grid.c:8232
+#: data/ui/menus.ui:67 src/ui/o42-grid.c:8234 src/ui/o42-grid.c:8264
+#: src/ui/o42-grid.c:8290
 msgid "_Copy"
 msgstr "复制(_C)"
 
-#: data/ui/menus.ui:56 src/ui/o42-grid.c:8177 src/ui/o42-grid.c:8207
-#: src/ui/o42-grid.c:8233
+#: data/ui/menus.ui:68 src/ui/o42-grid.c:8235 src/ui/o42-grid.c:8265
+#: src/ui/o42-grid.c:8291
 msgid "_Paste"
 msgstr "粘贴(_P)"
 
-#: data/ui/menus.ui:57 src/ui/o42-grid.c:8178
+#: data/ui/menus.ui:69 src/ui/o42-grid.c:8236
 msgid "Paste _Special..."
 msgstr "选择性粘贴(_S)..."
 
-#: data/ui/menus.ui:58
+#: data/ui/menus.ui:70
 msgid "Paste as _Hyperlink"
 msgstr "粘贴为超链接(_H)"
 
-#: data/ui/menus.ui:62
+#: data/ui/menus.ui:74
 msgid "F_ill"
 msgstr "填充(_I)"
 
-#: data/ui/menus.ui:63
+#: data/ui/menus.ui:75
 msgid "_Down"
 msgstr "向下(_D)"
 
-#: data/ui/menus.ui:64
+#: data/ui/menus.ui:76
 msgctxt "fill direction"
 msgid "_Right"
 msgstr "向右(_R)"
 
-#: data/ui/menus.ui:65
+#: data/ui/menus.ui:77
 msgid "_Up"
 msgstr "向上(_U)"
 
-#: data/ui/menus.ui:66
+#: data/ui/menus.ui:78
 msgctxt "fill direction"
 msgid "_Left"
 msgstr "向左(_L)"
 
-#: data/ui/menus.ui:67
+#: data/ui/menus.ui:79
 msgid "_Across Worksheets..."
 msgstr "至同组工作表(_A)..."
 
-#: data/ui/menus.ui:68
+#: data/ui/menus.ui:80
 msgid "_Series..."
 msgstr "序列(_S)..."
 
-#: data/ui/menus.ui:69
+#: data/ui/menus.ui:81
 msgid "_Justify"
 msgstr "内容重排(_J)"
 
-#: data/ui/menus.ui:72
+#: data/ui/menus.ui:84
 msgid "Cle_ar"
 msgstr "清除(_A)"
 
-#: data/ui/menus.ui:73 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
+#: data/ui/menus.ui:85 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
 msgid "_All"
 msgstr "全部(_A)"
 
-#: data/ui/menus.ui:74 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
+#: data/ui/menus.ui:86 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
 msgid "_Formats"
 msgstr "格式(_F)"
 
-#: data/ui/menus.ui:75 src/ui/o42-dialogs-edit.c:235
+#: data/ui/menus.ui:87 src/ui/o42-dialogs-edit.c:235
 msgid "_Contents"
 msgstr "内容(_C)"
 
-#: data/ui/menus.ui:76
+#: data/ui/menus.ui:88
 msgid "_Notes"
 msgstr "批注(_N)"
 
-#: data/ui/menus.ui:78
+#: data/ui/menus.ui:90
 msgid "_Delete..."
 msgstr "删除(_D)..."
 
-#: data/ui/menus.ui:79
+#: data/ui/menus.ui:91
 msgid "Delete Ro_ws"
 msgstr "删除行(_W)"
 
-#: data/ui/menus.ui:80
+#: data/ui/menus.ui:92
 msgid "Delete Colu_mns"
 msgstr "删除列(_M)"
 
-#: data/ui/menus.ui:81
+#: data/ui/menus.ui:93
 msgid "Delete _Sheet"
 msgstr "删除工作表(_S)"
 
-#: data/ui/menus.ui:82
+#: data/ui/menus.ui:94
 msgid "Mo_ve or Copy Sheet..."
 msgstr "移动或复制工作表(_V)..."
 
-#: data/ui/menus.ui:85
+#: data/ui/menus.ui:97
 msgid "Select A_ll"
 msgstr "全选(_L)"
 
-#: data/ui/menus.ui:86
+#: data/ui/menus.ui:98
 msgid "_Find..."
 msgstr "查找(_F)..."
 
-#: data/ui/menus.ui:87
+#: data/ui/menus.ui:99
 msgid "R_eplace..."
 msgstr "替换(_E)..."
 
-#: data/ui/menus.ui:88
+#: data/ui/menus.ui:100
 msgid "_Go To..."
 msgstr "定位(_G)..."
 
-#: data/ui/menus.ui:93
+#: data/ui/menus.ui:105
 msgid "_View"
 msgstr "视图(_V)"
 
-#: data/ui/menus.ui:96 src/ui/o42-window.c:2265
+#: data/ui/menus.ui:108 src/ui/o42-window.c:2265
 msgid "_Zoom"
 msgstr "显示比例(_Z)"
 
-#: data/ui/menus.ui:97 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:109 src/ui/o42-dialogs-tools.c:3786
 msgid "_200%"
 msgstr "_200%"
 
-#: data/ui/menus.ui:98
+#: data/ui/menus.ui:110
 msgid "_150%"
 msgstr "_150%"
 
-#: data/ui/menus.ui:99 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:111 src/ui/o42-dialogs-tools.c:3786
 msgid "_100%"
 msgstr "_100%"
 
-#: data/ui/menus.ui:100 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:112 src/ui/o42-dialogs-tools.c:3786
 msgid "_75%"
 msgstr "_75%"
 
-#: data/ui/menus.ui:101 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:113 src/ui/o42-dialogs-tools.c:3786
 msgid "_50%"
 msgstr "_50%"
 
-#: data/ui/menus.ui:102 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:114 src/ui/o42-dialogs-tools.c:3786
 msgid "2_5%"
 msgstr "2_5%"
 
-#: data/ui/menus.ui:103
+#: data/ui/menus.ui:115
 msgid "_Zoom..."
 msgstr "显示比例(_Z)..."
 
-#: data/ui/menus.ui:105
+#: data/ui/menus.ui:117
 msgid "_Full Screen"
 msgstr "全屏显示(_F)"
 
-#: data/ui/menus.ui:109
+#: data/ui/menus.ui:121
 msgid "_Toolbars"
 msgstr "工具栏(_T)"
 
-#: data/ui/menus.ui:110
+#: data/ui/menus.ui:122
 msgid "_Standard"
 msgstr "常用(_S)"
 
-#: data/ui/menus.ui:111
+#: data/ui/menus.ui:123
 msgid "_Formatting"
 msgstr "格式(_F)"
 
-#: data/ui/menus.ui:113
+#: data/ui/menus.ui:125
 msgid "Formula _Bar"
 msgstr "编辑栏(_B)"
 
-#: data/ui/menus.ui:114
+#: data/ui/menus.ui:126
 msgid "_Status Bar"
 msgstr "状态栏(_S)"
 
-#: data/ui/menus.ui:115
+#: data/ui/menus.ui:127
 msgid "_Comments"
 msgstr "批注(_C)"
 
-#: data/ui/menus.ui:118
+#: data/ui/menus.ui:130
 msgid "_Freeze Panes"
 msgstr "冻结窗格(_F)"
 
-#: data/ui/menus.ui:119
+#: data/ui/menus.ui:131
 msgid "C_ustom Views..."
 msgstr "视图管理器(_U)..."
 
-#: data/ui/menus.ui:120
+#: data/ui/menus.ui:132
 msgid "_Page Breaks"
 msgstr "分页符(_P)"
 
-#: data/ui/menus.ui:121
+#: data/ui/menus.ui:133
 msgid "_Header and Footer..."
 msgstr "页眉和页脚(_H)..."
 
-#: data/ui/menus.ui:122
+#: data/ui/menus.ui:134
 msgid "Spli_t"
 msgstr "拆分(_T)"
 
-#: data/ui/menus.ui:125
+#: data/ui/menus.ui:137
 msgid "_Calculate Now"
 msgstr "立即计算(_C)"
 
-#: data/ui/menus.ui:126 data/ui/menus.ui:338 src/ui/o42-dialogs-tools.c:2840
+#: data/ui/menus.ui:138 data/ui/menus.ui:350 src/ui/o42-dialogs-tools.c:2840
 msgid "_Options..."
 msgstr "选项(_O)..."
 
-#: data/ui/menus.ui:131
+#: data/ui/menus.ui:143
 msgid "_Insert"
 msgstr "插入(_I)"
 
-#: data/ui/menus.ui:133 data/ui/menus.ui:212
+#: data/ui/menus.ui:145 data/ui/menus.ui:224
 msgid "C_ells..."
 msgstr "单元格(_E)..."
 
-#: data/ui/menus.ui:134 src/ui/o42-dialogs-edit.c:129
+#: data/ui/menus.ui:146 src/ui/o42-dialogs-edit.c:129
 msgid "_Rows"
 msgstr "行(_R)"
 
-#: data/ui/menus.ui:135 src/ui/o42-dialogs-edit.c:129
+#: data/ui/menus.ui:147 src/ui/o42-dialogs-edit.c:129
 msgid "_Columns"
 msgstr "列(_C)"
 
-#: data/ui/menus.ui:136
+#: data/ui/menus.ui:148
 msgid "_Worksheet"
 msgstr "工作表(_W)"
 
-#: data/ui/menus.ui:139 data/ui/menus.ui:220
+#: data/ui/menus.ui:151 data/ui/menus.ui:232
 msgid "C_hart..."
 msgstr "图表(_H)..."
 
-#: data/ui/menus.ui:140
+#: data/ui/menus.ui:152
 msgid "_Function..."
 msgstr "函数(_F)..."
 
-#: data/ui/menus.ui:141
+#: data/ui/menus.ui:153
 msgid "N_ote..."
 msgstr "批注(_O)..."
 
-#: data/ui/menus.ui:142
+#: data/ui/menus.ui:154
 msgid "H_yperlink..."
 msgstr "超链接(_Y)..."
 
-#: data/ui/menus.ui:143
+#: data/ui/menus.ui:155
 msgid "Page _Break"
 msgstr "分页符(_B)"
 
-#: data/ui/menus.ui:145
+#: data/ui/menus.ui:157
 msgid "Sh_ape"
 msgstr "形状(_A)"
 
-#: data/ui/menus.ui:146
+#: data/ui/menus.ui:158
 msgid "_Rectangle"
 msgstr "矩形(_R)"
 
-#: data/ui/menus.ui:147
+#: data/ui/menus.ui:159
 msgid "_Oval"
 msgstr "椭圆(_O)"
 
-#: data/ui/menus.ui:148
+#: data/ui/menus.ui:160
 msgctxt "shape"
 msgid "_Line"
 msgstr "直线(_L)"
 
-#: data/ui/menus.ui:149
+#: data/ui/menus.ui:161
 msgid "_Arrow"
 msgstr "箭头(_A)"
 
-#: data/ui/menus.ui:150
+#: data/ui/menus.ui:162
 msgid "_Text Box"
 msgstr "文本框(_T)"
 
-#: data/ui/menus.ui:151
+#: data/ui/menus.ui:163
 msgid "_Freeform"
 msgstr "任意多边形(_F)"
 
-#: data/ui/menus.ui:153
+#: data/ui/menus.ui:165
 msgid "Rounded Rectan_gle"
 msgstr "圆角矩形(_G)"
 
-#: data/ui/menus.ui:154
+#: data/ui/menus.ui:166
 msgid "Tr_iangle"
 msgstr "三角形(_I)"
 
-#: data/ui/menus.ui:155
+#: data/ui/menus.ui:167
 msgid "Right Triangle"
 msgstr "直角三角形"
 
-#: data/ui/menus.ui:156
+#: data/ui/menus.ui:168
 msgid "_Diamond"
 msgstr "菱形(_D)"
 
-#: data/ui/menus.ui:157
+#: data/ui/menus.ui:169
 msgid "_Pentagon"
 msgstr "五边形(_P)"
 
-#: data/ui/menus.ui:158
+#: data/ui/menus.ui:170
 msgid "_Hexagon"
 msgstr "六边形(_H)"
 
-#: data/ui/menus.ui:159
+#: data/ui/menus.ui:171
 msgid "Octagon"
 msgstr "八边形"
 
-#: data/ui/menus.ui:160 src/ui/o42-window.c:5344
+#: data/ui/menus.ui:172 src/ui/o42-window.c:5363
 msgid "Cross"
 msgstr "十字形"
 
-#: data/ui/menus.ui:161
+#: data/ui/menus.ui:173
 msgid "_4-Point Star"
 msgstr "四角星(_4)"
 
-#: data/ui/menus.ui:162
+#: data/ui/menus.ui:174
 msgid "_5-Point Star"
 msgstr "五角星(_5)"
 
-#: data/ui/menus.ui:163
+#: data/ui/menus.ui:175
 msgid "_8-Point Star"
 msgstr "八角星(_8)"
 
-#: data/ui/menus.ui:166
+#: data/ui/menus.ui:178
 msgid "Right Arro_w"
 msgstr "右箭头(_W)"
 
-#: data/ui/menus.ui:167
+#: data/ui/menus.ui:179
 msgid "Le_ft Arrow"
 msgstr "左箭头(_F)"
 
-#: data/ui/menus.ui:168
+#: data/ui/menus.ui:180
 msgid "_Up Arrow"
 msgstr "上箭头(_U)"
 
-#: data/ui/menus.ui:169
+#: data/ui/menus.ui:181
 msgid "Down Arrow"
 msgstr "下箭头"
 
-#: data/ui/menus.ui:170
+#: data/ui/menus.ui:182
 msgid "Left-Right Arrow"
 msgstr "左右箭头"
 
-#: data/ui/menus.ui:173
+#: data/ui/menus.ui:185
 msgid "Rectangular _Callout"
 msgstr "矩形标注(_C)"
 
-#: data/ui/menus.ui:174
+#: data/ui/menus.ui:186
 msgid "Oval Callout"
 msgstr "椭圆形标注"
 
-#: data/ui/menus.ui:175
+#: data/ui/menus.ui:187
 msgid "Flowchart: Proc_ess"
 msgstr "流程图：过程(_E)"
 
-#: data/ui/menus.ui:176
+#: data/ui/menus.ui:188
 msgid "Flowchart: Decisio_n"
 msgstr "流程图：决策(_N)"
 
-#: data/ui/menus.ui:177
+#: data/ui/menus.ui:189
 msgid "Flowchart: Ter_minator"
 msgstr "流程图：终止(_M)"
 
-#: data/ui/menus.ui:181
+#: data/ui/menus.ui:193
 msgid "Co_ntrol"
 msgstr "控件(_N)"
 
-#: data/ui/menus.ui:182
+#: data/ui/menus.ui:194
 msgid "_Button"
 msgstr "按钮(_B)"
 
-#: data/ui/menus.ui:183
+#: data/ui/menus.ui:195
 msgid "_Check Box"
 msgstr "复选框(_C)"
 
-#: data/ui/menus.ui:184
+#: data/ui/menus.ui:196
 msgid "_Option Button"
 msgstr "选项按钮(_O)"
 
-#: data/ui/menus.ui:185
+#: data/ui/menus.ui:197
 msgid "_Spinner"
 msgstr "微调项(_S)"
 
-#: data/ui/menus.ui:186
+#: data/ui/menus.ui:198
 msgid "S_croll Bar"
 msgstr "滚动条(_C)"
 
-#: data/ui/menus.ui:187
+#: data/ui/menus.ui:199
 msgid "_List Box"
 msgstr "列表框(_L)"
 
-#: data/ui/menus.ui:188
+#: data/ui/menus.ui:200
 msgid "Co_mbo Box"
 msgstr "组合框(_M)"
 
-#: data/ui/menus.ui:189
+#: data/ui/menus.ui:201
 msgid "L_abel"
 msgstr "标签(_A)"
 
-#: data/ui/menus.ui:190
+#: data/ui/menus.ui:202
 msgid "_Group Box"
 msgstr "分组框(_G)"
 
-#: data/ui/menus.ui:193
+#: data/ui/menus.ui:205
 msgid "_Name"
 msgstr "名称(_N)"
 
-#: data/ui/menus.ui:194
+#: data/ui/menus.ui:206
 msgid "_Define..."
 msgstr "定义(_D)..."
 
-#: data/ui/menus.ui:195
+#: data/ui/menus.ui:207
 msgid "_Paste..."
 msgstr "粘贴(_P)..."
 
-#: data/ui/menus.ui:196
+#: data/ui/menus.ui:208
 msgid "_Create..."
 msgstr "指定(_C)..."
 
-#: data/ui/menus.ui:197
+#: data/ui/menus.ui:209
 msgid "_Apply..."
 msgstr "应用(_A)..."
 
-#: data/ui/menus.ui:202
+#: data/ui/menus.ui:214
 msgid "_Picture"
 msgstr "图片(_P)"
 
-#: data/ui/menus.ui:203
+#: data/ui/menus.ui:215
 msgid "_From File..."
 msgstr "来自文件(_F)..."
 
-#: data/ui/menus.ui:204
+#: data/ui/menus.ui:216
 msgid "From _Scanner or Camera..."
 msgstr "来自扫描仪或照相机(_S)..."
 
-#: data/ui/menus.ui:210
+#: data/ui/menus.ui:222
 msgid "F_ormat"
 msgstr "格式(_O)"
 
-#: data/ui/menus.ui:213
+#: data/ui/menus.ui:225
 msgid "St_yle..."
 msgstr "样式(_Y)..."
 
-#: data/ui/menus.ui:214
+#: data/ui/menus.ui:226
 msgid "_AutoFormat..."
 msgstr "自动套用格式(_A)..."
 
-#: data/ui/menus.ui:215
+#: data/ui/menus.ui:227
 msgid "Format _Painter"
 msgstr "格式刷(_P)"
 
-#: data/ui/menus.ui:216
+#: data/ui/menus.ui:228
 msgid "_Column Width..."
 msgstr "列宽(_C)..."
 
-#: data/ui/menus.ui:217
+#: data/ui/menus.ui:229
 msgid "_Row Height..."
 msgstr "行高(_R)..."
 
-#: data/ui/menus.ui:218
+#: data/ui/menus.ui:230
 msgid "Column _AutoFit"
 msgstr "最适合的列宽(_A)"
 
-#: data/ui/menus.ui:219
+#: data/ui/menus.ui:231
 msgid "Conditional _Formatting..."
 msgstr "条件格式(_F)..."
 
-#: data/ui/menus.ui:221
+#: data/ui/menus.ui:233
 msgid "Sha_pe..."
 msgstr "形状(_P)..."
 
-#: data/ui/menus.ui:222
+#: data/ui/menus.ui:234
 msgid "P_icture..."
 msgstr "图片(_I)..."
 
-#: data/ui/menus.ui:223
+#: data/ui/menus.ui:235
 msgid "Contro_l..."
 msgstr "控件(_L)..."
 
-#: data/ui/menus.ui:224 src/ui/o42-grid.c:8267
+#: data/ui/menus.ui:236 src/ui/o42-grid.c:8325
 msgid "_Group Objects"
 msgstr "组合对象(_G)"
 
-#: data/ui/menus.ui:225
+#: data/ui/menus.ui:237
 msgid "U_ngroup Objects"
 msgstr "取消组合对象(_N)"
 
-#: data/ui/menus.ui:227 src/ui/o42-grid.c:8276
+#: data/ui/menus.ui:239 src/ui/o42-grid.c:8334
 msgid "O_rder"
 msgstr "叠放次序(_R)"
 
-#: data/ui/menus.ui:228 src/ui/o42-grid.c:8272
+#: data/ui/menus.ui:240 src/ui/o42-grid.c:8330
 msgid "Bring to _Front"
 msgstr "置于顶层(_F)"
 
-#: data/ui/menus.ui:229 src/ui/o42-grid.c:8273
+#: data/ui/menus.ui:241 src/ui/o42-grid.c:8331
 msgid "Send to _Back"
 msgstr "置于底层(_B)"
 
-#: data/ui/menus.ui:230 src/ui/o42-grid.c:8274
+#: data/ui/menus.ui:242 src/ui/o42-grid.c:8332
 msgid "Bring F_orward"
 msgstr "上移一层(_O)"
 
-#: data/ui/menus.ui:231 src/ui/o42-grid.c:8275
+#: data/ui/menus.ui:243 src/ui/o42-grid.c:8333
 msgid "Send Back_ward"
 msgstr "下移一层(_W)"
 
-#: data/ui/menus.ui:233
+#: data/ui/menus.ui:245
 msgid "_Merge Cells"
 msgstr "合并单元格(_M)"
 
-#: data/ui/menus.ui:234
+#: data/ui/menus.ui:246
 msgid "Unmer_ge Cells"
 msgstr "取消单元格合并(_G)"
 
-#: data/ui/menus.ui:236
+#: data/ui/menus.ui:248
 msgid "S_heet"
 msgstr "工作表(_H)"
 
-#: data/ui/menus.ui:237
+#: data/ui/menus.ui:249
 msgid "_Rename..."
 msgstr "重命名(_R)..."
 
-#: data/ui/menus.ui:238 src/ui/o42-window.c:3370
+#: data/ui/menus.ui:250 src/ui/o42-window.c:3370
 msgid "Move _Left"
 msgstr "左移(_L)"
 
-#: data/ui/menus.ui:239
+#: data/ui/menus.ui:251
 msgid "Move R_ight"
 msgstr "右移(_I)"
 
-#: data/ui/menus.ui:240 data/ui/menus.ui:250 data/ui/menus.ui:256
-#: data/ui/menus.ui:400 src/ui/o42-window.c:7769
+#: data/ui/menus.ui:252 data/ui/menus.ui:262 data/ui/menus.ui:268
+#: data/ui/menus.ui:412 src/ui/o42-window.c:7926
 msgid "_Hide"
 msgstr "隐藏(_H)"
 
-#: data/ui/menus.ui:241 data/ui/menus.ui:401
+#: data/ui/menus.ui:253 data/ui/menus.ui:413
 msgid "_Unhide..."
 msgstr "取消隐藏(_U)..."
 
-#: data/ui/menus.ui:242
+#: data/ui/menus.ui:254
 msgid "_Background..."
 msgstr "背景(_B)..."
 
-#: data/ui/menus.ui:243
+#: data/ui/menus.ui:255
 msgid "_Delete Background"
 msgstr "删除背景(_D)"
 
-#: data/ui/menus.ui:248
+#: data/ui/menus.ui:260
 msgid "R_ow"
 msgstr "行(_O)"
 
-#: data/ui/menus.ui:249 src/ui/o42-grid.c:8240
+#: data/ui/menus.ui:261 src/ui/o42-grid.c:8298
 msgid "_AutoFit"
 msgstr "自动调整(_A)"
 
-#: data/ui/menus.ui:251 data/ui/menus.ui:257 src/ui/o42-grid.c:8215
-#: src/ui/o42-grid.c:8242
+#: data/ui/menus.ui:263 data/ui/menus.ui:269 src/ui/o42-grid.c:8273
+#: src/ui/o42-grid.c:8300
 msgid "_Unhide"
 msgstr "取消隐藏(_U)"
 
-#: data/ui/menus.ui:254
+#: data/ui/menus.ui:266
 msgid "Colu_mn"
 msgstr "列(_M)"
 
-#: data/ui/menus.ui:255
+#: data/ui/menus.ui:267
 msgid "_Standard Width..."
 msgstr "标准列宽(_S)..."
 
-#: data/ui/menus.ui:261 src/ui/o42-dialogs-format.c:386
-#: src/ui/o42-dialogs-format.c:555 src/ui/o42-window.c:4851
+#: data/ui/menus.ui:273 src/ui/o42-dialogs-format.c:386
+#: src/ui/o42-dialogs-format.c:555 src/ui/o42-window.c:4870
 msgid "_Bold"
 msgstr "加粗(_B)"
 
-#: data/ui/menus.ui:262 src/ui/o42-dialogs-format.c:387
-#: src/ui/o42-dialogs-format.c:556 src/ui/o42-window.c:4853
+#: data/ui/menus.ui:274 src/ui/o42-dialogs-format.c:387
+#: src/ui/o42-dialogs-format.c:556 src/ui/o42-window.c:4872
 msgid "_Italic"
 msgstr "倾斜(_I)"
 
-#: data/ui/menus.ui:263 src/ui/o42-dialogs-format.c:388
+#: data/ui/menus.ui:275 src/ui/o42-dialogs-format.c:388
 msgid "_Underline"
 msgstr "下划线(_U)"
 
-#: data/ui/menus.ui:267
+#: data/ui/menus.ui:279
 msgid "_Alignment"
 msgstr "对齐(_A)"
 
-#: data/ui/menus.ui:268 data/ui/menus.ui:275
+#: data/ui/menus.ui:280 data/ui/menus.ui:287 src/ui/o42-dialogs-file.c:1153
 msgid "_General"
 msgstr "常规(_G)"
 
-#: data/ui/menus.ui:269
+#: data/ui/menus.ui:281
 msgid "_Left"
 msgstr "左对齐(_L)"
 
-#: data/ui/menus.ui:270
+#: data/ui/menus.ui:282
 msgid "_Center"
 msgstr "居中(_C)"
 
-#: data/ui/menus.ui:271
+#: data/ui/menus.ui:283
 msgid "_Right"
 msgstr "右对齐(_R)"
 
-#: data/ui/menus.ui:274
+#: data/ui/menus.ui:286
 msgid "_Number"
 msgstr "数字(_N)"
 
-#: data/ui/menus.ui:276
+#: data/ui/menus.ui:288
 msgid "_Fixed"
 msgstr "数值(_F)"
 
-#: data/ui/menus.ui:277
+#: data/ui/menus.ui:289
 msgctxt "number format"
 msgid "_Comma"
 msgstr "千位分隔样式(_C)"
 
-#: data/ui/menus.ui:278
+#: data/ui/menus.ui:290
 msgid "C_urrency"
 msgstr "货币(_U)"
 
-#: data/ui/menus.ui:279
+#: data/ui/menus.ui:291
 msgid "_Percent"
 msgstr "百分比(_P)"
 
-#: data/ui/menus.ui:280
+#: data/ui/menus.ui:292
 msgid "_Scientific"
 msgstr "科学记数(_S)"
 
-#: data/ui/menus.ui:281 src/ui/o42-dialogs-edit.c:130 src/ui/o42-window.c:2436
+#: data/ui/menus.ui:293 src/ui/o42-dialogs-edit.c:130 src/ui/o42-window.c:2436
 msgid "_Date"
 msgstr "日期(_D)"
 
-#: data/ui/menus.ui:282
+#: data/ui/menus.ui:294
 msgid "_Time"
 msgstr "时间(_T)"
 
-#: data/ui/menus.ui:283
+#: data/ui/menus.ui:295
 msgid "Date and Ti_me"
 msgstr "日期和时间(_M)"
 
-#: data/ui/menus.ui:289
+#: data/ui/menus.ui:301
 msgid "_Tools"
 msgstr "工具(_T)"
 
-#: data/ui/menus.ui:291
+#: data/ui/menus.ui:303
 msgid "_Goal Seek..."
 msgstr "单变量求解(_G)..."
 
-#: data/ui/menus.ui:292
+#: data/ui/menus.ui:304
 msgid "_Euro Conversion..."
 msgstr "欧元转换(_E)..."
 
-#: data/ui/menus.ui:293
+#: data/ui/menus.ui:305
 msgid "Sol_ver..."
 msgstr "规划求解(_V)..."
 
-#: data/ui/menus.ui:295
+#: data/ui/menus.ui:307
 msgid "_Protection"
 msgstr "保护(_P)"
 
-#: data/ui/menus.ui:296
+#: data/ui/menus.ui:308
 msgid "Protect _Sheet..."
 msgstr "保护工作表(_S)..."
 
-#: data/ui/menus.ui:297
+#: data/ui/menus.ui:309
 msgid "Protect _Workbook..."
 msgstr "保护工作簿(_W)..."
 
-#: data/ui/menus.ui:302
+#: data/ui/menus.ui:314
 msgid "_Auditing"
 msgstr "审核(_A)"
 
-#: data/ui/menus.ui:303
+#: data/ui/menus.ui:315
 msgid "Trace _Precedents"
 msgstr "追踪引用单元格(_P)"
 
-#: data/ui/menus.ui:304
+#: data/ui/menus.ui:316
 msgid "Trace _Dependents"
 msgstr "追踪从属单元格(_D)"
 
-#: data/ui/menus.ui:305
+#: data/ui/menus.ui:317
 msgid "Trace _Error"
 msgstr "追踪错误(_E)"
 
-#: data/ui/menus.ui:306
+#: data/ui/menus.ui:318
 msgid "_Remove All Arrows"
 msgstr "取消所有追踪箭头(_R)"
 
-#: data/ui/menus.ui:307
+#: data/ui/menus.ui:319
 msgid "_Evaluate Formula..."
 msgstr "公式求值(_E)..."
 
-#: data/ui/menus.ui:308
+#: data/ui/menus.ui:320
 msgid "Show _Watch Window"
 msgstr "显示监视窗口(_W)"
 
-#: data/ui/menus.ui:313
+#: data/ui/menus.ui:325
 msgid "_Macro"
 msgstr "宏(_M)"
 
-#: data/ui/menus.ui:315
+#: data/ui/menus.ui:327
 msgid "_Macros..."
 msgstr "宏(_M)..."
 
-#: data/ui/menus.ui:316
+#: data/ui/menus.ui:328
 msgid "_Record Macro"
 msgstr "录制宏(_R)"
 
-#: data/ui/menus.ui:317
+#: data/ui/menus.ui:329
 msgid "S_top Recording"
 msgstr "停止录制(_T)"
 
-#: data/ui/menus.ui:318
+#: data/ui/menus.ui:330
 msgid "Use Re_lative References"
 msgstr "使用相对引用(_L)"
 
-#: data/ui/menus.ui:321
+#: data/ui/menus.ui:333
 msgid "_Scripts in this Book..."
 msgstr "本工作簿中的脚本(_S)..."
 
-#: data/ui/menus.ui:322
+#: data/ui/menus.ui:334
 msgid "S_tep Into Script"
 msgstr "单步执行脚本(_T)"
 
-#: data/ui/menus.ui:323
+#: data/ui/menus.ui:335
 msgid "_Python Console..."
 msgstr "Python 控制台(_P)..."
 
-#: data/ui/menus.ui:324
+#: data/ui/menus.ui:336
 msgid "Run Python Script _File..."
 msgstr "运行 Python 脚本文件(_F)..."
 
-#: data/ui/menus.ui:329
+#: data/ui/menus.ui:341
 msgid "Statistical _Analysis..."
 msgstr "统计分析(_A)..."
 
-#: data/ui/menus.ui:330
+#: data/ui/menus.ui:342
 msgid "_Spelling..."
 msgstr "拼写检查(_S)..."
 
-#: data/ui/menus.ui:331
+#: data/ui/menus.ui:343
 msgid "_AutoCorrect..."
 msgstr "自动更正(_A)..."
 
-#: data/ui/menus.ui:333
+#: data/ui/menus.ui:345
 msgid "_Wizards"
 msgstr "向导(_W)"
 
-#: data/ui/menus.ui:334
+#: data/ui/menus.ui:346
 msgid "_Conditional Sum..."
 msgstr "条件求和(_C)..."
 
-#: data/ui/menus.ui:335
+#: data/ui/menus.ui:347
 msgid "_Lookup..."
 msgstr "查阅(_L)..."
 
-#: data/ui/menus.ui:337
+#: data/ui/menus.ui:349
 msgid "Custom _Lists..."
 msgstr "自定义序列(_L)..."
 
-#: data/ui/menus.ui:343
+#: data/ui/menus.ui:355
 msgid "_Data"
 msgstr "数据(_D)"
 
-#: data/ui/menus.ui:345
+#: data/ui/menus.ui:357
 msgid "_Sort..."
 msgstr "排序(_S)..."
 
-#: data/ui/menus.ui:346
+#: data/ui/menus.ui:358
 msgid "F_orm..."
 msgstr "记录单(_O)..."
 
-#: data/ui/menus.ui:348
+#: data/ui/menus.ui:360
 msgid "_Filter"
 msgstr "筛选(_F)"
 
-#: data/ui/menus.ui:349
+#: data/ui/menus.ui:361
 msgid "Auto_Filter"
 msgstr "自动筛选(_F)"
 
-#: data/ui/menus.ui:350
+#: data/ui/menus.ui:362
 msgid "_Show All"
 msgstr "全部显示(_S)"
 
-#: data/ui/menus.ui:351
+#: data/ui/menus.ui:363
 msgid "Ad_vanced Filter..."
 msgstr "高级筛选(_V)..."
 
-#: data/ui/menus.ui:353
+#: data/ui/menus.ui:365
 msgid "Te_xt to Columns..."
 msgstr "分列(_X)..."
 
-#: data/ui/menus.ui:354
+#: data/ui/menus.ui:366
 msgid "_Validation..."
 msgstr "有效性(_V)..."
 
-#: data/ui/menus.ui:355
+#: data/ui/menus.ui:367
 msgid "Circle _Invalid Data"
 msgstr "圈释无效数据(_I)"
 
-#: data/ui/menus.ui:356
+#: data/ui/menus.ui:368
 msgid "Clear Validation Circles"
 msgstr "清除无效数据标识圈"
 
-#: data/ui/menus.ui:359
+#: data/ui/menus.ui:371
 msgid "_Table..."
 msgstr "表(_T)..."
 
-#: data/ui/menus.ui:360
+#: data/ui/menus.ui:372
 msgid "_What-If Table..."
 msgstr "模拟运算表(_W)..."
 
-#: data/ui/menus.ui:361
+#: data/ui/menus.ui:373
 msgid "Sc_enarios..."
 msgstr "方案(_E)..."
 
-#: data/ui/menus.ui:362
+#: data/ui/menus.ui:374
 msgid "Co_nsolidate..."
 msgstr "合并计算(_N)..."
 
-#: data/ui/menus.ui:363
+#: data/ui/menus.ui:375
 msgid "Su_btotals..."
 msgstr "分类汇总(_B)..."
 
-#: data/ui/menus.ui:364
+#: data/ui/menus.ui:376
 msgid "Remove _Duplicates..."
 msgstr "删除重复项(_D)..."
 
-#: data/ui/menus.ui:367
+#: data/ui/menus.ui:379
 msgid "_Pivot Table..."
 msgstr "数据透视表(_P)..."
 
-#: data/ui/menus.ui:368
+#: data/ui/menus.ui:380
 msgid "Re_fresh Pivot Table"
 msgstr "刷新数据透视表(_F)"
 
-#: data/ui/menus.ui:372
+#: data/ui/menus.ui:384
 msgid "Data_base"
 msgstr "数据库(_B)"
 
-#: data/ui/menus.ui:373
+#: data/ui/menus.ui:385
 msgid "_Connect..."
 msgstr "连接(_C)..."
 
-#: data/ui/menus.ui:374
+#: data/ui/menus.ui:386
 msgid "_Embed New Database"
 msgstr "嵌入新数据库(_E)"
 
-#: data/ui/menus.ui:375
+#: data/ui/menus.ui:387
 msgid "_Get Data..."
 msgstr "获取数据(_G)..."
 
-#: data/ui/menus.ui:376
+#: data/ui/menus.ui:388
 msgid "_Refresh Queries"
 msgstr "刷新查询(_R)"
 
-#: data/ui/menus.ui:377
+#: data/ui/menus.ui:389
 msgid "_Send Selection to Table..."
 msgstr "将所选内容发送到表(_S)..."
 
-#: data/ui/menus.ui:382
+#: data/ui/menus.ui:394
 msgid "_Group and Outline"
 msgstr "组及分级显示(_G)"
 
-#: data/ui/menus.ui:383
+#: data/ui/menus.ui:395
 msgid "Group _Rows"
 msgstr "组合行(_R)"
 
-#: data/ui/menus.ui:384
+#: data/ui/menus.ui:396
 msgid "Group _Columns"
 msgstr "组合列(_C)"
 
-#: data/ui/menus.ui:385
+#: data/ui/menus.ui:397
 msgid "Ungroup R_ows"
 msgstr "取消组合行(_O)"
 
-#: data/ui/menus.ui:386
+#: data/ui/menus.ui:398
 msgid "Ungroup Co_lumns"
 msgstr "取消组合列(_L)"
 
-#: data/ui/menus.ui:387
+#: data/ui/menus.ui:399
 msgid "_Show Detail"
 msgstr "显示明细数据(_S)"
 
-#: data/ui/menus.ui:388
+#: data/ui/menus.ui:400
 msgid "_Hide Detail"
 msgstr "隐藏明细数据(_H)"
 
-#: data/ui/menus.ui:389
+#: data/ui/menus.ui:401
 msgid "_Auto Outline"
 msgstr "自动建立分级显示(_A)"
 
-#: data/ui/menus.ui:390
+#: data/ui/menus.ui:402
 msgid "Cl_ear Outline"
 msgstr "清除分级显示(_E)"
 
-#: data/ui/menus.ui:391
+#: data/ui/menus.ui:403
 msgid "_Settings..."
 msgstr "设置(_S)..."
 
-#: data/ui/menus.ui:397
+#: data/ui/menus.ui:409
 msgid "_Window"
 msgstr "窗口(_W)"
 
-#: data/ui/menus.ui:399
+#: data/ui/menus.ui:411
 msgid "_New Window"
 msgstr "新建窗口(_N)"
 
-#: data/ui/menus.ui:408
+#: data/ui/menus.ui:420
 msgid "_Help"
 msgstr "帮助(_H)"
 
-#: data/ui/menus.ui:410
+#: data/ui/menus.ui:422
 msgctxt "help"
 msgid "_Contents"
 msgstr "目录(_C)"
 
-#: data/ui/menus.ui:413
+#: data/ui/menus.ui:425
 msgid "_About office42"
 msgstr "关于 office42(_A)"
 
-#: src/formula/o42-eval.c:11176
+#: src/formula/o42-eval.c:11390
 msgid "Gnumeric's: the Fourier transform of a sequence, or its inverse."
 msgstr "Gnumeric 函数：序列的傅里叶变换或其逆变换。"
 
-#: src/formula/o42-eval.c:11177
+#: src/formula/o42-eval.c:11391
 msgid "How many values fall in each bin."
 msgstr "落在每个区间内的数值个数。"
 
-#: src/formula/o42-eval.c:11178
+#: src/formula/o42-eval.c:11392
 msgid "Gnumeric's: Hodrick and Prescott's trend and what is left over."
 msgstr "Gnumeric 函数：Hodrick-Prescott 滤波得到的趋势项及剩余部分。"
 
-#: src/formula/o42-eval.c:11179
+#: src/formula/o42-eval.c:11393
 msgid "Gnumeric's: the ordinates read off at the targets, six ways."
 msgstr "Gnumeric 函数：在 targets 处插值得到的纵坐标，可选六种方法。"
 
-#: src/formula/o42-eval.c:11180
+#: src/formula/o42-eval.c:11394
 msgid "Gnumeric's: how much each row of a design matrix pulls on the fit."
 msgstr "Gnumeric 函数：设计矩阵的每一行对拟合结果的影响程度（杠杆值）。"
 
-#: src/formula/o42-eval.c:11181
+#: src/formula/o42-eval.c:11395
 msgid "The least-squares line, with its statistics."
 msgstr "最小二乘直线及其统计值。"
 
-#: src/formula/o42-eval.c:11182
+#: src/formula/o42-eval.c:11396
 msgid ""
 "Gnumeric's fit of y = a + b ln(sign (x - c)): sign, a, b, c and the "
 "residuals."
 msgstr ""
 "Gnumeric 函数：拟合 y = a + b ln(sign (x - c))，返回 sign、a、b、c 及残差。"
 
-#: src/formula/o42-eval.c:11183
+#: src/formula/o42-eval.c:11397
 msgid ""
 "Gnumeric's: the least-squares fit of y = m ln(x) + b, with its statistics."
 msgstr "Gnumeric 函数：y = m ln(x) + b 的最小二乘拟合及其统计值。"
 
-#: src/formula/o42-eval.c:11184
+#: src/formula/o42-eval.c:11398
 msgid "The inverse of a square matrix."
 msgstr "方阵的逆矩阵。"
 
-#: src/formula/o42-eval.c:11185
+#: src/formula/o42-eval.c:11399
 msgid "The product of two matrices."
 msgstr "两个矩阵的乘积。"
 
-#: src/formula/o42-eval.c:11186
+#: src/formula/o42-eval.c:11400
 msgid "Gnumeric's: how much of each frequency is in a series."
 msgstr "Gnumeric 函数：序列中各频率成分的强度（周期图）。"
 
-#: src/formula/o42-eval.c:11187
+#: src/formula/o42-eval.c:11401
 msgid "A rectangle turned on its side."
 msgstr "行列互换后的矩形区域。"
 
-#: src/formula/o42-eval.c:11188
+#: src/formula/o42-eval.c:11402
 msgid "The columns named, in the order named."
 msgstr "按指定的顺序返回指定的列。"
 
-#: src/formula/o42-eval.c:11189
+#: src/formula/o42-eval.c:11403
 msgid "The rows named, in the order named."
 msgstr "按指定的顺序返回指定的行。"
 
-#: src/formula/o42-eval.c:11190
+#: src/formula/o42-eval.c:11404
 msgid "So many rows and columns from the near end, or the far one."
 msgstr "从开头或末尾取出指定数目的行和列。"
 
-#: src/formula/o42-eval.c:11191
+#: src/formula/o42-eval.c:11405
 msgid "The arrays one under another, short ones padded with #N/A."
 msgstr "将各数组上下堆叠，较短的用 #N/A 填充。"
 
-#: src/formula/o42-eval.c:11192
+#: src/formula/o42-eval.c:11406
 msgid "The arrays side by side, short ones padded with #N/A."
 msgstr "将各数组左右并排，较短的用 #N/A 填充。"
 
-#: src/formula/o42-eval.c:11193
+#: src/formula/o42-eval.c:11407
 msgid "The array grown to a size, the new cells #N/A or the padding."
 msgstr "扩展到指定大小的数组，新增单元格为 #N/A 或填充值。"
 
-#: src/formula/o42-eval.c:11194
+#: src/formula/o42-eval.c:11408
 msgid "A vector folded into rows of so many."
 msgstr "将向量按每行指定个数折成多行。"
 
-#: src/formula/o42-eval.c:11195
+#: src/formula/o42-eval.c:11409
 msgid "A vector folded into columns of so many."
 msgstr "将向量按每列指定个数折成多列。"
 
-#: src/formula/o42-eval.c:11196
+#: src/formula/o42-eval.c:11410
 msgid "An array as one column, blanks or errors left out when asked."
 msgstr "将数组转换为一列，可按要求忽略空白或错误值。"
 
-#: src/formula/o42-eval.c:11197
+#: src/formula/o42-eval.c:11411
 msgid "An array as one row, blanks or errors left out when asked."
 msgstr "将数组转换为一行，可按要求忽略空白或错误值。"
 
-#: src/formula/o42-eval.c:11198
+#: src/formula/o42-eval.c:11412
 msgid "The identity matrix of a size."
 msgstr "指定大小的单位矩阵。"
 
-#: src/formula/o42-eval.c:11199
+#: src/formula/o42-eval.c:11413
 msgid "The range without its empty outer rows and columns."
 msgstr "去掉外围空行和空列后的区域。"
 
-#: src/formula/o42-eval.c:11200
+#: src/formula/o42-eval.c:11414
 msgid ""
 "What a regular expression matches: the first match, all of them, or the "
 "groups."
 msgstr "正则表达式匹配的内容：第一个匹配、全部匹配或各个分组。"
 
-#: src/formula/o42-eval.c:11201
+#: src/formula/o42-eval.c:11415
 msgid "A value from a pivot table; #REF! here, whose pivots are plain cells."
 msgstr "数据透视表中的值；此处返回 #REF!，因为这里的数据透视表只是普通单元格。"
 
-#: src/formula/o42-eval.c:11202
+#: src/formula/o42-eval.c:11416
 msgid "The rectangle with so many rows and columns left off."
 msgstr "去掉指定数目的行和列后的矩形区域。"
 
-#: src/formula/o42-eval.c:11203
+#: src/formula/o42-eval.c:11417
 msgid "A text cut into a rectangle at its delimiters."
 msgstr "按分隔符将文本拆分为矩形区域。"
 
-#: src/formula/o42-eval.c:11204
+#: src/formula/o42-eval.c:11418
 msgid "Every value that turns up as often as the commonest."
 msgstr "出现次数最多的所有值。"
 
-#: src/formula/o42-eval.c:11205
+#: src/formula/o42-eval.c:11419
 msgid ""
 "Gnumeric's: the lower triangle whose product with its transpose is the "
 "matrix."
 msgstr "Gnumeric 函数：与其转置之积等于该矩阵的下三角矩阵。"
 
-#: src/formula/o42-eval.c:11206
+#: src/formula/o42-eval.c:11420
 msgid ""
 "Gnumeric's: the eigenvalues of a symmetric matrix, each with its vector "
 "under it."
 msgstr "Gnumeric 函数：对称矩阵的特征值，每个特征值下方为其特征向量。"
 
-#: src/formula/o42-eval.c:11207
+#: src/formula/o42-eval.c:11421
 msgid "Gnumeric's: Moore and Penrose's inverse, which any matrix has."
 msgstr "Gnumeric 函数：Moore-Penrose 伪逆，任何矩阵都存在。"
 
-#: src/formula/o42-eval.c:11268
+#: src/formula/o42-eval.c:11482
 msgid "The absolute value of a number."
 msgstr "数字的绝对值。"
 
-#: src/formula/o42-eval.c:11269
+#: src/formula/o42-eval.c:11483
 msgid "The arccosine, in radians."
 msgstr "反余弦值，以弧度表示。"
 
-#: src/formula/o42-eval.c:11270
+#: src/formula/o42-eval.c:11484
 msgid "The inverse hyperbolic cosine."
 msgstr "反双曲余弦值。"
 
-#: src/formula/o42-eval.c:11271
+#: src/formula/o42-eval.c:11485
 msgid "The arccotangent, in radians."
 msgstr "反余切值，以弧度表示。"
 
-#: src/formula/o42-eval.c:11272
+#: src/formula/o42-eval.c:11486
 msgid "The inverse hyperbolic cotangent."
 msgstr "反双曲余切值。"
 
-#: src/formula/o42-eval.c:11273
+#: src/formula/o42-eval.c:11487
 msgid "A cell reference as text."
 msgstr "以文本形式表示的单元格引用。"
 
-#: src/formula/o42-eval.c:11274
+#: src/formula/o42-eval.c:11488
 msgid "Anderson and Darling's test: the chance a sample this far from normal."
 msgstr "Anderson-Darling 检验：样本偏离正态分布达到此程度的概率。"
 
-#: src/formula/o42-eval.c:11275
+#: src/formula/o42-eval.c:11489
 msgid "TRUE if every argument is TRUE."
 msgstr "所有参数均为 TRUE 时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11276
+#: src/formula/o42-eval.c:11490
 msgid "A Roman numeral as a number."
 msgstr "将罗马数字转换为数字。"
 
-#: src/formula/o42-eval.c:11277
+#: src/formula/o42-eval.c:11491
 msgid "The number of areas in a reference: one."
 msgstr "引用中的区域个数：恒为 1。"
 
-#: src/formula/o42-eval.c:11278
+#: src/formula/o42-eval.c:11492
 msgid "A rectangle as text, plainly or in braces."
 msgstr "将矩形区域转换为文本，简洁格式或带花括号。"
 
-#: src/formula/o42-eval.c:11279
+#: src/formula/o42-eval.c:11493
 msgid "Ascension Thursday, thirty-nine days after Easter."
 msgstr "耶稣升天节，即复活节后第 39 天。"
 
-#: src/formula/o42-eval.c:11280
+#: src/formula/o42-eval.c:11494
 msgid "Ash Wednesday, forty-six days before Easter."
 msgstr "圣灰星期三，即复活节前 46 天。"
 
-#: src/formula/o42-eval.c:11281
+#: src/formula/o42-eval.c:11495
 msgid "The arcsine, in radians."
 msgstr "反正弦值，以弧度表示。"
 
-#: src/formula/o42-eval.c:11282
+#: src/formula/o42-eval.c:11496
 msgid "The inverse hyperbolic sine."
 msgstr "反双曲正弦值。"
 
-#: src/formula/o42-eval.c:11283
+#: src/formula/o42-eval.c:11497
 msgid "The arctangent, in radians."
 msgstr "反正切值，以弧度表示。"
 
-#: src/formula/o42-eval.c:11284
+#: src/formula/o42-eval.c:11498
 msgid "The arctangent of y/x, in radians, in the right quadrant."
 msgstr "y/x 的反正切值，以弧度表示，位于正确的象限。"
 
-#: src/formula/o42-eval.c:11285
+#: src/formula/o42-eval.c:11499
 msgid "The inverse hyperbolic tangent."
 msgstr "反双曲正切值。"
 
-#: src/formula/o42-eval.c:11286
+#: src/formula/o42-eval.c:11500
 msgid "The arithmetic mean; text and blanks in a range are skipped."
 msgstr "算术平均值；区域中的文本和空白单元格将被忽略。"
 
-#: src/formula/o42-eval.c:11287
+#: src/formula/o42-eval.c:11501
 msgid "The average, counting text as 0 and TRUE as 1."
 msgstr "平均值，文本计为 0，TRUE 计为 1。"
 
-#: src/formula/o42-eval.c:11288
+#: src/formula/o42-eval.c:11502
 msgid "The mean of the cells that meet a condition."
 msgstr "满足一个条件的单元格的平均值。"
 
-#: src/formula/o42-eval.c:11289
+#: src/formula/o42-eval.c:11503
 msgid "The mean of the cells meeting every condition."
 msgstr "满足所有条件的单元格的平均值。"
 
-#: src/formula/o42-eval.c:11290
+#: src/formula/o42-eval.c:11504
 msgid "A number as text in another base."
 msgstr "将数字转换为另一进制的文本。"
 
-#: src/formula/o42-eval.c:11291
+#: src/formula/o42-eval.c:11505
 msgid "The beta function."
 msgstr "Beta 函数。"
 
-#: src/formula/o42-eval.c:11292
+#: src/formula/o42-eval.c:11506
 msgid "The beta distribution, density or cumulative."
 msgstr "Beta 分布的概率密度或累积分布。"
 
-#: src/formula/o42-eval.c:11293
+#: src/formula/o42-eval.c:11507
 msgid "The logarithm of the beta function."
 msgstr "Beta 函数的自然对数。"
 
-#: src/formula/o42-eval.c:11294
+#: src/formula/o42-eval.c:11508
 msgid "The probability of a range of successes."
 msgstr "成功次数落在某一范围内的概率。"
 
-#: src/formula/o42-eval.c:11295 src/formula/o42-eval.c:11325
+#: src/formula/o42-eval.c:11509 src/formula/o42-eval.c:11539
 msgid ""
 "The smallest value whose cumulative binomial distribution reaches alpha."
 msgstr "使累积二项分布达到 alpha 的最小值。"
 
-#: src/formula/o42-eval.c:11296
+#: src/formula/o42-eval.c:11510
 msgid "Each column of an array through a function."
 msgstr "将数组的每一列分别传给函数计算。"
 
-#: src/formula/o42-eval.c:11297
+#: src/formula/o42-eval.c:11511
 msgid "Each row of an array through a function."
 msgstr "将数组的每一行分别传给函数计算。"
 
-#: src/formula/o42-eval.c:11298
+#: src/formula/o42-eval.c:11512
 msgid "The Cauchy, Lorentz or Breit-Wigner distribution."
 msgstr "柯西分布（又称洛伦兹分布或 Breit-Wigner 分布）。"
 
-#: src/formula/o42-eval.c:11299
+#: src/formula/o42-eval.c:11513
 msgid "Rounded up to the next whole number."
 msgstr "向上舍入到最接近的整数。"
 
-#: src/formula/o42-eval.c:11300
+#: src/formula/o42-eval.c:11514
 msgid "Rounds up, away from zero, to a multiple of significance."
 msgstr "远离零向上舍入为 significance 的倍数。"
 
-#: src/formula/o42-eval.c:11301 src/formula/o42-eval.c:11428
+#: src/formula/o42-eval.c:11515 src/formula/o42-eval.c:11642
 msgid "Rounds up to a multiple of the significance."
 msgstr "向上舍入为 significance 的倍数。"
 
-#: src/formula/o42-eval.c:11302
+#: src/formula/o42-eval.c:11516
 msgid "Rounded up towards plus infinity, whatever the sign."
 msgstr "无论正负，均向正无穷方向舍入。"
 
-#: src/formula/o42-eval.c:11303
+#: src/formula/o42-eval.c:11517
 msgid "The chi-squared distribution, density or cumulative."
 msgstr "卡方分布的概率密度或累积分布。"
 
-#: src/formula/o42-eval.c:11304
+#: src/formula/o42-eval.c:11518
 msgid "The inverse of the left-tailed chi-squared distribution."
 msgstr "左尾卡方分布的反函数。"
 
-#: src/formula/o42-eval.c:11305 src/formula/o42-eval.c:11308
+#: src/formula/o42-eval.c:11519 src/formula/o42-eval.c:11522
 msgid "The chi-squared test for independence."
 msgstr "卡方独立性检验。"
 
-#: src/formula/o42-eval.c:11306
+#: src/formula/o42-eval.c:11520
 msgid "The chi-squared distribution, as Gnumeric names it."
 msgstr "卡方分布（Gnumeric 中的名称）。"
 
-#: src/formula/o42-eval.c:11307
+#: src/formula/o42-eval.c:11521
 msgid "The value of chi-squared with the given probability below it."
 msgstr "使其下方概率等于给定值的卡方值。"
 
-#: src/formula/o42-eval.c:11309
+#: src/formula/o42-eval.c:11523
 msgid "The value at a given position in the list."
 msgstr "列表中指定位置的值。"
 
-#: src/formula/o42-eval.c:11310
+#: src/formula/o42-eval.c:11524
 msgid "The column number of a reference, or of this cell."
 msgstr "引用或当前单元格的列号。"
 
-#: src/formula/o42-eval.c:11311
+#: src/formula/o42-eval.c:11525
 msgid "How many ways k things can be chosen from n."
 msgstr "从 n 个对象中选取 k 个的组合数。"
 
-#: src/formula/o42-eval.c:11312
+#: src/formula/o42-eval.c:11526
 msgid "Combinations with repetition."
 msgstr "可重复的组合数。"
 
-#: src/formula/o42-eval.c:11313
+#: src/formula/o42-eval.c:11527
 msgid "Half the width of a confidence interval, by Student's t."
 msgstr "按学生 t 分布计算的置信区间半宽。"
 
-#: src/formula/o42-eval.c:11314
+#: src/formula/o42-eval.c:11528
 msgid "A measurement in other units: CONVERT(1,\"mi\",\"km\")."
 msgstr "换算为其他单位的度量值：CONVERT(1,\"mi\",\"km\")。"
 
-#: src/formula/o42-eval.c:11315
+#: src/formula/o42-eval.c:11529
 msgid "The cosine of an angle in radians."
 msgstr "以弧度表示的角的余弦值。"
 
-#: src/formula/o42-eval.c:11316
+#: src/formula/o42-eval.c:11530
 msgid "The hyperbolic cosine."
 msgstr "双曲余弦值。"
 
-#: src/formula/o42-eval.c:11317
+#: src/formula/o42-eval.c:11531
 msgid "The cotangent."
 msgstr "余切值。"
 
-#: src/formula/o42-eval.c:11318
+#: src/formula/o42-eval.c:11532
 msgid "The hyperbolic cotangent."
 msgstr "双曲余切值。"
 
-#: src/formula/o42-eval.c:11319
+#: src/formula/o42-eval.c:11533
 msgid "How many of the arguments are numbers."
 msgstr "参数中数字的个数。"
 
-#: src/formula/o42-eval.c:11320
+#: src/formula/o42-eval.c:11534
 msgid "How many of the arguments are not blank."
 msgstr "参数中非空值的个数。"
 
-#: src/formula/o42-eval.c:11321
+#: src/formula/o42-eval.c:11535
 msgid "How many cells in a range are blank."
 msgstr "区域中空白单元格的个数。"
 
-#: src/formula/o42-eval.c:11322
+#: src/formula/o42-eval.c:11536
 msgid "How many cells meet a condition such as \">5\" or \"a*\"."
 msgstr "满足条件（如 \">5\" 或 \"a*\"）的单元格个数。"
 
-#: src/formula/o42-eval.c:11323
+#: src/formula/o42-eval.c:11537
 msgid "How many cells meet every condition."
 msgstr "满足所有条件的单元格个数。"
 
-#: src/formula/o42-eval.c:11324
+#: src/formula/o42-eval.c:11538
 msgid "The sample covariance."
 msgstr "样本协方差。"
 
-#: src/formula/o42-eval.c:11326
+#: src/formula/o42-eval.c:11540
 msgid "Cronbach's alpha: how far the items measure one thing."
 msgstr "Cronbach alpha 系数：各项目衡量同一事物的一致程度。"
 
-#: src/formula/o42-eval.c:11327
+#: src/formula/o42-eval.c:11541
 msgid "The cosecant."
 msgstr "余割值。"
 
-#: src/formula/o42-eval.c:11328
+#: src/formula/o42-eval.c:11542
 msgid "The hyperbolic cosecant."
 msgstr "双曲余割值。"
 
-#: src/formula/o42-eval.c:11329
+#: src/formula/o42-eval.c:11543
 msgid "Interest paid between two periods of a loan."
 msgstr "贷款在两个期间之间累计支付的利息。"
 
-#: src/formula/o42-eval.c:11330
+#: src/formula/o42-eval.c:11544
 msgid "Principal paid between two periods of a loan."
 msgstr "贷款在两个期间之间累计偿还的本金。"
 
-#: src/formula/o42-eval.c:11331
+#: src/formula/o42-eval.c:11545
 msgid "The Julian day number of a date."
 msgstr "日期的儒略日数。"
 
-#: src/formula/o42-eval.c:11332
+#: src/formula/o42-eval.c:11546
 msgid "A date as Unix time: seconds since the start of 1970."
 msgstr "将日期转换为 Unix 时间：自 1970 年初起的秒数。"
 
-#: src/formula/o42-eval.c:11333
+#: src/formula/o42-eval.c:11547
 msgid "The mean of a field in the records that match the criteria."
 msgstr "符合条件的记录中某字段的平均值。"
 
-#: src/formula/o42-eval.c:11334
+#: src/formula/o42-eval.c:11548
 msgid "Fixed-declining-balance depreciation."
 msgstr "用固定余额递减法计算的折旧。"
 
-#: src/formula/o42-eval.c:11335
+#: src/formula/o42-eval.c:11549
 msgid "How many records match the criteria and hold a number in the field."
 msgstr "符合条件且该字段含数字的记录个数。"
 
-#: src/formula/o42-eval.c:11336
+#: src/formula/o42-eval.c:11550
 msgid "How many records match the criteria and are not blank in the field."
 msgstr "符合条件且该字段非空的记录个数。"
 
-#: src/formula/o42-eval.c:11337
+#: src/formula/o42-eval.c:11551
 msgid "Depreciation by the double-declining balance method."
 msgstr "用双倍余额递减法计算的折旧。"
 
-#: src/formula/o42-eval.c:11338
+#: src/formula/o42-eval.c:11552
 msgid "Text in another base as a number."
 msgstr "将另一进制的文本转换为数字。"
 
-#: src/formula/o42-eval.c:11339
+#: src/formula/o42-eval.c:11553
 msgid "Radians to degrees."
 msgstr "将弧度转换为度。"
 
-#: src/formula/o42-eval.c:11340
+#: src/formula/o42-eval.c:11554
 msgid "The field of the one record that matches the criteria."
 msgstr "符合条件的唯一一条记录中的字段值。"
 
-#: src/formula/o42-eval.c:11341
+#: src/formula/o42-eval.c:11555
 msgid "The largest value of a field in the matching records."
 msgstr "符合条件的记录中某字段的最大值。"
 
-#: src/formula/o42-eval.c:11342
+#: src/formula/o42-eval.c:11556
 msgid "The smallest value of a field in the matching records."
 msgstr "符合条件的记录中某字段的最小值。"
 
-#: src/formula/o42-eval.c:11343
+#: src/formula/o42-eval.c:11557
 msgid "A price quoted as a fraction, as a decimal."
 msgstr "将以分数表示的价格转换为小数。"
 
-#: src/formula/o42-eval.c:11344
+#: src/formula/o42-eval.c:11558
 msgid "A decimal price as a fraction quote."
 msgstr "将小数价格转换为以分数表示的价格。"
 
-#: src/formula/o42-eval.c:11345
+#: src/formula/o42-eval.c:11559
 msgid "The product of a field in the matching records."
 msgstr "符合条件的记录中某字段的乘积。"
 
-#: src/formula/o42-eval.c:11346
+#: src/formula/o42-eval.c:11560
 msgid "The sample standard deviation of a field in the matching records."
 msgstr "符合条件的记录中某字段的样本标准偏差。"
 
-#: src/formula/o42-eval.c:11347
+#: src/formula/o42-eval.c:11561
 msgid "Population standard deviation of matching records."
 msgstr "符合条件的记录的总体标准偏差。"
 
-#: src/formula/o42-eval.c:11348
+#: src/formula/o42-eval.c:11562
 msgid "The sum of a field in the records that match the criteria."
 msgstr "符合条件的记录中某字段的和。"
 
-#: src/formula/o42-eval.c:11349
+#: src/formula/o42-eval.c:11563
 msgid "The sample variance of a field in the matching records."
 msgstr "符合条件的记录中某字段的样本方差。"
 
-#: src/formula/o42-eval.c:11350
+#: src/formula/o42-eval.c:11564
 msgid "Population variance of matching records."
 msgstr "符合条件的记录的总体方差。"
 
-#: src/formula/o42-eval.c:11351
+#: src/formula/o42-eval.c:11565
 msgid "Easter Sunday, by the Gregorian computus."
 msgstr "复活节（星期日），按格里历算法计算。"
 
-#: src/formula/o42-eval.c:11352
+#: src/formula/o42-eval.c:11566
 msgid "The effective annual interest rate."
 msgstr "实际年利率。"
 
-#: src/formula/o42-eval.c:11353
+#: src/formula/o42-eval.c:11567
 msgid "The error value that text names."
 msgstr "文本所指的错误值。"
 
-#: src/formula/o42-eval.c:11354
+#: src/formula/o42-eval.c:11568
 msgid "A number for each kind of error value."
 msgstr "对应各种错误值的数字。"
 
-#: src/formula/o42-eval.c:11355
+#: src/formula/o42-eval.c:11569
 msgid ""
 "One of nineteen aggregates, leaving out hidden rows or errors as the options "
 "say."
 msgstr "19 种汇总计算之一，可按选项忽略隐藏行或错误值。"
 
-#: src/formula/o42-eval.c:11356
+#: src/formula/o42-eval.c:11570
 msgid "Rounds away from zero to an even integer."
 msgstr "远离零舍入到最接近的偶数。"
 
-#: src/formula/o42-eval.c:11357
+#: src/formula/o42-eval.c:11571
 msgid "e raised to a power."
 msgstr "e 的乘幂。"
 
-#: src/formula/o42-eval.c:11358
+#: src/formula/o42-eval.c:11572
 msgid "exp(x) - 1, keeping the digits a small x would lose."
 msgstr "exp(x) - 1，可保留 x 很小时会丢失的有效数字。"
 
-#: src/formula/o42-eval.c:11359
+#: src/formula/o42-eval.c:11573
 msgid "The density of the exponential power distribution."
 msgstr "指数幂分布的概率密度。"
 
-#: src/formula/o42-eval.c:11360
+#: src/formula/o42-eval.c:11574
 msgid "The F distribution, density or cumulative."
 msgstr "F 分布的概率密度或累积分布。"
 
-#: src/formula/o42-eval.c:11361
+#: src/formula/o42-eval.c:11575
 msgid "The inverse of the left-tailed F distribution."
 msgstr "左尾 F 分布的反函数。"
 
-#: src/formula/o42-eval.c:11362
+#: src/formula/o42-eval.c:11576
 msgid "The two-tailed F-test probability."
 msgstr "双尾 F 检验的概率。"
 
-#: src/formula/o42-eval.c:11363
+#: src/formula/o42-eval.c:11577
 msgid "The factorial."
 msgstr "阶乘。"
 
-#: src/formula/o42-eval.c:11364
+#: src/formula/o42-eval.c:11578
 msgid "The double factorial."
 msgstr "双阶乘。"
 
-#: src/formula/o42-eval.c:11365
+#: src/formula/o42-eval.c:11579
 msgid "The logical value FALSE."
 msgstr "逻辑值 FALSE。"
 
-#: src/formula/o42-eval.c:11366
+#: src/formula/o42-eval.c:11580
 msgid "The rows (or columns) of an array where a condition holds."
 msgstr "数组中满足条件的行（或列）。"
 
-#: src/formula/o42-eval.c:11367
+#: src/formula/o42-eval.c:11581
 msgid "The Fisher transformation."
 msgstr "Fisher 变换。"
 
-#: src/formula/o42-eval.c:11368
+#: src/formula/o42-eval.c:11582
 msgid "The inverse of the Fisher transformation."
 msgstr "Fisher 变换的反函数。"
 
-#: src/formula/o42-eval.c:11369
+#: src/formula/o42-eval.c:11583
 msgid "Rounds down, toward zero, to a multiple of significance."
 msgstr "向零方向向下舍入为 significance 的倍数。"
 
-#: src/formula/o42-eval.c:11370
+#: src/formula/o42-eval.c:11584
 msgid "Rounds down to a multiple of the significance."
 msgstr "向下舍入为 significance 的倍数。"
 
-#: src/formula/o42-eval.c:11371
+#: src/formula/o42-eval.c:11585
 msgid "Rounded down towards minus infinity, whatever the sign."
 msgstr "无论正负，均向负无穷方向舍入。"
 
-#: src/formula/o42-eval.c:11372
+#: src/formula/o42-eval.c:11586
 msgid "What was typed into a cell, formula and all."
 msgstr "单元格中输入的内容，包括公式。"
 
-#: src/formula/o42-eval.c:11373
+#: src/formula/o42-eval.c:11587
 msgid "The two-tailed F-test probability that the variances differ."
 msgstr "方差存在差异的双尾 F 检验概率。"
 
-#: src/formula/o42-eval.c:11374
+#: src/formula/o42-eval.c:11588
 msgid "The future value of regular payments."
 msgstr "定期付款的未来值。"
 
-#: src/formula/o42-eval.c:11375
+#: src/formula/o42-eval.c:11589
 msgid "The gamma function."
 msgstr "Gamma 函数。"
 
-#: src/formula/o42-eval.c:11376
+#: src/formula/o42-eval.c:11590
 msgid "The probability between the mean and z standard deviations."
 msgstr "平均值与 z 个标准偏差之间的概率。"
 
-#: src/formula/o42-eval.c:11377
+#: src/formula/o42-eval.c:11591
 msgid "The greatest common divisor."
 msgstr "最大公约数。"
 
-#: src/formula/o42-eval.c:11378
+#: src/formula/o42-eval.c:11592
 msgid "How many failures before the first success."
 msgstr "几何分布：首次成功之前的失败次数。"
 
-#: src/formula/o42-eval.c:11379
+#: src/formula/o42-eval.c:11593
 msgid "A value from the machine's environment."
 msgstr "计算机环境变量中的值。"
 
-#: src/formula/o42-eval.c:11380
+#: src/formula/o42-eval.c:11594
 msgid "Good Friday, two days before Easter."
 msgstr "耶稣受难日，即复活节前两天。"
 
-#: src/formula/o42-eval.c:11381
+#: src/formula/o42-eval.c:11595
 msgid "Values on the exponential curve fitted to the points."
 msgstr "根据各点拟合的指数曲线上的值。"
 
-#: src/formula/o42-eval.c:11382
+#: src/formula/o42-eval.c:11596
 msgid "Finds a value in the top row and returns from that column."
 msgstr "在首行中查找值，并返回该列中的值。"
 
-#: src/formula/o42-eval.c:11383
+#: src/formula/o42-eval.c:11597
 msgid "The text to show for a link."
 msgstr "为链接显示的文本。"
 
-#: src/formula/o42-eval.c:11384 src/formula/o42-eval.c:11385
+#: src/formula/o42-eval.c:11598 src/formula/o42-eval.c:11599
 msgid "The hypergeometric distribution."
 msgstr "超几何分布。"
 
-#: src/formula/o42-eval.c:11386
+#: src/formula/o42-eval.c:11600
 msgid "One value if a condition holds, another if not."
 msgstr "条件成立时返回一个值，否则返回另一个值。"
 
-#: src/formula/o42-eval.c:11387
+#: src/formula/o42-eval.c:11601
 msgid "A value, or something else if it is an error."
 msgstr "返回一个值；如果它是错误值，则返回其他值。"
 
-#: src/formula/o42-eval.c:11388
+#: src/formula/o42-eval.c:11602
 msgid "A value, or something else if it is #N/A."
 msgstr "返回一个值；如果它是 #N/A，则返回其他值。"
 
-#: src/formula/o42-eval.c:11389
+#: src/formula/o42-eval.c:11603
 msgid "The first value whose test holds."
 msgstr "第一个成立的测试所对应的值。"
 
-#: src/formula/o42-eval.c:11390
+#: src/formula/o42-eval.c:11604
 msgid "The inverse cosine of a complex number."
 msgstr "复数的反余弦值。"
 
-#: src/formula/o42-eval.c:11391
+#: src/formula/o42-eval.c:11605
 msgid "The inverse hyperbolic cosine of a complex number."
 msgstr "复数的反双曲余弦值。"
 
-#: src/formula/o42-eval.c:11392
+#: src/formula/o42-eval.c:11606
 msgid "The inverse cotangent of a complex number."
 msgstr "复数的反余切值。"
 
-#: src/formula/o42-eval.c:11393
+#: src/formula/o42-eval.c:11607
 msgid "The inverse hyperbolic cotangent of a complex number."
 msgstr "复数的反双曲余切值。"
 
-#: src/formula/o42-eval.c:11394
+#: src/formula/o42-eval.c:11608
 msgid "The inverse cosecant of a complex number."
 msgstr "复数的反余割值。"
 
-#: src/formula/o42-eval.c:11395
+#: src/formula/o42-eval.c:11609
 msgid "The inverse hyperbolic cosecant of a complex number."
 msgstr "复数的反双曲余割值。"
 
-#: src/formula/o42-eval.c:11396
+#: src/formula/o42-eval.c:11610
 msgid "The inverse secant of a complex number."
 msgstr "复数的反正割值。"
 
-#: src/formula/o42-eval.c:11397
+#: src/formula/o42-eval.c:11611
 msgid "The inverse hyperbolic secant of a complex number."
 msgstr "复数的反双曲正割值。"
 
-#: src/formula/o42-eval.c:11398
+#: src/formula/o42-eval.c:11612
 msgid "The inverse sine of a complex number."
 msgstr "复数的反正弦值。"
 
-#: src/formula/o42-eval.c:11399
+#: src/formula/o42-eval.c:11613
 msgid "The inverse hyperbolic sine of a complex number."
 msgstr "复数的反双曲正弦值。"
 
-#: src/formula/o42-eval.c:11400
+#: src/formula/o42-eval.c:11614
 msgid "The inverse tangent of a complex number."
 msgstr "复数的反正切值。"
 
-#: src/formula/o42-eval.c:11401
+#: src/formula/o42-eval.c:11615
 msgid "The inverse hyperbolic tangent of a complex number."
 msgstr "复数的反双曲正切值。"
 
-#: src/formula/o42-eval.c:11402
+#: src/formula/o42-eval.c:11616
 msgid "The hyperbolic cosine of a complex number."
 msgstr "复数的双曲余弦值。"
 
-#: src/formula/o42-eval.c:11403
+#: src/formula/o42-eval.c:11617
 msgid "The cotangent of a complex number."
 msgstr "复数的余切值。"
 
-#: src/formula/o42-eval.c:11404
+#: src/formula/o42-eval.c:11618
 msgid "The hyperbolic cotangent of a complex number."
 msgstr "复数的双曲余切值。"
 
-#: src/formula/o42-eval.c:11405
+#: src/formula/o42-eval.c:11619
 msgid "The cosecant of a complex number."
 msgstr "复数的余割值。"
 
-#: src/formula/o42-eval.c:11406
+#: src/formula/o42-eval.c:11620
 msgid "The hyperbolic cosecant of a complex number."
 msgstr "复数的双曲余割值。"
 
-#: src/formula/o42-eval.c:11407
+#: src/formula/o42-eval.c:11621
 msgid "One divided by a complex number."
 msgstr "复数的倒数（1 除以该复数）。"
 
-#: src/formula/o42-eval.c:11408
+#: src/formula/o42-eval.c:11622
 msgid "A complex number with its sign turned round."
 msgstr "复数的相反数。"
 
-#: src/formula/o42-eval.c:11409
+#: src/formula/o42-eval.c:11623
 msgid "The secant of a complex number."
 msgstr "复数的正割值。"
 
-#: src/formula/o42-eval.c:11410
+#: src/formula/o42-eval.c:11624
 msgid "The hyperbolic secant of a complex number."
 msgstr "复数的双曲正割值。"
 
-#: src/formula/o42-eval.c:11411
+#: src/formula/o42-eval.c:11625
 msgid "The hyperbolic sine of a complex number."
 msgstr "复数的双曲正弦值。"
 
-#: src/formula/o42-eval.c:11412
+#: src/formula/o42-eval.c:11626
 msgid "The tangent of a complex number."
 msgstr "复数的正切值。"
 
-#: src/formula/o42-eval.c:11413
+#: src/formula/o42-eval.c:11627
 msgid "The hyperbolic tangent of a complex number."
 msgstr "复数的双曲正切值。"
 
-#: src/formula/o42-eval.c:11414
+#: src/formula/o42-eval.c:11628
 msgid "The cell at a row and column of a range."
 msgstr "区域中指定行与列交叉处的单元格。"
 
-#: src/formula/o42-eval.c:11415
+#: src/formula/o42-eval.c:11629
 msgid "The reference the text names."
 msgstr "文本所指定的引用。"
 
-#: src/formula/o42-eval.c:11416
+#: src/formula/o42-eval.c:11630
 msgid "Rounds down to the nearest integer."
 msgstr "向下舍入到最接近的整数。"
 
-#: src/formula/o42-eval.c:11417
+#: src/formula/o42-eval.c:11631
 msgid "The interest part of one payment."
 msgstr "一期付款中的利息部分。"
 
-#: src/formula/o42-eval.c:11418
+#: src/formula/o42-eval.c:11632
 msgid "The internal rate of return of a series of cash flows."
 msgstr "一系列现金流的内部收益率。"
 
-#: src/formula/o42-eval.c:11419
+#: src/formula/o42-eval.c:11633
 msgid "TRUE for an empty cell."
 msgstr "单元格为空时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11420
+#: src/formula/o42-eval.c:11634
 msgid "TRUE for any error but #N/A."
 msgstr "值为除 #N/A 以外的任何错误值时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11421
+#: src/formula/o42-eval.c:11635
 msgid "TRUE for any error."
 msgstr "值为任何错误值时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11422
+#: src/formula/o42-eval.c:11636
 msgid "TRUE for an even number."
 msgstr "数字为偶数时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11423
+#: src/formula/o42-eval.c:11637
 msgid "Whether the cell holds a formula."
 msgstr "单元格是否包含公式。"
 
-#: src/formula/o42-eval.c:11424
+#: src/formula/o42-eval.c:11638
 msgid "TRUE for TRUE or FALSE."
 msgstr "值为 TRUE 或 FALSE 时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11425
+#: src/formula/o42-eval.c:11639
 msgid "TRUE for #N/A."
 msgstr "值为 #N/A 时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11426
+#: src/formula/o42-eval.c:11640
 msgid "TRUE for anything that is not text."
 msgstr "值不是文本时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11427
+#: src/formula/o42-eval.c:11641
 msgid "TRUE for a number."
 msgstr "值为数字时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11429
+#: src/formula/o42-eval.c:11643
 msgid "TRUE for an odd number."
 msgstr "数字为奇数时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11430
+#: src/formula/o42-eval.c:11644
 msgid "Whether a LAMBDA argument was left out."
 msgstr "LAMBDA 的参数是否被省略。"
 
-#: src/formula/o42-eval.c:11431
+#: src/formula/o42-eval.c:11645
 msgid "The year the ISO 8601 week of a date belongs to."
 msgstr "日期所在的 ISO 8601 周所属的年份。"
 
-#: src/formula/o42-eval.c:11432
+#: src/formula/o42-eval.c:11646
 msgid "Interest paid in a period of an even-principal loan."
 msgstr "等额本金贷款在某一期间支付的利息。"
 
-#: src/formula/o42-eval.c:11433
+#: src/formula/o42-eval.c:11647
 msgid "TRUE if the number is prime."
 msgstr "数字为质数时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11434
+#: src/formula/o42-eval.c:11648
 msgid "TRUE if the value is a reference."
 msgstr "值为引用时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11435
+#: src/formula/o42-eval.c:11649
 msgid "TRUE for text."
 msgstr "值为文本时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11436
+#: src/formula/o42-eval.c:11650
 msgid "The ith prime number."
 msgstr "第 i 个质数。"
 
-#: src/formula/o42-eval.c:11437
+#: src/formula/o42-eval.c:11651
 msgid "The kurtosis of a whole population."
 msgstr "总体的峰度。"
 
-#: src/formula/o42-eval.c:11438
+#: src/formula/o42-eval.c:11652
 msgid "A function of its own, called at once or through LET."
 msgstr "自定义函数，可立即调用或通过 LET 调用。"
 
-#: src/formula/o42-eval.c:11439
+#: src/formula/o42-eval.c:11653
 msgid "The Landau distribution, by its integral."
 msgstr "Landau 分布（按其积分计算）。"
 
-#: src/formula/o42-eval.c:11440
+#: src/formula/o42-eval.c:11654
 msgid "The density of Laplace's distribution."
 msgstr "拉普拉斯分布的概率密度。"
 
-#: src/formula/o42-eval.c:11441
+#: src/formula/o42-eval.c:11655
 msgid "The least common multiple."
 msgstr "最小公倍数。"
 
-#: src/formula/o42-eval.c:11442
+#: src/formula/o42-eval.c:11656
 msgid "Names values for use in a calculation."
 msgstr "为计算中使用的值命名。"
 
-#: src/formula/o42-eval.c:11443
+#: src/formula/o42-eval.c:11657
 msgid "The natural logarithm."
 msgstr "自然对数。"
 
-#: src/formula/o42-eval.c:11444
+#: src/formula/o42-eval.c:11658
 msgid "log(1 + x), keeping the digits a small x would lose."
 msgstr "log(1 + x)，可保留 x 很小时会丢失的有效数字。"
 
-#: src/formula/o42-eval.c:11445
+#: src/formula/o42-eval.c:11659
 msgid "The logarithm to a base, 10 if none is given."
 msgstr "按指定底数计算的对数，未指定时底数为 10。"
 
-#: src/formula/o42-eval.c:11446
+#: src/formula/o42-eval.c:11660
 msgid "The logarithm to base 10."
 msgstr "以 10 为底的对数。"
 
-#: src/formula/o42-eval.c:11447
+#: src/formula/o42-eval.c:11661
 msgid "The exponential curve through the points: m and b of y = b*m^x."
 msgstr "通过各点的指数曲线：y = b*m^x 中的 m 和 b。"
 
-#: src/formula/o42-eval.c:11448
+#: src/formula/o42-eval.c:11662
 msgid "The inverse lognormal distribution."
 msgstr "对数正态分布的反函数。"
 
-#: src/formula/o42-eval.c:11449
+#: src/formula/o42-eval.c:11663
 msgid "The density of the logistic distribution."
 msgstr "逻辑斯谛分布的概率密度。"
 
-#: src/formula/o42-eval.c:11450
+#: src/formula/o42-eval.c:11664
 msgid "The lognormal distribution."
 msgstr "对数正态分布。"
 
-#: src/formula/o42-eval.c:11451
+#: src/formula/o42-eval.c:11665
 msgid "The inverse of the cumulative lognormal distribution."
 msgstr "累积对数正态分布的反函数。"
 
-#: src/formula/o42-eval.c:11452
+#: src/formula/o42-eval.c:11666
 msgid "Finds a value in one vector and returns from another."
 msgstr "在一个向量中查找值，并从另一个向量返回值。"
 
-#: src/formula/o42-eval.c:11453
+#: src/formula/o42-eval.c:11667
 msgid "An array from a function of the row and column."
 msgstr "由行号和列号经函数计算生成的数组。"
 
-#: src/formula/o42-eval.c:11454
+#: src/formula/o42-eval.c:11668
 msgid "Every element of an array through a function."
 msgstr "将数组的每个元素分别传给函数计算。"
 
-#: src/formula/o42-eval.c:11455
+#: src/formula/o42-eval.c:11669
 msgid "The position of a value in a range."
 msgstr "值在区域中的位置。"
 
-#: src/formula/o42-eval.c:11456
+#: src/formula/o42-eval.c:11670
 msgid "The largest number."
 msgstr "数字中的最大值。"
 
-#: src/formula/o42-eval.c:11457
+#: src/formula/o42-eval.c:11671
 msgid "The largest value, counting text as 0 and TRUE as 1."
 msgstr "最大值，文本计为 0，TRUE 计为 1。"
 
-#: src/formula/o42-eval.c:11458
+#: src/formula/o42-eval.c:11672
 msgid "The largest value among the cells meeting every condition."
 msgstr "满足所有条件的单元格中的最大值。"
 
-#: src/formula/o42-eval.c:11459
+#: src/formula/o42-eval.c:11673
 msgid "The determinant of a square matrix."
 msgstr "方阵的行列式。"
 
-#: src/formula/o42-eval.c:11460
+#: src/formula/o42-eval.c:11674
 msgid "The middle value."
 msgstr "中位数。"
 
-#: src/formula/o42-eval.c:11461
+#: src/formula/o42-eval.c:11675
 msgid "The smallest number."
 msgstr "数字中的最小值。"
 
-#: src/formula/o42-eval.c:11462
+#: src/formula/o42-eval.c:11676
 msgid "The smallest value, counting text as 0 and TRUE as 1."
 msgstr "最小值，文本计为 0，TRUE 计为 1。"
 
-#: src/formula/o42-eval.c:11463
+#: src/formula/o42-eval.c:11677
 msgid "The smallest value among the cells meeting every condition."
 msgstr "满足所有条件的单元格中的最小值。"
 
-#: src/formula/o42-eval.c:11464
+#: src/formula/o42-eval.c:11678
 msgid "The modified internal rate of return."
 msgstr "修正内部收益率。"
 
-#: src/formula/o42-eval.c:11465
+#: src/formula/o42-eval.c:11679
 msgid "The remainder, with the sign of the divisor."
 msgstr "余数，其符号与除数相同。"
 
-#: src/formula/o42-eval.c:11466
+#: src/formula/o42-eval.c:11680
 msgid "Rounds to the nearest multiple."
 msgstr "舍入到最接近的倍数。"
 
-#: src/formula/o42-eval.c:11467
+#: src/formula/o42-eval.c:11681
 msgid "The multinomial of a set of numbers."
 msgstr "一组数字的多项式系数。"
 
-#: src/formula/o42-eval.c:11468
+#: src/formula/o42-eval.c:11682
 msgid "A value as a number; text becomes 0."
 msgstr "将值转换为数字；文本转换为 0。"
 
-#: src/formula/o42-eval.c:11469
+#: src/formula/o42-eval.c:11683
 msgid "The error value #N/A."
 msgstr "错误值 #N/A。"
 
-#: src/formula/o42-eval.c:11470 src/formula/o42-eval.c:11471
+#: src/formula/o42-eval.c:11684 src/formula/o42-eval.c:11685
 msgid "The negative binomial distribution."
 msgstr "负二项分布。"
 
-#: src/formula/o42-eval.c:11472
+#: src/formula/o42-eval.c:11686
 msgid "Working days between two dates, with the weekend named."
 msgstr "两个日期之间的工作日数，可指定周末。"
 
-#: src/formula/o42-eval.c:11473
+#: src/formula/o42-eval.c:11687
 msgid "The nominal annual interest rate."
 msgstr "名义年利率。"
 
-#: src/formula/o42-eval.c:11474
+#: src/formula/o42-eval.c:11688
 msgid "The standard normal distribution."
 msgstr "标准正态分布。"
 
-#: src/formula/o42-eval.c:11475
+#: src/formula/o42-eval.c:11689
 msgid ""
 "D'Agostino and Pearson's test for normality, from the skew and kurtosis."
 msgstr "D'Agostino-Pearson 正态性检验，基于偏度和峰度。"
 
-#: src/formula/o42-eval.c:11476
+#: src/formula/o42-eval.c:11690
 msgid "The opposite of a logical value."
 msgstr "逻辑值的相反值。"
 
-#: src/formula/o42-eval.c:11477
+#: src/formula/o42-eval.c:11691
 msgid "How many payments an investment takes."
 msgstr "投资所需的付款期数。"
 
-#: src/formula/o42-eval.c:11478
+#: src/formula/o42-eval.c:11692
 msgid "The net present value of a series of cash flows."
 msgstr "一系列现金流的净现值。"
 
-#: src/formula/o42-eval.c:11479
+#: src/formula/o42-eval.c:11693
 msgid "How many divisors a number has."
 msgstr "数字的约数个数。"
 
-#: src/formula/o42-eval.c:11480
+#: src/formula/o42-eval.c:11694
 msgid "The Moebius mu function of a number."
 msgstr "数字的莫比乌斯 mu 函数值。"
 
-#: src/formula/o42-eval.c:11481
+#: src/formula/o42-eval.c:11695
 msgid "How many distinct primes go into a number."
 msgstr "数字的不同质因数的个数。"
 
-#: src/formula/o42-eval.c:11482
+#: src/formula/o42-eval.c:11696
 msgid "Euler's totient: how many below n are coprime to it."
 msgstr "欧拉函数：小于 n 且与 n 互质的数的个数。"
 
-#: src/formula/o42-eval.c:11483
+#: src/formula/o42-eval.c:11697
 msgid "How many primes there are up to n."
 msgstr "不大于 n 的质数个数。"
 
-#: src/formula/o42-eval.c:11484
+#: src/formula/o42-eval.c:11698
 msgid "The product of the distinct primes of a number."
 msgstr "数字的不同质因数之积。"
 
-#: src/formula/o42-eval.c:11485
+#: src/formula/o42-eval.c:11699
 msgid "What the divisors of a number add up to."
 msgstr "数字的所有约数之和。"
 
-#: src/formula/o42-eval.c:11486
+#: src/formula/o42-eval.c:11700
 msgid "Text as a number, ignoring spaces."
 msgstr "将文本转换为数字，忽略空格。"
 
-#: src/formula/o42-eval.c:11487
+#: src/formula/o42-eval.c:11701
 msgid "Rounds away from zero to an odd integer."
 msgstr "远离零舍入到最接近的奇数。"
 
-#: src/formula/o42-eval.c:11488
+#: src/formula/o42-eval.c:11702
 msgid "A reference moved and resized from another."
 msgstr "由另一引用偏移并调整大小后得到的引用。"
 
-#: src/formula/o42-eval.c:11489
+#: src/formula/o42-eval.c:11703
 msgid "TRUE if any argument is TRUE."
 msgstr "任一参数为 TRUE 时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11490
+#: src/formula/o42-eval.c:11704
 msgid "Owen's T function."
 msgstr "Owen T 函数。"
 
-#: src/formula/o42-eval.c:11491
+#: src/formula/o42-eval.c:11705
 msgid "The density of Pareto's distribution."
 msgstr "帕累托分布的概率密度。"
 
-#: src/formula/o42-eval.c:11492
+#: src/formula/o42-eval.c:11706
 msgid "Periods for an investment to reach a value."
 msgstr "投资达到某一值所需的期数。"
 
-#: src/formula/o42-eval.c:11493
+#: src/formula/o42-eval.c:11707
 msgid "Pentecost, forty-nine days after Easter."
 msgstr "圣灵降临节，即复活节后第 49 天。"
 
-#: src/formula/o42-eval.c:11494
+#: src/formula/o42-eval.c:11708
 msgid "The k-th percentile, exclusive."
 msgstr "第 k 个百分点值（不含端点）。"
 
-#: src/formula/o42-eval.c:11495
+#: src/formula/o42-eval.c:11709
 msgid "The rank of a value as a fraction of the set."
 msgstr "值在数据集中的百分比排位。"
 
-#: src/formula/o42-eval.c:11496
+#: src/formula/o42-eval.c:11710
 msgid "The rank of a value, with the ends counted out."
 msgstr "值在数据集中的百分比排位（不含端点）。"
 
-#: src/formula/o42-eval.c:11497
+#: src/formula/o42-eval.c:11711
 msgid "The rank of a value as a fraction of the set, inclusive."
 msgstr "值在数据集中的百分比排位（含端点）。"
 
-#: src/formula/o42-eval.c:11498
+#: src/formula/o42-eval.c:11712
 msgid "How many ordered ways k things can be chosen from n."
 msgstr "从 n 个对象中选取 k 个的排列数。"
 
-#: src/formula/o42-eval.c:11499
+#: src/formula/o42-eval.c:11713
 msgid "Permutations with repetition."
 msgstr "可重复的排列数。"
 
-#: src/formula/o42-eval.c:11500
+#: src/formula/o42-eval.c:11714
 msgid "The smallest prime that goes into a number."
 msgstr "能整除该数字的最小质数。"
 
-#: src/formula/o42-eval.c:11501
+#: src/formula/o42-eval.c:11715
 msgid "The standard normal density."
 msgstr "标准正态分布的概率密度。"
 
-#: src/formula/o42-eval.c:11502
+#: src/formula/o42-eval.c:11716
 msgid "3.14159265358979."
 msgstr "3.14159265358979。"
 
-#: src/formula/o42-eval.c:11503
+#: src/formula/o42-eval.c:11717
 msgid "The payment on a loan."
 msgstr "贷款的每期付款额。"
 
-#: src/formula/o42-eval.c:11504
+#: src/formula/o42-eval.c:11718
 msgid "A number raised to a power."
 msgstr "数字的乘幂。"
 
-#: src/formula/o42-eval.c:11505
+#: src/formula/o42-eval.c:11719
 msgid "The principal part of one payment."
 msgstr "一期付款中的本金部分。"
 
-#: src/formula/o42-eval.c:11506
+#: src/formula/o42-eval.c:11720
 msgid "The probability that a value lies between two limits."
 msgstr "值落在两个界限之间的概率。"
 
-#: src/formula/o42-eval.c:11507
+#: src/formula/o42-eval.c:11721
 msgid "Multiplies its arguments."
 msgstr "将所有参数相乘。"
 
-#: src/formula/o42-eval.c:11508
+#: src/formula/o42-eval.c:11722
 msgid "The present value of regular payments."
 msgstr "定期付款的现值。"
 
-#: src/formula/o42-eval.c:11509
+#: src/formula/o42-eval.c:11723
 msgid "A quartile, exclusive."
 msgstr "四分位数（不含端点）。"
 
-#: src/formula/o42-eval.c:11510
+#: src/formula/o42-eval.c:11724
 msgid "The integer part of a division."
 msgstr "除法的整数部分。"
 
-#: src/formula/o42-eval.c:11511
+#: src/formula/o42-eval.c:11725
 msgid "Degrees to radians."
 msgstr "将度转换为弧度。"
 
-#: src/formula/o42-eval.c:11512
+#: src/formula/o42-eval.c:11726
 msgid "A random number between 0 and 1."
 msgstr "0 到 1 之间的随机数。"
 
-#: src/formula/o42-eval.c:11513
+#: src/formula/o42-eval.c:11727
 msgid "An array of random numbers."
 msgstr "随机数数组。"
 
-#: src/formula/o42-eval.c:11514
+#: src/formula/o42-eval.c:11728
 msgid "A random integer in a range."
 msgstr "某一范围内的随机整数。"
 
-#: src/formula/o42-eval.c:11515
+#: src/formula/o42-eval.c:11729
 msgid "The rank of a number, averaged over ties."
 msgstr "数字的排位，相同值取平均排位。"
 
-#: src/formula/o42-eval.c:11516
+#: src/formula/o42-eval.c:11730
 msgid "The interest rate per period of an annuity."
 msgstr "年金的每期利率。"
 
-#: src/formula/o42-eval.c:11517
+#: src/formula/o42-eval.c:11731
 msgid "The density of Rayleigh's distribution."
 msgstr "瑞利分布的概率密度。"
 
-#: src/formula/o42-eval.c:11518
+#: src/formula/o42-eval.c:11732
 msgid "An array folded into one value."
 msgstr "将数组累积计算为一个值。"
 
-#: src/formula/o42-eval.c:11519
+#: src/formula/o42-eval.c:11733
 msgid "A number as a Roman numeral."
 msgstr "将数字转换为罗马数字。"
 
-#: src/formula/o42-eval.c:11520
+#: src/formula/o42-eval.c:11734
 msgid "Rounds to a number of digits, halves away from zero."
 msgstr "按指定位数舍入，中间值远离零舍入。"
 
-#: src/formula/o42-eval.c:11521
+#: src/formula/o42-eval.c:11735
 msgid "Rounds toward zero."
 msgstr "向零方向舍入。"
 
-#: src/formula/o42-eval.c:11522
+#: src/formula/o42-eval.c:11736
 msgid "Rounds away from zero."
 msgstr "远离零方向舍入。"
 
-#: src/formula/o42-eval.c:11523
+#: src/formula/o42-eval.c:11737
 msgid "The row number of a reference, or of this cell."
 msgstr "引用或当前单元格的行号。"
 
-#: src/formula/o42-eval.c:11524
+#: src/formula/o42-eval.c:11738
 msgid "The rate that grows pv to fv over nper periods."
 msgstr "在 nper 期内使 pv 增长到 fv 的利率。"
 
-#: src/formula/o42-eval.c:11525
+#: src/formula/o42-eval.c:11739
 msgid "The running results of folding an array."
 msgstr "累积计算数组时各步的中间结果。"
 
-#: src/formula/o42-eval.c:11526
+#: src/formula/o42-eval.c:11740
 msgid "The secant."
 msgstr "正割值。"
 
-#: src/formula/o42-eval.c:11527
+#: src/formula/o42-eval.c:11741
 msgid "The hyperbolic secant."
 msgstr "双曲正割值。"
 
-#: src/formula/o42-eval.c:11528
+#: src/formula/o42-eval.c:11742
 msgid "An array of numbers in sequence."
 msgstr "由一系列连续数字组成的数组。"
 
-#: src/formula/o42-eval.c:11529
+#: src/formula/o42-eval.c:11743
 msgid "A power series."
 msgstr "幂级数之和。"
 
-#: src/formula/o42-eval.c:11530
+#: src/formula/o42-eval.c:11744
 msgid "The number of the sheet, counting from one."
 msgstr "工作表的编号，从 1 开始计数。"
 
-#: src/formula/o42-eval.c:11531
+#: src/formula/o42-eval.c:11745
 msgid "How many sheets the book has."
 msgstr "工作簿中工作表的数目。"
 
-#: src/formula/o42-eval.c:11532
+#: src/formula/o42-eval.c:11746
 msgid "1, 0 or -1 by the sign of a number."
 msgstr "根据数字的符号返回 1、0 或 -1。"
 
-#: src/formula/o42-eval.c:11533
+#: src/formula/o42-eval.c:11747
 msgid "The sine of an angle in radians."
 msgstr "以弧度表示的角的正弦值。"
 
-#: src/formula/o42-eval.c:11534
+#: src/formula/o42-eval.c:11748
 msgid "The hyperbolic sine."
 msgstr "双曲正弦值。"
 
-#: src/formula/o42-eval.c:11535
+#: src/formula/o42-eval.c:11749
 msgid "The skewness of a population."
 msgstr "总体的偏度。"
 
-#: src/formula/o42-eval.c:11536
+#: src/formula/o42-eval.c:11750
 msgid "The skew of a whole population."
 msgstr "整个总体的偏度。"
 
-#: src/formula/o42-eval.c:11537
+#: src/formula/o42-eval.c:11751
 msgid "Straight-line depreciation for one period."
 msgstr "某一期间的直线折旧。"
 
-#: src/formula/o42-eval.c:11538
+#: src/formula/o42-eval.c:11752
 msgid "The chance a standard normal falls between the two."
 msgstr "标准正态变量落在两值之间的概率。"
 
-#: src/formula/o42-eval.c:11539
+#: src/formula/o42-eval.c:11753
 msgid "An array sorted by one of its columns."
 msgstr "按某一列排序后的数组。"
 
-#: src/formula/o42-eval.c:11540
+#: src/formula/o42-eval.c:11754
 msgid "An array sorted by another."
 msgstr "按另一数组排序后的数组。"
 
-#: src/formula/o42-eval.c:11541
+#: src/formula/o42-eval.c:11755
 msgid "The square root."
 msgstr "平方根。"
 
-#: src/formula/o42-eval.c:11542
+#: src/formula/o42-eval.c:11756
 msgid "The square root of a number times pi."
 msgstr "数字与 pi 之积的平方根。"
 
-#: src/formula/o42-eval.c:11543
+#: src/formula/o42-eval.c:11757
 msgid "The median of grouped data, interpolated inside its bin."
 msgstr "分组数据的中位数，在其所在组内插值得到。"
 
-#: src/formula/o42-eval.c:11544
+#: src/formula/o42-eval.c:11758
 msgid "Sample standard deviation, counting text as 0 and TRUE as 1."
 msgstr "样本标准偏差，文本计为 0，TRUE 计为 1。"
 
-#: src/formula/o42-eval.c:11545
+#: src/formula/o42-eval.c:11759
 msgid "Population standard deviation, counting text as 0 and TRUE as 1."
 msgstr "总体标准偏差，文本计为 0，TRUE 计为 1。"
 
-#: src/formula/o42-eval.c:11546
+#: src/formula/o42-eval.c:11760
 msgid "The standard error of the predicted y for each x."
 msgstr "每个 x 对应的 y 预测值的标准误差。"
 
-#: src/formula/o42-eval.c:11547
+#: src/formula/o42-eval.c:11761
 msgid ""
 "An aggregate chosen by number: 1 AVERAGE, 2 COUNT, 3 COUNTA, 4 MAX, 5 MIN, 6 "
 "PRODUCT, 7 STDEV, 8 STDEVP, 9 SUM, 10 VAR, 11 VARP."
@@ -2278,176 +2283,176 @@ msgstr ""
 "按编号选择的汇总方式：1 AVERAGE、2 COUNT、3 COUNTA、4 MAX、5 MIN、6 PRODUCT、"
 "7 STDEV、8 STDEVP、9 SUM、10 VAR、11 VARP。"
 
-#: src/formula/o42-eval.c:11548
+#: src/formula/o42-eval.c:11762
 msgid "Adds its arguments; text in a range is skipped."
 msgstr "将所有参数相加；区域中的文本将被忽略。"
 
-#: src/formula/o42-eval.c:11549
+#: src/formula/o42-eval.c:11763
 msgid "The sum, counting text as 0 and TRUE as 1."
 msgstr "求和，文本计为 0，TRUE 计为 1。"
 
-#: src/formula/o42-eval.c:11550
+#: src/formula/o42-eval.c:11764
 msgid "Adds the cells that meet a condition."
 msgstr "对满足条件的单元格求和。"
 
-#: src/formula/o42-eval.c:11551
+#: src/formula/o42-eval.c:11765
 msgid "Adds the cells meeting every condition."
 msgstr "对满足所有条件的单元格求和。"
 
-#: src/formula/o42-eval.c:11552
+#: src/formula/o42-eval.c:11766
 msgid "Multiplies ranges cell by cell and adds the products."
 msgstr "将各区域中对应单元格相乘，并返回乘积之和。"
 
-#: src/formula/o42-eval.c:11553
+#: src/formula/o42-eval.c:11767
 msgid "The sum of the squares."
 msgstr "平方和。"
 
-#: src/formula/o42-eval.c:11554
+#: src/formula/o42-eval.c:11768
 msgid "The sum of the differences of squares."
 msgstr "两数组中对应值的平方差之和。"
 
-#: src/formula/o42-eval.c:11555
+#: src/formula/o42-eval.c:11769
 msgid "The sum of the sums of squares."
 msgstr "两数组中对应值的平方和之和。"
 
-#: src/formula/o42-eval.c:11556
+#: src/formula/o42-eval.c:11770
 msgid "The sum of the squares of differences."
 msgstr "两数组中对应值之差的平方和。"
 
-#: src/formula/o42-eval.c:11557
+#: src/formula/o42-eval.c:11771
 msgid "The result matching a value, or the default."
 msgstr "与值匹配的结果，或默认值。"
 
-#: src/formula/o42-eval.c:11558
+#: src/formula/o42-eval.c:11772
 msgid "Sum-of-years'-digits depreciation for one period."
 msgstr "某一期间按年数总和法计算的折旧。"
 
-#: src/formula/o42-eval.c:11559
+#: src/formula/o42-eval.c:11773
 msgid "A value if it is text, otherwise empty text."
 msgstr "值为文本时返回该值，否则返回空文本。"
 
-#: src/formula/o42-eval.c:11560
+#: src/formula/o42-eval.c:11774
 msgid "Student's t distribution, density or cumulative."
 msgstr "学生 t 分布的概率密度或累积分布。"
 
-#: src/formula/o42-eval.c:11561
+#: src/formula/o42-eval.c:11775
 msgid "Both tails of Student's t distribution."
 msgstr "双尾学生 t 分布。"
 
-#: src/formula/o42-eval.c:11562
+#: src/formula/o42-eval.c:11776
 msgid "The right tail of Student's t distribution."
 msgstr "右尾学生 t 分布。"
 
-#: src/formula/o42-eval.c:11563
+#: src/formula/o42-eval.c:11777
 msgid "The inverse of the left-tailed t distribution."
 msgstr "左尾 t 分布的反函数。"
 
-#: src/formula/o42-eval.c:11564
+#: src/formula/o42-eval.c:11778
 msgid "Student's t-test probability."
 msgstr "学生 t 检验的概率。"
 
-#: src/formula/o42-eval.c:11565
+#: src/formula/o42-eval.c:11779
 msgid "The tangent of an angle in radians."
 msgstr "以弧度表示的角的正切值。"
 
-#: src/formula/o42-eval.c:11566
+#: src/formula/o42-eval.c:11780
 msgid "The hyperbolic tangent."
 msgstr "双曲正切值。"
 
-#: src/formula/o42-eval.c:11567
+#: src/formula/o42-eval.c:11781
 msgid "The part of a text after the delimiter, or the nth of them."
 msgstr "文本中分隔符（或第 n 个分隔符）之后的部分。"
 
-#: src/formula/o42-eval.c:11568
+#: src/formula/o42-eval.c:11782
 msgid "The part of a text before the delimiter, or the nth of them."
 msgstr "文本中分隔符（或第 n 个分隔符）之前的部分。"
 
-#: src/formula/o42-eval.c:11569
+#: src/formula/o42-eval.c:11783
 msgid "Joins texts with a delimiter between them."
 msgstr "用分隔符连接多个文本。"
 
-#: src/formula/o42-eval.c:11570
+#: src/formula/o42-eval.c:11784
 msgid "Values on the line fitted to the points."
 msgstr "根据各点拟合的直线上的值。"
 
-#: src/formula/o42-eval.c:11571
+#: src/formula/o42-eval.c:11785
 msgid "The logical value TRUE."
 msgstr "逻辑值 TRUE。"
 
-#: src/formula/o42-eval.c:11572
+#: src/formula/o42-eval.c:11786
 msgid "Cuts a number off at a number of digits."
 msgstr "将数字截尾到指定位数。"
 
-#: src/formula/o42-eval.c:11573
+#: src/formula/o42-eval.c:11787
 msgid ""
 "Student's t-test probability: type 1 paired, 2 equal variance, 3 unequal."
 msgstr "学生 t 检验的概率：type 为 1 表示成对，2 表示等方差，3 表示异方差。"
 
-#: src/formula/o42-eval.c:11574
+#: src/formula/o42-eval.c:11788
 msgid "A number for the kind of value: 1, 2, 4, 16 or 64."
 msgstr "表示值类型的数字：1、2、4、16 或 64。"
 
-#: src/formula/o42-eval.c:11575
+#: src/formula/o42-eval.c:11789
 msgid "The character with a Unicode code point."
 msgstr "指定 Unicode 码位对应的字符。"
 
-#: src/formula/o42-eval.c:11576
+#: src/formula/o42-eval.c:11790
 msgid "The code point of the first character."
 msgstr "第一个字符的码位。"
 
-#: src/formula/o42-eval.c:11577
+#: src/formula/o42-eval.c:11791
 msgid "The distinct rows (or columns) of an array."
 msgstr "数组中互不相同的行（或列）。"
 
-#: src/formula/o42-eval.c:11578
+#: src/formula/o42-eval.c:11792
 msgid "Unix time as a date and time."
 msgstr "将 Unix 时间转换为日期和时间。"
 
-#: src/formula/o42-eval.c:11579
+#: src/formula/o42-eval.c:11793
 msgid "A value as text, plainly or with its quotes."
 msgstr "将值转换为文本，简洁格式或带引号。"
 
-#: src/formula/o42-eval.c:11580
+#: src/formula/o42-eval.c:11794
 msgid "Sample variance, counting text as 0 and TRUE as 1."
 msgstr "样本方差，文本计为 0，TRUE 计为 1。"
 
-#: src/formula/o42-eval.c:11581
+#: src/formula/o42-eval.c:11795
 msgid "Population variance, counting text as 0 and TRUE as 1."
 msgstr "总体方差，文本计为 0，TRUE 计为 1。"
 
-#: src/formula/o42-eval.c:11582
+#: src/formula/o42-eval.c:11796
 msgid "Declining-balance depreciation over part of a life."
 msgstr "资产寿命中部分期间的余额递减折旧。"
 
-#: src/formula/o42-eval.c:11583
+#: src/formula/o42-eval.c:11797
 msgid "Finds a value in the first column and returns from that row."
 msgstr "在首列中查找值，并返回该行中的值。"
 
-#: src/formula/o42-eval.c:11584
+#: src/formula/o42-eval.c:11798
 msgid "The date so many working days on, with the weekend named."
 msgstr "相隔指定工作日数后的日期，可指定周末。"
 
-#: src/formula/o42-eval.c:11585
+#: src/formula/o42-eval.c:11799
 msgid "The internal rate of return of dated cash flows."
 msgstr "带日期的现金流的内部收益率。"
 
-#: src/formula/o42-eval.c:11586
+#: src/formula/o42-eval.c:11800
 msgid "Finds a value in one vector and returns the matching one from another."
 msgstr "在一个向量中查找值，并返回另一个向量中的对应值。"
 
-#: src/formula/o42-eval.c:11587
+#: src/formula/o42-eval.c:11801
 msgid "The position of a value in a vector."
 msgstr "值在向量中的位置。"
 
-#: src/formula/o42-eval.c:11588
+#: src/formula/o42-eval.c:11802
 msgid "The net present value of dated cash flows."
 msgstr "带日期的现金流的净现值。"
 
-#: src/formula/o42-eval.c:11589
+#: src/formula/o42-eval.c:11803
 msgid "TRUE if an odd number of arguments are TRUE."
 msgstr "为 TRUE 的参数个数为奇数时返回 TRUE。"
 
-#: src/formula/o42-eval.c:11590 src/formula/o42-eval.c:11591
+#: src/formula/o42-eval.c:11804 src/formula/o42-eval.c:11805
 msgid "The one-tailed probability of a z-test."
 msgstr "z 检验的单尾概率。"
 
@@ -2467,179 +2472,179 @@ msgstr "修正 Bessel 函数 Kn(x)。"
 msgid "The Bessel function Yn(x)."
 msgstr "Bessel 函数 Yn(x)。"
 
-#: src/formula/o42-fn-dates.c:401
+#: src/formula/o42-fn-dates.c:411
 msgid "The serial number of a date; months and days roll over."
 msgstr "日期的序列号；月份和天数超出范围时自动进位。"
 
-#: src/formula/o42-fn-dates.c:402
+#: src/formula/o42-fn-dates.c:412
 msgid "The serial number of a date written as text."
 msgstr "以文本形式表示的日期的序列号。"
 
-#: src/formula/o42-fn-dates.c:403
+#: src/formula/o42-fn-dates.c:413
 msgid "The day of the month, 1 to 31."
 msgstr "月份中的第几天，1 到 31。"
 
-#: src/formula/o42-fn-dates.c:404
+#: src/formula/o42-fn-dates.c:414
 msgid "The number of days between two dates."
 msgstr "两个日期之间的天数。"
 
-#: src/formula/o42-fn-dates.c:405
+#: src/formula/o42-fn-dates.c:415
 msgid "Days between two dates on a 360-day year."
 msgstr "按一年 360 天计算的两个日期之间的天数。"
 
-#: src/formula/o42-fn-dates.c:406
+#: src/formula/o42-fn-dates.c:416
 msgid "The date a number of months before or after another."
 msgstr "某一日期之前或之后指定月数的日期。"
 
-#: src/formula/o42-fn-dates.c:407
+#: src/formula/o42-fn-dates.c:417
 msgid "The last day of the month a number of months away."
 msgstr "相隔指定月数的那个月的最后一天。"
 
-#: src/formula/o42-fn-dates.c:408
+#: src/formula/o42-fn-dates.c:418
 msgid "The hour of a time, 0 to 23."
 msgstr "时间中的小时数，0 到 23。"
 
-#: src/formula/o42-fn-dates.c:409
+#: src/formula/o42-fn-dates.c:419
 msgid "The minute of a time, 0 to 59."
 msgstr "时间中的分钟数，0 到 59。"
 
-#: src/formula/o42-fn-dates.c:410
+#: src/formula/o42-fn-dates.c:420
 msgid "The month of a date, 1 to 12."
 msgstr "日期中的月份，1 到 12。"
 
-#: src/formula/o42-fn-dates.c:411
+#: src/formula/o42-fn-dates.c:421
 msgid "The current date and time."
 msgstr "当前日期和时间。"
 
-#: src/formula/o42-fn-dates.c:412
+#: src/formula/o42-fn-dates.c:422
 msgid "The second of a time, 0 to 59."
 msgstr "时间中的秒数，0 到 59。"
 
-#: src/formula/o42-fn-dates.c:413
+#: src/formula/o42-fn-dates.c:423
 msgid "The fraction of a day for a time."
 msgstr "时间所对应的一天中的小数部分。"
 
-#: src/formula/o42-fn-dates.c:414
+#: src/formula/o42-fn-dates.c:424
 msgid "The fraction of a day for a time written as text."
 msgstr "以文本形式表示的时间所对应的一天中的小数部分。"
 
-#: src/formula/o42-fn-dates.c:415
+#: src/formula/o42-fn-dates.c:425
 msgid "Today's date."
 msgstr "今天的日期。"
 
-#: src/formula/o42-fn-dates.c:416
+#: src/formula/o42-fn-dates.c:426
 msgid "The day of the week as a number."
 msgstr "以数字表示的星期几。"
 
-#: src/formula/o42-fn-dates.c:417
+#: src/formula/o42-fn-dates.c:427
 msgid "The year of a date."
 msgstr "日期中的年份。"
 
-#: src/formula/o42-fn-dates.c:418
+#: src/formula/o42-fn-dates.c:428
 msgid "The working days between two dates, weekends and holidays left out."
 msgstr "两个日期之间的工作日数，不含周末和节假日。"
 
-#: src/formula/o42-fn-dates.c:419
+#: src/formula/o42-fn-dates.c:429
 msgid "The date a number of working days away."
 msgstr "相隔指定工作日数的日期。"
 
-#: src/formula/o42-fn-distributions.c:542
-#: src/formula/o42-fn-distributions.c:544
+#: src/formula/o42-fn-distributions.c:546
+#: src/formula/o42-fn-distributions.c:548
 msgid "The inverse of the cumulative beta distribution."
 msgstr "累积 Beta 分布的反函数。"
 
-#: src/formula/o42-fn-distributions.c:543
+#: src/formula/o42-fn-distributions.c:547
 msgid "The cumulative beta distribution."
 msgstr "累积 Beta 分布。"
 
-#: src/formula/o42-fn-distributions.c:545
-#: src/formula/o42-fn-distributions.c:546
+#: src/formula/o42-fn-distributions.c:549
+#: src/formula/o42-fn-distributions.c:550
 msgid "The binomial distribution."
 msgstr "二项分布。"
 
-#: src/formula/o42-fn-distributions.c:547
-#: src/formula/o42-fn-distributions.c:549
+#: src/formula/o42-fn-distributions.c:551
+#: src/formula/o42-fn-distributions.c:553
 msgid "The right tail of the chi-squared distribution."
 msgstr "卡方分布的右尾概率。"
 
-#: src/formula/o42-fn-distributions.c:548
-#: src/formula/o42-fn-distributions.c:550
+#: src/formula/o42-fn-distributions.c:552
+#: src/formula/o42-fn-distributions.c:554
 msgid "The inverse of the right-tailed chi-squared distribution."
 msgstr "右尾卡方分布的反函数。"
 
-#: src/formula/o42-fn-distributions.c:551
+#: src/formula/o42-fn-distributions.c:555
 msgid "The half-width of a confidence interval for a mean."
 msgstr "总体平均值的置信区间半宽。"
 
-#: src/formula/o42-fn-distributions.c:552
+#: src/formula/o42-fn-distributions.c:556
 msgid "Half the width of a confidence interval for a mean."
 msgstr "总体平均值置信区间宽度的一半。"
 
-#: src/formula/o42-fn-distributions.c:553
-#: src/formula/o42-fn-distributions.c:554
+#: src/formula/o42-fn-distributions.c:557
+#: src/formula/o42-fn-distributions.c:558
 msgid "The exponential distribution."
 msgstr "指数分布。"
 
-#: src/formula/o42-fn-distributions.c:555
-#: src/formula/o42-fn-distributions.c:557
+#: src/formula/o42-fn-distributions.c:559
+#: src/formula/o42-fn-distributions.c:561
 msgid "The right tail of the F distribution."
 msgstr "F 分布的右尾概率。"
 
-#: src/formula/o42-fn-distributions.c:556
-#: src/formula/o42-fn-distributions.c:558
+#: src/formula/o42-fn-distributions.c:560
+#: src/formula/o42-fn-distributions.c:562
 msgid "The inverse of the right-tailed F distribution."
 msgstr "右尾 F 分布的反函数。"
 
-#: src/formula/o42-fn-distributions.c:559
-#: src/formula/o42-fn-distributions.c:561
+#: src/formula/o42-fn-distributions.c:563
+#: src/formula/o42-fn-distributions.c:565
 msgid "The gamma distribution."
 msgstr "Gamma 分布。"
 
-#: src/formula/o42-fn-distributions.c:560
-#: src/formula/o42-fn-distributions.c:562
+#: src/formula/o42-fn-distributions.c:564
+#: src/formula/o42-fn-distributions.c:566
 msgid "The inverse of the cumulative gamma distribution."
 msgstr "累积 Gamma 分布的反函数。"
 
-#: src/formula/o42-fn-distributions.c:563
-#: src/formula/o42-fn-distributions.c:564
+#: src/formula/o42-fn-distributions.c:567
+#: src/formula/o42-fn-distributions.c:568
 msgid "The natural logarithm of the gamma function."
 msgstr "Gamma 函数的自然对数。"
 
-#: src/formula/o42-fn-distributions.c:565
+#: src/formula/o42-fn-distributions.c:569
 msgid "The kurtosis of a sample."
 msgstr "样本的峰度。"
 
-#: src/formula/o42-fn-distributions.c:566
+#: src/formula/o42-fn-distributions.c:570
 msgid "The cumulative lognormal distribution."
 msgstr "累积对数正态分布。"
 
-#: src/formula/o42-fn-distributions.c:567
-#: src/formula/o42-fn-distributions.c:568
+#: src/formula/o42-fn-distributions.c:571
+#: src/formula/o42-fn-distributions.c:572
 msgid "The Poisson distribution."
 msgstr "泊松分布。"
 
-#: src/formula/o42-fn-distributions.c:569
+#: src/formula/o42-fn-distributions.c:573
 msgid "The skewness of a sample."
 msgstr "样本的偏度。"
 
-#: src/formula/o42-fn-distributions.c:570
+#: src/formula/o42-fn-distributions.c:574
 msgid "The inverse of the two-tailed t distribution."
 msgstr "双尾 t 分布的反函数。"
 
-#: src/formula/o42-fn-distributions.c:571
+#: src/formula/o42-fn-distributions.c:575
 msgid "The tail of Student's t distribution, one or both."
 msgstr "学生 t 分布的单尾或双尾概率。"
 
-#: src/formula/o42-fn-distributions.c:572
+#: src/formula/o42-fn-distributions.c:576
 msgid "The two-tailed inverse of Student's t distribution."
 msgstr "学生 t 分布的双尾反函数。"
 
-#: src/formula/o42-fn-distributions.c:573
+#: src/formula/o42-fn-distributions.c:577
 msgid "The mean with a fraction of the extremes left out."
 msgstr "去掉一定比例的极端值后的平均值。"
 
-#: src/formula/o42-fn-distributions.c:574
-#: src/formula/o42-fn-distributions.c:575
+#: src/formula/o42-fn-distributions.c:578
+#: src/formula/o42-fn-distributions.c:579
 msgid "The Weibull distribution."
 msgstr "韦伯分布。"
 
@@ -3098,123 +3103,123 @@ msgstr "价差期权的 Kirk 近似价格。"
 msgid "An option paying for each interval spent in the money."
 msgstr "处于价内时每个区间都有支付的期权。"
 
-#: src/formula/o42-fn-random.c:695
+#: src/formula/o42-fn-random.c:702
 msgid "One or nothing, with the given chance of one."
 msgstr "按给定概率返回 1，否则返回 0。"
 
-#: src/formula/o42-fn-random.c:696
+#: src/formula/o42-fn-random.c:703
 msgid "A random number from the beta distribution."
 msgstr "来自 Beta 分布的随机数。"
 
-#: src/formula/o42-fn-random.c:697
+#: src/formula/o42-fn-random.c:704
 msgid "How many successes in so many trials."
 msgstr "给定试验次数中成功次数的随机值。"
 
-#: src/formula/o42-fn-random.c:698
+#: src/formula/o42-fn-random.c:705
 msgid "A random number from Cauchy's distribution."
 msgstr "来自柯西分布的随机数。"
 
-#: src/formula/o42-fn-random.c:699
+#: src/formula/o42-fn-random.c:706
 msgid "A random number from the chi-squared distribution."
 msgstr "来自卡方分布的随机数。"
 
-#: src/formula/o42-fn-random.c:700
+#: src/formula/o42-fn-random.c:707
 msgid "One of the values, drawn with the given weights."
 msgstr "按给定权重随机抽取的一个值。"
 
-#: src/formula/o42-fn-random.c:701
+#: src/formula/o42-fn-random.c:708
 msgid "A random number from the exponential distribution."
 msgstr "来自指数分布的随机数。"
 
-#: src/formula/o42-fn-random.c:702
+#: src/formula/o42-fn-random.c:709
 msgid "A random number from the exponential power distribution."
 msgstr "来自指数幂分布的随机数。"
 
-#: src/formula/o42-fn-random.c:703
+#: src/formula/o42-fn-random.c:710
 msgid "A random number from Fisher's F distribution."
 msgstr "来自 Fisher F 分布的随机数。"
 
-#: src/formula/o42-fn-random.c:704
+#: src/formula/o42-fn-random.c:711
 msgid "A random number from the gamma distribution."
 msgstr "来自 Gamma 分布的随机数。"
 
-#: src/formula/o42-fn-random.c:705
+#: src/formula/o42-fn-random.c:712
 msgid "How many trials until the first success."
 msgstr "首次成功所需试验次数的随机值。"
 
-#: src/formula/o42-fn-random.c:706
+#: src/formula/o42-fn-random.c:713
 msgid "A random number from Gumbel's first distribution."
 msgstr "来自第一类 Gumbel 分布的随机数。"
 
-#: src/formula/o42-fn-random.c:707
+#: src/formula/o42-fn-random.c:714
 msgid "A random number from Gumbel's second distribution."
 msgstr "来自第二类 Gumbel 分布的随机数。"
 
-#: src/formula/o42-fn-random.c:708
+#: src/formula/o42-fn-random.c:715
 msgid "How many of the first kind in a draw from an urn."
 msgstr "从容器中抽样时得到的第一类对象个数的随机值。"
 
-#: src/formula/o42-fn-random.c:709
+#: src/formula/o42-fn-random.c:716
 msgid "A random number from Laplace's distribution."
 msgstr "来自拉普拉斯分布的随机数。"
 
-#: src/formula/o42-fn-random.c:710
+#: src/formula/o42-fn-random.c:717
 msgid "A random number from Levy's alpha-stable distribution."
 msgstr "来自 Levy alpha 稳定分布的随机数。"
 
-#: src/formula/o42-fn-random.c:711 src/formula/o42-fn-random.c:712
+#: src/formula/o42-fn-random.c:718 src/formula/o42-fn-random.c:719
 msgid "A random number from the logarithmic distribution."
 msgstr "来自对数分布的随机数。"
 
-#: src/formula/o42-fn-random.c:713
+#: src/formula/o42-fn-random.c:720
 msgid "A random number from the logistic distribution."
 msgstr "来自逻辑斯谛分布的随机数。"
 
-#: src/formula/o42-fn-random.c:714
+#: src/formula/o42-fn-random.c:721
 msgid "A random number from the log-normal distribution."
 msgstr "来自对数正态分布的随机数。"
 
-#: src/formula/o42-fn-random.c:715
+#: src/formula/o42-fn-random.c:722
 msgid "How many successes before so many failures."
 msgstr "达到给定失败次数之前成功次数的随机值。"
 
-#: src/formula/o42-fn-random.c:716
+#: src/formula/o42-fn-random.c:723
 msgid "A random number from the normal distribution."
 msgstr "来自正态分布的随机数。"
 
-#: src/formula/o42-fn-random.c:717
+#: src/formula/o42-fn-random.c:724
 msgid "A random number from the tail of a normal distribution above a."
 msgstr "来自正态分布中大于 a 的尾部的随机数。"
 
-#: src/formula/o42-fn-random.c:718
+#: src/formula/o42-fn-random.c:725
 msgid "A random number from Pareto's distribution."
 msgstr "来自帕累托分布的随机数。"
 
-#: src/formula/o42-fn-random.c:719
+#: src/formula/o42-fn-random.c:726
 msgid "A random number from Poisson's distribution."
 msgstr "来自泊松分布的随机数。"
 
-#: src/formula/o42-fn-random.c:720
+#: src/formula/o42-fn-random.c:727
 msgid "A random number from Rayleigh's distribution."
 msgstr "来自瑞利分布的随机数。"
 
-#: src/formula/o42-fn-random.c:721
+#: src/formula/o42-fn-random.c:728
 msgid "Rayleigh's distribution from a upwards."
 msgstr "来自瑞利分布中 a 以上部分的随机数。"
 
-#: src/formula/o42-fn-random.c:722 src/formula/o42-fn-random.c:723
+#: src/formula/o42-fn-random.c:729 src/formula/o42-fn-random.c:730
 msgid "A random number from the standard normal distribution."
 msgstr "来自标准正态分布的随机数。"
 
-#: src/formula/o42-fn-random.c:724
+#: src/formula/o42-fn-random.c:731
 msgid "A random number from Student's t distribution."
 msgstr "来自学生 t 分布的随机数。"
 
-#: src/formula/o42-fn-random.c:725
+#: src/formula/o42-fn-random.c:732
 msgid "A random number between the two, evenly."
 msgstr "两值之间均匀分布的随机数。"
 
-#: src/formula/o42-fn-random.c:726
+#: src/formula/o42-fn-random.c:733
 msgid "A random number from Weibull's distribution."
 msgstr "来自韦伯分布的随机数。"
 
@@ -3368,163 +3373,163 @@ msgid ""
 "it."
 msgstr "模拟运算表的公式在此单元格的计算结果；由“数据 > 模拟运算表”写入。"
 
-#: src/formula/o42-fn-text.c:956
+#: src/formula/o42-fn-text.c:1017
 msgid "How many characters a text has; the same as LEN here."
 msgstr "文本的字符数；此处与 LEN 相同。"
 
-#: src/formula/o42-fn-text.c:957
+#: src/formula/o42-fn-text.c:1018
 msgid "The first characters of a text; the same as LEFT here."
 msgstr "文本开头的若干字符；此处与 LEFT 相同。"
 
-#: src/formula/o42-fn-text.c:958
+#: src/formula/o42-fn-text.c:1019
 msgid "The last characters of a text; the same as RIGHT here."
 msgstr "文本末尾的若干字符；此处与 RIGHT 相同。"
 
-#: src/formula/o42-fn-text.c:959
+#: src/formula/o42-fn-text.c:1020
 msgid "Characters from the middle of a text; the same as MID here."
 msgstr "文本中间的若干字符；此处与 MID 相同。"
 
-#: src/formula/o42-fn-text.c:960
+#: src/formula/o42-fn-text.c:1021
 msgid "Where one text starts inside another; the same as FIND here."
 msgstr "一个文本在另一个文本中的起始位置；此处与 FIND 相同。"
 
-#: src/formula/o42-fn-text.c:961
+#: src/formula/o42-fn-text.c:1022
 msgid "Where one text starts inside another; the same as SEARCH here."
 msgstr "一个文本在另一个文本中的起始位置；此处与 SEARCH 相同。"
 
-#: src/formula/o42-fn-text.c:962
+#: src/formula/o42-fn-text.c:1023
 msgid "Replaces part of a text by position; the same as REPLACE here."
 msgstr "按位置替换文本的一部分；此处与 REPLACE 相同。"
 
-#: src/formula/o42-fn-text.c:963
+#: src/formula/o42-fn-text.c:1024
 msgid "Halfwidth letters, digits and marks made fullwidth."
 msgstr "将半角字母、数字和符号转换为全角。"
 
-#: src/formula/o42-fn-text.c:964
+#: src/formula/o42-fn-text.c:1025
 msgid ""
 "Halfwidth letters, digits and marks made fullwidth; Excel's newer name for "
 "JIS."
 msgstr "将半角字母、数字和符号转换为全角；Excel 中 JIS 的新名称。"
 
-#: src/formula/o42-fn-text.c:965
+#: src/formula/o42-fn-text.c:1026
 msgid "Fullwidth letters, digits and marks made halfwidth."
 msgstr "将全角字母、数字和符号转换为半角。"
 
-#: src/formula/o42-fn-text.c:966
+#: src/formula/o42-fn-text.c:1027
 msgid "Whether a regular expression matches somewhere in the text."
 msgstr "正则表达式是否在文本中有匹配。"
 
-#: src/formula/o42-fn-text.c:967
+#: src/formula/o42-fn-text.c:1028
 msgid ""
 "The text with what a regular expression matches replaced; \\1 for a group."
 msgstr "将正则表达式匹配的内容替换后的文本；\\1 表示分组。"
 
-#: src/formula/o42-fn-text.c:968
+#: src/formula/o42-fn-text.c:1029
 msgid "The sum of a subset as a share of the sum of the whole."
 msgstr "子集之和占总和的比例。"
 
-#: src/formula/o42-fn-text.c:970
+#: src/formula/o42-fn-text.c:1031
 #, no-c-format
 msgid "The text as it goes into a URL, %XX for what is not a letter or digit."
 msgstr "适合放入 URL 的文本，非字母或数字的字符以 %XX 表示。"
 
-#: src/formula/o42-fn-text.c:971
+#: src/formula/o42-fn-text.c:1032
 msgid "How many columns a range spans."
 msgstr "区域包含的列数。"
 
-#: src/formula/o42-fn-text.c:972
+#: src/formula/o42-fn-text.c:1033
 msgid "Joins pieces of text into one; Excel's newer name for CONCATENATE."
 msgstr "将多个文本合并为一个；Excel 中 CONCATENATE 的新名称。"
 
-#: src/formula/o42-fn-text.c:973
+#: src/formula/o42-fn-text.c:1034
 msgid "Joins pieces of text into one."
 msgstr "将多个文本合并为一个。"
 
-#: src/formula/o42-fn-text.c:974
+#: src/formula/o42-fn-text.c:1035
 msgid "Where one text starts inside another; case matters."
 msgstr "一个文本在另一个文本中的起始位置；区分大小写。"
 
-#: src/formula/o42-fn-text.c:975
+#: src/formula/o42-fn-text.c:1036
 msgid "The first characters of a text."
 msgstr "文本开头的若干字符。"
 
-#: src/formula/o42-fn-text.c:976
+#: src/formula/o42-fn-text.c:1037
 msgid "How many characters a text has."
 msgstr "文本的字符数。"
 
-#: src/formula/o42-fn-text.c:977
+#: src/formula/o42-fn-text.c:1038
 msgid "Text in lower case."
 msgstr "转换为小写的文本。"
 
-#: src/formula/o42-fn-text.c:978
+#: src/formula/o42-fn-text.c:1039
 msgid "Characters from the middle of a text."
 msgstr "文本中间的若干字符。"
 
-#: src/formula/o42-fn-text.c:979
+#: src/formula/o42-fn-text.c:1040
 msgid "A text repeated."
 msgstr "按指定次数重复的文本。"
 
-#: src/formula/o42-fn-text.c:980
+#: src/formula/o42-fn-text.c:1041
 msgid "The last characters of a text."
 msgstr "文本末尾的若干字符。"
 
-#: src/formula/o42-fn-text.c:981
+#: src/formula/o42-fn-text.c:1042
 msgid "How many rows a range spans."
 msgstr "区域包含的行数。"
 
-#: src/formula/o42-fn-text.c:982
+#: src/formula/o42-fn-text.c:1043
 msgid "Replaces old_text with new_text, every time or only the nth."
 msgstr "用 new_text 替换 old_text，替换全部或仅第 n 个。"
 
-#: src/formula/o42-fn-text.c:983
+#: src/formula/o42-fn-text.c:1044
 msgid "Text without spaces at the ends, and one between words."
 msgstr "去掉首尾空格、词间只保留一个空格的文本。"
 
-#: src/formula/o42-fn-text.c:984
+#: src/formula/o42-fn-text.c:1045
 msgid "Text in upper case."
 msgstr "转换为大写的文本。"
 
-#: src/formula/o42-fn-text.c:985
+#: src/formula/o42-fn-text.c:1046
 msgid "Text read as a number."
 msgstr "将文本转换为数字。"
 
-#: src/formula/o42-fn-text.c:986
+#: src/formula/o42-fn-text.c:1047
 msgid "The character with a given code."
 msgstr "指定代码对应的字符。"
 
-#: src/formula/o42-fn-text.c:987
+#: src/formula/o42-fn-text.c:1048
 msgid "Removes the characters that cannot be printed."
 msgstr "删除无法打印的字符。"
 
-#: src/formula/o42-fn-text.c:988
+#: src/formula/o42-fn-text.c:1049
 msgid "The code of the first character."
 msgstr "第一个字符的代码。"
 
-#: src/formula/o42-fn-text.c:989
+#: src/formula/o42-fn-text.c:1050
 msgid "A number as currency text."
 msgstr "将数字转换为货币格式的文本。"
 
-#: src/formula/o42-fn-text.c:990
+#: src/formula/o42-fn-text.c:1051
 msgid "TRUE if two texts are identical, case included."
 msgstr "两个文本完全相同（区分大小写）时返回 TRUE。"
 
-#: src/formula/o42-fn-text.c:991
+#: src/formula/o42-fn-text.c:1052
 msgid "A number as text with a fixed number of decimals."
 msgstr "将数字转换为具有固定小数位数的文本。"
 
-#: src/formula/o42-fn-text.c:992
+#: src/formula/o42-fn-text.c:1053
 msgid "Text with each word capitalised."
 msgstr "每个单词首字母大写的文本。"
 
-#: src/formula/o42-fn-text.c:993
+#: src/formula/o42-fn-text.c:1054
 msgid "Replaces part of a text by position."
 msgstr "按位置替换文本的一部分。"
 
-#: src/formula/o42-fn-text.c:994
+#: src/formula/o42-fn-text.c:1055
 msgid "Where one text starts inside another; case ignored, wildcards allowed."
 msgstr "一个文本在另一个文本中的起始位置；不区分大小写，允许使用通配符。"
 
-#: src/formula/o42-fn-text.c:995
+#: src/formula/o42-fn-text.c:1056
 msgid "A number as text in a format such as \"#,##0.00\"."
 msgstr "按格式（如 \"#,##0.00\"）将数字转换为文本。"
 
@@ -3537,7 +3542,7 @@ msgstr "按格式（如 \"#,##0.00\"）将数字转换为文本。"
 msgid "default:LTR"
 msgstr "default:LTR"
 
-#: src/ui/o42-application.c:664 src/ui/o42-window.c:7461
+#: src/ui/o42-application.c:664 src/ui/o42-window.c:7617
 msgid "Office42 Spreadsheet"
 msgstr "Office42 Spreadsheet"
 
@@ -3559,7 +3564,7 @@ msgstr "列 %s"
 msgid "(none)"
 msgstr "（无）"
 
-#: src/ui/o42-dialogs-data.c:125 src/ui/o42-window.c:6772
+#: src/ui/o42-dialogs-data.c:125 src/ui/o42-window.c:6928
 msgid "Sort"
 msgstr "排序"
 
@@ -3592,14 +3597,14 @@ msgstr "数据清单有标题行(_H)"
 #: src/ui/o42-dialogs-tools.c:2799 src/ui/o42-dialogs-tools.c:3099
 #: src/ui/o42-dialogs-tools.c:3181 src/ui/o42-dialogs-tools.c:3426
 #: src/ui/o42-dialogs-tools.c:3488 src/ui/o42-dialogs-tools.c:3829
-#: src/ui/o42-grid.c:4187 src/ui/o42-window.c:877 src/ui/o42-window.c:1095
+#: src/ui/o42-grid.c:4231 src/ui/o42-window.c:877 src/ui/o42-window.c:1095
 #: src/ui/o42-window.c:1173 src/ui/o42-window.c:1601 src/ui/o42-window.c:2488
 #: src/ui/o42-window.c:2752 src/ui/o42-window.c:3042 src/ui/o42-window.c:3140
 #: src/ui/o42-window.c:3628 src/ui/o42-window.c:3674 src/ui/o42-window.c:3749
 #: src/ui/o42-window.c:3825 src/ui/o42-window.c:3987 src/ui/o42-window.c:4147
-#: src/ui/o42-window.c:4433 src/ui/o42-window.c:4543 src/ui/o42-window.c:4876
-#: src/ui/o42-window.c:4997 src/ui/o42-window.c:5364 src/ui/o42-window.c:5646
-#: src/ui/o42-window.c:7471
+#: src/ui/o42-window.c:4452 src/ui/o42-window.c:4562 src/ui/o42-window.c:4895
+#: src/ui/o42-window.c:5016 src/ui/o42-window.c:5383 src/ui/o42-window.c:5668
+#: src/ui/o42-window.c:7627
 msgid "_OK"
 msgstr "确定(_O)"
 
@@ -3610,20 +3615,21 @@ msgstr "确定(_O)"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-format.c:459
-#: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
-#: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
-#: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
-#: src/ui/o42-dialogs-tools.c:3182 src/ui/o42-dialogs-tools.c:3427
-#: src/ui/o42-dialogs-tools.c:3489 src/ui/o42-dialogs-tools.c:3830
-#: src/ui/o42-grid.c:4188 src/ui/o42-window.c:878 src/ui/o42-window.c:1096
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1666
+#: src/ui/o42-dialogs-format.c:459 src/ui/o42-dialogs-format.c:674
+#: src/ui/o42-dialogs-format.c:773 src/ui/o42-dialogs-format.c:830
+#: src/ui/o42-dialogs-tools.c:2424 src/ui/o42-dialogs-tools.c:2800
+#: src/ui/o42-dialogs-tools.c:3100 src/ui/o42-dialogs-tools.c:3182
+#: src/ui/o42-dialogs-tools.c:3427 src/ui/o42-dialogs-tools.c:3489
+#: src/ui/o42-dialogs-tools.c:3830 src/ui/o42-grid.c:4232
+#: src/ui/o42-grid.c:5286 src/ui/o42-window.c:878 src/ui/o42-window.c:1096
 #: src/ui/o42-window.c:1174 src/ui/o42-window.c:1602 src/ui/o42-window.c:2489
 #: src/ui/o42-window.c:2753 src/ui/o42-window.c:3043 src/ui/o42-window.c:3141
 #: src/ui/o42-window.c:3630 src/ui/o42-window.c:3674 src/ui/o42-window.c:3750
 #: src/ui/o42-window.c:3826 src/ui/o42-window.c:3988 src/ui/o42-window.c:4148
-#: src/ui/o42-window.c:4434 src/ui/o42-window.c:4544 src/ui/o42-window.c:4877
-#: src/ui/o42-window.c:4998 src/ui/o42-window.c:5365 src/ui/o42-window.c:5647
-#: src/ui/o42-window.c:6257 src/ui/o42-window.c:7472
+#: src/ui/o42-window.c:4453 src/ui/o42-window.c:4563 src/ui/o42-window.c:4896
+#: src/ui/o42-window.c:5017 src/ui/o42-window.c:5384 src/ui/o42-window.c:5669
+#: src/ui/o42-window.c:6412 src/ui/o42-window.c:7628
 msgid "_Cancel"
 msgstr "取消(_C)"
 
@@ -3977,8 +3983,9 @@ msgid ""
 msgstr "该表将布置在新工作表上；使用“数据 > 刷新数据透视表”可重新布置。"
 
 #: src/ui/o42-dialogs-data.c:1272 src/ui/o42-dialogs-data.c:1382
-#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-format.c:574
-#: src/ui/o42-dialogs-tools.c:307 src/ui/o42-window.c:7019
+#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-file.c:1334
+#: src/ui/o42-dialogs-format.c:574 src/ui/o42-dialogs-tools.c:307
+#: src/ui/o42-window.c:7175
 msgid "Cancel"
 msgstr "取消"
 
@@ -4034,7 +4041,7 @@ msgid "List"
 msgstr "序列"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:160 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "日期"
 
@@ -4046,15 +4053,15 @@ msgstr "时间"
 msgid "Text length"
 msgstr "文本长度"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3134
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3178
 msgid "Stop"
 msgstr "停止"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3133
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3177
 msgid "Warning"
 msgstr "警告"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3134
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3178
 msgid "Information"
 msgstr "信息"
 
@@ -4117,30 +4124,35 @@ msgstr "输入无效数据时显示出错警告(_E)"
 msgid "_Clear"
 msgstr "清除(_C)"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Comma"
 msgstr "逗号(_C)"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Tab"
 msgstr "Tab 键(_T)"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Semicolon"
 msgstr "分号(_S)"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "S_pace"
 msgstr "空格(_P)"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-format.c:61
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5285
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-format.c:61 src/ui/o42-dialogs-format.c:104
+#: src/ui/o42-window.c:5304
 msgid "General"
 msgstr "常规"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-format.c:61
-#: src/ui/o42-window.c:4835
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-format.c:61 src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "文本"
 
@@ -4420,18 +4432,383 @@ msgid "Comments:"
 msgstr "备注："
 
 #. Properties
-#: src/ui/o42-dialogs-edit.c:705 src/ui/o42-window.c:4830
+#: src/ui/o42-dialogs-edit.c:705 src/ui/o42-window.c:4849
 msgid "Properties"
 msgstr "属性"
+
+#: src/ui/o42-dialogs-file.c:33
+msgid "Unicode (UTF-8)"
+msgstr "Unicode (UTF-8)"
+
+#: src/ui/o42-dialogs-file.c:34
+msgid "Unicode (UTF-16, little-endian)"
+msgstr "Unicode (UTF-16 小端序)"
+
+#: src/ui/o42-dialogs-file.c:35
+msgid "Unicode (UTF-16, big-endian)"
+msgstr "Unicode (UTF-16 大端序)"
+
+#: src/ui/o42-dialogs-file.c:36
+msgid "Windows (ANSI), Western European"
+msgstr "西欧 (Windows ANSI)"
+
+#: src/ui/o42-dialogs-file.c:37
+msgid "Windows, Central European"
+msgstr "中欧 (Windows)"
+
+#: src/ui/o42-dialogs-file.c:38
+msgid "Windows, Cyrillic"
+msgstr "西里尔文 (Windows)"
+
+#: src/ui/o42-dialogs-file.c:39
+msgid "Windows, Greek"
+msgstr "希腊语 (Windows)"
+
+#: src/ui/o42-dialogs-file.c:40
+msgid "Windows, Turkish"
+msgstr "土耳其语 (Windows)"
+
+#: src/ui/o42-dialogs-file.c:41
+msgid "Windows, Hebrew"
+msgstr "希伯来语 (Windows)"
+
+#: src/ui/o42-dialogs-file.c:42
+msgid "Windows, Arabic"
+msgstr "阿拉伯语 (Windows)"
+
+#: src/ui/o42-dialogs-file.c:43
+msgid "Windows, Baltic"
+msgstr "波罗的海语 (Windows)"
+
+#: src/ui/o42-dialogs-file.c:44
+msgid "Windows, Vietnamese"
+msgstr "越南语 (Windows)"
+
+#: src/ui/o42-dialogs-file.c:45
+msgid "DOS or OS/2 (PC-8)"
+msgstr "DOS 或 OS/2 (PC-8)"
+
+#: src/ui/o42-dialogs-file.c:46
+msgid "DOS, Western European (PC-850)"
+msgstr "西欧 (DOS PC-850)"
+
+#: src/ui/o42-dialogs-file.c:47
+msgid "Macintosh"
+msgstr "Macintosh"
+
+#: src/ui/o42-dialogs-file.c:48
+msgid "ISO 8859-1, Western European"
+msgstr "西欧 (ISO 8859-1)"
+
+#: src/ui/o42-dialogs-file.c:49
+msgid "ISO 8859-15, Western European with the euro"
+msgstr "西欧，含欧元符号 (ISO 8859-15)"
+
+#: src/ui/o42-dialogs-file.c:50
+msgid "ISO 8859-2, Central European"
+msgstr "中欧 (ISO 8859-2)"
+
+#: src/ui/o42-dialogs-file.c:51
+msgid "KOI8-R, Russian"
+msgstr "俄语 (KOI8-R)"
+
+#: src/ui/o42-dialogs-file.c:52
+msgid "Japanese (Shift JIS)"
+msgstr "日语 (Shift JIS)"
+
+#: src/ui/o42-dialogs-file.c:53
+msgid "Japanese (EUC-JP)"
+msgstr "日语 (EUC-JP)"
+
+#: src/ui/o42-dialogs-file.c:54
+msgid "Chinese, Simplified (GB 18030)"
+msgstr "简体中文 (GB 18030)"
+
+#: src/ui/o42-dialogs-file.c:55
+msgid "Chinese, Traditional (Big5)"
+msgstr "繁体中文 (Big5)"
+
+#: src/ui/o42-dialogs-file.c:56
+msgid "Korean (EUC-KR)"
+msgstr "韩语 (EUC-KR)"
+
+#: src/ui/o42-dialogs-file.c:160
+msgid "Skip Column"
+msgstr "忽略列"
+
+#: src/ui/o42-dialogs-file.c:848 src/ui/o42-dialogs-file.c:1316
+msgid "Text Import Wizard - Step 1 of 3"
+msgstr "文本导入向导 - 第 1 步，共 3 步"
+
+#: src/ui/o42-dialogs-file.c:849
+msgid "Text Import Wizard - Step 2 of 3"
+msgstr "文本导入向导 - 第 2 步，共 3 步"
+
+#: src/ui/o42-dialogs-file.c:850
+msgid "Text Import Wizard - Step 3 of 3"
+msgstr "文本导入向导 - 第 3 步，共 3 步"
+
+#: src/ui/o42-dialogs-file.c:914
+msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
+msgstr "工作表受保护：请先使用“工具 > 保护 > 撤消工作表保护”。"
+
+#: src/ui/o42-dialogs-file.c:921
+msgid "Put the data at a cell, such as A1."
+msgstr "请指定一个单元格作为数据的放置位置，例如 A1。"
+
+#: src/ui/o42-dialogs-file.c:987
+msgid ""
+"If this is correct, choose Next, or choose the data type that best describes "
+"your data."
+msgstr "若一切设置无误，请单击“下一步”，否则请选择最合适的数据类型。"
+
+#: src/ui/o42-dialogs-file.c:991
+msgid "_Delimited - Characters such as commas or tabs separate each field."
+msgstr "分隔符号 - 用分隔字符（如逗号或制表符）分隔每个字段(_D)"
+
+#: src/ui/o42-dialogs-file.c:993
+msgid ""
+"Fixed _width - Fields are aligned in columns with spaces between each field."
+msgstr "固定宽度 - 每列字段加空格对齐(_W)"
+
+#: src/ui/o42-dialogs-file.c:997
+msgid "Original data type"
+msgstr "原始数据类型"
+
+#: src/ui/o42-dialogs-file.c:1001
+msgid "Start import at _row:"
+msgstr "导入起始行(_R)："
+
+#: src/ui/o42-dialogs-file.c:1008
+msgid "File _origin:"
+msgstr "文件原始格式(_O)："
+
+#: src/ui/o42-dialogs-file.c:1018
+#, c-format
+msgid "Preview of file %s:"
+msgstr "预览文件 %s："
+
+#: src/ui/o42-dialogs-file.c:1036 src/ui/o42-dialogs-file.c:1156
+#: src/ui/o42-dialogs-file.c:1605
+msgid "{none}"
+msgstr "{无}"
+
+#: src/ui/o42-dialogs-file.c:1045
+msgid ""
+"This screen lets you set the delimiters your data contains. You can see how "
+"your text is affected in the preview below."
+msgstr "请设置数据所包含的分隔符号。在下面的预览窗口内可看到文本的分列效果。"
+
+#: src/ui/o42-dialogs-file.c:1053 src/ui/o42-dialogs-file.c:1560
+msgid "_Other:"
+msgstr "其他(_O)："
+
+#: src/ui/o42-dialogs-file.c:1060
+msgid "Delimiters"
+msgstr "分隔符号"
+
+#: src/ui/o42-dialogs-file.c:1063
+msgid "Treat consecutive delimiters as o_ne"
+msgstr "连续分隔符号视为单个处理(_N)"
+
+#: src/ui/o42-dialogs-file.c:1065 src/ui/o42-dialogs-file.c:1600
+msgid "Text _qualifier:"
+msgstr "文本识别符号(_Q)："
+
+#: src/ui/o42-dialogs-file.c:1075 src/ui/o42-dialogs-file.c:1092
+#: src/ui/o42-dialogs-file.c:1258
+msgid "Data preview"
+msgstr "数据预览"
+
+#: src/ui/o42-dialogs-file.c:1086
+msgid ""
+"This screen lets you set field widths (column breaks). Lines with arrows "
+"signify a column break."
+msgstr "请设置字段宽度（分列线）。有箭头的垂直线为分列线。"
+
+#: src/ui/o42-dialogs-file.c:1089
+msgid ""
+"To CREATE a break line, click at the desired position.\n"
+"To DELETE a break line, double click on the line.\n"
+"To MOVE a break line, click and drag it."
+msgstr ""
+"要建立分列线，请在要建立分列处单击鼠标。\n"
+"要清除分列线，请双击分列线。\n"
+"要移动分列线位置，请按住分列线并拖至指定位置。"
+
+#: src/ui/o42-dialogs-file.c:1153
+msgid "_Text"
+msgstr "文本(_T)"
+
+#: src/ui/o42-dialogs-file.c:1153
+msgid "_Date:"
+msgstr "日期(_D)："
+
+#: src/ui/o42-dialogs-file.c:1154
+msgid "Do not _import column (skip)"
+msgstr "不导入此列(跳过)(_I)"
+
+#: src/ui/o42-dialogs-file.c:1156
+msgid "space"
+msgstr "空格"
+
+#: src/ui/o42-dialogs-file.c:1167
+msgid ""
+"This screen lets you select each column and set the Data Format. Click a "
+"column in the preview to choose it, Shift+click to choose several."
+msgstr ""
+"使用此屏内容可选择各列，并设置其数据格式。在预览中单击某列可选定该列，按住 "
+"Shift 单击可选定多列。"
+
+#: src/ui/o42-dialogs-file.c:1188
+msgid "Column data format"
+msgstr "列数据格式"
+
+#: src/ui/o42-dialogs-file.c:1191
+msgid ""
+"'General' converts numeric values to numbers, date values to dates, and all "
+"remaining values to text."
+msgstr ""
+"“常规”数据格式将数值转换成数字，日期值转换成日期，其余数据则转换成文本。"
+
+#: src/ui/o42-dialogs-file.c:1199
+msgid "De_cimal separator:"
+msgstr "小数分隔符(_C)："
+
+#: src/ui/o42-dialogs-file.c:1205
+msgid "T_housands separator:"
+msgstr "千位分隔符(_H)："
+
+#: src/ui/o42-dialogs-file.c:1213
+msgid "Trailing _minus for negative numbers"
+msgstr "以尾随负号表示负数(_M)"
+
+#: src/ui/o42-dialogs-file.c:1227
+msgid "_Advanced"
+msgstr "高级(_A)"
+
+#: src/ui/o42-dialogs-file.c:1242
+msgid "_Put the data at:"
+msgstr "数据放置于(_P)："
+
+#: src/ui/o42-dialogs-file.c:1289 src/ui/o42-dialogs-file.c:1363
+#: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
+#: src/ui/o42-window.c:6354
+msgid "office42 could not open that file."
+msgstr "office42 无法打开该文件。"
+
+#: src/ui/o42-dialogs-file.c:1330
+msgid "The Text Wizard has determined that your data is Fixed Width."
+msgstr "文本导入向导判定您的数据具有固定宽度。"
+
+#: src/ui/o42-dialogs-file.c:1331
+msgid "The Text Wizard has determined that your data is Delimited."
+msgstr "文本导入向导判定您的数据具有分隔符号。"
+
+#: src/ui/o42-dialogs-file.c:1335
+msgid "< _Back"
+msgstr "< 上一步(_B)"
+
+#: src/ui/o42-dialogs-file.c:1336
+msgid "_Next >"
+msgstr "下一步(_N) >"
+
+#: src/ui/o42-dialogs-file.c:1337
+msgid "_Finish"
+msgstr "完成(_F)"
+
+#: src/ui/o42-dialogs-file.c:1379 src/ui/o42-window.c:6195
+msgid "Text Files (*.prn, *.txt, *.csv)"
+msgstr "文本文件 (*.prn, *.txt, *.csv)"
+
+#: src/ui/o42-dialogs-file.c:1382 src/ui/o42-window.c:6207
+msgid "All Files"
+msgstr "所有文件"
+
+#: src/ui/o42-dialogs-file.c:1387
+msgid "Import Text File"
+msgstr "导入文本文件"
+
+#: src/ui/o42-dialogs-file.c:1432
+msgid "Type the character to put between the fields."
+msgstr "请键入要放在字段之间的字符。"
+
+#: src/ui/o42-dialogs-file.c:1505
+msgid "Windows (CR LF)"
+msgstr "Windows (CR LF)"
+
+#: src/ui/o42-dialogs-file.c:1505
+msgid "Unix and macOS (LF)"
+msgstr "Unix 和 macOS (LF)"
+
+#: src/ui/o42-dialogs-file.c:1533
+#, c-format
+msgid "Save %s as Text"
+msgstr "将 %s 另存为文本"
+
+#: src/ui/o42-dialogs-file.c:1541
+#, c-format
+msgid ""
+"A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
+"the book keeps the others until it is closed."
+msgstr ""
+"文本文件只能容纳一个工作表。只会保存当前显示的工作表“%s”；其他工作表在工作簿"
+"关闭之前仍保留在工作簿中。"
+
+#: src/ui/o42-dialogs-file.c:1569
+msgid "_Fixed width - the columns padded with spaces"
+msgstr "固定宽度 - 各列以空格补齐(_F)"
+
+#: src/ui/o42-dialogs-file.c:1572
+msgid "Between the fields"
+msgstr "字段之间"
+
+#: src/ui/o42-dialogs-file.c:1612
+msgid "_Encoding:"
+msgstr "编码(_E)："
+
+#: src/ui/o42-dialogs-file.c:1618
+msgid ""
+"With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
+msgstr "带字节顺序标记，与 Excel 的“CSV UTF-8”和“Unicode 文本”相同(_B)"
+
+#: src/ui/o42-dialogs-file.c:1623
+msgid "_Lines end:"
+msgstr "换行符(_L)："
+
+#. A file read with a decimal comma is written with one.
+#: src/ui/o42-dialogs-file.c:1635
+msgid "_Decimal separator:"
+msgstr "小数分隔符(_D)："
+
+#: src/ui/o42-dialogs-file.c:1639
+msgid "Point (1,234.50)"
+msgstr "句点 (1,234.50)"
+
+#: src/ui/o42-dialogs-file.c:1639
+msgid "Comma (1.234,50)"
+msgstr "逗号 (1.234,50)"
+
+#: src/ui/o42-dialogs-file.c:1652
+msgid "Save cell contents as _shown"
+msgstr "按显示的格式保存单元格内容(_S)"
+
+#: src/ui/o42-dialogs-file.c:1655
+msgid "Save _formulas rather than what they work out to"
+msgstr "保存公式而非其计算结果(_F)"
+
+#: src/ui/o42-dialogs-file.c:1658
+msgid "_Quote all text cells"
+msgstr "为所有文本单元格加引号(_Q)"
 
 #. Excel 97's pie-of-pie and bar-of-pie: a pie's last slices shown
 #. * again in a second plot.
 #. In the order of O42TrendKind, so the row is the kind.
 #. In the order of O42ErrBarKind.
 #: src/ui/o42-dialogs-format.c:53 src/ui/o42-dialogs-format.c:312
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4791
-#: src/ui/o42-window.c:5302 src/ui/o42-window.c:5317 src/ui/o42-window.c:5329
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4810
+#: src/ui/o42-window.c:5321 src/ui/o42-window.c:5336 src/ui/o42-window.c:5348
+#: src/ui/o42-window.c:5362
 msgid "None"
 msgstr "无"
 
@@ -4439,7 +4816,7 @@ msgstr "无"
 msgid "Thin"
 msgstr "细"
 
-#: src/ui/o42-dialogs-format.c:53 src/ui/o42-window.c:4793
+#: src/ui/o42-dialogs-format.c:53 src/ui/o42-window.c:4812
 msgid "Medium"
 msgstr "中等"
 
@@ -4507,27 +4884,27 @@ msgstr "(1,234.10)"
 msgid "(1,234.10) in red"
 msgstr "(1,234.10)（红色）"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4880
 msgid "Left"
 msgstr "靠左"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:6847
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:7003
 msgid "Center"
 msgstr "居中"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4880
 msgid "Right"
 msgstr "靠右"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Bottom"
 msgstr "靠下"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Middle"
 msgstr "居中"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Top"
 msgstr "靠上"
 
@@ -4561,11 +4938,11 @@ msgstr "格式代码："
 msgid "Alignment"
 msgstr "对齐"
 
-#: src/ui/o42-dialogs-format.c:358 src/ui/o42-window.c:4865
+#: src/ui/o42-dialogs-format.c:358 src/ui/o42-window.c:4884
 msgid "Horizontal:"
 msgstr "水平对齐："
 
-#: src/ui/o42-dialogs-format.c:360 src/ui/o42-window.c:4867
+#: src/ui/o42-dialogs-format.c:360 src/ui/o42-window.c:4886
 msgid "Vertical:"
 msgstr "垂直对齐："
 
@@ -4590,7 +4967,7 @@ msgstr "方向（度）："
 msgid "Font"
 msgstr "字体"
 
-#: src/ui/o42-dialogs-format.c:376 src/ui/o42-window.c:4845
+#: src/ui/o42-dialogs-format.c:376 src/ui/o42-window.c:4864
 msgid "Font:"
 msgstr "字体："
 
@@ -4676,41 +5053,41 @@ msgstr "单元格底纹"
 #. * for.
 #. In the order of O42Dash, O42Head and O42HeadSize, so the row is
 #. * the value.
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4764
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4808
 msgid "Solid"
 msgstr "实心"
 
-#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4765
+#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4784
 #, no-c-format
 msgid "75% grey"
 msgstr "75% 灰色"
 
-#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4766
+#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4785
 #, no-c-format
 msgid "50% grey"
 msgstr "50% 灰色"
 
-#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4767
+#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4786
 #, no-c-format
 msgid "25% grey"
 msgstr "25% 灰色"
 
-#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4768
+#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4787
 #, no-c-format
 msgid "12.5% grey"
 msgstr "12.5% 灰色"
 
-#: src/ui/o42-dialogs-format.c:446 src/ui/o42-window.c:4769
+#: src/ui/o42-dialogs-format.c:446 src/ui/o42-window.c:4788
 #, no-c-format
 msgid "6.25% grey"
 msgstr "6.25% 灰色"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4770
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4789
 msgid "Horizontal"
 msgstr "水平条纹"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4770
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4789
 msgid "Vertical"
 msgstr "垂直条纹"
 
@@ -4722,19 +5099,19 @@ msgstr "逆对角线条纹"
 msgid "Diagonal up"
 msgstr "对角线条纹"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4790
 msgid "Grid"
 msgstr "网格"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4790
 msgid "Trellis"
 msgstr "格架"
 
-#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4790
 msgid "Thin horizontal"
 msgstr "细水平条纹"
 
-#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4790
 msgid "Thin vertical"
 msgstr "细垂直条纹"
 
@@ -4746,15 +5123,15 @@ msgstr "细逆对角线条纹"
 msgid "Thin diagonal up"
 msgstr "细对角线条纹"
 
-#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4772
+#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4791
 msgid "Thin grid"
 msgstr "细网格"
 
-#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4772
+#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4791
 msgid "Thin trellis"
 msgstr "细格架"
 
-#: src/ui/o42-dialogs-format.c:452 src/ui/o42-window.c:4779
+#: src/ui/o42-dialogs-format.c:452 src/ui/o42-window.c:4798
 msgid "Pattern:"
 msgstr "图案："
 
@@ -4810,11 +5187,11 @@ msgstr "单元格数值"
 msgid "Then show the cell as:"
 msgstr "则单元格显示为："
 
-#: src/ui/o42-dialogs-format.c:560 src/ui/o42-window.c:4859
+#: src/ui/o42-dialogs-format.c:560 src/ui/o42-window.c:4878
 msgid "Colour:"
 msgstr "颜色："
 
-#: src/ui/o42-dialogs-format.c:561 src/ui/o42-window.c:4859
+#: src/ui/o42-dialogs-format.c:561 src/ui/o42-window.c:4878
 msgid "Text Colour"
 msgstr "文本颜色"
 
@@ -4899,7 +5276,7 @@ msgstr "根据模板新建"
 msgid "A .gnumeric in %s is offered here too."
 msgstr "%s 中的 .gnumeric 文件也会列在这里。"
 
-#: src/ui/o42-dialogs-tools.c:306
+#: src/ui/o42-dialogs-tools.c:306 src/ui/o42-grid.c:5286
 msgid "_Open"
 msgstr "打开(_O)"
 
@@ -4990,11 +5367,6 @@ msgstr "脚本输出："
 msgid "The script failed."
 msgstr "脚本运行失败。"
 
-#: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5842
-#: src/ui/o42-window.c:6199
-msgid "office42 could not open that file."
-msgstr "office42 无法打开该文件。"
-
 #: src/ui/o42-dialogs-tools.c:645
 msgid "Python scripts (*.py)"
 msgstr "Python 脚本 (*.py)"
@@ -5083,8 +5455,8 @@ msgstr "全部忽略(_A)"
 msgid "The dashed lines are where the pages divide."
 msgstr "虚线为分页位置。"
 
-#: src/ui/o42-dialogs-tools.c:1546 src/ui/o42-window.c:7061
-#: src/ui/o42-window.c:7212 src/ui/o42-window.c:7213
+#: src/ui/o42-dialogs-tools.c:1546 src/ui/o42-window.c:7217
+#: src/ui/o42-window.c:7368 src/ui/o42-window.c:7369
 msgid "Ready"
 msgstr "就绪"
 
@@ -5603,164 +5975,171 @@ msgstr "显示比例"
 msgid "Magnification"
 msgstr "缩放"
 
-#: src/ui/o42-grid.c:3115
+#: src/ui/o42-grid.c:3159
 msgid "Cannot change part of a data table."
 msgstr "不能更改模拟运算表的某一部分。"
 
-#: src/ui/o42-grid.c:3116
+#: src/ui/o42-grid.c:3160
 msgid "Data > Table made these cells; change the edges or the formula instead."
 msgstr "这些单元格由“数据 > 模拟运算表”生成；请改为更改边缘的值或公式。"
 
-#: src/ui/o42-grid.c:3129
+#: src/ui/o42-grid.c:3173
 msgid "The value is not allowed in this cell."
 msgstr "此单元格不允许输入该值。"
 
-#: src/ui/o42-grid.c:3140
+#: src/ui/o42-grid.c:3184
 msgid "_Yes"
 msgstr "是(_Y)"
 
-#: src/ui/o42-grid.c:3140
+#: src/ui/o42-grid.c:3184
 msgid "_No"
 msgstr "否(_N)"
 
-#: src/ui/o42-grid.c:3149
+#: src/ui/o42-grid.c:3193
 msgid "Continue?"
 msgstr "是否继续？"
 
 #. Translators: the conditions of the Custom AutoFilter dialog, read
 #. * after "Show rows where the column:".
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "equals"
 msgstr "等于"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "does not equal"
 msgstr "不等于"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "is greater than"
 msgstr "大于"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "is greater than or equal to"
 msgstr "大于或等于"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "is less than"
 msgstr "小于"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "is less than or equal to"
 msgstr "小于或等于"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "begins with"
 msgstr "开头是"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "ends with"
 msgstr "结尾是"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "contains"
 msgstr "包含"
 
-#: src/ui/o42-grid.c:4194
+#: src/ui/o42-grid.c:4238
 msgid "Custom AutoFilter"
 msgstr "自定义自动筛选方式"
 
-#: src/ui/o42-grid.c:4205
+#: src/ui/o42-grid.c:4249
 msgid "Show rows where the column:"
 msgstr "显示行，其中该列："
 
-#: src/ui/o42-grid.c:4276
+#: src/ui/o42-grid.c:4320
 msgid "(All)"
 msgstr "（全部）"
 
-#: src/ui/o42-grid.c:4280
+#: src/ui/o42-grid.c:4324
 msgid "(Custom...)"
 msgstr "（自定义...）"
 
-#: src/ui/o42-grid.c:7728
+#. Anything else -- a file, a share, a program's own scheme --
+#. * is the file's say-so, and may run something: the user is
+#. * asked first, and shown where it goes.
+#: src/ui/o42-grid.c:5285
+msgid "This link does not go to a web page. Open it anyway?"
+msgstr "此链接不指向网页。仍要打开吗？"
+
+#: src/ui/o42-grid.c:7786
 #, c-format
 msgid "Page %d"
 msgstr "第 %d 页"
 
-#: src/ui/o42-grid.c:8181
+#: src/ui/o42-grid.c:8239
 msgid "_Insert Cells..."
 msgstr "插入单元格(_I)..."
 
-#: src/ui/o42-grid.c:8182
+#: src/ui/o42-grid.c:8240
 msgid "_Delete Cells..."
 msgstr "删除单元格(_D)..."
 
-#: src/ui/o42-grid.c:8183 src/ui/o42-grid.c:8212 src/ui/o42-grid.c:8238
+#: src/ui/o42-grid.c:8241 src/ui/o42-grid.c:8270 src/ui/o42-grid.c:8296
 msgid "Clear Co_ntents"
 msgstr "清除内容(_N)"
 
-#: src/ui/o42-grid.c:8186 src/ui/o42-grid.c:8216 src/ui/o42-grid.c:8243
+#: src/ui/o42-grid.c:8244 src/ui/o42-grid.c:8274 src/ui/o42-grid.c:8301
 msgid "_Format Cells..."
 msgstr "设置单元格格式(_F)..."
 
-#: src/ui/o42-grid.c:8187
+#: src/ui/o42-grid.c:8245
 msgid "Insert N_ote..."
 msgstr "插入批注(_O)..."
 
-#: src/ui/o42-grid.c:8188
+#: src/ui/o42-grid.c:8246
 msgid "_Hyperlink..."
 msgstr "超链接(_H)..."
 
-#: src/ui/o42-grid.c:8210
+#: src/ui/o42-grid.c:8268
 msgid "_Insert Rows"
 msgstr "插入行(_I)"
 
-#: src/ui/o42-grid.c:8211
+#: src/ui/o42-grid.c:8269
 msgid "_Delete Rows"
 msgstr "删除行(_D)"
 
-#: src/ui/o42-grid.c:8213
+#: src/ui/o42-grid.c:8271
 msgid "Row _Height..."
 msgstr "行高(_H)..."
 
-#: src/ui/o42-grid.c:8214 src/ui/o42-grid.c:8241
+#: src/ui/o42-grid.c:8272 src/ui/o42-grid.c:8299
 msgid "H_ide"
 msgstr "隐藏(_I)"
 
-#: src/ui/o42-grid.c:8236
+#: src/ui/o42-grid.c:8294
 msgid "_Insert Columns"
 msgstr "插入列(_I)"
 
-#: src/ui/o42-grid.c:8237
+#: src/ui/o42-grid.c:8295
 msgid "_Delete Columns"
 msgstr "删除列(_D)"
 
-#: src/ui/o42-grid.c:8239
+#: src/ui/o42-grid.c:8297
 msgid "Column _Width..."
 msgstr "列宽(_W)..."
 
-#: src/ui/o42-grid.c:8259
+#: src/ui/o42-grid.c:8317
 msgid "Format C_hart..."
 msgstr "设置图表格式(_H)..."
 
-#: src/ui/o42-grid.c:8262
+#: src/ui/o42-grid.c:8320
 msgid "Format Sha_pe..."
 msgstr "设置形状格式(_P)..."
 
-#: src/ui/o42-grid.c:8263
+#: src/ui/o42-grid.c:8321
 msgid "Format Contro_l..."
 msgstr "设置控件格式(_L)..."
 
-#: src/ui/o42-grid.c:8266
+#: src/ui/o42-grid.c:8324
 msgid "Format P_icture..."
 msgstr "设置图片格式(_I)..."
 
-#: src/ui/o42-grid.c:8268
+#: src/ui/o42-grid.c:8326
 msgid "_Ungroup Objects"
 msgstr "取消组合对象(_U)"
 
 #. Translators: the tooltip of a cell with a hyperlink; %s is where
 #. * the link goes, a web address or a cell reference.
-#: src/ui/o42-grid.c:8488
+#: src/ui/o42-grid.c:8546
 #, c-format
 msgid ""
 "%s\n"
@@ -5886,7 +6265,7 @@ msgstr "请先复制一些单元格；“选择性粘贴”只适用于 office42
 msgid "Paste Special"
 msgstr "选择性粘贴"
 
-#: src/ui/o42-window.c:864 src/ui/o42-window.c:6762
+#: src/ui/o42-window.c:864 src/ui/o42-window.c:6918
 msgid "Paste"
 msgstr "粘贴"
 
@@ -6471,7 +6850,7 @@ msgstr "工作表标签颜色(_C)..."
 msgid "_No Tab Colour"
 msgstr "无标签颜色(_N)"
 
-#: src/ui/o42-window.c:3609 src/ui/o42-window.c:5642
+#: src/ui/o42-window.c:3609 src/ui/o42-window.c:5664
 msgid "Unhide"
 msgstr "取消隐藏"
 
@@ -6600,7 +6979,7 @@ msgstr "等高线图(_T)"
 msgid "Chart of %s"
 msgstr "%s 的图表"
 
-#: src/ui/o42-window.c:3937 src/ui/o42-window.c:6773
+#: src/ui/o42-window.c:3937 src/ui/o42-window.c:6929
 msgid "Chart Wizard"
 msgstr "图表向导"
 
@@ -6667,15 +7046,19 @@ msgstr "页步长："
 msgid "A plain click works the control; Ctrl+click takes hold of it."
 msgstr "直接单击会操作控件；按住 Ctrl 单击可选定它。"
 
-#: src/ui/o42-window.c:4165
+#: src/ui/o42-window.c:4167 src/ui/o42-window.c:5953 src/ui/o42-window.c:7919
+msgid "This book has Python scripts in it. They have not been run."
+msgstr "此工作簿包含 Python 脚本，这些脚本尚未运行。"
+
+#: src/ui/o42-window.c:4182
 msgid "This button names a script the book has not got."
 msgstr "此按钮指定的脚本在本工作簿中不存在。"
 
-#: src/ui/o42-window.c:4189 src/ui/o42-window.c:4252 src/ui/o42-window.c:4285
+#: src/ui/o42-window.c:4208 src/ui/o42-window.c:4271 src/ui/o42-window.c:4304
 msgid "This build of office42 has no SQLite in it."
 msgstr "此版本的 office42 不包含 SQLite。"
 
-#: src/ui/o42-window.c:4200
+#: src/ui/o42-window.c:4219
 msgid ""
 "This book has no database: Data > Database > Connect opens one, or Embed New "
 "puts one inside the book."
@@ -6683,596 +7066,592 @@ msgstr ""
 "本工作簿没有数据库：可通过“数据 > 数据库 > 连接”打开一个，或通过“嵌入新数据"
 "库”在工作簿内创建一个。"
 
-#: src/ui/o42-window.c:4206
+#: src/ui/o42-window.c:4225
 msgid "The database would not open."
 msgstr "无法打开数据库。"
 
-#: src/ui/o42-window.c:4257
+#: src/ui/o42-window.c:4276
 msgid "Open Database"
 msgstr "打开数据库"
 
-#: src/ui/o42-window.c:4260
+#: src/ui/o42-window.c:4279
 msgid "SQLite databases"
 msgstr "SQLite 数据库"
 
-#: src/ui/o42-window.c:4266
+#: src/ui/o42-window.c:4285
 msgid "All files"
 msgstr "所有文件"
 
-#: src/ui/o42-window.c:4295
+#: src/ui/o42-window.c:4314
 msgid "There was nowhere to put the database."
 msgstr "没有可存放数据库的位置。"
 
-#: src/ui/o42-window.c:4347
+#: src/ui/o42-window.c:4366
 msgid "The query failed."
 msgstr "查询失败。"
 
-#: src/ui/o42-window.c:4390
+#: src/ui/o42-window.c:4409
 msgid "Get Data"
 msgstr "获取数据"
 
-#: src/ui/o42-window.c:4392
+#: src/ui/o42-window.c:4411
 msgid "Tables in the database:"
 msgstr "数据库中的表："
 
-#: src/ui/o42-window.c:4414
+#: src/ui/o42-window.c:4433
 msgid "Query:"
 msgstr "查询："
 
-#: src/ui/o42-window.c:4426
+#: src/ui/o42-window.c:4445
 msgid "Write the column _names above it"
 msgstr "在上方写入列名(_N)"
 
-#: src/ui/o42-window.c:4430
+#: src/ui/o42-window.c:4449
 msgid ""
 "The answer is laid out from the active cell, and Data > Refresh Queries runs "
 "it again."
 msgstr "查询结果从活动单元格开始排列，使用“数据 > 刷新查询”可重新运行。"
 
-#: src/ui/o42-window.c:4454
+#: src/ui/o42-window.c:4473
 msgid "A query failed."
 msgstr "某个查询失败。"
 
-#: src/ui/o42-window.c:4461
+#: src/ui/o42-window.c:4480
 #, c-format
 msgid "%d query refreshed"
 msgid_plural "%d queries refreshed"
 msgstr[0] "已刷新 %d 个查询"
 
-#: src/ui/o42-window.c:4495
+#: src/ui/o42-window.c:4514
 msgid "The rows would not go in."
 msgstr "无法插入这些行。"
 
 #. Translators: %s is the name of a table in the database.
-#: src/ui/o42-window.c:4502
+#: src/ui/o42-window.c:4521
 #, c-format
 msgid "The selection went into %s"
 msgstr "所选内容已发送到 %s"
 
-#: src/ui/o42-window.c:4527
+#: src/ui/o42-window.c:4546
 msgid "Send to Table"
 msgstr "发送到表"
 
-#: src/ui/o42-window.c:4534
+#: src/ui/o42-window.c:4553
 msgid "Table:"
 msgstr "表："
 
-#: src/ui/o42-window.c:4536
+#: src/ui/o42-window.c:4555
 msgid "The first row _names the columns"
 msgstr "首行为列名(_N)"
 
-#: src/ui/o42-window.c:4540
+#: src/ui/o42-window.c:4559
 msgid "The selection is added to the table, which is made if it is not there."
 msgstr "所选内容将添加到该表；如果该表不存在，则会创建它。"
 
-#: src/ui/o42-window.c:4569
+#: src/ui/o42-window.c:4588
 msgid ""
 "Click the points of the freeform; double-click the last, or click the first "
 "again to close it."
 msgstr ""
 "依次单击任意多边形的各个顶点；双击最后一个点，或再次单击第一个点以闭合图形。"
 
-#: src/ui/o42-window.c:4606
+#: src/ui/o42-window.c:4625
 msgid ""
 "Click a picture, shape or chart first; Format > Order moves the selected one."
 msgstr "请先单击图片、形状或图表；“格式 > 叠放次序”作用于所选对象。"
 
-#: src/ui/o42-window.c:4619
+#: src/ui/o42-window.c:4638
 msgid "_Move and size with cells"
 msgstr "大小、位置随单元格而变(_M)"
 
-#: src/ui/o42-window.c:4619
+#: src/ui/o42-window.c:4638
 msgid "Move but _don't size with cells"
 msgstr "大小固定，位置随单元格而变(_D)"
 
-#: src/ui/o42-window.c:4620
+#: src/ui/o42-window.c:4639
 msgid "Don't move or si_ze with cells"
 msgstr "大小、位置均固定不变(_Z)"
 
-#: src/ui/o42-window.c:4742
+#: src/ui/o42-window.c:4761
 msgid "Click a shape first; Format > Shape works on the selected one."
 msgstr "请先单击形状；“格式 > 形状”作用于所选形状。"
 
-#: src/ui/o42-window.c:4750
+#: src/ui/o42-window.c:4769
 msgid "Format Shape"
 msgstr "设置形状格式"
 
 #. Colors and Lines
-#: src/ui/o42-window.c:4755
+#: src/ui/o42-window.c:4774
 msgid "Colors and Lines"
 msgstr "颜色与线条"
 
-#: src/ui/o42-window.c:4756
+#: src/ui/o42-window.c:4775
 msgid "Fill:"
 msgstr "填充："
 
-#: src/ui/o42-window.c:4756
+#: src/ui/o42-window.c:4775
 msgid "Shape Fill"
 msgstr "形状填充"
 
-#: src/ui/o42-window.c:4757
+#: src/ui/o42-window.c:4776
 msgid "_No fill"
 msgstr "无填充(_N)"
 
-#: src/ui/o42-window.c:4764
+#: src/ui/o42-window.c:4783
 msgid "Gradient"
 msgstr "渐变"
 
-#: src/ui/o42-window.c:4764
+#: src/ui/o42-window.c:4783
 msgid "Pattern"
 msgstr "图案"
 
-#: src/ui/o42-window.c:4770
+#: src/ui/o42-window.c:4789
 msgid "Down diagonal"
 msgstr "逆对角线条纹"
 
-#: src/ui/o42-window.c:4770
+#: src/ui/o42-window.c:4789
 msgid "Up diagonal"
 msgstr "对角线条纹"
 
-#: src/ui/o42-window.c:4772
+#: src/ui/o42-window.c:4791
 msgid "Thin down diagonal"
 msgstr "细逆对角线条纹"
 
-#: src/ui/o42-window.c:4772
+#: src/ui/o42-window.c:4791
 msgid "Thin up diagonal"
 msgstr "细对角线条纹"
 
-#: src/ui/o42-window.c:4774
+#: src/ui/o42-window.c:4793
 msgid "Fill style:"
 msgstr "填充方式："
 
-#: src/ui/o42-window.c:4776
+#: src/ui/o42-window.c:4795
 msgid "Second colour:"
 msgstr "第二种颜色："
 
-#: src/ui/o42-window.c:4776
+#: src/ui/o42-window.c:4795
 msgid "Gradient End or Pattern Colour"
 msgstr "渐变终止颜色或图案颜色"
 
-#: src/ui/o42-window.c:4777
+#: src/ui/o42-window.c:4796
 msgid "Gradient angle:"
 msgstr "渐变角度："
 
-#: src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4802
 msgid "Line:"
 msgstr "线条："
 
-#: src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4802
 msgid "Shape Line"
 msgstr "形状线条"
 
-#: src/ui/o42-window.c:4784
+#: src/ui/o42-window.c:4803
 msgid "Line width:"
 msgstr "线条粗细："
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dash"
 msgstr "划线"
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dot"
 msgstr "圆点"
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dash dot"
 msgstr "划线-点"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Long dash"
 msgstr "长划线"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Short dash"
 msgstr "短划线"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Short dot"
 msgstr "短圆点"
 
-#: src/ui/o42-window.c:4791 src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:4810 src/ui/o42-window.c:5363
 msgid "Triangle"
 msgstr "三角形"
 
-#: src/ui/o42-window.c:4791
+#: src/ui/o42-window.c:4810
 msgid "Stealth"
 msgstr "燕尾形"
 
-#: src/ui/o42-window.c:4791 src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:4810 src/ui/o42-window.c:5363
 msgid "Diamond"
 msgstr "菱形"
 
-#: src/ui/o42-window.c:4792
+#: src/ui/o42-window.c:4811
 msgid "Oval"
 msgstr "椭圆"
 
-#: src/ui/o42-window.c:4792
+#: src/ui/o42-window.c:4811
 msgid "Open arrow"
 msgstr "开放型箭头"
 
-#: src/ui/o42-window.c:4793
+#: src/ui/o42-window.c:4812
 msgid "Small"
 msgstr "小"
 
-#: src/ui/o42-window.c:4793
+#: src/ui/o42-window.c:4812
 msgid "Large"
 msgstr "大"
 
-#: src/ui/o42-window.c:4795
+#: src/ui/o42-window.c:4814
 msgid "Dash:"
 msgstr "虚线类型："
 
-#: src/ui/o42-window.c:4799
+#: src/ui/o42-window.c:4818
 msgid "Begin arrow:"
 msgstr "起点箭头："
 
-#: src/ui/o42-window.c:4801
+#: src/ui/o42-window.c:4820
 msgid "Begin size:"
 msgstr "起点大小："
 
-#: src/ui/o42-window.c:4803
+#: src/ui/o42-window.c:4822
 msgid "End arrow:"
 msgstr "终点箭头："
 
-#: src/ui/o42-window.c:4805
+#: src/ui/o42-window.c:4824
 msgid "End size:"
 msgstr "终点大小："
 
-#: src/ui/o42-window.c:4809
+#: src/ui/o42-window.c:4828
 msgid "_Shadow"
 msgstr "阴影(_S)"
 
-#: src/ui/o42-window.c:4812
+#: src/ui/o42-window.c:4831
 msgid "Shadow colour:"
 msgstr "阴影颜色："
 
-#: src/ui/o42-window.c:4812
+#: src/ui/o42-window.c:4831
 msgid "Shadow Colour"
 msgstr "阴影颜色"
 
-#: src/ui/o42-window.c:4813
+#: src/ui/o42-window.c:4832
 msgid "Shadow offset across:"
 msgstr "阴影水平偏移："
 
-#: src/ui/o42-window.c:4815
+#: src/ui/o42-window.c:4834
 msgid "Shadow offset down:"
 msgstr "阴影垂直偏移："
 
 #. Size
-#: src/ui/o42-window.c:4819
+#: src/ui/o42-window.c:4838
 msgid "Size"
 msgstr "大小"
 
-#: src/ui/o42-window.c:4820 src/ui/o42-window.c:4961
+#: src/ui/o42-window.c:4839 src/ui/o42-window.c:4980
 msgid "Rotation (degrees):"
 msgstr "旋转（度）："
 
-#: src/ui/o42-window.c:4822 src/ui/o42-window.c:4988
+#: src/ui/o42-window.c:4841 src/ui/o42-window.c:5007
 msgid "Flip _horizontal"
 msgstr "水平翻转(_H)"
 
-#: src/ui/o42-window.c:4825 src/ui/o42-window.c:4991
+#: src/ui/o42-window.c:4844 src/ui/o42-window.c:5010
 msgid "Flip _vertical"
 msgstr "垂直翻转(_V)"
 
-#: src/ui/o42-window.c:4831 src/ui/o42-window.c:4994
+#: src/ui/o42-window.c:4850 src/ui/o42-window.c:5013
 msgid "Object positioning:"
 msgstr "对象位置："
 
-#: src/ui/o42-window.c:4847
+#: src/ui/o42-window.c:4866
 msgid "Size (points):"
 msgstr "字号（磅）："
 
-#: src/ui/o42-window.c:4857
+#: src/ui/o42-window.c:4876
 msgid "Style:"
 msgstr "字形："
 
-#: src/ui/o42-window.c:4861
+#: src/ui/o42-window.c:4880
 msgid "As the shape has it"
 msgstr "与形状一致"
 
-#: src/ui/o42-window.c:4861
+#: src/ui/o42-window.c:4880
 msgid "Centre"
 msgstr "居中"
 
-#: src/ui/o42-window.c:4870
+#: src/ui/o42-window.c:4889
 msgid "_Wrap text in the shape"
 msgstr "形状中的文字自动换行(_W)"
 
-#: src/ui/o42-window.c:4873
+#: src/ui/o42-window.c:4892
 msgid "Internal margin (pixels):"
 msgstr "内部边距（像素）："
 
-#: src/ui/o42-window.c:4945
+#: src/ui/o42-window.c:4964
 msgid "Click a picture first; Format > Picture works on the selected one."
 msgstr "请先单击图片；“格式 > 图片”作用于所选图片。"
 
-#: src/ui/o42-window.c:4952
+#: src/ui/o42-window.c:4971
 msgid "Format Picture"
 msgstr "设置图片格式"
 
-#: src/ui/o42-window.c:4957
+#: src/ui/o42-window.c:4976
 msgid "Width (pixels):"
 msgstr "宽度（像素）："
 
-#: src/ui/o42-window.c:4959
+#: src/ui/o42-window.c:4978
 msgid "Height (pixels):"
 msgstr "高度（像素）："
 
 #. The crop, as Excel's Picture tab has it: how much of each side
 #. * is cut away.
-#: src/ui/o42-window.c:4966
+#: src/ui/o42-window.c:4985
 msgid "Crop left (%):"
 msgstr "左侧裁剪（%）："
 
-#: src/ui/o42-window.c:4966
+#: src/ui/o42-window.c:4985
 msgid "Crop top (%):"
 msgstr "上部裁剪（%）："
 
-#: src/ui/o42-window.c:4967
+#: src/ui/o42-window.c:4986
 msgid "Crop right (%):"
 msgstr "右侧裁剪（%）："
 
-#: src/ui/o42-window.c:4967
+#: src/ui/o42-window.c:4986
 msgid "Crop bottom (%):"
 msgstr "下部裁剪（%）："
 
 #. Excel's picture toolbar: More and Less Brightness, More and Less
 #. * Contrast, as two sliders.
-#: src/ui/o42-window.c:4977
+#: src/ui/o42-window.c:4996
 msgid "Brightness (%):"
 msgstr "亮度（%）："
 
-#: src/ui/o42-window.c:4980
+#: src/ui/o42-window.c:4999
 msgid "Contrast (%):"
 msgstr "对比度（%）："
 
-#: src/ui/o42-window.c:4985
+#: src/ui/o42-window.c:5004
 msgid "_Lock aspect ratio"
 msgstr "锁定纵横比(_L)"
 
-#: src/ui/o42-window.c:5129
+#: src/ui/o42-window.c:5148
 msgid "Style"
 msgstr "样式"
 
-#: src/ui/o42-window.c:5141
+#: src/ui/o42-window.c:5160
 msgid "Style name:"
 msgstr "样式名："
 
-#: src/ui/o42-window.c:5149
+#: src/ui/o42-window.c:5168
 msgid ""
 "Define takes the active cell's formatting; redefining a style restyles every "
 "cell wearing it."
 msgstr "“定义”采用活动单元格的格式；重新定义样式会更新所有使用该样式的单元格。"
 
-#: src/ui/o42-window.c:5165
+#: src/ui/o42-window.c:5184
 msgid "_Define"
 msgstr "定义(_D)"
 
-#: src/ui/o42-window.c:5166
+#: src/ui/o42-window.c:5185
 msgid "De_lete"
 msgstr "删除(_L)"
 
-#: src/ui/o42-window.c:5167
+#: src/ui/o42-window.c:5186
 msgid "_Apply"
 msgstr "应用(_A)"
 
-#: src/ui/o42-window.c:5257
+#: src/ui/o42-window.c:5276
 msgid "Click a chart first; Format > Chart works on the selected chart."
 msgstr "请先单击图表；“格式 > 图表”作用于所选图表。"
 
-#: src/ui/o42-window.c:5264
+#: src/ui/o42-window.c:5283
 msgid "Format Chart"
 msgstr "设置图表格式"
 
-#: src/ui/o42-window.c:5268
+#: src/ui/o42-window.c:5287
 msgid "Chart title:"
 msgstr "图表标题："
 
-#: src/ui/o42-window.c:5269
+#: src/ui/o42-window.c:5288
 msgid "Category (X) axis title:"
 msgstr "分类 (X) 轴标题："
 
-#: src/ui/o42-window.c:5270
+#: src/ui/o42-window.c:5289
 msgid "Value (Y) axis title:"
 msgstr "数值 (Y) 轴标题："
 
-#: src/ui/o42-window.c:5271
+#: src/ui/o42-window.c:5290
 msgid "Value axis minimum:"
 msgstr "数值轴最小值："
 
-#: src/ui/o42-window.c:5272
+#: src/ui/o42-window.c:5291
 msgid "Value axis maximum:"
 msgstr "数值轴最大值："
 
-#: src/ui/o42-window.c:5273
+#: src/ui/o42-window.c:5292
 msgid "Value axis format:"
 msgstr "数值轴格式："
 
-#: src/ui/o42-window.c:5274
+#: src/ui/o42-window.c:5293
 msgid "Second axis from series:"
 msgstr "次坐标轴起始系列："
 
-#: src/ui/o42-window.c:5280 src/ui/o42-window.c:5281
+#: src/ui/o42-window.c:5299 src/ui/o42-window.c:5300
 msgid "automatic"
 msgstr "自动"
 
-#: src/ui/o42-window.c:5287
+#: src/ui/o42-window.c:5306
 msgid "Show _legend"
 msgstr "显示图例(_L)"
 
-#: src/ui/o42-window.c:5290
+#: src/ui/o42-window.c:5309
 msgid "Show _gridlines"
 msgstr "显示网格线(_G)"
 
-#: src/ui/o42-window.c:5293
+#: src/ui/o42-window.c:5312
 msgid "Show _data labels"
 msgstr "显示数据标志(_D)"
 
-#: src/ui/o42-window.c:5296
+#: src/ui/o42-window.c:5315
 msgid "Draw in three _dimensions"
 msgstr "三维显示(_D)"
 
-#: src/ui/o42-window.c:5302
+#: src/ui/o42-window.c:5321
 msgid "A second pie"
 msgstr "第二个饼图"
 
-#: src/ui/o42-window.c:5302
+#: src/ui/o42-window.c:5321
 msgid "A bar"
 msgstr "条形图"
 
-#: src/ui/o42-window.c:5305
+#: src/ui/o42-window.c:5324
 msgid "Second plot for a pie's last slices:"
 msgstr "饼图最后几个扇区的第二绘图区："
 
-#: src/ui/o42-window.c:5312
+#: src/ui/o42-window.c:5331
 msgid "slices"
 msgstr "个扇区"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Linear"
 msgstr "线性"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Polynomial"
 msgstr "多项式"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Exponential"
 msgstr "指数"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Logarithmic"
 msgstr "对数"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Power"
 msgstr "乘幂"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Moving average"
 msgstr "移动平均"
 
-#: src/ui/o42-window.c:5320
+#: src/ui/o42-window.c:5339
 msgid "Trendline:"
 msgstr "趋势线："
 
-#: src/ui/o42-window.c:5322
+#: src/ui/o42-window.c:5341
 msgid "Order or period:"
 msgstr "阶数或周期："
 
-#: src/ui/o42-window.c:5329
+#: src/ui/o42-window.c:5348
 msgid "Fixed value"
 msgstr "定值"
 
-#: src/ui/o42-window.c:5329
+#: src/ui/o42-window.c:5348
 msgid "Percentage"
 msgstr "百分比"
 
-#: src/ui/o42-window.c:5330
+#: src/ui/o42-window.c:5349
 msgid "Standard deviations"
 msgstr "标准偏差"
 
-#: src/ui/o42-window.c:5330
+#: src/ui/o42-window.c:5349
 msgid "Standard error"
 msgstr "标准误差"
 
-#: src/ui/o42-window.c:5333
+#: src/ui/o42-window.c:5352
 msgid "Error bars:"
 msgstr "误差线："
 
-#: src/ui/o42-window.c:5335
+#: src/ui/o42-window.c:5354
 msgid "Error bar amount:"
 msgstr "误差量："
 
 #. In the order of O42MarkerKind, so the row is the kind.  The
 #. * picture is named by its number, which "Insert > Picture" gives it
 #. * and office42-calc's "pictures" prints.
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Automatic"
 msgstr "自动"
 
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Circle"
 msgstr "圆形"
 
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Square"
 msgstr "方形"
 
-#: src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:5363
 msgid "Plus"
 msgstr "加号"
 
-#: src/ui/o42-window.c:5345
+#: src/ui/o42-window.c:5364
 msgid "Star"
 msgstr "星形"
 
-#: src/ui/o42-window.c:5345
+#: src/ui/o42-window.c:5364
 msgid "Picture"
 msgstr "图片"
 
-#: src/ui/o42-window.c:5347
+#: src/ui/o42-window.c:5366
 msgid "Point marker:"
 msgstr "数据标记："
 
-#: src/ui/o42-window.c:5349
+#: src/ui/o42-window.c:5368
 msgid "Marker size:"
 msgstr "标记大小："
 
-#: src/ui/o42-window.c:5352
+#: src/ui/o42-window.c:5371
 msgid "Picture number:"
 msgstr "图片编号："
 
-#: src/ui/o42-window.c:5356
+#: src/ui/o42-window.c:5375
 msgid "Text font:"
 msgstr "文字字体："
 
-#: src/ui/o42-window.c:5357
+#: src/ui/o42-window.c:5376
 msgid "Sans"
 msgstr "Sans"
 
-#: src/ui/o42-window.c:5360
+#: src/ui/o42-window.c:5379
 msgid "Text size:"
 msgstr "文字大小："
 
-#: src/ui/o42-window.c:5577
+#: src/ui/o42-window.c:5599
 msgid "This is the only window on show; open another before hiding it."
 msgstr "这是唯一显示的窗口；请先打开另一个窗口再隐藏它。"
 
-#: src/ui/o42-window.c:5637
+#: src/ui/o42-window.c:5659
 msgid "No window is hidden."
 msgstr "没有隐藏的窗口。"
 
-#: src/ui/o42-window.c:5643
+#: src/ui/o42-window.c:5665
 msgid "Unhide window:"
 msgstr "取消隐藏窗口："
 
-#: src/ui/o42-window.c:5871 src/ui/o42-window.c:7762
-msgid "This book has Python scripts in it. They have not been run."
-msgstr "此工作簿包含 Python 脚本，这些脚本尚未运行。"
-
-#: src/ui/o42-window.c:5872
+#: src/ui/o42-window.c:5954
 msgid ""
 "This book has Visual Basic macros, which office42 does not run; they are "
 "kept for Excel when it is saved as .xlsm."
@@ -7280,11 +7659,11 @@ msgstr ""
 "此工作簿包含 Visual Basic 宏，office42 不会运行它们；另存为 .xlsm 时会为 "
 "Excel 保留这些宏。"
 
-#: src/ui/o42-window.c:5949 src/ui/o42-window.c:6125
+#: src/ui/o42-window.c:6064 src/ui/o42-window.c:6270
 msgid "office42 could not save the file."
 msgstr "office42 无法保存该文件。"
 
-#: src/ui/o42-window.c:5960
+#: src/ui/o42-window.c:6075
 #, c-format
 msgid ""
 "%d cell lies beyond the 1,048,576 rows this kind of file can hold, and was "
@@ -7296,7 +7675,7 @@ msgstr[0] ""
 "有 %d 个单元格超出了此类文件可容纳的 1,048,576 行，未被写入。请另存为 ."
 "gnumeric 以保留它们。"
 
-#: src/ui/o42-window.c:5974
+#: src/ui/o42-window.c:6089
 #, c-format
 msgid ""
 "%d cell lies outside the 65,536 rows by 256 columns an .xls file can hold, "
@@ -7308,81 +7687,94 @@ msgstr[0] ""
 "有 %d 个单元格超出了 .xls 文件可容纳的 65,536 行 × 256 列，未被写入。请另存"
 "为 .xlsx 或 .gnumeric 以保留它们。"
 
-#: src/ui/o42-window.c:6025
+#: src/ui/o42-window.c:6102
+msgid ""
+"Some characters have no place in the encoding this text file is written in, "
+"and were saved as question marks. Save As lets you choose Unicode (UTF-8), "
+"which holds every one."
+msgstr ""
+"某些字符无法用此文本文件所用的编码表示，已保存为问号。“另存为”可选择 Unicode "
+"(UTF-8)，该编码可容纳所有字符。"
+
+#: src/ui/o42-window.c:6153
 msgid "Excel Files (*.xlsx, *.xlsm, *.xls)"
 msgstr "Excel 文件 (*.xlsx, *.xlsm, *.xls)"
 
-#: src/ui/o42-window.c:6037
+#: src/ui/o42-window.c:6165
 msgid "All Spreadsheets"
 msgstr "所有电子表格"
 
-#: src/ui/o42-window.c:6056
+#: src/ui/o42-window.c:6184
 msgid "Excel Workbooks (*.xlsx)"
 msgstr "Excel 工作簿 (*.xlsx)"
 
-#: src/ui/o42-window.c:6057
+#: src/ui/o42-window.c:6185
 msgid "Excel Macro-Enabled Workbooks (*.xlsm)"
 msgstr "Excel 启用宏的工作簿 (*.xlsm)"
 
-#: src/ui/o42-window.c:6058
+#: src/ui/o42-window.c:6186
 msgid "Excel 97-2003 Workbooks (*.xls)"
 msgstr "Excel 97-2003 工作簿 (*.xls)"
 
-#: src/ui/o42-window.c:6060
+#: src/ui/o42-window.c:6188
 msgid "Gnumeric Spreadsheets (*.gnumeric)"
 msgstr "Gnumeric 电子表格 (*.gnumeric)"
 
-#: src/ui/o42-window.c:6061
+#: src/ui/o42-window.c:6189
 msgid "OpenDocument Spreadsheets (*.ods, *.fods)"
 msgstr "OpenDocument 电子表格 (*.ods, *.fods)"
 
-#: src/ui/o42-window.c:6062
+#: src/ui/o42-window.c:6190
 msgid "Web Pages (*.html)"
 msgstr "网页 (*.html)"
 
-#: src/ui/o42-window.c:6063
-msgid "Comma-Separated Values (*.csv)"
-msgstr "CSV（逗号分隔）(*.csv)"
+#: src/ui/o42-window.c:6199
+msgid "CSV (Comma Delimited) (*.csv)"
+msgstr "CSV (逗号分隔) (*.csv)"
 
-#: src/ui/o42-window.c:6064
+#: src/ui/o42-window.c:6200
+msgid "Text (Tab Delimited) (*.txt)"
+msgstr "文本文件 (制表符分隔) (*.txt)"
+
+#: src/ui/o42-window.c:6201
+msgid "Formatted Text (Space Delimited) (*.prn)"
+msgstr "带格式文本文件 (空格分隔) (*.prn)"
+
+#: src/ui/o42-window.c:6203
 msgid "Data Interchange Format (*.dif)"
 msgstr "DIF（数据交换格式）(*.dif)"
 
-#: src/ui/o42-window.c:6066
+#: src/ui/o42-window.c:6205
 msgid "LaTeX Tables (*.tex)"
 msgstr "LaTeX 表格 (*.tex)"
 
-#: src/ui/o42-window.c:6067
+#: src/ui/o42-window.c:6206
 msgid "Lotus 1-2-3 Worksheets (*.wk1)"
 msgstr "Lotus 1-2-3 工作表 (*.wk1)"
 
-#: src/ui/o42-window.c:6068
-msgid "All Files"
-msgstr "所有文件"
-
-#: src/ui/o42-window.c:6141
+#: src/ui/o42-window.c:6286
 msgid "Save As"
 msgstr "另存为"
 
-#: src/ui/o42-window.c:6214 src/ui/o42-window.c:6755
+#: src/ui/o42-window.c:6369 src/ui/o42-window.c:6911
 msgid "Open"
 msgstr "打开"
 
-#: src/ui/o42-window.c:6257
+#: src/ui/o42-window.c:6412
 msgid "Do_n't Save"
 msgstr "不保存(_N)"
 
 #. Translators: %s is the book's file name, such as Book1.
-#: src/ui/o42-window.c:6290
+#: src/ui/o42-window.c:6445
 #, c-format
 msgid "Save changes to %s?"
 msgstr "是否保存对 %s 的更改？"
 
-#: src/ui/o42-window.c:6293
+#: src/ui/o42-window.c:6448
 msgid "Your changes will be lost if you don't save them."
 msgstr "如果不保存，您所做的更改将会丢失。"
 
-#: src/ui/o42-window.c:6442
+#: src/ui/o42-window.c:6597
 msgid ""
 "Also known as Numbers42.\n"
 "A spreadsheet in the shape of Excel 97, at parity with its features and "
@@ -7394,114 +7786,113 @@ msgstr ""
 "言基于 GTK 4、Pango 和 Cairo 编写。\n"
 "源代码：github.com/office-42/office42"
 
-#: src/ui/o42-window.c:6754
+#: src/ui/o42-window.c:6910
 msgid "New"
 msgstr "新建"
 
-#: src/ui/o42-window.c:6756
+#: src/ui/o42-window.c:6912
 msgid "Save"
 msgstr "保存"
 
-#: src/ui/o42-window.c:6758
+#: src/ui/o42-window.c:6914
 msgid "Print"
 msgstr "打印"
 
-#: src/ui/o42-window.c:6760
+#: src/ui/o42-window.c:6916
 msgid "Cut"
 msgstr "剪切"
 
-#: src/ui/o42-window.c:6761
+#: src/ui/o42-window.c:6917
 msgid "Copy"
 msgstr "复制"
 
-#: src/ui/o42-window.c:6764
+#: src/ui/o42-window.c:6920
 msgid "Undo"
 msgstr "撤消"
 
-#: src/ui/o42-window.c:6765
+#: src/ui/o42-window.c:6921
 msgid "Redo"
 msgstr "恢复"
 
 #. The sigma and the fx are letters, not pictures; Excel 97 drew them as
 #. * letters too.  They stay set in type.
-#: src/ui/o42-window.c:6769
+#: src/ui/o42-window.c:6925
 msgid "AutoSum"
 msgstr "自动求和"
 
-#: src/ui/o42-window.c:6770
+#: src/ui/o42-window.c:6926
 msgid "Function Wizard"
 msgstr "函数向导"
 
-#: src/ui/o42-window.c:6847
+#: src/ui/o42-window.c:7003
 msgid "Align Left"
 msgstr "左对齐"
 
-#: src/ui/o42-window.c:6847
+#: src/ui/o42-window.c:7003
 msgid "Align Right"
 msgstr "右对齐"
 
-#: src/ui/o42-window.c:6886
+#: src/ui/o42-window.c:7042
 msgid "Bold"
 msgstr "加粗"
 
-#: src/ui/o42-window.c:6887
+#: src/ui/o42-window.c:7043
 msgid "Italic"
 msgstr "倾斜"
 
-#: src/ui/o42-window.c:6888
+#: src/ui/o42-window.c:7044
 msgid "Underline"
 msgstr "下划线"
 
 #. Excel's Currency Style button puts on the Accounting format, with
 #. * the symbol at the edge; Ctrl+Shift+4 is the Currency format.
-#: src/ui/o42-window.c:6906
+#: src/ui/o42-window.c:7062
 msgid "Currency Style"
 msgstr "货币样式"
 
-#: src/ui/o42-window.c:6907
+#: src/ui/o42-window.c:7063
 msgid "Percent Style"
 msgstr "百分比样式"
 
-#: src/ui/o42-window.c:6908
+#: src/ui/o42-window.c:7064
 msgid "Comma Style"
 msgstr "千位分隔样式"
 
-#: src/ui/o42-window.c:6910
+#: src/ui/o42-window.c:7066
 msgid "Increase Decimal"
 msgstr "增加小数位数"
 
-#: src/ui/o42-window.c:6912
+#: src/ui/o42-window.c:7068
 msgid "Decrease Decimal"
 msgstr "减少小数位数"
 
-#: src/ui/o42-window.c:6957
+#: src/ui/o42-window.c:7113
 msgid "That cannot be used as a name."
 msgstr "该内容不能用作名称。"
 
-#: src/ui/o42-window.c:7014
+#: src/ui/o42-window.c:7170
 msgid "Name Box"
 msgstr "名称框"
 
-#: src/ui/o42-window.c:7020
+#: src/ui/o42-window.c:7176
 msgid "Enter"
 msgstr "输入"
 
-#: src/ui/o42-window.c:7417
+#: src/ui/o42-window.c:7573
 msgid "OK"
 msgstr "确定"
 
-#: src/ui/o42-window.c:7717
+#: src/ui/o42-window.c:7874
 msgid "Book1 - Office42 Spreadsheet"
 msgstr "Book1 - Office42 Spreadsheet"
 
-#: src/ui/o42-window.c:7763
+#: src/ui/o42-window.c:7920
 msgid "_Run Scripts"
 msgstr "运行脚本(_R)"
 
-#: src/ui/o42-window.c:7768
+#: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "脚本(_S)..."
 
-#: src/ui/o42-grid.c:5285
-msgid "This link does not go to a web page. Open it anyway?"
-msgstr "此链接不指向网页。仍要打开吗？"
+#~ msgid "Comma-Separated Values (*.csv)"
+#~ msgstr "CSV（逗号分隔）(*.csv)"
