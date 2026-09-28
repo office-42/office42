@@ -5866,9 +5866,9 @@ file_is_xls (GFile *file)
 }
 
 /* Opens the file into the window.  A text file is read with the
- * options given, from the text given, when the Text Import Wizard has
- * them; else it is read and guessed at here, as Finish on the wizard's
- * first page would have it. */
+ * options given, from the text given, when Text Import has them; else
+ * it is read and guessed at here, as OK on Text Import untouched would
+ * have it. */
 static gboolean
 window_open (O42Window *self, GFile *file, const char *text, const O42CsvOptions *options)
 {
@@ -6329,8 +6329,8 @@ on_open_response (GObject *source, GAsyncResult *result, gpointer data)
     {
       O42Window *target = self;
 
-      /* A text file goes through the Text Import Wizard first, which
-       * finds its own window at the end. */
+      /* A text file goes through Text Import first, which finds its
+       * own window at the end. */
       if (file_is_csv (file))
         {
           o42_window_import_text (self, file, TRUE);

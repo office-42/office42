@@ -3,14 +3,15 @@
  * Copyright (C) 2026 The office42 authors
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * The File menu's dialogs for text files.  Excel 97's Text Import
- * Wizard, which every .csv, .txt and .prn is opened through and which
- * File > Import Text File brings into the sheet on show: three pages,
- * what kind of file it is, where its fields divide, and what each
- * column is to be taken as, with the file cut up underneath as each
- * answer changes it.  And the questions Save As asks before it writes
- * one: what goes between the fields, what the text is in, and whether
- * the cells are written as they show or as they are.
+ * The File menu's dialogs for text files.  Text Import, which every
+ * .csv, .txt and .prn is opened through and which File > Import Text
+ * File brings into the sheet on show: what Excel 97's Text Import
+ * Wizard asked on three pages -- what kind of file it is, where its
+ * fields divide, what each column is to be taken as -- on one, with the
+ * file cut up underneath as each answer changes it.  And the questions
+ * Save As asks before it writes one: what goes between the fields, what
+ * the text is in, and whether the cells are written as they show or as
+ * they are.
  */
 
 #include "o42-window-private.h"
@@ -27,7 +28,7 @@
 #define window_sync o42_window_sync
 
 /* The encodings a text file is likely to be in: iconv's name for each,
- * and what a person calls it.  The wizard's "File origin" and Save
+ * and what a person calls it.  Text Import's "File origin" and Save
  * As's "Encoding" both list them. */
 static const char *const ENCODINGS[][2] = {
   { "UTF-8",        N_("Unicode (UTF-8)") },
@@ -85,8 +86,8 @@ encoding_drop (const char *current, GPtrArray *names)
   return drop;
 }
 
-/* A label that wraps, flush left, for the explanations the wizard's
- * pages open with. */
+/* A label that wraps, flush left, for what a dialog has to say before
+ * its controls. */
 static GtkWidget *
 prose (const char *text)
 {
@@ -111,16 +112,21 @@ framed (const char *title, GtkWidget *child)
   return frame;
 }
 
-/* ---- File > Open and Import Text File: the Text Import Wizard ---------- */
+/* ---- File > Open and Import Text File: Text Import --------------------- */
+
+/* Everything Excel's Text Import Wizard asked over three pages, on one:
+ * the file's origin and the row to start at, how its fields divide,
+ * what each column is taken as, and under it all the file cut up as the
+ * answers say, changing as they change.  A click on a column of the
+ * preview chooses it for the format; a fixed-width file has a ruler
+ * over the preview where a click puts in a break, a drag moves one and
+ * a double-click takes one away. */
 
 #define PREVIEW_RECORDS 200    /* the records the preview shows, from the first row */
 #define PREVIEW_MAX_CHARS 40   /* a column of the preview is no wider than this */
 #define LINE_MAX_CHARS 400     /* nor a line of the file */
 #define CELL_PAD 4.0
 #define RULER_H 18.0
-#define GUTTER_CHARS 6
-
-enum { STEP_KIND = 0, STEP_CUT, STEP_FORMAT };
 
 typedef struct {
   O42Window     *window;
@@ -132,25 +138,22 @@ typedef struct {
   O42CsvOptions *options;
   GPtrArray     *encodings;     /* iconv's names, in the drop-down's order */
   int            n_lines;
-  int            step;
 
-  GtkWidget *dialog, *stack, *cut_stack;
-  GtkWidget *guess;
-  GtkWidget *delimited, *fixed;
-  GtkWidget *start, *origin;
+  GtkWidget *dialog;
+  GtkWidget *origin, *start;
+  GtkWidget *delimited, *fixed, *cut_box;
   GtkWidget *sep[4], *other_check, *other;
   GtkWidget *merge, *quote;
   GtkWidget *kind[4], *order;
   GtkWidget *decimal, *thousands, *minus;
   GtkWidget *place;
-  GtkWidget *lines_area, *table_area, *ruler_area, *format_area;
-  GtkWidget *back, *next, *finish;
+  GtkWidget *hint, *area;
 
   GPtrArray *lines;             /* the file's lines from the first row, as they are */
   GPtrArray *rows;              /* the same cut into fields */
-  GArray    *widths;            /* int, the characters each preview column is wide */
+  GArray    *widths;            /* int, the characters each table column is wide */
   int        longest;           /* characters in the longest line shown */
-  int        sel_from, sel_to;  /* the columns step 3 is setting, inclusive */
+  int        sel_from, sel_to;  /* the columns the format is set for, inclusive */
   int        dragging;          /* the break being dragged, or -1 */
   double     char_w, line_h;
   gboolean   updating;
@@ -209,31 +212,61 @@ shown (const char *text, int max_chars)
 static int
 column_count (ImportPrompt *prompt)
 {
-  return (int) prompt->widths->len;
+  return prompt->options->fixed_width ? (int) prompt->options->breaks->len + 1
+                                      : (int) prompt->widths->len;
 }
 
-/* Where column `col` of the table preview begins, in pixels. */
+/* Where column `col` of the table begins, in pixels. */
 static double
 column_x (ImportPrompt *prompt, int col)
 {
   double x = 0;
 
-  for (int i = 0; i < col && i < column_count (prompt); i++)
+  for (int i = 0; i < col && (guint) i < prompt->widths->len; i++)
     x += g_array_index (prompt->widths, int, i) * prompt->char_w + 2 * CELL_PAD + 1;
   return x;
+}
+
+/* The character a point on the fixed-width preview is nearest to. */
+static int
+position_at (ImportPrompt *prompt, double x)
+{
+  return MAX (0, (int) ((x - CELL_PAD) / prompt->char_w + 0.5));
+}
+
+/* Where a fixed-width column starts and ends, in pixels; the last runs
+ * to the edge. */
+static void
+segment_x (ImportPrompt *prompt, int col, double width, double *from, double *to)
+{
+  GArray *breaks = prompt->options->breaks;
+
+  *from = col == 0 ? 0 : CELL_PAD + g_array_index (breaks, int, col - 1) * prompt->char_w;
+  *to = (guint) col < breaks->len ? CELL_PAD + g_array_index (breaks, int, col) * prompt->char_w : width;
 }
 
 static int
 column_at (ImportPrompt *prompt, double x)
 {
-  for (int i = 0; i < column_count (prompt); i++)
+  int n = column_count (prompt);
+
+  if (prompt->options->fixed_width)
+    {
+      int position = (int) floor ((x - CELL_PAD) / prompt->char_w);
+      int col = 0;
+
+      for (guint i = 0; i < prompt->options->breaks->len; i++)
+        if (g_array_index (prompt->options->breaks, int, i) <= position)
+          col = (int) i + 1;
+      return col;
+    }
+  for (int i = 0; i < n; i++)
     if (x < column_x (prompt, i + 1))
       return i;
-  return column_count (prompt) - 1;
+  return n - 1;
 }
 
-/* The name at the top of a column on the last page: its kind, or the
- * order of its date. */
+/* The name at the top of a column: its kind, or the order of its date. */
 static const char *
 kind_label (const O42CsvColumn *column)
 {
@@ -242,28 +275,25 @@ kind_label (const O42CsvColumn *column)
   return _(KIND_NAMES[CLAMP ((int) column->type, 0, 3)]);
 }
 
-/* The areas' sizes follow what they show, so the scrolled windows
- * around them know how far to scroll. */
+/* The preview is as big as what it shows, so the scrolled window round
+ * it knows how far to scroll. */
 static void
-import_size_areas (ImportPrompt *prompt)
+import_size_area (ImportPrompt *prompt)
 {
-  int rows = (int) prompt->rows->len;
-  int table_w = (int) ceil (column_x (prompt, column_count (prompt))) + 2;
-  int text_w = (int) ((prompt->longest + GUTTER_CHARS + 2) * prompt->char_w);
+  int w, h;
 
-  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (prompt->lines_area), text_w);
-  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (prompt->lines_area),
-                                       (int) ((prompt->lines->len + 1) * prompt->line_h));
-  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (prompt->table_area), table_w);
-  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (prompt->table_area),
-                                       (int) ((rows + 1) * prompt->line_h));
-  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (prompt->format_area), table_w);
-  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (prompt->format_area),
-                                       (int) ((rows + 2) * prompt->line_h));
-  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (prompt->ruler_area),
-                                      (int) ((prompt->longest + 12) * prompt->char_w));
-  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (prompt->ruler_area),
-                                       (int) (RULER_H + 4 + (prompt->lines->len + 1) * prompt->line_h));
+  if (prompt->options->fixed_width)
+    {
+      w = (int) ((prompt->longest + 12) * prompt->char_w + 2 * CELL_PAD);
+      h = (int) (RULER_H + (prompt->lines->len + 1) * prompt->line_h + 6);
+    }
+  else
+    {
+      w = (int) ceil (column_x (prompt, column_count (prompt))) + 2;
+      h = (int) ((prompt->rows->len + 1) * prompt->line_h + 6);
+    }
+  gtk_drawing_area_set_content_width (GTK_DRAWING_AREA (prompt->area), w);
+  gtk_drawing_area_set_content_height (GTK_DRAWING_AREA (prompt->area), h);
 }
 
 /* The preview worked out again from the options as they stand. */
@@ -271,6 +301,7 @@ static void
 import_recut (ImportPrompt *prompt)
 {
   const char *from = prompt->text;
+  int n;
 
   g_clear_pointer (&prompt->lines, g_ptr_array_unref);
   g_clear_pointer (&prompt->rows, g_ptr_array_unref);
@@ -311,7 +342,7 @@ import_recut (ImportPrompt *prompt)
             g_array_index (prompt->widths, int, c) = w;
         }
     }
-  /* Wide enough for "Skip Column" over it, on the last page. */
+  /* Wide enough for "Skip Column" over it. */
   for (guint c = 0; c < prompt->widths->len; c++)
     {
       O42CsvColumn column = o42_csv_options_column (prompt->options, (int) c);
@@ -320,14 +351,15 @@ import_recut (ImportPrompt *prompt)
       if (w > g_array_index (prompt->widths, int, c))
         g_array_index (prompt->widths, int, c) = w;
     }
-  if (prompt->sel_from >= column_count (prompt))
-    prompt->sel_from = prompt->sel_to = 0;
 
-  import_size_areas (prompt);
-  gtk_widget_queue_draw (prompt->lines_area);
-  gtk_widget_queue_draw (prompt->table_area);
-  gtk_widget_queue_draw (prompt->ruler_area);
-  gtk_widget_queue_draw (prompt->format_area);
+  n = column_count (prompt);
+  if (prompt->sel_from >= n)
+    prompt->sel_from = prompt->sel_to = 0;
+  else if (prompt->sel_to >= n)
+    prompt->sel_to = n - 1;
+
+  import_size_area (prompt);
+  gtk_widget_queue_draw (prompt->area);
 }
 
 /* Where the columns seem to divide from the first row on, unless the
@@ -362,81 +394,49 @@ import_redecode (ImportPrompt *prompt)
   prompt->updating = FALSE;
 }
 
-/* ---- The three previews ---- */
+/* ---- The preview ---- */
 
+/* The colour a column's text is in: white on the chosen ones, which are
+ * shown in reverse as Excel shows them, and grey on those left out. */
 static void
-lines_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data)
+column_ink (cairo_t *cr, gboolean chosen, const O42CsvColumn *column)
 {
-  ImportPrompt *prompt = data;
-  PangoLayout *layout = preview_layout (GTK_WIDGET (area), prompt);
-  double text_x = (GUTTER_CHARS + 1) * prompt->char_w;
-
-  (void) height;
-  cairo_set_source_rgb (cr, 1, 1, 1);
-  cairo_paint (cr);
-  cairo_set_source_rgb (cr, 0.92, 0.92, 0.92);
-  cairo_rectangle (cr, 0, 0, text_x - prompt->char_w / 2, height);
-  cairo_fill (cr);
-
-  for (guint i = 0; i < prompt->lines->len; i++)
-    {
-      char number[16];
-      char *line = shown (g_ptr_array_index (prompt->lines, i), LINE_MAX_CHARS);
-      int nw, nh;
-
-      g_snprintf (number, sizeof number, "%d", prompt->options->start_row + (int) i + 1);
-      pango_layout_set_text (layout, number, -1);
-      pango_layout_get_pixel_size (layout, &nw, &nh);
-      cairo_set_source_rgb (cr, 0.4, 0.4, 0.4);
-      cairo_move_to (cr, text_x - prompt->char_w - nw, 2 + i * prompt->line_h);
-      pango_cairo_show_layout (cr, layout);
-
-      pango_layout_set_text (layout, line, -1);
-      cairo_set_source_rgb (cr, 0, 0, 0);
-      cairo_move_to (cr, text_x, 2 + i * prompt->line_h);
-      pango_cairo_show_layout (cr, layout);
-      g_free (line);
-    }
-  (void) width;
-  g_object_unref (layout);
+  if (chosen)
+    cairo_set_source_rgb (cr, 1, 1, 1);
+  else if (column->type == O42_SPLIT_SKIP)
+    cairo_set_source_rgb (cr, 0.6, 0.6, 0.6);
+  else
+    cairo_set_source_rgb (cr, 0, 0, 0);
 }
 
-/* The records cut into columns, with lines between them; on the last
- * page with each column's kind above it and the chosen ones in
- * reverse, as Excel shows them. */
+/* A delimited file: the records cut into columns, lines between them,
+ * each column's kind above it. */
 static void
-table_draw_with (GtkDrawingArea *area, cairo_t *cr, int width, int height,
-                 ImportPrompt *prompt, gboolean headed)
+table_draw (ImportPrompt *prompt, PangoLayout *layout, cairo_t *cr, int width, int height)
 {
-  PangoLayout *layout = preview_layout (GTK_WIDGET (area), prompt);
-  double top = headed ? prompt->line_h + 2 : 0;
+  double top = prompt->line_h + 2;
   int n = column_count (prompt);
-
-  cairo_set_source_rgb (cr, 1, 1, 1);
-  cairo_paint (cr);
 
   for (int c = 0; c < n; c++)
     {
       O42CsvColumn column = o42_csv_options_column (prompt->options, c);
       double x = column_x (prompt, c), w = column_x (prompt, c + 1) - x - 1;
-      gboolean chosen = headed && c >= prompt->sel_from && c <= prompt->sel_to;
+      gboolean chosen = c >= prompt->sel_from && c <= prompt->sel_to;
 
-      if (headed)
-        {
-          cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
-          cairo_rectangle (cr, x, 0, w, top - 1);
-          cairo_fill (cr);
-          pango_layout_set_text (layout, kind_label (&column), -1);
-          cairo_set_source_rgb (cr, 0, 0, 0);
-          cairo_move_to (cr, x + CELL_PAD, 1);
-          pango_cairo_show_layout (cr, layout);
-        }
+      cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+      cairo_rectangle (cr, x, 0, w, top - 1);
+      cairo_fill (cr);
+      pango_layout_set_text (layout, kind_label (&column), -1);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      cairo_move_to (cr, x + CELL_PAD, 1);
+      pango_cairo_show_layout (cr, layout);
       if (chosen)
         {
           cairo_set_source_rgb (cr, 0.0, 0.0, 0.5);
           cairo_rectangle (cr, x, top, w, height - top);
           cairo_fill (cr);
         }
+      column_ink (cr, chosen, &column);
       for (guint r = 0; r < prompt->rows->len; r++)
         {
           char **fields = g_ptr_array_index (prompt->rows, r);
@@ -449,12 +449,6 @@ table_draw_with (GtkDrawingArea *area, cairo_t *cr, int width, int height,
             continue;
           text = shown (fields[c], PREVIEW_MAX_CHARS);
           pango_layout_set_text (layout, text, -1);
-          if (chosen)
-            cairo_set_source_rgb (cr, 1, 1, 1);
-          else if (headed && column.type == O42_SPLIT_SKIP)
-            cairo_set_source_rgb (cr, 0.6, 0.6, 0.6);
-          else
-            cairo_set_source_rgb (cr, 0, 0, 0);
           cairo_move_to (cr, x + CELL_PAD, top + 1 + r * prompt->line_h);
           pango_cairo_show_layout (cr, layout);
           g_free (text);
@@ -463,52 +457,76 @@ table_draw_with (GtkDrawingArea *area, cairo_t *cr, int width, int height,
       cairo_rectangle (cr, x + w, 0, 1, height);
       cairo_fill (cr);
     }
-  if (headed)
-    {
-      cairo_set_source_rgb (cr, 0.3, 0.3, 0.3);
-      cairo_rectangle (cr, 0, top - 1, width, 1);
-      cairo_fill (cr);
-    }
-  g_object_unref (layout);
+  cairo_set_source_rgb (cr, 0.3, 0.3, 0.3);
+  cairo_rectangle (cr, 0, top - 1, width, 1);
+  cairo_fill (cr);
 }
 
+/* A fixed-width file: the lines as they are under a ruler, a break a
+ * line down through them with an arrow on the ruler, each column's
+ * kind in the band between. */
 static void
-table_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data)
+fixed_draw (ImportPrompt *prompt, PangoLayout *layout, cairo_t *cr, int width, int height)
 {
-  table_draw_with (area, cr, width, height, data, FALSE);
-}
-
-static void
-format_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data)
-{
-  table_draw_with (area, cr, width, height, data, TRUE);
-}
-
-/* The fixed-width page: the lines under a ruler, a break a line with an
- * arrow on the ruler. */
-static void
-ruler_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data)
-{
-  ImportPrompt *prompt = data;
-  PangoLayout *layout = preview_layout (GTK_WIDGET (area), prompt);
-  PangoLayout *small = gtk_widget_create_pango_layout (GTK_WIDGET (area), NULL);
+  PangoLayout *small = pango_layout_copy (layout);
   PangoFontDescription *desc = pango_font_description_from_string ("Sans 7");
-  double x0 = CELL_PAD, cw = prompt->char_w;
+  double cw = prompt->char_w, head = RULER_H, top = RULER_H + prompt->line_h + 2;
   GArray *breaks = prompt->options->breaks;
+  int n = column_count (prompt);
 
   pango_layout_set_font_description (small, desc);
   pango_font_description_free (desc);
 
-  cairo_set_source_rgb (cr, 1, 1, 1);
-  cairo_paint (cr);
+  for (int c = 0; c < n; c++)
+    {
+      O42CsvColumn column = o42_csv_options_column (prompt->options, c);
+      gboolean chosen = c >= prompt->sel_from && c <= prompt->sel_to;
+      double from, to;
+
+      segment_x (prompt, c, width, &from, &to);
+      if (to <= from)
+        continue;
+
+      /* Each column drawn inside its own edges, the lines' text with
+       * it, so a chosen one is in reverse from break to break. */
+      cairo_save (cr);
+      cairo_rectangle (cr, from, head, to - from, height - head);
+      cairo_clip (cr);
+      cairo_set_source_rgb (cr, 0.85, 0.85, 0.85);
+      cairo_rectangle (cr, from, head, to - from, top - head - 1);
+      cairo_fill (cr);
+      pango_layout_set_text (layout, kind_label (&column), -1);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      cairo_move_to (cr, from + CELL_PAD, head + 1);
+      pango_cairo_show_layout (cr, layout);
+      if (chosen)
+        {
+          cairo_set_source_rgb (cr, 0.0, 0.0, 0.5);
+          cairo_rectangle (cr, from, top, to - from, height - top);
+          cairo_fill (cr);
+        }
+      column_ink (cr, chosen, &column);
+      for (guint i = 0; i < prompt->lines->len; i++)
+        {
+          char *line = shown (g_ptr_array_index (prompt->lines, i), LINE_MAX_CHARS);
+
+          pango_layout_set_text (layout, line, -1);
+          cairo_move_to (cr, CELL_PAD, top + 1 + i * prompt->line_h);
+          pango_cairo_show_layout (cr, layout);
+          g_free (line);
+        }
+      cairo_restore (cr);
+    }
+  cairo_set_source_rgb (cr, 0.3, 0.3, 0.3);
+  cairo_rectangle (cr, 0, top - 1, width, 1);
+  cairo_fill (cr);
 
   /* A tick every character, a longer one every five, the number every
    * ten. */
-  cairo_set_source_rgb (cr, 0.3, 0.3, 0.3);
   cairo_set_line_width (cr, 1);
-  for (int c = 0; x0 + c * cw < width; c++)
+  for (int c = 0; CELL_PAD + c * cw < width; c++)
     {
-      double x = floor (x0 + c * cw) + 0.5;
+      double x = floor (CELL_PAD + c * cw) + 0.5;
       double len = c % 10 == 0 ? 6 : c % 5 == 0 ? 4 : 2;
 
       cairo_move_to (cr, x, RULER_H - 1);
@@ -527,20 +545,9 @@ ruler_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer d
     }
   cairo_stroke (cr);
 
-  cairo_set_source_rgb (cr, 0, 0, 0);
-  for (guint i = 0; i < prompt->lines->len; i++)
-    {
-      char *line = shown (g_ptr_array_index (prompt->lines, i), LINE_MAX_CHARS);
-
-      pango_layout_set_text (layout, line, -1);
-      cairo_move_to (cr, x0, RULER_H + 2 + i * prompt->line_h);
-      pango_cairo_show_layout (cr, layout);
-      g_free (line);
-    }
-
   for (guint i = 0; i < breaks->len; i++)
     {
-      double x = floor (x0 + g_array_index (breaks, int, i) * cw) + 0.5;
+      double x = floor (CELL_PAD + g_array_index (breaks, int, i) * cw) + 0.5;
 
       cairo_set_source_rgb (cr, 0.1, 0.1, 0.6);
       cairo_move_to (cr, x, RULER_H - 8);
@@ -553,10 +560,24 @@ ruler_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer d
       cairo_fill (cr);
     }
   g_object_unref (small);
+}
+
+static void
+preview_draw (GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer data)
+{
+  ImportPrompt *prompt = data;
+  PangoLayout *layout = preview_layout (GTK_WIDGET (area), prompt);
+
+  cairo_set_source_rgb (cr, 1, 1, 1);
+  cairo_paint (cr);
+  if (prompt->options->fixed_width)
+    fixed_draw (prompt, layout, cr, width, height);
+  else
+    table_draw (prompt, layout, cr, width, height);
   g_object_unref (layout);
 }
 
-/* ---- Pointing at the previews ---- */
+/* ---- Pointing at the preview ---- */
 
 static int
 break_near (ImportPrompt *prompt, double x)
@@ -567,12 +588,6 @@ break_near (ImportPrompt *prompt, double x)
     if (fabs (x - (CELL_PAD + g_array_index (breaks, int, i) * prompt->char_w)) <= 4)
       return (int) i;
   return -1;
-}
-
-static int
-position_at (ImportPrompt *prompt, double x)
-{
-  return MAX (0, (int) ((x - CELL_PAD) / prompt->char_w + 0.5));
 }
 
 static void
@@ -595,38 +610,79 @@ insert_break (ImportPrompt *prompt, int position)
   g_array_insert_val (breaks, at, position);
 }
 
-/* Excel's three gestures on the ruler page: a click anywhere puts in a
- * break, a drag moves one, a double-click takes one away. */
+static void import_sync_kind (ImportPrompt *prompt);
+
+/* A click on a column chooses it; with Shift, every column from the
+ * one chosen before to this one. */
 static void
-on_ruler_pressed (GtkGestureClick *gesture, int n_press, double x, double y, gpointer data)
+choose_column (ImportPrompt *prompt, int col, gboolean extend)
+{
+  if (col < 0)
+    return;
+  if (extend)
+    {
+      int anchor = prompt->sel_from;
+
+      prompt->sel_from = MIN (anchor, col);
+      prompt->sel_to = MAX (anchor, col);
+    }
+  else
+    prompt->sel_from = prompt->sel_to = col;
+  import_sync_kind (prompt);
+}
+
+/* On a fixed-width file the ruler takes Excel's three gestures -- a
+ * click puts in a break, a drag moves one, a double-click takes one
+ * away -- and a click below it chooses a column, as it does on a
+ * delimited one. */
+static void
+on_preview_pressed (GtkGestureClick *gesture, int n_press, double x, double y, gpointer data)
 {
   ImportPrompt *prompt = data;
-  int near = break_near (prompt, x);
+  GdkModifierType state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (gesture));
+  gboolean extend = (state & GDK_SHIFT_MASK) != 0;
 
-  (void) gesture; (void) y;
-  prompt->breaks_touched = TRUE;
-  if (n_press == 2 && near >= 0)
+  if (prompt->options->fixed_width)
     {
-      g_array_remove_index (prompt->options->breaks, near);
-      prompt->dragging = -1;
+      int near = break_near (prompt, x);
+
+      if (n_press == 2 && near >= 0)
+        {
+          g_array_remove_index (prompt->options->breaks, near);
+          prompt->breaks_touched = TRUE;
+          prompt->dragging = -1;
+        }
+      else if (near >= 0)
+        {
+          prompt->dragging = near;
+          prompt->breaks_touched = TRUE;
+        }
+      else if (y < RULER_H)
+        {
+          if (n_press == 1)
+            {
+              insert_break (prompt, position_at (prompt, x));
+              prompt->breaks_touched = TRUE;
+            }
+        }
+      else
+        choose_column (prompt, column_at (prompt, x), extend);
+      import_recut (prompt);
+      return;
     }
-  else if (near >= 0)
-    prompt->dragging = near;
-  else if (n_press == 1)
-    {
-      insert_break (prompt, position_at (prompt, x));
-      prompt->dragging = -1;
-    }
-  import_recut (prompt);
+  choose_column (prompt, column_at (prompt, x), extend);
+  gtk_widget_queue_draw (prompt->area);
 }
 
 static void
-on_ruler_released (GtkGestureClick *gesture, int n_press, double x, double y, gpointer data)
+on_preview_released (GtkGestureClick *gesture, int n_press, double x, double y, gpointer data)
 {
   ImportPrompt *prompt = data;
   GArray *breaks = prompt->options->breaks;
 
   (void) gesture; (void) n_press; (void) x; (void) y;
+  if (prompt->dragging < 0)
+    return;
   prompt->dragging = -1;
   /* In order again after a drag past a neighbour, and none twice. */
   for (guint i = 1; i < breaks->len; i++)
@@ -639,7 +695,7 @@ on_ruler_released (GtkGestureClick *gesture, int n_press, double x, double y, gp
 }
 
 static void
-on_ruler_motion (GtkEventControllerMotion *motion, double x, double y, gpointer data)
+on_preview_motion (GtkEventControllerMotion *motion, double x, double y, gpointer data)
 {
   ImportPrompt *prompt = data;
 
@@ -647,40 +703,10 @@ on_ruler_motion (GtkEventControllerMotion *motion, double x, double y, gpointer 
   if (prompt->dragging < 0 || (guint) prompt->dragging >= prompt->options->breaks->len)
     return;
   g_array_index (prompt->options->breaks, int, prompt->dragging) = MAX (1, position_at (prompt, x));
-  gtk_widget_queue_draw (prompt->ruler_area);
+  gtk_widget_queue_draw (prompt->area);
 }
 
-static void import_sync_kind (ImportPrompt *prompt);
-
-/* A click on a column of the last page chooses it; with Shift, every
- * column from the one chosen before to this one. */
-static void
-on_format_pressed (GtkGestureClick *gesture, int n_press, double x, double y, gpointer data)
-{
-  ImportPrompt *prompt = data;
-  GdkModifierType state = gtk_event_controller_get_current_event_state (GTK_EVENT_CONTROLLER (gesture));
-  int col = column_at (prompt, x);
-
-  (void) n_press; (void) y;
-  if (col < 0)
-    return;
-  if (state & GDK_SHIFT_MASK)
-    {
-      prompt->sel_to = col;
-      if (prompt->sel_to < prompt->sel_from)
-        {
-          int t = prompt->sel_from;
-          prompt->sel_from = prompt->sel_to;
-          prompt->sel_to = t;
-        }
-    }
-  else
-    prompt->sel_from = prompt->sel_to = col;
-  import_sync_kind (prompt);
-  gtk_widget_queue_draw (prompt->format_area);
-}
-
-/* ---- The pages' controls ---- */
+/* ---- The controls ---- */
 
 /* The column format radios show the first chosen column's. */
 static void
@@ -727,21 +753,19 @@ on_order_changed (GObject *drop, GParamSpec *pspec, gpointer data)
     on_kind_toggled (GTK_CHECK_BUTTON (prompt->kind[O42_SPLIT_DATE]), prompt);
 }
 
-/* What the second page says about the separators, into the options. */
+/* What the delimiters say, into the options. */
 static void
 on_cut_changed (GtkWidget *w, gpointer data)
 {
   ImportPrompt *prompt = data;
   static const char SEPS[4] = { '\t', ';', ',', ' ' };
-  GString *seps = g_string_new (NULL);
+  GString *seps;
   guint quote;
 
   (void) w;
   if (prompt->updating)
-    {
-      g_string_free (seps, TRUE);
-      return;
-    }
+    return;
+  seps = g_string_new (NULL);
   for (int i = 0; i < 4; i++)
     if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->sep[i])))
       g_string_append_c (seps, SEPS[i]);
@@ -776,6 +800,21 @@ on_quote_changed (GObject *drop, GParamSpec *pspec, gpointer data)
   on_cut_changed (NULL, data);
 }
 
+/* Delimited or fixed width: the delimiters only mean something for the
+ * one, and the preview is a table for the one and a ruler for the
+ * other. */
+static void
+import_sync_file_kind (ImportPrompt *prompt)
+{
+  gboolean fixed = prompt->options->fixed_width;
+
+  gtk_widget_set_sensitive (prompt->cut_box, !fixed);
+  gtk_label_set_text (GTK_LABEL (prompt->hint),
+                      fixed ? _("Click the ruler to put in a break, drag one to move it, "
+                                "double-click one to take it away.  Click a column to choose its format.")
+                            : _("Click a column to choose its format, Shift+click to choose several."));
+}
+
 static void
 on_kind_of_file (GtkCheckButton *button, gpointer data)
 {
@@ -785,7 +824,10 @@ on_kind_of_file (GtkCheckButton *button, gpointer data)
   if (prompt->updating)
     return;
   prompt->options->fixed_width = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->fixed));
+  prompt->sel_from = prompt->sel_to = 0;
+  import_sync_file_kind (prompt);
   import_recut (prompt);
+  import_sync_kind (prompt);
 }
 
 static void
@@ -839,52 +881,8 @@ on_number_drop_changed (GObject *drop, GParamSpec *pspec, gpointer data)
   on_number_style_changed (NULL, data);
 }
 
-/* ---- Going from page to page ---- */
-
 static void
-import_show_step (ImportPrompt *prompt, int step)
-{
-  static const char *const TITLES[] = {
-    N_("Text Import Wizard - Step 1 of 3"),
-    N_("Text Import Wizard - Step 2 of 3"),
-    N_("Text Import Wizard - Step 3 of 3"),
-  };
-  static const char *const PAGES[] = { "kind", "cut", "format" };
-
-  prompt->step = CLAMP (step, STEP_KIND, STEP_FORMAT);
-  gtk_window_set_title (GTK_WINDOW (prompt->dialog), _(TITLES[prompt->step]));
-  gtk_stack_set_visible_child_name (GTK_STACK (prompt->stack), PAGES[prompt->step]);
-  gtk_stack_set_visible_child_name (GTK_STACK (prompt->cut_stack),
-                                    prompt->options->fixed_width ? "fixed" : "delimited");
-  gtk_widget_set_sensitive (prompt->back, prompt->step > STEP_KIND);
-  gtk_widget_set_sensitive (prompt->next, prompt->step < STEP_FORMAT);
-  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog),
-                                 prompt->step < STEP_FORMAT ? prompt->next : prompt->finish);
-  if (prompt->step == STEP_FORMAT)
-    import_sync_kind (prompt);
-  import_recut (prompt);
-}
-
-static void
-on_import_back (GtkWidget *w, gpointer data)
-{
-  ImportPrompt *prompt = data;
-
-  (void) w;
-  import_show_step (prompt, prompt->step - 1);
-}
-
-static void
-on_import_next (GtkWidget *w, gpointer data)
-{
-  ImportPrompt *prompt = data;
-
-  (void) w;
-  import_show_step (prompt, prompt->step + 1);
-}
-
-static void
-on_import_finish (GtkWidget *w, gpointer data)
+on_import_ok (GtkWidget *w, gpointer data)
 {
   ImportPrompt *prompt = data;
   O42Window *self = prompt->window;
@@ -958,92 +956,50 @@ on_import_destroy (GtkWidget *w, gpointer data)
   g_free (prompt);
 }
 
-/* A preview in a scrolled window with a frame round it, both ways. */
+/* ---- The page ---- */
+
+/* The file's origin and the row to start at. */
 static GtkWidget *
-preview_box (GtkWidget *area, int height)
+import_top_row (ImportPrompt *prompt)
 {
-  GtkWidget *scrolled = gtk_scrolled_window_new ();
-  GtkWidget *frame = gtk_frame_new (NULL);
-
-  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
-                                  GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-  gtk_widget_set_size_request (scrolled, 620, height);
-  gtk_widget_set_vexpand (scrolled, TRUE);
-  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), area);
-  gtk_frame_set_child (GTK_FRAME (frame), scrolled);
-  return frame;
-}
-
-static GtkWidget *
-import_page_kind (ImportPrompt *prompt)
-{
-  GtkWidget *page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
-  GtkWidget *kinds = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
-  GtkWidget *row, *label;
-  char *path, *said;
-
-  prompt->guess = prose ("");
-  gtk_box_append (GTK_BOX (page), prompt->guess);
-  gtk_box_append (GTK_BOX (page), prose (_("If this is correct, choose Next, or choose the data type "
-                                           "that best describes your data.")));
-
-  prompt->delimited = gtk_check_button_new_with_mnemonic (
-    _("_Delimited - Characters such as commas or tabs separate each field."));
-  prompt->fixed = gtk_check_button_new_with_mnemonic (
-    _("Fixed _width - Fields are aligned in columns with spaces between each field."));
-  gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->fixed), GTK_CHECK_BUTTON (prompt->delimited));
-  gtk_box_append (GTK_BOX (kinds), prompt->delimited);
-  gtk_box_append (GTK_BOX (kinds), prompt->fixed);
-  gtk_box_append (GTK_BOX (page), framed (_("Original data type"), kinds));
-  g_signal_connect (prompt->fixed, "toggled", G_CALLBACK (on_kind_of_file), prompt);
-
-  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
-  label = gtk_label_new_with_mnemonic (_("Start import at _row:"));
-  gtk_box_append (GTK_BOX (row), label);
-  prompt->start = gtk_spin_button_new_with_range (1, MAX (prompt->n_lines, 1), 1);
-  gtk_label_set_mnemonic_widget (GTK_LABEL (label), prompt->start);
-  gtk_box_append (GTK_BOX (row), prompt->start);
-  g_signal_connect (prompt->start, "value-changed", G_CALLBACK (on_start_changed), prompt);
+  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget *label;
 
   label = gtk_label_new_with_mnemonic (_("File _origin:"));
-  gtk_widget_set_margin_start (label, 16);
   gtk_box_append (GTK_BOX (row), label);
   prompt->origin = encoding_drop (prompt->options->encoding, prompt->encodings);
   gtk_label_set_mnemonic_widget (GTK_LABEL (label), prompt->origin);
   gtk_box_append (GTK_BOX (row), prompt->origin);
   g_signal_connect (prompt->origin, "notify::selected", G_CALLBACK (on_origin_changed), prompt);
-  gtk_box_append (GTK_BOX (page), row);
 
-  path = g_file_get_parse_name (prompt->file);
-  said = g_strdup_printf (_("Preview of file %s:"), path);
-  label = gtk_label_new (said);
-  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
-  gtk_label_set_ellipsize (GTK_LABEL (label), PANGO_ELLIPSIZE_MIDDLE);
-  gtk_box_append (GTK_BOX (page), label);
-  g_free (said);
-  g_free (path);
-
-  prompt->lines_area = gtk_drawing_area_new ();
-  gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (prompt->lines_area), lines_draw, prompt, NULL);
-  gtk_box_append (GTK_BOX (page), preview_box (prompt->lines_area, 170));
-  return page;
+  label = gtk_label_new_with_mnemonic (_("Start import at _row:"));
+  gtk_widget_set_margin_start (label, 16);
+  gtk_box_append (GTK_BOX (row), label);
+  prompt->start = gtk_spin_button_new_with_range (1, MAX (prompt->n_lines, 1), 1);
+  gtk_label_set_mnemonic_widget (GTK_LABEL (label), prompt->start);
+  gtk_box_append (GTK_BOX (row), prompt->start);
+  g_signal_connect (prompt->start, "value-changed", G_CALLBACK (on_start_changed), prompt);
+  return row;
 }
 
+/* Delimited, with its delimiters under it, or fixed width. */
 static GtkWidget *
-import_page_cut (ImportPrompt *prompt)
+import_kind_frame (ImportPrompt *prompt)
 {
   static const char *const NAMES[4] = { N_("_Tab"), N_("_Semicolon"), N_("_Comma"), N_("S_pace") };
   static const char *const QUOTES[] = { "\"", "'", N_("{none}"), NULL };
-  GtkWidget *page, *delimited, *fixed, *row, *seps, *label;
+  static const char SEPS[4] = { '\t', ';', ',', ' ' };
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+  GtkWidget *seps, *row, *label;
   GtkStringList *quotes = gtk_string_list_new (NULL);
+  GString *others = g_string_new (NULL);
 
-  prompt->cut_stack = gtk_stack_new ();
+  prompt->delimited = gtk_check_button_new_with_mnemonic (
+    _("_Delimited - Characters such as commas or tabs separate each field."));
+  gtk_box_append (GTK_BOX (box), prompt->delimited);
 
-  /* Delimited. */
-  delimited = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
-  gtk_box_append (GTK_BOX (delimited),
-                  prose (_("This screen lets you set the delimiters your data contains. "
-                           "You can see how your text is affected in the preview below.")));
+  prompt->cut_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+  gtk_widget_set_margin_start (prompt->cut_box, 26);
   seps = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
   for (int i = 0; i < 4; i++)
     {
@@ -1057,7 +1013,7 @@ import_page_cut (ImportPrompt *prompt)
   gtk_editable_set_max_width_chars (GTK_EDITABLE (prompt->other), 3);
   gtk_entry_set_max_length (GTK_ENTRY (prompt->other), 4);
   gtk_box_append (GTK_BOX (seps), prompt->other);
-  gtk_box_append (GTK_BOX (delimited), framed (_("Delimiters"), seps));
+  gtk_box_append (GTK_BOX (prompt->cut_box), seps);
 
   row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
   prompt->merge = gtk_check_button_new_with_mnemonic (_("Treat consecutive delimiters as o_ne"));
@@ -1070,72 +1026,41 @@ import_page_cut (ImportPrompt *prompt)
   prompt->quote = gtk_drop_down_new (G_LIST_MODEL (quotes), NULL);
   gtk_label_set_mnemonic_widget (GTK_LABEL (label), prompt->quote);
   gtk_box_append (GTK_BOX (row), prompt->quote);
-  gtk_box_append (GTK_BOX (delimited), row);
+  gtk_box_append (GTK_BOX (prompt->cut_box), row);
+  gtk_box_append (GTK_BOX (box), prompt->cut_box);
 
-  label = gtk_label_new (_("Data preview"));
-  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
-  gtk_box_append (GTK_BOX (delimited), label);
-  prompt->table_area = gtk_drawing_area_new ();
-  gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (prompt->table_area), table_draw, prompt, NULL);
-  gtk_box_append (GTK_BOX (delimited), preview_box (prompt->table_area, 190));
-  gtk_stack_add_named (GTK_STACK (prompt->cut_stack), delimited, "delimited");
-
-  /* Fixed width. */
-  fixed = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
-  gtk_box_append (GTK_BOX (fixed),
-                  prose (_("This screen lets you set field widths (column breaks). "
-                           "Lines with arrows signify a column break.")));
-  gtk_box_append (GTK_BOX (fixed),
-                  prose (_("To CREATE a break line, click at the desired position.\n"
-                           "To DELETE a break line, double click on the line.\n"
-                           "To MOVE a break line, click and drag it.")));
-  label = gtk_label_new (_("Data preview"));
-  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
-  gtk_box_append (GTK_BOX (fixed), label);
-  prompt->ruler_area = gtk_drawing_area_new ();
-  gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (prompt->ruler_area), ruler_draw, prompt, NULL);
-  {
-    GtkGesture *click = gtk_gesture_click_new ();
-    GtkEventController *motion = gtk_event_controller_motion_new ();
-
-    g_signal_connect (click, "pressed", G_CALLBACK (on_ruler_pressed), prompt);
-    g_signal_connect (click, "released", G_CALLBACK (on_ruler_released), prompt);
-    gtk_widget_add_controller (prompt->ruler_area, GTK_EVENT_CONTROLLER (click));
-    g_signal_connect (motion, "motion", G_CALLBACK (on_ruler_motion), prompt);
-    gtk_widget_add_controller (prompt->ruler_area, motion);
-  }
-  gtk_box_append (GTK_BOX (fixed), preview_box (prompt->ruler_area, 214));
-  gtk_stack_add_named (GTK_STACK (prompt->cut_stack), fixed, "fixed");
+  prompt->fixed = gtk_check_button_new_with_mnemonic (
+    _("Fixed _width - Fields are aligned in columns with spaces between each field."));
+  gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->fixed), GTK_CHECK_BUTTON (prompt->delimited));
+  gtk_box_append (GTK_BOX (box), prompt->fixed);
 
   /* What the file was guessed to be, on the controls. */
-  {
-    const char *s = prompt->options->separators != NULL ? prompt->options->separators : "";
-    static const char SEPS[4] = { '\t', ';', ',', ' ' };
-    GString *others = g_string_new (NULL);
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->options->fixed_width ? prompt->fixed
+                                                                                : prompt->delimited), TRUE);
+  for (const char *s = prompt->options->separators != NULL ? prompt->options->separators : "";
+       *s != '\0'; s = g_utf8_next_char (s))
+    {
+      int known = -1;
 
-    for (; *s != '\0'; s = g_utf8_next_char (s))
-      {
-        int known = -1;
-
-        for (int i = 0; i < 4; i++)
-          if (*s == SEPS[i])
-            known = i;
-        if (known >= 0)
-          gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->sep[known]), TRUE);
-        else
-          g_string_append_len (others, s, g_utf8_next_char (s) - s);
-      }
-    if (others->len > 0)
-      {
-        gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->other_check), TRUE);
-        gtk_editable_set_text (GTK_EDITABLE (prompt->other), others->str);
-      }
-    g_string_free (others, TRUE);
-  }
+      for (int i = 0; i < 4; i++)
+        if (*s == SEPS[i])
+          known = i;
+      if (known >= 0)
+        gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->sep[known]), TRUE);
+      else
+        g_string_append_len (others, s, g_utf8_next_char (s) - s);
+    }
+  if (others->len > 0)
+    {
+      gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->other_check), TRUE);
+      gtk_editable_set_text (GTK_EDITABLE (prompt->other), others->str);
+    }
+  g_string_free (others, TRUE);
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->merge), prompt->options->merge_separators);
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->quote),
                               prompt->options->quote == '"' ? 0 : prompt->options->quote == '\'' ? 1 : 2);
 
+  g_signal_connect (prompt->fixed, "toggled", G_CALLBACK (on_kind_of_file), prompt);
   for (int i = 0; i < 4; i++)
     g_signal_connect (prompt->sep[i], "toggled", G_CALLBACK (on_cut_changed), prompt);
   g_signal_connect (prompt->other_check, "toggled", G_CALLBACK (on_cut_changed), prompt);
@@ -1143,56 +1068,48 @@ import_page_cut (ImportPrompt *prompt)
   g_signal_connect (prompt->merge, "toggled", G_CALLBACK (on_cut_changed), prompt);
   g_signal_connect (prompt->quote, "notify::selected", G_CALLBACK (on_quote_changed), prompt);
 
-  page = prompt->cut_stack;
-  return page;
+  return framed (_("Original data type"), box);
 }
 
+/* What the chosen columns are taken as, and beside it how the file
+ * writes its numbers. */
 static GtkWidget *
-import_page_format (ImportPrompt *prompt)
+import_format_row (ImportPrompt *prompt)
 {
   static const char *const KINDS[4] = { N_("_General"), N_("_Text"), N_("_Date:"),
                                         N_("Do not _import column (skip)") };
   static const char *const DECIMALS[] = { ".", ",", NULL };
   static const char *const THOUSANDS[] = { ",", ".", N_("space"), "'", N_("{none}"), NULL };
-  GtkWidget *page = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
-  GtkWidget *top = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 16);
-  GtkWidget *kinds = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
-  GtkWidget *right = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
-  GtkWidget *row, *label, *expander, *advanced;
+  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 16);
+  GtkWidget *kinds = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 10);
+  GtkWidget *advanced, *expander, *label;
   GtkStringList *orders = gtk_string_list_new (DATE_ORDERS);
   GtkStringList *decimals = gtk_string_list_new (DECIMALS);
   GtkStringList *thousands = gtk_string_list_new (NULL);
-
-  gtk_box_append (GTK_BOX (page),
-                  prose (_("This screen lets you select each column and set the Data Format. "
-                           "Click a column in the preview to choose it, Shift+click to choose several.")));
 
   for (int i = 0; i < 4; i++)
     {
       prompt->kind[i] = gtk_check_button_new_with_mnemonic (_(KINDS[i]));
       if (i > 0)
         gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->kind[i]), GTK_CHECK_BUTTON (prompt->kind[0]));
+      gtk_box_append (GTK_BOX (kinds), prompt->kind[i]);
       if (i == O42_SPLIT_DATE)
         {
-          row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-          gtk_box_append (GTK_BOX (row), prompt->kind[i]);
           prompt->order = gtk_drop_down_new (G_LIST_MODEL (orders), NULL);
-          gtk_box_append (GTK_BOX (row), prompt->order);
-          gtk_box_append (GTK_BOX (kinds), row);
+          gtk_widget_set_valign (prompt->order, GTK_ALIGN_CENTER);
+          gtk_box_append (GTK_BOX (kinds), prompt->order);
         }
-      else
-        gtk_box_append (GTK_BOX (kinds), prompt->kind[i]);
       g_signal_connect (prompt->kind[i], "toggled", G_CALLBACK (on_kind_toggled), prompt);
     }
   g_signal_connect (prompt->order, "notify::selected", G_CALLBACK (on_order_changed), prompt);
-  gtk_box_append (GTK_BOX (top), framed (_("Column data format"), kinds));
+  {
+    GtkWidget *frame = framed (_("Column data format"), kinds);
 
-  gtk_box_append (GTK_BOX (right),
-                  prose (_("'General' converts numeric values to numbers, date values to dates, "
-                           "and all remaining values to text.")));
+    gtk_widget_set_valign (frame, GTK_ALIGN_START);
+    gtk_box_append (GTK_BOX (row), frame);
+  }
 
-  /* Excel 2002's Advanced button, as an expander: how the file writes
-   * its numbers. */
+  /* Excel 2002's Advanced button, as an expander. */
   advanced = gtk_grid_new ();
   gtk_grid_set_row_spacing (GTK_GRID (advanced), 4);
   gtk_grid_set_column_spacing (GTK_GRID (advanced), 8);
@@ -1230,53 +1147,45 @@ import_page_format (ImportPrompt *prompt)
   /* Open when the guess is not what an English Excel would assume, so
    * that it is seen. */
   gtk_expander_set_expanded (GTK_EXPANDER (expander), prompt->options->decimal != '.');
-  gtk_box_append (GTK_BOX (right), expander);
+  gtk_widget_set_valign (expander, GTK_ALIGN_START);
+  gtk_widget_set_margin_top (expander, 6);
+  gtk_box_append (GTK_BOX (row), expander);
+  return row;
+}
 
-  /* Import Text File puts the records where the user says. */
-  if (!prompt->open)
-    {
-      int r = 0, c = 0;
-      char *here;
+/* The preview in a scrolled window with a frame round it. */
+static GtkWidget *
+import_preview (ImportPrompt *prompt)
+{
+  GtkWidget *scrolled = gtk_scrolled_window_new ();
+  GtkWidget *frame = gtk_frame_new (NULL);
+  GtkGesture *click = gtk_gesture_click_new ();
+  GtkEventController *motion = gtk_event_controller_motion_new ();
 
-      row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
-      label = gtk_label_new_with_mnemonic (_("_Put the data at:"));
-      gtk_box_append (GTK_BOX (row), label);
-      prompt->place = gtk_entry_new ();
-      gtk_editable_set_width_chars (GTK_EDITABLE (prompt->place), 8);
-      o42_grid_get_active (prompt->window->grid, &r, &c);
-      here = o42_ref_name (r, c);
-      gtk_editable_set_text (GTK_EDITABLE (prompt->place), here);
-      g_free (here);
-      gtk_label_set_mnemonic_widget (GTK_LABEL (label), prompt->place);
-      gtk_box_append (GTK_BOX (row), prompt->place);
-      gtk_box_append (GTK_BOX (right), row);
-    }
-  gtk_widget_set_hexpand (right, TRUE);
-  gtk_box_append (GTK_BOX (top), right);
-  gtk_box_append (GTK_BOX (page), top);
+  prompt->area = gtk_drawing_area_new ();
+  gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (prompt->area), preview_draw, prompt, NULL);
+  g_signal_connect (click, "pressed", G_CALLBACK (on_preview_pressed), prompt);
+  g_signal_connect (click, "released", G_CALLBACK (on_preview_released), prompt);
+  gtk_widget_add_controller (prompt->area, GTK_EVENT_CONTROLLER (click));
+  g_signal_connect (motion, "motion", G_CALLBACK (on_preview_motion), prompt);
+  gtk_widget_add_controller (prompt->area, motion);
 
-  label = gtk_label_new (_("Data preview"));
-  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
-  gtk_box_append (GTK_BOX (page), label);
-  prompt->format_area = gtk_drawing_area_new ();
-  gtk_drawing_area_set_draw_func (GTK_DRAWING_AREA (prompt->format_area), format_draw, prompt, NULL);
-  {
-    GtkGesture *click = gtk_gesture_click_new ();
-
-    g_signal_connect (click, "pressed", G_CALLBACK (on_format_pressed), prompt);
-    gtk_widget_add_controller (prompt->format_area, GTK_EVENT_CONTROLLER (click));
-  }
-  gtk_box_append (GTK_BOX (page), preview_box (prompt->format_area, 170));
-  return page;
+  gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                  GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+  gtk_widget_set_size_request (scrolled, 680, 230);
+  gtk_widget_set_vexpand (scrolled, TRUE);
+  gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), prompt->area);
+  gtk_frame_set_child (GTK_FRAME (frame), scrolled);
+  return frame;
 }
 
 void
 o42_window_import_text (O42Window *self, GFile *file, gboolean open)
 {
   ImportPrompt *prompt;
-  GtkWidget *content, *buttons;
+  GtkWidget *content, *buttons, *row, *label, *ok;
   GError *error = NULL;
-  char *bytes = NULL, *name;
+  char *bytes = NULL, *name, *title;
   gsize length = 0;
   const char *found = NULL;
   gboolean bom = FALSE;
@@ -1309,42 +1218,71 @@ o42_window_import_text (O42Window *self, GFile *file, gboolean open)
   prompt->n_lines = o42_csv_count_lines (prompt->text);
   name = g_file_get_basename (file);
   o42_csv_sniff (prompt->text, name, prompt->options);
-  g_free (name);
   o42_csv_options_set_encoding (prompt->options, found);
   prompt->options->bom = bom;
 
-  prompt->dialog = dialog_frame (self, _("Text Import Wizard - Step 1 of 3"), TRUE, &content, &buttons);
-  prompt->stack = gtk_stack_new ();
-  gtk_stack_set_transition_type (GTK_STACK (prompt->stack), GTK_STACK_TRANSITION_TYPE_NONE);
-  gtk_stack_set_vhomogeneous (GTK_STACK (prompt->stack), FALSE);
-  gtk_box_append (GTK_BOX (content), prompt->stack);
+  title = g_strdup_printf (_("Text Import - %s"), name);
+  prompt->dialog = dialog_frame (self, title, TRUE, &content, &buttons);
+  g_free (title);
+  g_free (name);
 
   prompt->updating = TRUE;
-  gtk_stack_add_named (GTK_STACK (prompt->stack), import_page_kind (prompt), "kind");
-  gtk_stack_add_named (GTK_STACK (prompt->stack), import_page_cut (prompt), "cut");
-  gtk_stack_add_named (GTK_STACK (prompt->stack), import_page_format (prompt), "format");
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->options->fixed_width ? prompt->fixed : prompt->delimited),
-                               TRUE);
-  gtk_label_set_text (GTK_LABEL (prompt->guess),
-                      prompt->options->fixed_width
-                      ? _("The Text Wizard has determined that your data is Fixed Width.")
-                      : _("The Text Wizard has determined that your data is Delimited."));
+  gtk_box_append (GTK_BOX (content), import_top_row (prompt));
+  gtk_box_append (GTK_BOX (content), import_kind_frame (prompt));
+  gtk_box_append (GTK_BOX (content), import_format_row (prompt));
+
+  /* Import Text File puts the records where the user says. */
+  if (!open)
+    {
+      int r = 0, c = 0;
+      char *here;
+
+      row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      label = gtk_label_new_with_mnemonic (_("_Put the data at:"));
+      gtk_box_append (GTK_BOX (row), label);
+      prompt->place = gtk_entry_new ();
+      gtk_editable_set_width_chars (GTK_EDITABLE (prompt->place), 8);
+      gtk_entry_set_activates_default (GTK_ENTRY (prompt->place), TRUE);
+      o42_grid_get_active (self->grid, &r, &c);
+      here = o42_ref_name (r, c);
+      gtk_editable_set_text (GTK_EDITABLE (prompt->place), here);
+      g_free (here);
+      gtk_label_set_mnemonic_widget (GTK_LABEL (label), prompt->place);
+      gtk_box_append (GTK_BOX (row), prompt->place);
+      gtk_box_append (GTK_BOX (content), row);
+    }
+
+  row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+  label = gtk_label_new (_("Data preview"));
+  gtk_box_append (GTK_BOX (row), label);
+  prompt->hint = gtk_label_new ("");
+  gtk_label_set_xalign (GTK_LABEL (prompt->hint), 0.0);
+  /* A label that wraps still asks for the whole of its text across,
+   * unless told otherwise, and would widen the dialog to get it. */
+  gtk_label_set_wrap (GTK_LABEL (prompt->hint), TRUE);
+  gtk_label_set_max_width_chars (GTK_LABEL (prompt->hint), 60);
+  gtk_widget_set_hexpand (prompt->hint, TRUE);
+  gtk_widget_add_css_class (prompt->hint, "dim-label");
+  gtk_box_append (GTK_BOX (row), prompt->hint);
+  gtk_box_append (GTK_BOX (content), row);
+  gtk_box_append (GTK_BOX (content), import_preview (prompt));
+  import_sync_file_kind (prompt);
   prompt->updating = FALSE;
 
-  dialog_button (buttons, _("Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
-  prompt->back = dialog_button (buttons, _("< _Back"), G_CALLBACK (on_import_back), prompt);
-  prompt->next = dialog_button (buttons, _("_Next >"), G_CALLBACK (on_import_next), prompt);
-  prompt->finish = dialog_button (buttons, _("_Finish"), G_CALLBACK (on_import_finish), prompt);
+  ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_import_ok), prompt);
+  dialog_button (buttons, _("_Cancel"), G_CALLBACK (on_dialog_close_clicked), prompt->dialog);
+  gtk_window_set_default_widget (GTK_WINDOW (prompt->dialog), ok);
 
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_dialog_destroy_refocus), self->grid);
   g_signal_connect (prompt->dialog, "destroy", G_CALLBACK (on_import_destroy), prompt);
 
-  import_show_step (prompt, STEP_KIND);
+  import_recut (prompt);
+  import_sync_kind (prompt);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
 }
 
 /* File > Import Text File: Excel 2000's Data > Get External Data >
- * Import Text File, the wizard over a file chosen, its records put at
+ * Import Text File, Text Import over a file chosen, its records put at
  * the active cell of the sheet on show rather than in a book of their
  * own. */
 static void

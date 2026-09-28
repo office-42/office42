@@ -889,8 +889,8 @@ with a click:
 | `.xls` | Excel 97 to 2003, BIFF8 (and the older BIFF5 read) | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view, the properties |
 | `.ods`, `.fods` | OpenDocument, LibreOffice Calc's own, zipped or flat | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, validations, frozen panes, print setup, pictures, shapes, charts, form controls, the properties |
 | `.html` | a table per sheet | values, fonts, fills, borders, alignments, merges, links |
-| `.csv` | comma (or semicolon) separated, through the Text Import Wizard | the values as shown, quoted where they need it |
-| `.txt`, `.tsv` | tab separated, through the Text Import Wizard | the same, with tabs |
+| `.csv` | comma (or semicolon) separated, through Text Import | the values as shown, quoted where they need it |
+| `.txt`, `.tsv` | tab separated, through Text Import | the same, with tabs |
 | `.prn` | Excel's Formatted Text, the columns padded with spaces | the same, each column as wide as its widest entry |
 | `.dif` | VisiCalc's Data Interchange Format | one sheet: the numbers as numbers and everything else as text |
 | `.slk` | Multiplan's SYLK, which Excel still offers | one sheet: values, formulas in R1C1, column widths |
@@ -912,32 +912,37 @@ Excel's formats against LibreOffice, `.gnumeric` against Gnumeric's own
 documentation.
 
 **Text files.** A `.csv`, `.txt`, `.tsv`, `.tab` or `.prn` opens
-through Excel 97's Text Import Wizard, whichever way it is opened --
-File ▸ Open, the recent files, the command line. Its first page says
-whether the fields are delimited or lined up in fixed-width columns,
-the row to start from (a report's title lines passed over), and the
-File origin -- the encoding: UTF-8 and UTF-16 are known by their
-byte-order marks, anything else that is not UTF-8 is taken for the
-machine's code page or Windows-1252, and the list offers the rest.
-The second page sets the delimiters -- tab, semicolon, comma, space
-or any other character, two together counting as one if asked, and
-the text qualifier, `"` or `'` -- or, for fixed width, the column
-breaks on a ruler: click to put one in, drag to move it, double-click
-to take it away. The third page sets each column's format: General
-reads it as typed, Text keeps `00123` a code, Date reads it in the
-order chosen (MDY, DMY, YMD and the rest), and Skip leaves it out.
-Advanced says how the file writes its numbers -- the decimal and
-thousands separators, and a minus sign behind, `12-`, as mainframes
-print it. Each page shows the file cut up as its answers say, and
-Finish works from any of them. The wizard's first guesses are good
-ones: the separator is the character that comes the same number of
-times on most lines, a file of semicolons with `1.234,50` in it is
-read with a decimal comma, and a file with no separator but columns
-that line up is fixed width.
+through Text Import, whichever way it is opened -- File ▸ Open, the
+recent files, the command line. It asks on one page what Excel 97's
+Text Import Wizard asked on three, with the file cut up underneath as
+the answers say, changing as they change:
 
-File ▸ Import Text File runs the same wizard, and puts the records
-into the sheet on show at the active cell (or wherever the last page
-is told), as one step to undo; the book is not the file's afterwards.
+- **File origin** is the encoding: UTF-8 and UTF-16 are known by
+  their byte-order marks, anything else that is not UTF-8 is taken for
+  the machine's code page or Windows-1252, and the list offers the
+  rest. **Start import at row** passes over a report's title lines.
+- **Delimited** or **Fixed width**. For a delimited file, the
+  delimiters -- tab, semicolon, comma, space or any other character,
+  two together counting as one if asked -- and the text qualifier,
+  `"` or `'`. For a fixed-width one the preview has a ruler: click it
+  to put in a column break, drag a break to move it, double-click one
+  to take it away.
+- **Column data format**, for the columns chosen in the preview -- a
+  click chooses one, Shift+click several: General reads it as typed,
+  Text keeps `00123` a code, Date reads it in the order chosen (MDY,
+  DMY, YMD and the rest), and Skip leaves it out. **Advanced** says
+  how the file writes its numbers -- the decimal and thousands
+  separators, and a minus sign behind, `12-`, as mainframes print it.
+
+The first guesses are good ones, so OK is often all there is to it:
+the separator is the character that comes the same number of times on
+most lines, a file of semicolons with `1.234,50` in it is read with a
+decimal comma, and a file with no separator but columns that line up
+is fixed width.
+
+File ▸ Import Text File asks the same, and puts the records into the
+sheet on show at the active cell (or wherever **Put the data at**
+says), as one step to undo; the book is not the file's afterwards.
 
 Saving keeps a text file as it came: a semicolon file with a decimal
 comma in Windows-1252 goes back as one, CR LF or LF as it had them.
@@ -1076,14 +1081,14 @@ prints the used range. The commands, by family:
 | Database | `db`, `dbembed`, `dbtables`, `dbcols`, `dbexec`, `sql`, `sqlprint`, `dbput`, `dbrefresh`, `queries` |
 | Other | `undo`, `redo`, `name`, `names`, `unname`, `createnames`, `applynames`, `prop`, `props`, `autocorrect`, `correction`, `uncorrect`, `corrections`, `autocorrectopt`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc`, `evaluate`, `watch`, `watches`, `unwatch`, `check`, `date1904`, `precision`, `fixeddecimals` |
 
-`import FILE` reads a text file as the Text Import Wizard would, with
-the wizard's answers as words after the name -- `sep=tab+;`,
+`import FILE` reads a text file as Text Import would, with its
+answers as words after the name -- `sep=tab+;`,
 `quote='`, `merge`, `start=3`, `enc=WINDOWS-1252`, `fixed=8,20`,
 `cols=G,T,D:DMY,S`, `decimal=,`, `thousands=.`, `nominus`, and
 `at=B2` to put the records into the sheet there instead of replacing
 it. `export FILE` writes one with `sep=`, `quote=`, `enc=`, `decimal=`,
 `fixed=`, `bom`, `lf`, `raw`, `formulas` and `quoteall`, and
-`sniff FILE` says what the wizard would guess of it.
+`sniff FILE` says what Text Import would guess of it.
 
 `office42-calc --functions` prints every function with its signature
 and a line about what it does; `--help` prints the commands by family

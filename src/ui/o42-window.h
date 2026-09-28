@@ -25,11 +25,11 @@ GtkWidget *o42_window_new_on_book (GtkApplication *app, O42Book *book, GFile *fi
  * to the user itself; returns whether it succeeded. */
 gboolean o42_window_open_file (O42Window *self, GFile *file);
 
-/* Whether the file is text the Text Import Wizard reads: .csv, .txt,
- * .tsv, .tab or .prn. */
+/* Whether the file is text that Text Import reads: .csv, .txt, .tsv,
+ * .tab or .prn. */
 gboolean o42_window_is_text_file (GFile *file);
 
-/* File > Open of a text file: the Text Import Wizard, and the book it
+/* File > Open of a text file: Text Import, and the book it
  * makes in this window when it is blank or in a new one when it is
  * not.  With `open` FALSE it is File > Import Text File instead, and
  * the records go into the sheet on show at the active cell. */

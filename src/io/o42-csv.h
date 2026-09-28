@@ -17,7 +17,7 @@
  * or Windows-1252 from a Windows of thirty years ago.  O42CsvOptions is
  * everything Excel's Text Import Wizard asks about such a file, and the
  * few things a writer must choose; o42_csv_sniff fills it in from the
- * file the way the wizard's first guess does.
+ * file the way Text Import's first guess does.
  */
 
 #pragma once
@@ -114,7 +114,7 @@ void         o42_csv_options_set_column (O42CsvOptions *options, int col,
 char *o42_csv_decode (const char *bytes, gsize length, const char *encoding,
                       const char **found, gboolean *bom);
 
-/* Fills in what the wizard's first page guesses from the decoded text
+/* Fills in what Text Import first guesses from the decoded text
  * and the file's name: the separator, delimited or fixed width and
  * where its columns start, the decimal separator its numbers use, the
  * line ends.  `name` may be NULL. */
@@ -135,7 +135,7 @@ GPtrArray *o42_csv_lines (const char *text, int max_lines);
 
 /* The first `max_rows` records of the text as the options cut them,
  * each a NULL-terminated vector of fields as they are in the file
- * (quotes taken off, nothing converted).  For the wizard's preview. */
+ * (quotes taken off, nothing converted).  For Text Import's preview. */
 GPtrArray *o42_csv_preview (const char *text, const O42CsvOptions *options, int max_rows);
 
 /* A field put into a cell as a column of that kind takes it: General as

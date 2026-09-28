@@ -29,11 +29,11 @@
  * "deletecols 2" move cells about, with row and column numbers as the
  * headers show them.  "save FILE" and "load FILE" write and read a
  * .gnumeric file, or a .csv one if the name ends that way.  "import FILE"
- * reads a text file the way the Text Import Wizard would, with words
- * after the name for what its pages ask -- sep=tab+; quote=' merge
+ * reads a text file the way Text Import would, with words after the
+ * name for what it asks -- sep=tab+; quote=' merge
  * start=3 enc=WINDOWS-1252 fixed=8,20 cols=G,T,D:DMY,S decimal=,
  * thousands=. nominus at=B2 -- "export FILE" writes one with sep=; enc=
- * bom lf raw formulas quoteall, and "sniff FILE" says what the wizard
+ * bom lf raw formulas quoteall, and "sniff FILE" says what Text Import
  * would guess.  "sort A1:C9 B
  * desc header", "find TEXT" and "replace OLD -> NEW" do what they say;
  * "pdf FILE" exports.  "sheet NAME" switches to (or makes) a sheet, "rename
@@ -663,10 +663,10 @@ main (int argc, char *argv[])
           continue;
         }
 
-      /* import FILE [options]: File > Open through the Text Import
-       * Wizard, or with at=B2 its Import Text File into the sheet;
-       * export FILE [options]: Save As a text file; sniff FILE: what
-       * the wizard's first page would guess. */
+      /* import FILE [options]: File > Open through Text Import, or
+       * with at=B2 its Import Text File into the sheet; export FILE
+       * [options]: Save As a text file; sniff FILE: what Text Import
+       * would guess. */
       if (g_str_has_prefix (text, "import ") || g_str_has_prefix (text, "export ") ||
           g_str_has_prefix (text, "sniff "))
         {

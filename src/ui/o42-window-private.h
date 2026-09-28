@@ -171,7 +171,7 @@ void o42_window_forget_file (O42Window *self);
 void action_import_text (GSimpleAction *a, GVariant *p, gpointer data);
 void o42_window_save_text_as (O42Window *self, GFile *file);
 
-/* The window.c half: the book made from the text the wizard read, and
+/* The window.c half: the book made from the text Text Import read, and
  * the sheet saved with the options chosen for it. */
 gboolean o42_window_open_text (O42Window *self, GFile *file, const char *text,
                                const O42CsvOptions *options);

@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 06:46+0000\n"
+"POT-Creation-Date: 2026-09-28 07:18+0000\n"
 "PO-Revision-Date: 2026-09-25 19:58+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Hindi\n"
@@ -40,7 +40,7 @@ msgstr "खोलें(_O)..."
 msgid "_Close"
 msgstr "बंद करें(_C)"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1665
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1603
 #: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "सहेजें(_S)"
@@ -703,7 +703,7 @@ msgstr "रेखांकित(_U)"
 msgid "_Alignment"
 msgstr "संरेखण(_A)"
 
-#: data/ui/menus.ui:280 data/ui/menus.ui:287 src/ui/o42-dialogs-file.c:1153
+#: data/ui/menus.ui:280 data/ui/menus.ui:287 src/ui/o42-dialogs-file.c:1079
 msgid "_General"
 msgstr "सामान्य(_G)"
 
@@ -3595,21 +3595,21 @@ msgstr "मेरी सूची में शीर्ष पंक्ति �
 #: src/ui/o42-dialogs-edit.c:289 src/ui/o42-dialogs-edit.c:375
 #: src/ui/o42-dialogs-edit.c:531 src/ui/o42-dialogs-edit.c:594
 #: src/ui/o42-dialogs-edit.c:652 src/ui/o42-dialogs-edit.c:728
-#: src/ui/o42-dialogs-format.c:458 src/ui/o42-dialogs-format.c:572
-#: src/ui/o42-dialogs-format.c:673 src/ui/o42-dialogs-format.c:772
-#: src/ui/o42-dialogs-format.c:829 src/ui/o42-dialogs-tools.c:127
-#: src/ui/o42-dialogs-tools.c:411 src/ui/o42-dialogs-tools.c:2423
-#: src/ui/o42-dialogs-tools.c:2799 src/ui/o42-dialogs-tools.c:3099
-#: src/ui/o42-dialogs-tools.c:3181 src/ui/o42-dialogs-tools.c:3426
-#: src/ui/o42-dialogs-tools.c:3488 src/ui/o42-dialogs-tools.c:3829
-#: src/ui/o42-grid.c:4231 src/ui/o42-window.c:877 src/ui/o42-window.c:1095
-#: src/ui/o42-window.c:1173 src/ui/o42-window.c:1601 src/ui/o42-window.c:2488
-#: src/ui/o42-window.c:2752 src/ui/o42-window.c:3042 src/ui/o42-window.c:3140
-#: src/ui/o42-window.c:3628 src/ui/o42-window.c:3674 src/ui/o42-window.c:3749
-#: src/ui/o42-window.c:3825 src/ui/o42-window.c:3987 src/ui/o42-window.c:4147
-#: src/ui/o42-window.c:4452 src/ui/o42-window.c:4562 src/ui/o42-window.c:4895
-#: src/ui/o42-window.c:5016 src/ui/o42-window.c:5383 src/ui/o42-window.c:5668
-#: src/ui/o42-window.c:7627
+#: src/ui/o42-dialogs-file.c:1272 src/ui/o42-dialogs-format.c:458
+#: src/ui/o42-dialogs-format.c:572 src/ui/o42-dialogs-format.c:673
+#: src/ui/o42-dialogs-format.c:772 src/ui/o42-dialogs-format.c:829
+#: src/ui/o42-dialogs-tools.c:127 src/ui/o42-dialogs-tools.c:411
+#: src/ui/o42-dialogs-tools.c:2423 src/ui/o42-dialogs-tools.c:2799
+#: src/ui/o42-dialogs-tools.c:3099 src/ui/o42-dialogs-tools.c:3181
+#: src/ui/o42-dialogs-tools.c:3426 src/ui/o42-dialogs-tools.c:3488
+#: src/ui/o42-dialogs-tools.c:3829 src/ui/o42-grid.c:4231
+#: src/ui/o42-window.c:877 src/ui/o42-window.c:1095 src/ui/o42-window.c:1173
+#: src/ui/o42-window.c:1601 src/ui/o42-window.c:2488 src/ui/o42-window.c:2752
+#: src/ui/o42-window.c:3042 src/ui/o42-window.c:3140 src/ui/o42-window.c:3628
+#: src/ui/o42-window.c:3674 src/ui/o42-window.c:3749 src/ui/o42-window.c:3825
+#: src/ui/o42-window.c:3987 src/ui/o42-window.c:4147 src/ui/o42-window.c:4452
+#: src/ui/o42-window.c:4562 src/ui/o42-window.c:4895 src/ui/o42-window.c:5016
+#: src/ui/o42-window.c:5383 src/ui/o42-window.c:5668 src/ui/o42-window.c:7627
 msgid "_OK"
 msgstr "ठीक है(_O)"
 
@@ -3620,21 +3620,21 @@ msgstr "ठीक है(_O)"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1666
-#: src/ui/o42-dialogs-format.c:459 src/ui/o42-dialogs-format.c:674
-#: src/ui/o42-dialogs-format.c:773 src/ui/o42-dialogs-format.c:830
-#: src/ui/o42-dialogs-tools.c:2424 src/ui/o42-dialogs-tools.c:2800
-#: src/ui/o42-dialogs-tools.c:3100 src/ui/o42-dialogs-tools.c:3182
-#: src/ui/o42-dialogs-tools.c:3427 src/ui/o42-dialogs-tools.c:3489
-#: src/ui/o42-dialogs-tools.c:3830 src/ui/o42-grid.c:4232
-#: src/ui/o42-grid.c:5286 src/ui/o42-window.c:878 src/ui/o42-window.c:1096
-#: src/ui/o42-window.c:1174 src/ui/o42-window.c:1602 src/ui/o42-window.c:2489
-#: src/ui/o42-window.c:2753 src/ui/o42-window.c:3043 src/ui/o42-window.c:3141
-#: src/ui/o42-window.c:3630 src/ui/o42-window.c:3674 src/ui/o42-window.c:3750
-#: src/ui/o42-window.c:3826 src/ui/o42-window.c:3988 src/ui/o42-window.c:4148
-#: src/ui/o42-window.c:4453 src/ui/o42-window.c:4563 src/ui/o42-window.c:4896
-#: src/ui/o42-window.c:5017 src/ui/o42-window.c:5384 src/ui/o42-window.c:5669
-#: src/ui/o42-window.c:6412 src/ui/o42-window.c:7628
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1273
+#: src/ui/o42-dialogs-file.c:1604 src/ui/o42-dialogs-format.c:459
+#: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
+#: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
+#: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
+#: src/ui/o42-dialogs-tools.c:3182 src/ui/o42-dialogs-tools.c:3427
+#: src/ui/o42-dialogs-tools.c:3489 src/ui/o42-dialogs-tools.c:3830
+#: src/ui/o42-grid.c:4232 src/ui/o42-grid.c:5286 src/ui/o42-window.c:878
+#: src/ui/o42-window.c:1096 src/ui/o42-window.c:1174 src/ui/o42-window.c:1602
+#: src/ui/o42-window.c:2489 src/ui/o42-window.c:2753 src/ui/o42-window.c:3043
+#: src/ui/o42-window.c:3141 src/ui/o42-window.c:3630 src/ui/o42-window.c:3674
+#: src/ui/o42-window.c:3750 src/ui/o42-window.c:3826 src/ui/o42-window.c:3988
+#: src/ui/o42-window.c:4148 src/ui/o42-window.c:4453 src/ui/o42-window.c:4563
+#: src/ui/o42-window.c:4896 src/ui/o42-window.c:5017 src/ui/o42-window.c:5384
+#: src/ui/o42-window.c:5669 src/ui/o42-window.c:6412 src/ui/o42-window.c:7628
 msgid "_Cancel"
 msgstr "रद्द करें(_C)"
 
@@ -3993,9 +3993,8 @@ msgstr ""
 "तालिका एक नई शीट पर बनाई जाती है; डेटा > पिवट तालिका रीफ़्रेश करें इसे फिर से बनाता है।"
 
 #: src/ui/o42-dialogs-data.c:1272 src/ui/o42-dialogs-data.c:1382
-#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-file.c:1334
-#: src/ui/o42-dialogs-format.c:574 src/ui/o42-dialogs-tools.c:307
-#: src/ui/o42-window.c:7175
+#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-format.c:574
+#: src/ui/o42-dialogs-tools.c:307 src/ui/o42-window.c:7175
 msgid "Cancel"
 msgstr "रद्द करें"
 
@@ -4051,7 +4050,7 @@ msgid "List"
 msgstr "सूची"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-file.c:160 src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:163 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "दिनांक"
 
@@ -4135,34 +4134,34 @@ msgstr "अमान्य डेटा दर्ज होने के बा�
 msgid "_Clear"
 msgstr "साफ़ करें(_C)"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
-#: src/ui/o42-dialogs-file.c:1504
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
+#: src/ui/o42-dialogs-file.c:1442
 msgid "_Comma"
 msgstr "अल्पविराम(_C)"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
-#: src/ui/o42-dialogs-file.c:1504
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
+#: src/ui/o42-dialogs-file.c:1442
 msgid "_Tab"
 msgstr "टैब(_T)"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
-#: src/ui/o42-dialogs-file.c:1504
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
+#: src/ui/o42-dialogs-file.c:1442
 msgid "_Semicolon"
 msgstr "अर्धविराम(_S)"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
-#: src/ui/o42-dialogs-file.c:1504
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
+#: src/ui/o42-dialogs-file.c:1442
 msgid "S_pace"
 msgstr "रिक्त स्थान(_P)"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:163
 #: src/ui/o42-dialogs-format.c:61 src/ui/o42-dialogs-format.c:104
 #: src/ui/o42-window.c:5304
 msgid "General"
 msgstr "सामान्य"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:163
 #: src/ui/o42-dialogs-format.c:61 src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "टेक्स्ट"
@@ -4187,7 +4186,7 @@ msgstr "अन्य:"
 msgid "Delimited"
 msgstr "सीमांकित"
 
-#: src/ui/o42-dialogs-data.c:1966
+#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:813
 msgid ""
 "Click the ruler to put in a break, drag one to move it, double-click one to "
 "take it away.  Click a column to choose its format."
@@ -4449,363 +4448,295 @@ msgstr "टिप्पणियाँ:"
 msgid "Properties"
 msgstr "गुण"
 
-#: src/ui/o42-dialogs-file.c:33
+#: src/ui/o42-dialogs-file.c:34
 msgid "Unicode (UTF-8)"
 msgstr "Unicode (UTF-8)"
 
-#: src/ui/o42-dialogs-file.c:34
+#: src/ui/o42-dialogs-file.c:35
 msgid "Unicode (UTF-16, little-endian)"
 msgstr "Unicode (UTF-16, लिटिल-एंडियन)"
 
-#: src/ui/o42-dialogs-file.c:35
+#: src/ui/o42-dialogs-file.c:36
 msgid "Unicode (UTF-16, big-endian)"
 msgstr "Unicode (UTF-16, बिग-एंडियन)"
 
-#: src/ui/o42-dialogs-file.c:36
+#: src/ui/o42-dialogs-file.c:37
 msgid "Windows (ANSI), Western European"
 msgstr "Windows (ANSI), पश्चिमी यूरोपीय"
 
-#: src/ui/o42-dialogs-file.c:37
+#: src/ui/o42-dialogs-file.c:38
 msgid "Windows, Central European"
 msgstr "Windows, मध्य यूरोपीय"
 
-#: src/ui/o42-dialogs-file.c:38
+#: src/ui/o42-dialogs-file.c:39
 msgid "Windows, Cyrillic"
 msgstr "Windows, सिरिलिक"
 
-#: src/ui/o42-dialogs-file.c:39
+#: src/ui/o42-dialogs-file.c:40
 msgid "Windows, Greek"
 msgstr "Windows, ग्रीक"
 
-#: src/ui/o42-dialogs-file.c:40
+#: src/ui/o42-dialogs-file.c:41
 msgid "Windows, Turkish"
 msgstr "Windows, तुर्की"
 
-#: src/ui/o42-dialogs-file.c:41
+#: src/ui/o42-dialogs-file.c:42
 msgid "Windows, Hebrew"
 msgstr "Windows, हिब्रू"
 
-#: src/ui/o42-dialogs-file.c:42
+#: src/ui/o42-dialogs-file.c:43
 msgid "Windows, Arabic"
 msgstr "Windows, अरबी"
 
-#: src/ui/o42-dialogs-file.c:43
+#: src/ui/o42-dialogs-file.c:44
 msgid "Windows, Baltic"
 msgstr "Windows, बाल्टिक"
 
-#: src/ui/o42-dialogs-file.c:44
+#: src/ui/o42-dialogs-file.c:45
 msgid "Windows, Vietnamese"
 msgstr "Windows, वियतनामी"
 
-#: src/ui/o42-dialogs-file.c:45
+#: src/ui/o42-dialogs-file.c:46
 msgid "DOS or OS/2 (PC-8)"
 msgstr "DOS या OS/2 (PC-8)"
 
-#: src/ui/o42-dialogs-file.c:46
+#: src/ui/o42-dialogs-file.c:47
 msgid "DOS, Western European (PC-850)"
 msgstr "DOS, पश्चिमी यूरोपीय (PC-850)"
 
-#: src/ui/o42-dialogs-file.c:47
+#: src/ui/o42-dialogs-file.c:48
 msgid "Macintosh"
 msgstr "Macintosh"
 
-#: src/ui/o42-dialogs-file.c:48
+#: src/ui/o42-dialogs-file.c:49
 msgid "ISO 8859-1, Western European"
 msgstr "ISO 8859-1, पश्चिमी यूरोपीय"
 
-#: src/ui/o42-dialogs-file.c:49
+#: src/ui/o42-dialogs-file.c:50
 msgid "ISO 8859-15, Western European with the euro"
 msgstr "ISO 8859-15, यूरो सहित पश्चिमी यूरोपीय"
 
-#: src/ui/o42-dialogs-file.c:50
+#: src/ui/o42-dialogs-file.c:51
 msgid "ISO 8859-2, Central European"
 msgstr "ISO 8859-2, मध्य यूरोपीय"
 
-#: src/ui/o42-dialogs-file.c:51
+#: src/ui/o42-dialogs-file.c:52
 msgid "KOI8-R, Russian"
 msgstr "KOI8-R, रूसी"
 
-#: src/ui/o42-dialogs-file.c:52
+#: src/ui/o42-dialogs-file.c:53
 msgid "Japanese (Shift JIS)"
 msgstr "जापानी (Shift JIS)"
 
-#: src/ui/o42-dialogs-file.c:53
+#: src/ui/o42-dialogs-file.c:54
 msgid "Japanese (EUC-JP)"
 msgstr "जापानी (EUC-JP)"
 
-#: src/ui/o42-dialogs-file.c:54
+#: src/ui/o42-dialogs-file.c:55
 msgid "Chinese, Simplified (GB 18030)"
 msgstr "चीनी, सरलीकृत (GB 18030)"
 
-#: src/ui/o42-dialogs-file.c:55
+#: src/ui/o42-dialogs-file.c:56
 msgid "Chinese, Traditional (Big5)"
 msgstr "चीनी, पारंपरिक (Big5)"
 
-#: src/ui/o42-dialogs-file.c:56
+#: src/ui/o42-dialogs-file.c:57
 msgid "Korean (EUC-KR)"
 msgstr "कोरियाई (EUC-KR)"
 
-#: src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-file.c:163
 msgid "Skip Column"
 msgstr "स्तंभ छोड़ें"
 
-#: src/ui/o42-dialogs-file.c:848 src/ui/o42-dialogs-file.c:1316
-msgid "Text Import Wizard - Step 1 of 3"
-msgstr "टेक्स्ट आयात विज़ार्ड - चरण 1 / 3"
+#: src/ui/o42-dialogs-file.c:815
+msgid "Click a column to choose its format, Shift+click to choose several."
+msgstr "किसी स्तंभ का स्वरूप चुनने के लिए उस पर क्लिक करें, कई स्तंभ चुनने के लिए Shift+क्लिक करें।"
 
-#: src/ui/o42-dialogs-file.c:849
-msgid "Text Import Wizard - Step 2 of 3"
-msgstr "टेक्स्ट आयात विज़ार्ड - चरण 2 / 3"
-
-#: src/ui/o42-dialogs-file.c:850
-msgid "Text Import Wizard - Step 3 of 3"
-msgstr "टेक्स्ट आयात विज़ार्ड - चरण 3 / 3"
-
-#: src/ui/o42-dialogs-file.c:914
+#: src/ui/o42-dialogs-file.c:912
 msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
 msgstr "शीट सुरक्षित है: पहले उपकरण > सुरक्षा > शीट असुरक्षित करें चुनें।"
 
-#: src/ui/o42-dialogs-file.c:921
+#: src/ui/o42-dialogs-file.c:919
 msgid "Put the data at a cell, such as A1."
 msgstr "डेटा को किसी कक्ष में रखें, जैसे A1।"
 
-#: src/ui/o42-dialogs-file.c:987
-msgid ""
-"If this is correct, choose Next, or choose the data type that best describes "
-"your data."
-msgstr "यदि यह सही है, तो अगला चुनें, या वह डेटा प्रकार चुनें जो आपके डेटा का सबसे अच्छा वर्णन करता हो।"
-
-#: src/ui/o42-dialogs-file.c:991
-msgid "_Delimited - Characters such as commas or tabs separate each field."
-msgstr "सीमांकित(_D) - अल्पविराम या टैब जैसे वर्ण प्रत्येक फ़ील्ड को अलग करते हैं।"
-
-#: src/ui/o42-dialogs-file.c:993
-msgid ""
-"Fixed _width - Fields are aligned in columns with spaces between each field."
-msgstr "निश्चित चौड़ाई(_W) - फ़ील्ड स्तंभों में संरेखित हैं और प्रत्येक फ़ील्ड के बीच रिक्त स्थान हैं।"
-
-#: src/ui/o42-dialogs-file.c:997
-msgid "Original data type"
-msgstr "मूल डेटा प्रकार"
-
-#: src/ui/o42-dialogs-file.c:1001
-msgid "Start import at _row:"
-msgstr "पंक्ति पर आयात प्रारंभ करें(_R):"
-
-#: src/ui/o42-dialogs-file.c:1008
+#: src/ui/o42-dialogs-file.c:968
 msgid "File _origin:"
 msgstr "फ़ाइल मूल(_O):"
 
-#: src/ui/o42-dialogs-file.c:1018
-#, c-format
-msgid "Preview of file %s:"
-msgstr "फ़ाइल %s का पूर्वावलोकन:"
+#: src/ui/o42-dialogs-file.c:975
+msgid "Start import at _row:"
+msgstr "पंक्ति पर आयात प्रारंभ करें(_R):"
 
-#: src/ui/o42-dialogs-file.c:1036 src/ui/o42-dialogs-file.c:1156
-#: src/ui/o42-dialogs-file.c:1605
+#: src/ui/o42-dialogs-file.c:990 src/ui/o42-dialogs-file.c:1082
+#: src/ui/o42-dialogs-file.c:1543
 msgid "{none}"
 msgstr "{कोई नहीं}"
 
-#: src/ui/o42-dialogs-file.c:1045
-msgid ""
-"This screen lets you set the delimiters your data contains. You can see how "
-"your text is affected in the preview below."
-msgstr "यह स्क्रीन आपको वे सीमांकक सेट करने देती है जो आपके डेटा में हैं। नीचे के पूर्वावलोकन में आप देख सकते हैं कि आपका टेक्स्ट कैसे प्रभावित होता है।"
+#: src/ui/o42-dialogs-file.c:998
+msgid "_Delimited - Characters such as commas or tabs separate each field."
+msgstr "सीमांकित(_D) - अल्पविराम या टैब जैसे वर्ण प्रत्येक फ़ील्ड को अलग करते हैं।"
 
-#: src/ui/o42-dialogs-file.c:1053 src/ui/o42-dialogs-file.c:1560
+#: src/ui/o42-dialogs-file.c:1009 src/ui/o42-dialogs-file.c:1498
 msgid "_Other:"
 msgstr "अन्य(_O):"
 
-#: src/ui/o42-dialogs-file.c:1060
-msgid "Delimiters"
-msgstr "सीमांकक"
-
-#: src/ui/o42-dialogs-file.c:1063
+#: src/ui/o42-dialogs-file.c:1019
 msgid "Treat consecutive delimiters as o_ne"
 msgstr "लगातार सीमांककों को एक के रूप में मानें(_N)"
 
-#: src/ui/o42-dialogs-file.c:1065 src/ui/o42-dialogs-file.c:1600
+#: src/ui/o42-dialogs-file.c:1021 src/ui/o42-dialogs-file.c:1538
 msgid "Text _qualifier:"
 msgstr "टेक्स्ट क्वालिफ़ायर(_Q):"
 
-#: src/ui/o42-dialogs-file.c:1075 src/ui/o42-dialogs-file.c:1092
-#: src/ui/o42-dialogs-file.c:1258
-msgid "Data preview"
-msgstr "डेटा पूर्वावलोकन"
-
-#: src/ui/o42-dialogs-file.c:1086
+#: src/ui/o42-dialogs-file.c:1033
 msgid ""
-"This screen lets you set field widths (column breaks). Lines with arrows "
-"signify a column break."
-msgstr "यह स्क्रीन आपको फ़ील्ड की चौड़ाई (स्तंभ विराम) सेट करने देती है। तीर वाली रेखाएँ स्तंभ विराम दर्शाती हैं।"
-
-#: src/ui/o42-dialogs-file.c:1089
-msgid ""
-"To CREATE a break line, click at the desired position.\n"
-"To DELETE a break line, double click on the line.\n"
-"To MOVE a break line, click and drag it."
+"Fixed _width - Fields are aligned in columns with spaces between each field."
 msgstr ""
-"विराम रेखा बनाने के लिए, इच्छित स्थान पर क्लिक करें।\n"
-"विराम रेखा हटाने के लिए, रेखा पर डबल-क्लिक करें।\n"
-"विराम रेखा खिसकाने के लिए, उसे क्लिक करके खींचें।"
+"निश्चित चौड़ाई(_W) - फ़ील्ड स्तंभों में संरेखित हैं और प्रत्येक फ़ील्ड के बीच रिक्त स्थान हैं।"
 
-#: src/ui/o42-dialogs-file.c:1153
+#: src/ui/o42-dialogs-file.c:1071
+msgid "Original data type"
+msgstr "मूल डेटा प्रकार"
+
+#: src/ui/o42-dialogs-file.c:1079
 msgid "_Text"
 msgstr "टेक्स्ट(_T)"
 
-#: src/ui/o42-dialogs-file.c:1153
+#: src/ui/o42-dialogs-file.c:1079
 msgid "_Date:"
 msgstr "दिनांक(_D):"
 
-#: src/ui/o42-dialogs-file.c:1154
+#: src/ui/o42-dialogs-file.c:1080
 msgid "Do not _import column (skip)"
 msgstr "स्तंभ आयात न करें (छोड़ें)(_I)"
 
-#: src/ui/o42-dialogs-file.c:1156
+#: src/ui/o42-dialogs-file.c:1082
 msgid "space"
 msgstr "रिक्त स्थान"
 
-#: src/ui/o42-dialogs-file.c:1167
-msgid ""
-"This screen lets you select each column and set the Data Format. Click a "
-"column in the preview to choose it, Shift+click to choose several."
-msgstr "यह स्क्रीन आपको प्रत्येक स्तंभ चुनने और उसका डेटा स्वरूप सेट करने देती है। किसी स्तंभ को चुनने के लिए पूर्वावलोकन में उस पर क्लिक करें, कई स्तंभ चुनने के लिए Shift+क्लिक करें।"
-
-#: src/ui/o42-dialogs-file.c:1188
+#: src/ui/o42-dialogs-file.c:1106
 msgid "Column data format"
 msgstr "स्तंभ डेटा स्वरूप"
 
-#: src/ui/o42-dialogs-file.c:1191
-msgid ""
-"'General' converts numeric values to numbers, date values to dates, and all "
-"remaining values to text."
-msgstr "'सामान्य' संख्यात्मक मानों को संख्याओं में, दिनांक मानों को दिनांकों में, और शेष सभी मानों को टेक्स्ट में बदलता है।"
-
-#: src/ui/o42-dialogs-file.c:1199
+#: src/ui/o42-dialogs-file.c:1116
 msgid "De_cimal separator:"
 msgstr "दशमलव विभाजक(_C):"
 
-#: src/ui/o42-dialogs-file.c:1205
+#: src/ui/o42-dialogs-file.c:1122
 msgid "T_housands separator:"
 msgstr "हज़ार विभाजक(_H):"
 
-#: src/ui/o42-dialogs-file.c:1213
+#: src/ui/o42-dialogs-file.c:1130
 msgid "Trailing _minus for negative numbers"
 msgstr "ऋणात्मक संख्याओं के लिए अनुगामी ऋण चिह्न(_M)"
 
-#: src/ui/o42-dialogs-file.c:1227
+#: src/ui/o42-dialogs-file.c:1144
 msgid "_Advanced"
 msgstr "उन्नत(_A)"
 
-#: src/ui/o42-dialogs-file.c:1242
-msgid "_Put the data at:"
-msgstr "डेटा यहाँ रखें(_P):"
-
-#: src/ui/o42-dialogs-file.c:1289 src/ui/o42-dialogs-file.c:1363
+#: src/ui/o42-dialogs-file.c:1198 src/ui/o42-dialogs-file.c:1301
 #: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
 #: src/ui/o42-window.c:6354
 msgid "office42 could not open that file."
 msgstr "office42 वह फ़ाइल नहीं खोल सका।"
 
-#: src/ui/o42-dialogs-file.c:1330
-msgid "The Text Wizard has determined that your data is Fixed Width."
-msgstr "टेक्स्ट विज़ार्ड ने निर्धारित किया है कि आपका डेटा निश्चित चौड़ाई वाला है।"
+#: src/ui/o42-dialogs-file.c:1224
+#, c-format
+msgid "Text Import - %s"
+msgstr "टेक्स्ट आयात - %s"
 
-#: src/ui/o42-dialogs-file.c:1331
-msgid "The Text Wizard has determined that your data is Delimited."
-msgstr "टेक्स्ट विज़ार्ड ने निर्धारित किया है कि आपका डेटा सीमांकित है।"
+#: src/ui/o42-dialogs-file.c:1241
+msgid "_Put the data at:"
+msgstr "डेटा यहाँ रखें(_P):"
 
-#: src/ui/o42-dialogs-file.c:1335
-msgid "< _Back"
-msgstr "< पीछे(_B)"
+#: src/ui/o42-dialogs-file.c:1256
+msgid "Data preview"
+msgstr "डेटा पूर्वावलोकन"
 
-#: src/ui/o42-dialogs-file.c:1336
-msgid "_Next >"
-msgstr "अगला(_N) >"
-
-#: src/ui/o42-dialogs-file.c:1337
-msgid "_Finish"
-msgstr "समाप्त(_F)"
-
-#: src/ui/o42-dialogs-file.c:1379 src/ui/o42-window.c:6195
+#: src/ui/o42-dialogs-file.c:1317 src/ui/o42-window.c:6195
 msgid "Text Files (*.prn, *.txt, *.csv)"
 msgstr "टेक्स्ट फ़ाइलें (*.prn, *.txt, *.csv)"
 
-#: src/ui/o42-dialogs-file.c:1382 src/ui/o42-window.c:6207
+#: src/ui/o42-dialogs-file.c:1320 src/ui/o42-window.c:6207
 msgid "All Files"
 msgstr "सभी फ़ाइलें"
 
-#: src/ui/o42-dialogs-file.c:1387
+#: src/ui/o42-dialogs-file.c:1325
 msgid "Import Text File"
 msgstr "टेक्स्ट फ़ाइल आयात करें"
 
-#: src/ui/o42-dialogs-file.c:1432
+#: src/ui/o42-dialogs-file.c:1370
 msgid "Type the character to put between the fields."
 msgstr "फ़ील्ड के बीच रखा जाने वाला वर्ण टाइप करें।"
 
-#: src/ui/o42-dialogs-file.c:1505
+#: src/ui/o42-dialogs-file.c:1443
 msgid "Windows (CR LF)"
 msgstr "Windows (CR LF)"
 
-#: src/ui/o42-dialogs-file.c:1505
+#: src/ui/o42-dialogs-file.c:1443
 msgid "Unix and macOS (LF)"
 msgstr "Unix और macOS (LF)"
 
-#: src/ui/o42-dialogs-file.c:1533
+#: src/ui/o42-dialogs-file.c:1471
 #, c-format
 msgid "Save %s as Text"
 msgstr "%s को टेक्स्ट के रूप में सहेजें"
 
-#: src/ui/o42-dialogs-file.c:1541
+#: src/ui/o42-dialogs-file.c:1479
 #, c-format
 msgid ""
 "A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
 "the book keeps the others until it is closed."
-msgstr "टेक्स्ट फ़ाइल में केवल एक शीट रहती है। केवल प्रदर्शित शीट, “%s”, सहेजी जाएगी; कार्यपुस्तिका बंद होने तक बाकी शीटें उसी में रहती हैं।"
+msgstr ""
+"टेक्स्ट फ़ाइल में केवल एक शीट रहती है। केवल प्रदर्शित शीट, “%s”, सहेजी जाएगी; कार्यपुस्तिका "
+"बंद होने तक बाकी शीटें उसी में रहती हैं।"
 
-#: src/ui/o42-dialogs-file.c:1569
+#: src/ui/o42-dialogs-file.c:1507
 msgid "_Fixed width - the columns padded with spaces"
 msgstr "निश्चित चौड़ाई(_F) - स्तंभों में रिक्त स्थान भरे हुए"
 
-#: src/ui/o42-dialogs-file.c:1572
+#: src/ui/o42-dialogs-file.c:1510
 msgid "Between the fields"
 msgstr "फ़ील्ड के बीच"
 
-#: src/ui/o42-dialogs-file.c:1612
+#: src/ui/o42-dialogs-file.c:1550
 msgid "_Encoding:"
 msgstr "एन्कोडिंग(_E):"
 
-#: src/ui/o42-dialogs-file.c:1618
+#: src/ui/o42-dialogs-file.c:1556
 msgid ""
 "With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
-msgstr "बाइट-क्रम चिह्न सहित, जैसा Excel के \"CSV UTF-8\" और \"Unicode Text\" में होता है(_B)"
+msgstr ""
+"बाइट-क्रम चिह्न सहित, जैसा Excel के \"CSV UTF-8\" और \"Unicode Text\" में होता "
+"है(_B)"
 
-#: src/ui/o42-dialogs-file.c:1623
+#: src/ui/o42-dialogs-file.c:1561
 msgid "_Lines end:"
 msgstr "पंक्ति समाप्ति(_L):"
 
 #. A file read with a decimal comma is written with one.
-#: src/ui/o42-dialogs-file.c:1635
+#: src/ui/o42-dialogs-file.c:1573
 msgid "_Decimal separator:"
 msgstr "दशमलव विभाजक(_D):"
 
-#: src/ui/o42-dialogs-file.c:1639
+#: src/ui/o42-dialogs-file.c:1577
 msgid "Point (1,234.50)"
 msgstr "बिंदु (1,234.50)"
 
-#: src/ui/o42-dialogs-file.c:1639
+#: src/ui/o42-dialogs-file.c:1577
 msgid "Comma (1.234,50)"
 msgstr "अल्पविराम (1.234,50)"
 
-#: src/ui/o42-dialogs-file.c:1652
+#: src/ui/o42-dialogs-file.c:1590
 msgid "Save cell contents as _shown"
 msgstr "कक्ष सामग्री को प्रदर्शित रूप में सहेजें(_S)"
 
-#: src/ui/o42-dialogs-file.c:1655
+#: src/ui/o42-dialogs-file.c:1593
 msgid "Save _formulas rather than what they work out to"
 msgstr "सूत्रों के परिणामों के बजाय सूत्र ही सहेजें(_F)"
 
-#: src/ui/o42-dialogs-file.c:1658
+#: src/ui/o42-dialogs-file.c:1596
 msgid "_Quote all text cells"
 msgstr "सभी टेक्स्ट कक्षों को उद्धरण चिह्नों में रखें(_Q)"
 
@@ -7731,7 +7662,10 @@ msgid ""
 "Some characters have no place in the encoding this text file is written in, "
 "and were saved as question marks. Save As lets you choose Unicode (UTF-8), "
 "which holds every one."
-msgstr "कुछ वर्णों के लिए उस एन्कोडिंग में कोई स्थान नहीं है जिसमें यह टेक्स्ट फ़ाइल लिखी गई है, इसलिए उन्हें प्रश्नचिह्नों के रूप में सहेजा गया। “इस रूप में सहेजें” में आप Unicode (UTF-8) चुन सकते हैं, जिसमें हर वर्ण आ जाता है।"
+msgstr ""
+"कुछ वर्णों के लिए उस एन्कोडिंग में कोई स्थान नहीं है जिसमें यह टेक्स्ट फ़ाइल लिखी गई है, इसलिए "
+"उन्हें प्रश्नचिह्नों के रूप में सहेजा गया। “इस रूप में सहेजें” में आप Unicode (UTF-8) चुन सकते हैं, "
+"जिसमें हर वर्ण आ जाता है।"
 
 #: src/ui/o42-window.c:6153
 msgid "Excel Files (*.xlsx, *.xlsm, *.xls)"
@@ -7930,6 +7864,81 @@ msgstr "स्क्रिप्ट चलाएँ(_R)"
 #: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "स्क्रिप्ट(_S)..."
+
+#~ msgid "Text Import Wizard - Step 1 of 3"
+#~ msgstr "टेक्स्ट आयात विज़ार्ड - चरण 1 / 3"
+
+#~ msgid "Text Import Wizard - Step 2 of 3"
+#~ msgstr "टेक्स्ट आयात विज़ार्ड - चरण 2 / 3"
+
+#~ msgid "Text Import Wizard - Step 3 of 3"
+#~ msgstr "टेक्स्ट आयात विज़ार्ड - चरण 3 / 3"
+
+#~ msgid ""
+#~ "If this is correct, choose Next, or choose the data type that best "
+#~ "describes your data."
+#~ msgstr ""
+#~ "यदि यह सही है, तो अगला चुनें, या वह डेटा प्रकार चुनें जो आपके डेटा का सबसे अच्छा वर्णन "
+#~ "करता हो।"
+
+#, c-format
+#~ msgid "Preview of file %s:"
+#~ msgstr "फ़ाइल %s का पूर्वावलोकन:"
+
+#~ msgid ""
+#~ "This screen lets you set the delimiters your data contains. You can see "
+#~ "how your text is affected in the preview below."
+#~ msgstr ""
+#~ "यह स्क्रीन आपको वे सीमांकक सेट करने देती है जो आपके डेटा में हैं। नीचे के पूर्वावलोकन में आप "
+#~ "देख सकते हैं कि आपका टेक्स्ट कैसे प्रभावित होता है।"
+
+#~ msgid "Delimiters"
+#~ msgstr "सीमांकक"
+
+#~ msgid ""
+#~ "This screen lets you set field widths (column breaks). Lines with arrows "
+#~ "signify a column break."
+#~ msgstr ""
+#~ "यह स्क्रीन आपको फ़ील्ड की चौड़ाई (स्तंभ विराम) सेट करने देती है। तीर वाली रेखाएँ स्तंभ "
+#~ "विराम दर्शाती हैं।"
+
+#~ msgid ""
+#~ "To CREATE a break line, click at the desired position.\n"
+#~ "To DELETE a break line, double click on the line.\n"
+#~ "To MOVE a break line, click and drag it."
+#~ msgstr ""
+#~ "विराम रेखा बनाने के लिए, इच्छित स्थान पर क्लिक करें।\n"
+#~ "विराम रेखा हटाने के लिए, रेखा पर डबल-क्लिक करें।\n"
+#~ "विराम रेखा खिसकाने के लिए, उसे क्लिक करके खींचें।"
+
+#~ msgid ""
+#~ "This screen lets you select each column and set the Data Format. Click a "
+#~ "column in the preview to choose it, Shift+click to choose several."
+#~ msgstr ""
+#~ "यह स्क्रीन आपको प्रत्येक स्तंभ चुनने और उसका डेटा स्वरूप सेट करने देती है। किसी स्तंभ को "
+#~ "चुनने के लिए पूर्वावलोकन में उस पर क्लिक करें, कई स्तंभ चुनने के लिए Shift+क्लिक करें।"
+
+#~ msgid ""
+#~ "'General' converts numeric values to numbers, date values to dates, and "
+#~ "all remaining values to text."
+#~ msgstr ""
+#~ "'सामान्य' संख्यात्मक मानों को संख्याओं में, दिनांक मानों को दिनांकों में, और शेष सभी मानों "
+#~ "को टेक्स्ट में बदलता है।"
+
+#~ msgid "The Text Wizard has determined that your data is Fixed Width."
+#~ msgstr "टेक्स्ट विज़ार्ड ने निर्धारित किया है कि आपका डेटा निश्चित चौड़ाई वाला है।"
+
+#~ msgid "The Text Wizard has determined that your data is Delimited."
+#~ msgstr "टेक्स्ट विज़ार्ड ने निर्धारित किया है कि आपका डेटा सीमांकित है।"
+
+#~ msgid "< _Back"
+#~ msgstr "< पीछे(_B)"
+
+#~ msgid "_Next >"
+#~ msgstr "अगला(_N) >"
+
+#~ msgid "_Finish"
+#~ msgstr "समाप्त(_F)"
 
 #~ msgid "Comma-Separated Values (*.csv)"
 #~ msgstr "अल्पविराम से अलग किए गए मान (*.csv)"
