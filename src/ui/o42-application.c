@@ -676,6 +676,23 @@ splash_show (O42Application *self, GtkWindow *over)
 }
 
 #ifdef G_OS_WIN32
+/* A window maximised by Windows (maximize_on_map below, the title bar's
+ * Maximise button, or a drag to the top of the screen) is one GTK 4.22
+ * answers with the window's first size the next time it lays the window
+ * out on its own -- when a menu opens, for one -- and the maximised window
+ * shrank to that size.  While it is maximised it keeps the size it has. */
+static void
+window_compute_size (GdkToplevel *toplevel, GdkToplevelSize *size,
+                     gpointer data)
+{
+  GdkSurface *surface = GDK_SURFACE (toplevel);
+
+  (void) data;
+  if (IsZoomed (gdk_win32_surface_get_handle (surface)))
+    gdk_toplevel_size_set_size (size, gdk_surface_get_width (surface),
+                                gdk_surface_get_height (surface));
+}
+
 /* Windows maximises the window once it is on the screen, not GTK: after
  * gtk_window_maximize() GTK 4.22 keeps the window at the size of the
  * screen once Windows restores it, and it cannot be made smaller.
@@ -689,7 +706,12 @@ maximize_on_map (GtkWidget *widget, gpointer data)
   (void) data;
   g_signal_handlers_disconnect_by_func (widget, maximize_on_map, NULL);
   if (GDK_IS_WIN32_SURFACE (surface))
-    ShowWindow (gdk_win32_surface_get_handle (surface), SW_MAXIMIZE);
+    {
+      /* After GtkWindow's own handler, which gives the first size. */
+      g_signal_connect (surface, "compute-size",
+                        G_CALLBACK (window_compute_size), NULL);
+      ShowWindow (gdk_win32_surface_get_handle (surface), SW_MAXIMIZE);
+    }
   else
     gtk_window_maximize (GTK_WINDOW (widget));
 }
