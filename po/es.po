@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 07:41+0000\n"
+"POT-Creation-Date: 2026-09-28 09:20+0000\n"
 "PO-Revision-Date: 2026-09-25 19:58+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Spanish\n"
@@ -40,7 +40,7 @@ msgstr "_Abrir..."
 msgid "_Close"
 msgstr "_Cerrar"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1795
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1798
 #: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "_Guardar"
@@ -3657,7 +3657,7 @@ msgstr "Mi lista tiene _fila de encabezado"
 #: src/ui/o42-dialogs-edit.c:289 src/ui/o42-dialogs-edit.c:375
 #: src/ui/o42-dialogs-edit.c:531 src/ui/o42-dialogs-edit.c:594
 #: src/ui/o42-dialogs-edit.c:652 src/ui/o42-dialogs-edit.c:728
-#: src/ui/o42-dialogs-file.c:1464 src/ui/o42-dialogs-format.c:458
+#: src/ui/o42-dialogs-file.c:1467 src/ui/o42-dialogs-format.c:458
 #: src/ui/o42-dialogs-format.c:572 src/ui/o42-dialogs-format.c:673
 #: src/ui/o42-dialogs-format.c:772 src/ui/o42-dialogs-format.c:829
 #: src/ui/o42-dialogs-tools.c:127 src/ui/o42-dialogs-tools.c:411
@@ -3682,8 +3682,8 @@ msgstr "_Aceptar"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1465
-#: src/ui/o42-dialogs-file.c:1796 src/ui/o42-dialogs-format.c:459
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1468
+#: src/ui/o42-dialogs-file.c:1799 src/ui/o42-dialogs-format.c:459
 #: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
 #: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
 #: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
@@ -4119,7 +4119,7 @@ msgid "List"
 msgstr "Lista"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:325 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "Fecha"
 
@@ -4203,35 +4203,31 @@ msgstr "Mostrar mensaje de error si se _introducen datos no válidos"
 msgid "_Clear"
 msgstr "_Borrar"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
-#: src/ui/o42-dialogs-file.c:1634
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1637
 msgid "_Comma"
 msgstr "_Coma"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
-#: src/ui/o42-dialogs-file.c:1634
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1637
 msgid "_Tab"
 msgstr "_Tabulación"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
-#: src/ui/o42-dialogs-file.c:1634
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1637
 msgid "_Semicolon"
 msgstr "_Punto y coma"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
-#: src/ui/o42-dialogs-file.c:1634
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1637
 msgid "S_pace"
 msgstr "_Espacio"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
-#: src/ui/o42-dialogs-file.c:1343 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:325
+#: src/ui/o42-dialogs-file.c:1269 src/ui/o42-dialogs-format.c:61
 #: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5304
 msgid "General"
 msgstr "General"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
-#: src/ui/o42-dialogs-file.c:1344 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:325
+#: src/ui/o42-dialogs-file.c:1270 src/ui/o42-dialogs-format.c:61
 #: src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "Texto"
@@ -4256,7 +4252,9 @@ msgstr "Otro:"
 msgid "Delimited"
 msgstr "Delimitados"
 
-#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:938
+#. A fixed-width file's ruler wants saying how it is used; a click on
+#. * a column is what anyone would try.
+#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:1456
 msgid ""
 "Click the ruler to put in a break, drag one to move it, double-click one to "
 "take it away.  Click a column to choose its format."
@@ -4269,7 +4267,7 @@ msgstr ""
 msgid "Column data format:"
 msgstr "Formato de los datos en columnas:"
 
-#: src/ui/o42-dialogs-data.c:1996
+#: src/ui/o42-dialogs-data.c:1996 src/ui/o42-dialogs-file.c:1192
 msgid "Fixed width"
 msgstr "Ancho fijo"
 
@@ -4615,11 +4613,11 @@ msgstr "Chino tradicional (Big5)"
 msgid "Korean (EUC-KR)"
 msgstr "Coreano (EUC-KR)"
 
-#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-file.c:1352
+#: src/ui/o42-dialogs-file.c:325 src/ui/o42-dialogs-file.c:1278
 msgid "Skip Column"
 msgstr "Saltar columna"
 
-#: src/ui/o42-dialogs-file.c:940
+#: src/ui/o42-dialogs-file.c:900
 msgid ""
 "Click a column to choose it, Shift+click to choose several, the corner to "
 "choose all."
@@ -4627,147 +4625,161 @@ msgstr ""
 "Haga clic en una columna para elegirla, Shift+clic para elegir varias, o en "
 "la esquina para elegirlas todas."
 
-#: src/ui/o42-dialogs-file.c:1067
+#: src/ui/o42-dialogs-file.c:1077
 msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
 msgstr ""
 "La hoja está protegida: primero use Herramientas > Protección > Desproteger "
 "hoja."
 
-#: src/ui/o42-dialogs-file.c:1074
+#: src/ui/o42-dialogs-file.c:1084
 msgid "Put the data at a cell, such as A1."
 msgstr "Indique una celda donde colocar los datos, por ejemplo A1."
 
-#: src/ui/o42-dialogs-file.c:1163
+#: src/ui/o42-dialogs-file.c:1191
+msgctxt "delimiter"
+msgid "Comma"
+msgstr "Coma"
+
+#: src/ui/o42-dialogs-file.c:1191
+msgctxt "delimiter"
+msgid "Semicolon"
+msgstr "Punto y coma"
+
+#: src/ui/o42-dialogs-file.c:1191
+msgctxt "delimiter"
+msgid "Tab"
+msgstr "Tabulación"
+
+#: src/ui/o42-dialogs-file.c:1192
+msgctxt "delimiter"
+msgid "Space"
+msgstr "Espacio"
+
+#: src/ui/o42-dialogs-file.c:1192
+msgctxt "delimiter"
+msgid "Other"
+msgstr "Otro"
+
+#: src/ui/o42-dialogs-file.c:1206
 msgid "File _origin:"
 msgstr "_Origen del archivo:"
 
-#: src/ui/o42-dialogs-file.c:1167
+#: src/ui/o42-dialogs-file.c:1210
 msgid "Start import at _row:"
 msgstr "_Comenzar a importar en la fila:"
 
-#: src/ui/o42-dialogs-file.c:1178 src/ui/o42-dialogs-file.c:1266
-#: src/ui/o42-dialogs-file.c:1735
-msgid "{none}"
-msgstr "{ninguno}"
-
-#: src/ui/o42-dialogs-file.c:1188
-msgid "_Delimited"
-msgstr "_Delimitados"
-
-#: src/ui/o42-dialogs-file.c:1197 src/ui/o42-dialogs-file.c:1690
-msgid "_Other:"
-msgstr "_Otro:"
-
-#: src/ui/o42-dialogs-file.c:1207
-msgid "Treat consecutive delimiters as o_ne"
-msgstr "Considerar separadores consecutivos como _uno solo"
-
-#: src/ui/o42-dialogs-file.c:1209
-msgid "Tr_im spaces"
-msgstr "_Quitar espacios"
-
-#: src/ui/o42-dialogs-file.c:1214 src/ui/o42-dialogs-file.c:1730
-msgid "Text _qualifier:"
-msgstr "Calificador de te_xto:"
-
-#: src/ui/o42-dialogs-file.c:1217
-msgid "Fixed _width"
-msgstr "_Ancho fijo"
+#: src/ui/o42-dialogs-file.c:1234
+msgid "_Delimiter:"
+msgstr "_Separador:"
 
 #: src/ui/o42-dialogs-file.c:1257
-msgid "Original data type"
-msgstr "Tipo de los datos originales"
-
-#: src/ui/o42-dialogs-file.c:1266
-msgid "space"
-msgstr "espacio"
-
-#: src/ui/o42-dialogs-file.c:1273
-msgid "De_cimal separator:"
-msgstr "Separador _decimal:"
-
-#: src/ui/o42-dialogs-file.c:1277
-msgid "T_housands separator:"
-msgstr "Separador de _miles:"
-
-#: src/ui/o42-dialogs-file.c:1278
-msgid "Trailing _minus for negative numbers"
-msgstr "Signo menos a la de_recha en los números negativos"
-
-#: src/ui/o42-dialogs-file.c:1283
-msgid "Format quoted fields as te_xt"
-msgstr "Dar formato de te_xto a los campos entre comillas"
-
-#: src/ui/o42-dialogs-file.c:1285
-msgid "Evalu_ate formulas"
-msgstr "E_valuar fórmulas"
-
-#: src/ui/o42-dialogs-file.c:1304
-msgid "Other options"
-msgstr "Otras opciones"
-
-#: src/ui/o42-dialogs-file.c:1324
-msgid "_Put the data at:"
-msgstr "_Colocar los datos en:"
-
-#: src/ui/o42-dialogs-file.c:1326
 msgid "On a _new sheet"
 msgstr "En una hoja _nueva"
 
-#: src/ui/o42-dialogs-file.c:1329
-msgid "S_kip empty cells"
-msgstr "Omitir ce_ldas vacías"
+#: src/ui/o42-dialogs-file.c:1262
+msgid "_Put the data at:"
+msgstr "_Colocar los datos en:"
 
-#: src/ui/o42-dialogs-file.c:1347
+#: src/ui/o42-dialogs-file.c:1273
 #, c-format
 msgid "Date (%s)"
 msgstr "Fecha (%s)"
 
-#: src/ui/o42-dialogs-file.c:1354
+#: src/ui/o42-dialogs-file.c:1280
 msgid "Column t_ype:"
 msgstr "T_ipo de columna:"
 
-#: src/ui/o42-dialogs-file.c:1421 src/ui/o42-dialogs-file.c:1493
+#: src/ui/o42-dialogs-file.c:1290 src/ui/o42-dialogs-file.c:1292
+#: src/ui/o42-dialogs-file.c:1738
+msgid "{none}"
+msgstr "{ninguno}"
+
+#: src/ui/o42-dialogs-file.c:1292
+msgid "space"
+msgstr "espacio"
+
+#: src/ui/o42-dialogs-file.c:1304 src/ui/o42-dialogs-file.c:1733
+msgid "Text _qualifier:"
+msgstr "Calificador de te_xto:"
+
+#: src/ui/o42-dialogs-file.c:1305
+msgid "Treat consecutive delimiters as o_ne"
+msgstr "Considerar separadores consecutivos como _uno solo"
+
+#: src/ui/o42-dialogs-file.c:1308
+msgid "Tr_im spaces"
+msgstr "_Quitar espacios"
+
+#: src/ui/o42-dialogs-file.c:1315
+msgid "De_cimal separator:"
+msgstr "Separador _decimal:"
+
+#: src/ui/o42-dialogs-file.c:1319
+msgid "T_housands separator:"
+msgstr "Separador de _miles:"
+
+#: src/ui/o42-dialogs-file.c:1320
+msgid "Trailing _minus for negative numbers"
+msgstr "Signo menos a la de_recha en los números negativos"
+
+#. What its quotes and formulas mean, and what an empty field does.
+#: src/ui/o42-dialogs-file.c:1326
+msgid "Format quoted fields as te_xt"
+msgstr "Dar formato de te_xto a los campos entre comillas"
+
+#: src/ui/o42-dialogs-file.c:1328
+msgid "Evalu_ate formulas"
+msgstr "E_valuar fórmulas"
+
+#: src/ui/o42-dialogs-file.c:1332
+msgid "S_kip empty cells"
+msgstr "Omitir ce_ldas vacías"
+
+#: src/ui/o42-dialogs-file.c:1360
+msgid "_More options"
+msgstr "_Más opciones"
+
+#: src/ui/o42-dialogs-file.c:1419 src/ui/o42-dialogs-file.c:1496
 #: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
 #: src/ui/o42-window.c:6354
 msgid "office42 could not open that file."
 msgstr "office42 no pudo abrir ese archivo."
 
-#: src/ui/o42-dialogs-file.c:1448
+#: src/ui/o42-dialogs-file.c:1446
 #, c-format
 msgid "Text Import - %s"
 msgstr "Importar texto - %s"
 
-#: src/ui/o42-dialogs-file.c:1509 src/ui/o42-window.c:6195
+#: src/ui/o42-dialogs-file.c:1512 src/ui/o42-window.c:6195
 msgid "Text Files (*.prn, *.txt, *.csv)"
 msgstr "Archivos de texto (*.prn, *.txt, *.csv)"
 
-#: src/ui/o42-dialogs-file.c:1512 src/ui/o42-window.c:6207
+#: src/ui/o42-dialogs-file.c:1515 src/ui/o42-window.c:6207
 msgid "All Files"
 msgstr "Todos los archivos"
 
-#: src/ui/o42-dialogs-file.c:1517
+#: src/ui/o42-dialogs-file.c:1520
 msgid "Import Text File"
 msgstr "Importar archivo de texto"
 
-#: src/ui/o42-dialogs-file.c:1562
+#: src/ui/o42-dialogs-file.c:1565
 msgid "Type the character to put between the fields."
 msgstr "Escriba el carácter que se colocará entre los campos."
 
-#: src/ui/o42-dialogs-file.c:1635
+#: src/ui/o42-dialogs-file.c:1638
 msgid "Windows (CR LF)"
 msgstr "Windows (CR LF)"
 
-#: src/ui/o42-dialogs-file.c:1635
+#: src/ui/o42-dialogs-file.c:1638
 msgid "Unix and macOS (LF)"
 msgstr "Unix y macOS (LF)"
 
-#: src/ui/o42-dialogs-file.c:1663
+#: src/ui/o42-dialogs-file.c:1666
 #, c-format
 msgid "Save %s as Text"
 msgstr "Guardar %s como texto"
 
-#: src/ui/o42-dialogs-file.c:1671
+#: src/ui/o42-dialogs-file.c:1674
 #, c-format
 msgid ""
 "A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
@@ -4776,51 +4788,55 @@ msgstr ""
 "Un archivo de texto contiene una sola hoja. Solo se guardará la hoja que se "
 "muestra, «%s»; el libro conserva las demás hasta que se cierre."
 
-#: src/ui/o42-dialogs-file.c:1699
+#: src/ui/o42-dialogs-file.c:1693
+msgid "_Other:"
+msgstr "_Otro:"
+
+#: src/ui/o42-dialogs-file.c:1702
 msgid "_Fixed width - the columns padded with spaces"
 msgstr "_Ancho fijo - columnas rellenadas con espacios"
 
-#: src/ui/o42-dialogs-file.c:1702
+#: src/ui/o42-dialogs-file.c:1705
 msgid "Between the fields"
 msgstr "Entre los campos"
 
-#: src/ui/o42-dialogs-file.c:1742
+#: src/ui/o42-dialogs-file.c:1745
 msgid "_Encoding:"
 msgstr "Co_dificación:"
 
-#: src/ui/o42-dialogs-file.c:1748
+#: src/ui/o42-dialogs-file.c:1751
 msgid ""
 "With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
 msgstr ""
 "Con marca de orden de _bytes, como la tienen los formatos «CSV UTF-8» y "
 "«Texto Unicode» de Excel"
 
-#: src/ui/o42-dialogs-file.c:1753
+#: src/ui/o42-dialogs-file.c:1756
 msgid "_Lines end:"
 msgstr "Fin de _línea:"
 
 #. A file read with a decimal comma is written with one.
-#: src/ui/o42-dialogs-file.c:1765
+#: src/ui/o42-dialogs-file.c:1768
 msgid "_Decimal separator:"
 msgstr "_Separador decimal:"
 
-#: src/ui/o42-dialogs-file.c:1769
+#: src/ui/o42-dialogs-file.c:1772
 msgid "Point (1,234.50)"
 msgstr "Punto (1,234.50)"
 
-#: src/ui/o42-dialogs-file.c:1769
+#: src/ui/o42-dialogs-file.c:1772
 msgid "Comma (1.234,50)"
 msgstr "Coma (1.234,50)"
 
-#: src/ui/o42-dialogs-file.c:1782
+#: src/ui/o42-dialogs-file.c:1785
 msgid "Save cell contents as _shown"
 msgstr "Guardar el contenido de las celdas tal como se _muestra"
 
-#: src/ui/o42-dialogs-file.c:1785
+#: src/ui/o42-dialogs-file.c:1788
 msgid "Save _formulas rather than what they work out to"
 msgstr "Guardar las _fórmulas en lugar de sus resultados"
 
-#: src/ui/o42-dialogs-file.c:1788
+#: src/ui/o42-dialogs-file.c:1791
 msgid "_Quote all text cells"
 msgstr "E_ntrecomillar todas las celdas de texto"
 
@@ -7974,6 +7990,12 @@ msgstr "_Ejecutar scripts"
 #: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "_Scripts..."
+
+#~ msgid "Fixed _width"
+#~ msgstr "_Ancho fijo"
+
+#~ msgid "Original data type"
+#~ msgstr "Tipo de los datos originales"
 
 #~ msgid "_Delimited - Characters such as commas or tabs separate each field."
 #~ msgstr ""

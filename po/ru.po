@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 07:41+0000\n"
+"POT-Creation-Date: 2026-09-28 09:20+0000\n"
 "PO-Revision-Date: 2026-09-25 20:00+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Russian\n"
@@ -41,7 +41,7 @@ msgstr "_Открыть..."
 msgid "_Close"
 msgstr "_Закрыть"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1795
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1798
 #: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "Со_хранить"
@@ -3644,7 +3644,7 @@ msgstr "Список содержит строку _заголовков"
 #: src/ui/o42-dialogs-edit.c:289 src/ui/o42-dialogs-edit.c:375
 #: src/ui/o42-dialogs-edit.c:531 src/ui/o42-dialogs-edit.c:594
 #: src/ui/o42-dialogs-edit.c:652 src/ui/o42-dialogs-edit.c:728
-#: src/ui/o42-dialogs-file.c:1464 src/ui/o42-dialogs-format.c:458
+#: src/ui/o42-dialogs-file.c:1467 src/ui/o42-dialogs-format.c:458
 #: src/ui/o42-dialogs-format.c:572 src/ui/o42-dialogs-format.c:673
 #: src/ui/o42-dialogs-format.c:772 src/ui/o42-dialogs-format.c:829
 #: src/ui/o42-dialogs-tools.c:127 src/ui/o42-dialogs-tools.c:411
@@ -3669,8 +3669,8 @@ msgstr "_ОК"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1465
-#: src/ui/o42-dialogs-file.c:1796 src/ui/o42-dialogs-format.c:459
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1468
+#: src/ui/o42-dialogs-file.c:1799 src/ui/o42-dialogs-format.c:459
 #: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
 #: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
 #: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
@@ -4109,7 +4109,7 @@ msgid "List"
 msgstr "Список"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:325 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "Дата"
 
@@ -4193,35 +4193,31 @@ msgstr "Выводить сообщение об ошибке при _вводе
 msgid "_Clear"
 msgstr "О_чистить"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
-#: src/ui/o42-dialogs-file.c:1634
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1637
 msgid "_Comma"
 msgstr "_Запятая"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
-#: src/ui/o42-dialogs-file.c:1634
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1637
 msgid "_Tab"
 msgstr "Та_буляция"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
-#: src/ui/o42-dialogs-file.c:1634
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1637
 msgid "_Semicolon"
 msgstr "То_чка с запятой"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
-#: src/ui/o42-dialogs-file.c:1634
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1637
 msgid "S_pace"
 msgstr "_Пробел"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
-#: src/ui/o42-dialogs-file.c:1343 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:325
+#: src/ui/o42-dialogs-file.c:1269 src/ui/o42-dialogs-format.c:61
 #: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5304
 msgid "General"
 msgstr "Общий"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
-#: src/ui/o42-dialogs-file.c:1344 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:325
+#: src/ui/o42-dialogs-file.c:1270 src/ui/o42-dialogs-format.c:61
 #: src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "Текст"
@@ -4246,7 +4242,9 @@ msgstr "Другой:"
 msgid "Delimited"
 msgstr "С разделителями"
 
-#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:938
+#. A fixed-width file's ruler wants saying how it is used; a click on
+#. * a column is what anyone would try.
+#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:1456
 msgid ""
 "Click the ruler to put in a break, drag one to move it, double-click one to "
 "take it away.  Click a column to choose its format."
@@ -4259,7 +4257,7 @@ msgstr ""
 msgid "Column data format:"
 msgstr "Формат данных столбца:"
 
-#: src/ui/o42-dialogs-data.c:1996
+#: src/ui/o42-dialogs-data.c:1996 src/ui/o42-dialogs-file.c:1192
 msgid "Fixed width"
 msgstr "Фиксированной ширины"
 
@@ -4606,11 +4604,11 @@ msgstr "Китайская традиционная (Big5)"
 msgid "Korean (EUC-KR)"
 msgstr "Корейская (EUC-KR)"
 
-#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-file.c:1352
+#: src/ui/o42-dialogs-file.c:325 src/ui/o42-dialogs-file.c:1278
 msgid "Skip Column"
 msgstr "Пропустить столбец"
 
-#: src/ui/o42-dialogs-file.c:940
+#: src/ui/o42-dialogs-file.c:900
 msgid ""
 "Click a column to choose it, Shift+click to choose several, the corner to "
 "choose all."
@@ -4618,145 +4616,159 @@ msgstr ""
 "Щелкните столбец, чтобы выбрать его; Shift+щелчок выбирает несколько "
 "столбцов, угол — все."
 
-#: src/ui/o42-dialogs-file.c:1067
+#: src/ui/o42-dialogs-file.c:1077
 msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
 msgstr "Лист защищен: сначала выберите «Сервис > Защита > Снять защиту листа»."
 
-#: src/ui/o42-dialogs-file.c:1074
+#: src/ui/o42-dialogs-file.c:1084
 msgid "Put the data at a cell, such as A1."
 msgstr "Укажите ячейку для размещения данных, например A1."
 
-#: src/ui/o42-dialogs-file.c:1163
+#: src/ui/o42-dialogs-file.c:1191
+msgctxt "delimiter"
+msgid "Comma"
+msgstr "Запятая"
+
+#: src/ui/o42-dialogs-file.c:1191
+msgctxt "delimiter"
+msgid "Semicolon"
+msgstr "Точка с запятой"
+
+#: src/ui/o42-dialogs-file.c:1191
+msgctxt "delimiter"
+msgid "Tab"
+msgstr "Табуляция"
+
+#: src/ui/o42-dialogs-file.c:1192
+msgctxt "delimiter"
+msgid "Space"
+msgstr "Пробел"
+
+#: src/ui/o42-dialogs-file.c:1192
+msgctxt "delimiter"
+msgid "Other"
+msgstr "Другой"
+
+#: src/ui/o42-dialogs-file.c:1206
 msgid "File _origin:"
 msgstr "Ф_ормат файла:"
 
-#: src/ui/o42-dialogs-file.c:1167
+#: src/ui/o42-dialogs-file.c:1210
 msgid "Start import at _row:"
 msgstr "Начать импорт со _строки:"
 
-#: src/ui/o42-dialogs-file.c:1178 src/ui/o42-dialogs-file.c:1266
-#: src/ui/o42-dialogs-file.c:1735
-msgid "{none}"
-msgstr "{нет}"
-
-#: src/ui/o42-dialogs-file.c:1188
-msgid "_Delimited"
-msgstr "_С разделителями"
-
-#: src/ui/o42-dialogs-file.c:1197 src/ui/o42-dialogs-file.c:1690
-msgid "_Other:"
-msgstr "Д_ругой:"
-
-#: src/ui/o42-dialogs-file.c:1207
-msgid "Treat consecutive delimiters as o_ne"
-msgstr "Считать последовательные разделители _одним"
-
-#: src/ui/o42-dialogs-file.c:1209
-msgid "Tr_im spaces"
-msgstr "_Обрезать пробелы"
-
-#: src/ui/o42-dialogs-file.c:1214 src/ui/o42-dialogs-file.c:1730
-msgid "Text _qualifier:"
-msgstr "Ограничитель _строк:"
-
-#: src/ui/o42-dialogs-file.c:1217
-msgid "Fixed _width"
-msgstr "_Фиксированной ширины"
+#: src/ui/o42-dialogs-file.c:1234
+msgid "_Delimiter:"
+msgstr "_Разделитель:"
 
 #: src/ui/o42-dialogs-file.c:1257
-msgid "Original data type"
-msgstr "Формат исходных данных"
-
-#: src/ui/o42-dialogs-file.c:1266
-msgid "space"
-msgstr "пробел"
-
-#: src/ui/o42-dialogs-file.c:1273
-msgid "De_cimal separator:"
-msgstr "Разделитель _целой и дробной части:"
-
-#: src/ui/o42-dialogs-file.c:1277
-msgid "T_housands separator:"
-msgstr "Разделитель _разрядов:"
-
-#: src/ui/o42-dialogs-file.c:1278
-msgid "Trailing _minus for negative numbers"
-msgstr "_Минус в конце отрицательных чисел"
-
-#: src/ui/o42-dialogs-file.c:1283
-msgid "Format quoted fields as te_xt"
-msgstr "Поля в кавычках как _текст"
-
-#: src/ui/o42-dialogs-file.c:1285
-msgid "Evalu_ate formulas"
-msgstr "_Вычислять формулы"
-
-#: src/ui/o42-dialogs-file.c:1304
-msgid "Other options"
-msgstr "Другие параметры"
-
-#: src/ui/o42-dialogs-file.c:1324
-msgid "_Put the data at:"
-msgstr "Поместить данные _в:"
-
-#: src/ui/o42-dialogs-file.c:1326
 msgid "On a _new sheet"
 msgstr "На _новом листе"
 
-#: src/ui/o42-dialogs-file.c:1329
-msgid "S_kip empty cells"
-msgstr "Пропускать _пустые ячейки"
+#: src/ui/o42-dialogs-file.c:1262
+msgid "_Put the data at:"
+msgstr "Поместить данные _в:"
 
-#: src/ui/o42-dialogs-file.c:1347
+#: src/ui/o42-dialogs-file.c:1273
 #, c-format
 msgid "Date (%s)"
 msgstr "Дата (%s)"
 
-#: src/ui/o42-dialogs-file.c:1354
+#: src/ui/o42-dialogs-file.c:1280
 msgid "Column t_ype:"
 msgstr "Т_ип столбца:"
 
-#: src/ui/o42-dialogs-file.c:1421 src/ui/o42-dialogs-file.c:1493
+#: src/ui/o42-dialogs-file.c:1290 src/ui/o42-dialogs-file.c:1292
+#: src/ui/o42-dialogs-file.c:1738
+msgid "{none}"
+msgstr "{нет}"
+
+#: src/ui/o42-dialogs-file.c:1292
+msgid "space"
+msgstr "пробел"
+
+#: src/ui/o42-dialogs-file.c:1304 src/ui/o42-dialogs-file.c:1733
+msgid "Text _qualifier:"
+msgstr "Ограничитель _строк:"
+
+#: src/ui/o42-dialogs-file.c:1305
+msgid "Treat consecutive delimiters as o_ne"
+msgstr "Считать последовательные разделители _одним"
+
+#: src/ui/o42-dialogs-file.c:1308
+msgid "Tr_im spaces"
+msgstr "_Обрезать пробелы"
+
+#: src/ui/o42-dialogs-file.c:1315
+msgid "De_cimal separator:"
+msgstr "Разделитель _целой и дробной части:"
+
+#: src/ui/o42-dialogs-file.c:1319
+msgid "T_housands separator:"
+msgstr "Разделитель _разрядов:"
+
+#: src/ui/o42-dialogs-file.c:1320
+msgid "Trailing _minus for negative numbers"
+msgstr "_Минус в конце отрицательных чисел"
+
+#. What its quotes and formulas mean, and what an empty field does.
+#: src/ui/o42-dialogs-file.c:1326
+msgid "Format quoted fields as te_xt"
+msgstr "Поля в кавычках как _текст"
+
+#: src/ui/o42-dialogs-file.c:1328
+msgid "Evalu_ate formulas"
+msgstr "_Вычислять формулы"
+
+#: src/ui/o42-dialogs-file.c:1332
+msgid "S_kip empty cells"
+msgstr "Пропускать _пустые ячейки"
+
+#: src/ui/o42-dialogs-file.c:1360
+msgid "_More options"
+msgstr "_Дополнительные параметры"
+
+#: src/ui/o42-dialogs-file.c:1419 src/ui/o42-dialogs-file.c:1496
 #: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
 #: src/ui/o42-window.c:6354
 msgid "office42 could not open that file."
 msgstr "office42 не удалось открыть этот файл."
 
-#: src/ui/o42-dialogs-file.c:1448
+#: src/ui/o42-dialogs-file.c:1446
 #, c-format
 msgid "Text Import - %s"
 msgstr "Импорт текста - %s"
 
-#: src/ui/o42-dialogs-file.c:1509 src/ui/o42-window.c:6195
+#: src/ui/o42-dialogs-file.c:1512 src/ui/o42-window.c:6195
 msgid "Text Files (*.prn, *.txt, *.csv)"
 msgstr "Текстовые файлы (*.prn, *.txt, *.csv)"
 
-#: src/ui/o42-dialogs-file.c:1512 src/ui/o42-window.c:6207
+#: src/ui/o42-dialogs-file.c:1515 src/ui/o42-window.c:6207
 msgid "All Files"
 msgstr "Все файлы"
 
-#: src/ui/o42-dialogs-file.c:1517
+#: src/ui/o42-dialogs-file.c:1520
 msgid "Import Text File"
 msgstr "Импорт текстового файла"
 
-#: src/ui/o42-dialogs-file.c:1562
+#: src/ui/o42-dialogs-file.c:1565
 msgid "Type the character to put between the fields."
 msgstr "Введите символ, который будет стоять между полями."
 
-#: src/ui/o42-dialogs-file.c:1635
+#: src/ui/o42-dialogs-file.c:1638
 msgid "Windows (CR LF)"
 msgstr "Windows (CR LF)"
 
-#: src/ui/o42-dialogs-file.c:1635
+#: src/ui/o42-dialogs-file.c:1638
 msgid "Unix and macOS (LF)"
 msgstr "Unix и macOS (LF)"
 
-#: src/ui/o42-dialogs-file.c:1663
+#: src/ui/o42-dialogs-file.c:1666
 #, c-format
 msgid "Save %s as Text"
 msgstr "Сохранить %s как текст"
 
-#: src/ui/o42-dialogs-file.c:1671
+#: src/ui/o42-dialogs-file.c:1674
 #, c-format
 msgid ""
 "A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
@@ -4765,51 +4777,55 @@ msgstr ""
 "Текстовый файл содержит один лист. Будет сохранен только отображаемый лист "
 "«%s»; остальные листы останутся в книге до ее закрытия."
 
-#: src/ui/o42-dialogs-file.c:1699
+#: src/ui/o42-dialogs-file.c:1693
+msgid "_Other:"
+msgstr "Д_ругой:"
+
+#: src/ui/o42-dialogs-file.c:1702
 msgid "_Fixed width - the columns padded with spaces"
 msgstr "_Фиксированная ширина - столбцы дополняются пробелами"
 
-#: src/ui/o42-dialogs-file.c:1702
+#: src/ui/o42-dialogs-file.c:1705
 msgid "Between the fields"
 msgstr "Между полями"
 
-#: src/ui/o42-dialogs-file.c:1742
+#: src/ui/o42-dialogs-file.c:1745
 msgid "_Encoding:"
 msgstr "_Кодировка:"
 
-#: src/ui/o42-dialogs-file.c:1748
+#: src/ui/o42-dialogs-file.c:1751
 msgid ""
 "With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
 msgstr ""
 "С _меткой порядка байтов (BOM), как у форматов Excel «CSV UTF-8» и «Текст в "
 "Юникоде»"
 
-#: src/ui/o42-dialogs-file.c:1753
+#: src/ui/o42-dialogs-file.c:1756
 msgid "_Lines end:"
 msgstr "_Окончания строк:"
 
 #. A file read with a decimal comma is written with one.
-#: src/ui/o42-dialogs-file.c:1765
+#: src/ui/o42-dialogs-file.c:1768
 msgid "_Decimal separator:"
 msgstr "Разделитель _целой и дробной части:"
 
-#: src/ui/o42-dialogs-file.c:1769
+#: src/ui/o42-dialogs-file.c:1772
 msgid "Point (1,234.50)"
 msgstr "Точка (1,234.50)"
 
-#: src/ui/o42-dialogs-file.c:1769
+#: src/ui/o42-dialogs-file.c:1772
 msgid "Comma (1.234,50)"
 msgstr "Запятая (1.234,50)"
 
-#: src/ui/o42-dialogs-file.c:1782
+#: src/ui/o42-dialogs-file.c:1785
 msgid "Save cell contents as _shown"
 msgstr "Сохранять содержимое ячеек как на _экране"
 
-#: src/ui/o42-dialogs-file.c:1785
+#: src/ui/o42-dialogs-file.c:1788
 msgid "Save _formulas rather than what they work out to"
 msgstr "Сохранять формулы вместо _вычисленных значений"
 
-#: src/ui/o42-dialogs-file.c:1788
+#: src/ui/o42-dialogs-file.c:1791
 msgid "_Quote all text cells"
 msgstr "Заключать в кавычки все текстовые _ячейки"
 
@@ -7984,6 +8000,12 @@ msgstr "_Выполнить скрипты"
 #: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "_Скрипты..."
+
+#~ msgid "Fixed _width"
+#~ msgstr "_Фиксированной ширины"
+
+#~ msgid "Original data type"
+#~ msgstr "Формат исходных данных"
 
 #~ msgid "_Delimited - Characters such as commas or tabs separate each field."
 #~ msgstr ""

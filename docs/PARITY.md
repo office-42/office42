@@ -294,14 +294,15 @@ as the .xls writer has done for its own smaller grid; .gnumeric keeps
 them.
 
 **Text files** went through a reader that guessed and asked nothing.
-A .csv, .txt or .prn now opens through Text Import, which asks on
-one page, laid out as LibreOffice's is, what Excel 97's Text Import
-Wizard asked on three -- delimited or fixed width, the first row, the
-file's encoding; the delimiters and the qualifier, or the column
-breaks on a ruler over the preview; each column General, Text, Date
-in an order, or skipped -- with Excel 2002's decimal and thousands
-separators and trailing minus, and LibreOffice's trim spaces, quoted
-fields as text and evaluate formulas.  The preview numbers the file's
+A .csv, .txt or .prn now opens through Text Import, which asks what
+Excel 97's Text Import Wizard asked on three pages the way Excel's
+From Text/CSV asks it on one -- the file's encoding and first row, a
+delimiter from a list or fixed width with its breaks on a ruler over
+the preview, each column General, Text, Date in an order, or skipped
+-- with the rest folded under More options: the qualifier, Excel
+2002's decimal and thousands separators and trailing minus, and
+LibreOffice's trim spaces, quoted fields as text and evaluate
+formulas.  The preview numbers the file's
 lines, and its columns are chosen by mouse or keyboard.  File ▸
 Import Text File puts a file's records at a cell or on a new sheet,
 as Excel 2000's Import Data asked, and can skip empty cells.  The guess behind it counts each separator on every line and

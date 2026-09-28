@@ -114,15 +114,16 @@ framed (const char *title, GtkWidget *child)
 
 /* ---- File > Open and Import Text File: Text Import --------------------- */
 
-/* One page, in the order LibreOffice asks and in Excel's words: where
- * the file comes from and the row to start at; how its fields divide;
- * how it writes its numbers, and what its quotes and formulas mean; and
- * under it all the file cut up as the answers say, the column type set
- * for the columns chosen in it.  The preview numbers the file's lines
- * as a sheet numbers its rows, a click chooses a column, Shift+click
- * several and the corner all of them, and the arrow keys do the same.
- * A fixed-width file has a ruler over the preview where a click puts
- * in a break, a drag moves one and a double-click takes one away. */
+/* Four questions over the file cut up as their answers say, as Excel's
+ * From Text/CSV asks them: where the file comes from and the row to
+ * start at, what divides its fields -- a delimiter from a list, or
+ * none but columns that line up -- and what the chosen columns are.
+ * The rest folds away under More options, set by the guesses already.
+ * The preview numbers the file's lines as a sheet numbers its rows, a
+ * click chooses a column, Shift+click several and the corner all of
+ * them, and the arrow keys do the same.  A fixed-width file has a ruler
+ * over the preview where a click puts in a break, a drag moves one and
+ * a double-click takes one away. */
 
 #define PREVIEW_RECORDS 200    /* the records the preview shows, from the first row */
 #define PREVIEW_MAX_CHARS 40   /* a column of the preview is no wider than this */
@@ -142,14 +143,10 @@ typedef struct {
   int            n_lines;
 
   GtkWidget *dialog;
-  GtkWidget *origin, *start;
-  GtkWidget *delimited, *fixed, *cut_box, *cut_more;
-  GtkWidget *sep[4], *other_check, *other;
-  GtkWidget *merge, *trim, *quote;
-  GtkWidget *decimal, *thousands, *minus, *quoted_text, *formulas;
-  GtkWidget *place, *new_sheet, *skip_empty;
-  GtkWidget *type_drop, *hint;
-  GtkWidget *scroller, *area;
+  GtkWidget *origin, *start, *delimiter, *other, *place, *new_sheet, *type_drop;
+  GtkWidget *scroller, *area, *hint;
+  GtkWidget *more, *quote_row, *quote, *merge, *trim;
+  GtkWidget *decimal, *thousands, *minus, *quoted_text, *formulas, *skip_empty;
 
   GPtrArray *lines;             /* the file's lines from the first row, as they are */
   GPtrArray *rows;              /* the records cut into fields */
@@ -859,6 +856,15 @@ on_preview_focus (GtkEventControllerFocus *focus, gpointer data)
 
 /* ---- The controls ---- */
 
+/* The Delimiter drop-down: the four a file is likely to have, any
+ * other, and none at all but columns that line up. */
+enum { DELIM_COMMA = 0, DELIM_SEMICOLON, DELIM_TAB, DELIM_SPACE, DELIM_OTHER, DELIM_FIXED };
+static const char DELIM_CHARS[4] = { ',', ';', '\t', ' ' };
+
+/* Whether More options was open when Text Import was last closed: it
+ * opens the same way next time. */
+static gboolean more_open = FALSE;
+
 static void
 on_type_changed (GObject *drop, GParamSpec *pspec, gpointer data)
 {
@@ -877,27 +883,75 @@ on_type_changed (GObject *drop, GParamSpec *pspec, gpointer data)
   import_recut (prompt);
 }
 
-/* What the separator options say, into the options. */
+/* What goes with the delimiter chosen: the box for any other, the
+ * qualifier and the rest only when there are delimiters at all, and
+ * the ruler's hint when there are not. */
+static void
+import_sync_delimiter (ImportPrompt *prompt)
+{
+  guint i = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->delimiter));
+  gboolean fixed = i == DELIM_FIXED;
+
+  gtk_widget_set_visible (prompt->other, i == DELIM_OTHER);
+  gtk_widget_set_sensitive (prompt->quote_row, !fixed);
+  gtk_widget_set_visible (prompt->hint, fixed);
+  gtk_widget_set_tooltip_text (prompt->area,
+                               fixed ? NULL
+                                     : _("Click a column to choose it, Shift+click to choose several, "
+                                         "the corner to choose all."));
+}
+
+static void
+on_delimiter_changed (GObject *drop, GParamSpec *pspec, gpointer data)
+{
+  ImportPrompt *prompt = data;
+  guint i = gtk_drop_down_get_selected (GTK_DROP_DOWN (drop));
+  gboolean was_fixed = prompt->options->fixed_width;
+
+  (void) pspec;
+  if (prompt->updating || i == GTK_INVALID_LIST_POSITION)
+    return;
+  prompt->options->fixed_width = i == DELIM_FIXED;
+  if (i < DELIM_OTHER)
+    {
+      char sep[2] = { DELIM_CHARS[i], '\0' };
+
+      o42_csv_options_set_separators (prompt->options, sep);
+    }
+  else if (i == DELIM_OTHER)
+    o42_csv_options_set_separators (prompt->options, gtk_editable_get_text (GTK_EDITABLE (prompt->other)));
+  if (was_fixed != prompt->options->fixed_width)
+    prompt->anchor = prompt->cursor = 0;
+  import_sync_delimiter (prompt);
+  import_recut (prompt);
+  import_sync_type (prompt);
+  if (i == DELIM_OTHER)
+    gtk_widget_grab_focus (prompt->other);
+}
+
+/* Every character typed in the box is a delimiter. */
+static void
+on_other_text (GtkEditable *editable, gpointer data)
+{
+  ImportPrompt *prompt = data;
+
+  if (prompt->updating)
+    return;
+  o42_csv_options_set_separators (prompt->options, gtk_editable_get_text (editable));
+  import_recut (prompt);
+}
+
+/* The qualifier, and whether delimiters merge and spaces go: what the
+ * fields are cut into changes, so the preview does. */
 static void
 on_cut_changed (GtkWidget *w, gpointer data)
 {
   ImportPrompt *prompt = data;
-  static const char SEPS[4] = { '\t', ';', ',', ' ' };
-  GString *seps;
   guint quote;
 
   (void) w;
   if (prompt->updating)
     return;
-  seps = g_string_new (NULL);
-  for (int i = 0; i < 4; i++)
-    if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->sep[i])))
-      g_string_append_c (seps, SEPS[i]);
-  if (gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->other_check)))
-    g_string_append (seps, gtk_editable_get_text (GTK_EDITABLE (prompt->other)));
-  o42_csv_options_set_separators (prompt->options, seps->str);
-  g_string_free (seps, TRUE);
-
   prompt->options->merge_separators = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->merge));
   prompt->options->trim_spaces = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->trim));
   quote = gtk_drop_down_get_selected (GTK_DROP_DOWN (prompt->quote));
@@ -906,54 +960,10 @@ on_cut_changed (GtkWidget *w, gpointer data)
 }
 
 static void
-on_other_text (GtkEditable *editable, gpointer data)
-{
-  ImportPrompt *prompt = data;
-
-  /* Typing a character is asking for it. */
-  if (!prompt->updating && *gtk_editable_get_text (editable) != '\0' &&
-      !gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->other_check)))
-    gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->other_check), TRUE);
-  else
-    on_cut_changed (NULL, prompt);
-}
-
-static void
 on_quote_changed (GObject *drop, GParamSpec *pspec, gpointer data)
 {
   (void) drop; (void) pspec;
   on_cut_changed (NULL, data);
-}
-
-/* Delimited or fixed width: the separator options only mean something
- * for the one, and the preview has a ruler for the other. */
-static void
-import_sync_file_kind (ImportPrompt *prompt)
-{
-  gboolean fixed = prompt->options->fixed_width;
-
-  gtk_widget_set_sensitive (prompt->cut_box, !fixed);
-  gtk_widget_set_sensitive (prompt->cut_more, !fixed);
-  gtk_label_set_text (GTK_LABEL (prompt->hint),
-                      fixed ? _("Click the ruler to put in a break, drag one to move it, "
-                                "double-click one to take it away.  Click a column to choose its format.")
-                            : _("Click a column to choose it, Shift+click to choose several, "
-                                "the corner to choose all."));
-}
-
-static void
-on_kind_of_file (GtkCheckButton *button, gpointer data)
-{
-  ImportPrompt *prompt = data;
-
-  (void) button;
-  if (prompt->updating)
-    return;
-  prompt->options->fixed_width = gtk_check_button_get_active (GTK_CHECK_BUTTON (prompt->fixed));
-  prompt->anchor = prompt->cursor = 0;
-  import_sync_file_kind (prompt);
-  import_recut (prompt);
-  import_sync_type (prompt);
 }
 
 static void
@@ -1102,6 +1112,7 @@ on_import_destroy (GtkWidget *w, gpointer data)
   ImportPrompt *prompt = data;
 
   (void) w;
+  more_open = gtk_expander_get_expanded (GTK_EXPANDER (prompt->more));
   g_object_unref (prompt->file);
   g_free (prompt->bytes);
   g_free (prompt->text);
@@ -1126,6 +1137,20 @@ labelled_in (GtkWidget *box, const char *label, GtkWidget *control, int gap)
   gtk_label_set_mnemonic_widget (GTK_LABEL (l), control);
   gtk_box_append (GTK_BOX (box), l);
   gtk_box_append (GTK_BOX (box), control);
+}
+
+/* A label on the left of a row of the questions, for the control to
+ * its right. */
+static void
+question (GtkWidget *grid, int row, const char *label, GtkWidget *control)
+{
+  GtkWidget *l = gtk_label_new_with_mnemonic (label);
+
+  gtk_label_set_xalign (GTK_LABEL (l), 0.0);
+  gtk_label_set_mnemonic_widget (GTK_LABEL (l), control);
+  gtk_grid_attach (GTK_GRID (grid), l, 0, row, 1, 1);
+  gtk_widget_set_halign (control, GTK_ALIGN_START);
+  gtk_grid_attach (GTK_GRID (grid), control, 1, row, 1, 1);
 }
 
 /* A check button whose label wraps rather than widening the dialog:
@@ -1153,122 +1178,139 @@ wrapping_check (const char *label)
   return check;
 }
 
-/* The file's origin and the row to start at. */
+/* What every file is asked, a label to the left of each: where it
+ * comes from and the row to start at, what divides its fields, where
+ * Import Text File puts it, and what the chosen columns are -- the last
+ * right over the preview they are chosen in. */
 static GtkWidget *
-import_top_row (ImportPrompt *prompt)
+import_questions (ImportPrompt *prompt)
 {
-  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  /* "Comma" is also the number format, so the delimiters have a
+   * context of their own. */
+  const char *const delimiter_names[] = {
+    C_("delimiter", "Comma"), C_("delimiter", "Semicolon"), C_("delimiter", "Tab"),
+    C_("delimiter", "Space"), C_("delimiter", "Other"), _("Fixed width"), NULL
+  };
+  GtkWidget *grid = gtk_grid_new ();
+  GtkWidget *box, *label;
+  GtkStringList *delimiters = gtk_string_list_new (NULL);
+  GtkStringList *types = gtk_string_list_new (NULL);
+  const char *seps = prompt->options->separators != NULL ? prompt->options->separators : "";
+  guint pick = DELIM_OTHER;
+  int row = 0;
+
+  gtk_grid_set_row_spacing (GTK_GRID (grid), 8);
+  gtk_grid_set_column_spacing (GTK_GRID (grid), 8);
 
   prompt->origin = encoding_drop (prompt->options->encoding, prompt->encodings);
-  labelled_in (row, _("File _origin:"), prompt->origin, 0);
+  question (grid, row, _("File _origin:"), prompt->origin);
   g_signal_connect (prompt->origin, "notify::selected", G_CALLBACK (on_origin_changed), prompt);
-
+  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
   prompt->start = gtk_spin_button_new_with_range (1, MAX (prompt->n_lines, 1), 1);
-  labelled_in (row, _("Start import at _row:"), prompt->start, 16);
+  labelled_in (box, _("Start import at _row:"), prompt->start, 16);
   g_signal_connect (prompt->start, "value-changed", G_CALLBACK (on_start_changed), prompt);
-  return row;
-}
+  gtk_grid_attach (GTK_GRID (grid), box, 2, row++, 1, 1);
 
-/* Delimited, with the delimiters beside it and what goes with them
- * under, or fixed width. */
-static GtkWidget *
-import_cut_frame (ImportPrompt *prompt)
-{
-  static const char *const NAMES[4] = { N_("_Tab"), N_("_Semicolon"), N_("_Comma"), N_("S_pace") };
-  static const char *const QUOTES[] = { "\"", "'", N_("{none}"), NULL };
-  static const char SEPS[4] = { '\t', ';', ',', ' ' };
-  GtkWidget *grid = gtk_grid_new ();
-  GtkWidget *seps, *row;
-  GtkStringList *quotes = gtk_string_list_new (NULL);
-  GString *others = g_string_new (NULL);
-
-  gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
-  gtk_grid_set_column_spacing (GTK_GRID (grid), 16);
-
-  prompt->delimited = gtk_check_button_new_with_mnemonic (_("_Delimited"));
-  gtk_grid_attach (GTK_GRID (grid), prompt->delimited, 0, 0, 1, 1);
-
-  prompt->cut_box = seps = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
-  for (int i = 0; i < 4; i++)
-    {
-      prompt->sep[i] = gtk_check_button_new_with_mnemonic (_(NAMES[i]));
-      gtk_box_append (GTK_BOX (seps), prompt->sep[i]);
-    }
-  prompt->other_check = gtk_check_button_new_with_mnemonic (_("_Other:"));
-  gtk_box_append (GTK_BOX (seps), prompt->other_check);
+  /* The delimiter: one of the list, or what is typed beside it. */
+  for (int i = 0; delimiter_names[i] != NULL; i++)
+    gtk_string_list_append (delimiters, delimiter_names[i]);
+  prompt->delimiter = gtk_drop_down_new (G_LIST_MODEL (delimiters), NULL);
   prompt->other = gtk_entry_new ();
   gtk_editable_set_width_chars (GTK_EDITABLE (prompt->other), 3);
   gtk_editable_set_max_width_chars (GTK_EDITABLE (prompt->other), 3);
   gtk_entry_set_max_length (GTK_ENTRY (prompt->other), 4);
-  gtk_box_append (GTK_BOX (seps), prompt->other);
-  gtk_grid_attach (GTK_GRID (grid), seps, 1, 0, 1, 1);
+  if (prompt->options->fixed_width)
+    pick = DELIM_FIXED;
+  else
+    for (int i = 0; i < 4; i++)
+      if (seps[0] == DELIM_CHARS[i] && seps[1] == '\0')
+        pick = (guint) i;
+  if (pick == DELIM_OTHER)
+    gtk_editable_set_text (GTK_EDITABLE (prompt->other), seps);
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->delimiter), pick);
+  box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_box_append (GTK_BOX (box), prompt->delimiter);
+  gtk_box_append (GTK_BOX (box), prompt->other);
+  label = gtk_label_new_with_mnemonic (_("_Delimiter:"));
+  gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+  gtk_label_set_mnemonic_widget (GTK_LABEL (label), prompt->delimiter);
+  gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+  gtk_grid_attach (GTK_GRID (grid), box, 1, row++, 2, 1);
+  g_signal_connect (prompt->delimiter, "notify::selected", G_CALLBACK (on_delimiter_changed), prompt);
+  g_signal_connect (prompt->other, "changed", G_CALLBACK (on_other_text), prompt);
 
-  prompt->cut_more = row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
-  prompt->merge = wrapping_check (_("Treat consecutive delimiters as o_ne"));
-  gtk_box_append (GTK_BOX (row), prompt->merge);
-  prompt->trim = gtk_check_button_new_with_mnemonic (_("Tr_im spaces"));
-  gtk_box_append (GTK_BOX (row), prompt->trim);
+  /* Import Text File's own question: the cell to start at, the active
+   * one to begin with, or a sheet of their own. */
+  if (!prompt->open)
+    {
+      int r = 0, c = 0;
+      char *here;
+
+      prompt->place = gtk_entry_new ();
+      gtk_editable_set_width_chars (GTK_EDITABLE (prompt->place), 8);
+      gtk_editable_set_max_width_chars (GTK_EDITABLE (prompt->place), 8);
+      gtk_entry_set_activates_default (GTK_ENTRY (prompt->place), TRUE);
+      o42_grid_get_active (prompt->window->grid, &r, &c);
+      here = o42_ref_name (r, c);
+      gtk_editable_set_text (GTK_EDITABLE (prompt->place), here);
+      g_free (here);
+      prompt->new_sheet = gtk_check_button_new_with_mnemonic (_("On a _new sheet"));
+      g_signal_connect (prompt->new_sheet, "toggled", G_CALLBACK (on_new_sheet), prompt);
+      box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
+      gtk_box_append (GTK_BOX (box), prompt->place);
+      gtk_box_append (GTK_BOX (box), prompt->new_sheet);
+      label = gtk_label_new_with_mnemonic (_("_Put the data at:"));
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_label_set_mnemonic_widget (GTK_LABEL (label), prompt->place);
+      gtk_grid_attach (GTK_GRID (grid), label, 0, row, 1, 1);
+      gtk_grid_attach (GTK_GRID (grid), box, 1, row++, 2, 1);
+    }
+
+  gtk_string_list_append (types, _("General"));
+  gtk_string_list_append (types, _("Text"));
+  for (int i = 0; DATE_ORDERS[i] != NULL; i++)
+    {
+      char *name = g_strdup_printf (_("Date (%s)"), DATE_ORDERS[i]);
+
+      gtk_string_list_append (types, name);
+      g_free (name);
+    }
+  gtk_string_list_append (types, _("Skip Column"));
+  prompt->type_drop = gtk_drop_down_new (G_LIST_MODEL (types), NULL);
+  question (grid, row, _("Column t_ype:"), prompt->type_drop);
+  g_signal_connect (prompt->type_drop, "notify::selected", G_CALLBACK (on_type_changed), prompt);
+  return grid;
+}
+
+/* The rest, folded away: the guesses make them right for most files,
+ * and every one of them is here for the file they do not. */
+static GtkWidget *
+import_more (ImportPrompt *prompt)
+{
+  static const char *const QUOTES[] = { "\"", "'", N_("{none}"), NULL };
+  static const char *const DECIMALS[] = { ".", ",", NULL };
+  static const char *const THOUSANDS[] = { ",", ".", N_("space"), "'", N_("{none}"), NULL };
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+  GtkWidget *numbers = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget *meaning = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 16);
+  GtkStringList *quotes = gtk_string_list_new (NULL);
+  GtkStringList *thousands = gtk_string_list_new (NULL);
+
+  /* How the fields are cut, which only a delimited file has. */
+  prompt->quote_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
   for (int i = 0; QUOTES[i] != NULL; i++)
     gtk_string_list_append (quotes, i < 2 ? QUOTES[i] : _(QUOTES[i]));
   prompt->quote = gtk_drop_down_new (G_LIST_MODEL (quotes), NULL);
-  labelled_in (row, _("Text _qualifier:"), prompt->quote, 12);
-  gtk_grid_attach (GTK_GRID (grid), row, 1, 1, 1, 1);
+  labelled_in (prompt->quote_row, _("Text _qualifier:"), prompt->quote, 0);
+  prompt->merge = wrapping_check (_("Treat consecutive delimiters as o_ne"));
+  gtk_widget_set_margin_start (prompt->merge, 8);
+  gtk_box_append (GTK_BOX (prompt->quote_row), prompt->merge);
+  prompt->trim = gtk_check_button_new_with_mnemonic (_("Tr_im spaces"));
+  gtk_box_append (GTK_BOX (prompt->quote_row), prompt->trim);
+  gtk_box_append (GTK_BOX (box), prompt->quote_row);
 
-  prompt->fixed = gtk_check_button_new_with_mnemonic (_("Fixed _width"));
-  gtk_check_button_set_group (GTK_CHECK_BUTTON (prompt->fixed), GTK_CHECK_BUTTON (prompt->delimited));
-  gtk_grid_attach (GTK_GRID (grid), prompt->fixed, 0, 2, 2, 1);
-
-  /* What the file was guessed to be, on the controls. */
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->options->fixed_width ? prompt->fixed
-                                                                                : prompt->delimited), TRUE);
-  for (const char *s = prompt->options->separators != NULL ? prompt->options->separators : "";
-       *s != '\0'; s = g_utf8_next_char (s))
-    {
-      int known = -1;
-
-      for (int i = 0; i < 4; i++)
-        if (*s == SEPS[i])
-          known = i;
-      if (known >= 0)
-        gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->sep[known]), TRUE);
-      else
-        g_string_append_len (others, s, g_utf8_next_char (s) - s);
-    }
-  if (others->len > 0)
-    {
-      gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->other_check), TRUE);
-      gtk_editable_set_text (GTK_EDITABLE (prompt->other), others->str);
-    }
-  g_string_free (others, TRUE);
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->merge), prompt->options->merge_separators);
-  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->trim), prompt->options->trim_spaces);
-  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->quote),
-                              prompt->options->quote == '"' ? 0 : prompt->options->quote == '\'' ? 1 : 2);
-
-  g_signal_connect (prompt->fixed, "toggled", G_CALLBACK (on_kind_of_file), prompt);
-  for (int i = 0; i < 4; i++)
-    g_signal_connect (prompt->sep[i], "toggled", G_CALLBACK (on_cut_changed), prompt);
-  g_signal_connect (prompt->other_check, "toggled", G_CALLBACK (on_cut_changed), prompt);
-  g_signal_connect (prompt->other, "changed", G_CALLBACK (on_other_text), prompt);
-  g_signal_connect (prompt->merge, "toggled", G_CALLBACK (on_cut_changed), prompt);
-  g_signal_connect (prompt->trim, "toggled", G_CALLBACK (on_cut_changed), prompt);
-  g_signal_connect (prompt->quote, "notify::selected", G_CALLBACK (on_quote_changed), prompt);
-
-  return framed (_("Original data type"), grid);
-}
-
-/* How the file writes its numbers -- what Excel 2002 put behind an
- * Advanced button -- and what its quotes and formulas mean. */
-static GtkWidget *
-import_other_frame (ImportPrompt *prompt)
-{
-  static const char *const DECIMALS[] = { ".", ",", NULL };
-  static const char *const THOUSANDS[] = { ",", ".", N_("space"), "'", N_("{none}"), NULL };
-  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
-  GtkWidget *numbers = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
-  GtkWidget *meaning = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 16);
-  GtkStringList *thousands = gtk_string_list_new (NULL);
-
+  /* How it writes its numbers -- what Excel 2002 put behind an Advanced
+   * button. */
   prompt->decimal = gtk_drop_down_new (G_LIST_MODEL (gtk_string_list_new (DECIMALS)), NULL);
   labelled_in (numbers, _("De_cimal separator:"), prompt->decimal, 0);
   for (int i = 0; THOUSANDS[i] != NULL; i++)
@@ -1280,12 +1322,22 @@ import_other_frame (ImportPrompt *prompt)
   gtk_box_append (GTK_BOX (numbers), prompt->minus);
   gtk_box_append (GTK_BOX (box), numbers);
 
+  /* What its quotes and formulas mean, and what an empty field does. */
   prompt->quoted_text = gtk_check_button_new_with_mnemonic (_("Format quoted fields as te_xt"));
   gtk_box_append (GTK_BOX (meaning), prompt->quoted_text);
   prompt->formulas = gtk_check_button_new_with_mnemonic (_("Evalu_ate formulas"));
   gtk_box_append (GTK_BOX (meaning), prompt->formulas);
+  if (!prompt->open)
+    {
+      prompt->skip_empty = gtk_check_button_new_with_mnemonic (_("S_kip empty cells"));
+      gtk_box_append (GTK_BOX (meaning), prompt->skip_empty);
+    }
   gtk_box_append (GTK_BOX (box), meaning);
 
+  gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->quote),
+                              prompt->options->quote == '"' ? 0 : prompt->options->quote == '\'' ? 1 : 2);
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->merge), prompt->options->merge_separators);
+  gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->trim), prompt->options->trim_spaces);
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->decimal), prompt->options->decimal == ',' ? 1 : 0);
   gtk_drop_down_set_selected (GTK_DROP_DOWN (prompt->thousands),
                               prompt->options->thousands == ','  ? 0
@@ -1295,76 +1347,22 @@ import_other_frame (ImportPrompt *prompt)
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->minus), prompt->options->trailing_minus);
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->quoted_text), prompt->options->quoted_as_text);
   gtk_check_button_set_active (GTK_CHECK_BUTTON (prompt->formulas), prompt->options->evaluate_formulas);
+
+  g_signal_connect (prompt->quote, "notify::selected", G_CALLBACK (on_quote_changed), prompt);
+  g_signal_connect (prompt->merge, "toggled", G_CALLBACK (on_cut_changed), prompt);
+  g_signal_connect (prompt->trim, "toggled", G_CALLBACK (on_cut_changed), prompt);
   g_signal_connect (prompt->decimal, "notify::selected", G_CALLBACK (on_other_drop), prompt);
   g_signal_connect (prompt->thousands, "notify::selected", G_CALLBACK (on_other_drop), prompt);
   g_signal_connect (prompt->minus, "toggled", G_CALLBACK (on_other_options), prompt);
   g_signal_connect (prompt->quoted_text, "toggled", G_CALLBACK (on_other_options), prompt);
   g_signal_connect (prompt->formulas, "toggled", G_CALLBACK (on_other_options), prompt);
 
-  return framed (_("Other options"), box);
-}
-
-/* Import Text File's own question: where the records go, the cell the
- * active one to start with, or a sheet of their own. */
-static GtkWidget *
-import_place_row (ImportPrompt *prompt)
-{
-  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
-  int r = 0, c = 0;
-  char *here;
-
-  prompt->place = gtk_entry_new ();
-  gtk_editable_set_width_chars (GTK_EDITABLE (prompt->place), 8);
-  gtk_editable_set_max_width_chars (GTK_EDITABLE (prompt->place), 8);
-  gtk_entry_set_activates_default (GTK_ENTRY (prompt->place), TRUE);
-  o42_grid_get_active (prompt->window->grid, &r, &c);
-  here = o42_ref_name (r, c);
-  gtk_editable_set_text (GTK_EDITABLE (prompt->place), here);
-  g_free (here);
-  labelled_in (row, _("_Put the data at:"), prompt->place, 0);
-
-  prompt->new_sheet = gtk_check_button_new_with_mnemonic (_("On a _new sheet"));
-  gtk_box_append (GTK_BOX (row), prompt->new_sheet);
-  g_signal_connect (prompt->new_sheet, "toggled", G_CALLBACK (on_new_sheet), prompt);
-  prompt->skip_empty = gtk_check_button_new_with_mnemonic (_("S_kip empty cells"));
-  gtk_widget_set_margin_start (prompt->skip_empty, 16);
-  gtk_box_append (GTK_BOX (row), prompt->skip_empty);
-  return row;
-}
-
-/* The type for the chosen columns, right over the preview they are
- * chosen in, and what a click there does. */
-static GtkWidget *
-import_type_row (ImportPrompt *prompt)
-{
-  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
-  GtkStringList *types = gtk_string_list_new (NULL);
-
-  gtk_string_list_append (types, _("General"));
-  gtk_string_list_append (types, _("Text"));
-  for (int i = 0; DATE_ORDERS[i] != NULL; i++)
-    {
-      char *label = g_strdup_printf (_("Date (%s)"), DATE_ORDERS[i]);
-
-      gtk_string_list_append (types, label);
-      g_free (label);
-    }
-  gtk_string_list_append (types, _("Skip Column"));
-  prompt->type_drop = gtk_drop_down_new (G_LIST_MODEL (types), NULL);
-  labelled_in (row, _("Column t_ype:"), prompt->type_drop, 0);
-  g_signal_connect (prompt->type_drop, "notify::selected", G_CALLBACK (on_type_changed), prompt);
-
-  prompt->hint = gtk_label_new ("");
-  gtk_label_set_xalign (GTK_LABEL (prompt->hint), 0.0);
-  /* A label that wraps still asks for the whole of its text across,
-   * unless told otherwise, and would widen the dialog to get it. */
-  gtk_label_set_wrap (GTK_LABEL (prompt->hint), TRUE);
-  gtk_label_set_max_width_chars (GTK_LABEL (prompt->hint), 50);
-  gtk_widget_set_hexpand (prompt->hint, TRUE);
-  gtk_widget_set_margin_start (prompt->hint, 8);
-  gtk_widget_add_css_class (prompt->hint, "dim-label");
-  gtk_box_append (GTK_BOX (row), prompt->hint);
-  return row;
+  prompt->more = gtk_expander_new_with_mnemonic (_("_More options"));
+  gtk_widget_set_margin_top (box, 8);
+  gtk_widget_set_margin_start (box, 16);
+  gtk_expander_set_child (GTK_EXPANDER (prompt->more), box);
+  gtk_expander_set_expanded (GTK_EXPANDER (prompt->more), more_open);
+  return prompt->more;
 }
 
 /* The preview in a scrolled window with a frame round it, taking the
@@ -1395,7 +1393,7 @@ import_preview (ImportPrompt *prompt)
   prompt->scroller = gtk_scrolled_window_new ();
   gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (prompt->scroller),
                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-  gtk_widget_set_size_request (prompt->scroller, 680, 200);
+  gtk_widget_set_size_request (prompt->scroller, 640, 240);
   gtk_widget_set_vexpand (prompt->scroller, TRUE);
   gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (prompt->scroller), prompt->area);
   gtk_frame_set_child (GTK_FRAME (frame), prompt->scroller);
@@ -1451,14 +1449,19 @@ o42_window_import_text (O42Window *self, GFile *file, gboolean open)
   g_free (name);
 
   prompt->updating = TRUE;
-  gtk_box_append (GTK_BOX (content), import_top_row (prompt));
-  gtk_box_append (GTK_BOX (content), import_cut_frame (prompt));
-  gtk_box_append (GTK_BOX (content), import_other_frame (prompt));
-  if (!open)
-    gtk_box_append (GTK_BOX (content), import_place_row (prompt));
-  gtk_box_append (GTK_BOX (content), import_type_row (prompt));
+  gtk_box_append (GTK_BOX (content), import_questions (prompt));
   gtk_box_append (GTK_BOX (content), import_preview (prompt));
-  import_sync_file_kind (prompt);
+  /* A fixed-width file's ruler wants saying how it is used; a click on
+   * a column is what anyone would try. */
+  prompt->hint = gtk_label_new (_("Click the ruler to put in a break, drag one to move it, "
+                                  "double-click one to take it away.  Click a column to choose its format."));
+  gtk_label_set_xalign (GTK_LABEL (prompt->hint), 0.0);
+  gtk_label_set_wrap (GTK_LABEL (prompt->hint), TRUE);
+  gtk_label_set_max_width_chars (GTK_LABEL (prompt->hint), 60);
+  gtk_widget_add_css_class (prompt->hint, "dim-label");
+  gtk_box_append (GTK_BOX (content), prompt->hint);
+  gtk_box_append (GTK_BOX (content), import_more (prompt));
+  import_sync_delimiter (prompt);
   prompt->updating = FALSE;
 
   ok = dialog_button (buttons, _("_OK"), G_CALLBACK (on_import_ok), prompt);

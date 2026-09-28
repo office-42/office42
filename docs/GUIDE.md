@@ -913,29 +913,19 @@ documentation.
 
 **Text files.** A `.csv`, `.txt`, `.tsv`, `.tab` or `.prn` opens
 through Text Import, whichever way it is opened -- File ▸ Open, the
-recent files, the command line. It asks on one page what Excel 97's
-Text Import Wizard asked on three, laid out as LibreOffice lays out
-its own, with the file cut up underneath as the answers say, changing
-as they change:
+recent files, the command line. It guesses everything it can, so OK
+is often all there is to it, and asks three things over a preview of
+the file cut up as the answers say:
 
 - **File origin** is the encoding: UTF-8 and UTF-16 are known by
   their byte-order marks, anything else that is not UTF-8 is taken for
   the machine's code page or Windows-1252, and the list offers the
   rest. **Start import at row** passes over a report's title lines.
-- **Delimited** or **Fixed width**. For a delimited file, the
-  delimiters -- tab, semicolon, comma, space or any other character,
-  two together counting as one if asked -- the text qualifier, `"` or
-  `'`, and **Trim spaces**, which takes the spaces off each field and
-  lets a qualifier come after them, so that `a, "b, c"` is two fields.
-  For a fixed-width one the preview has a ruler: click it to put in a
-  column break, drag a break to move it, double-click one to take it
-  away.
-- **Other options**: how the file writes its numbers -- the decimal
-  and thousands separators, and a minus sign behind, `12-`, as
-  mainframes print it -- **Format quoted fields as text**, which keeps
-  `"00123"` a code however it looks, and **Evaluate formulas**: turned
-  off, a field such as `=A1*2` comes in as the text it is, which is
-  the safe way to open a file from somewhere you do not know.
+- **Delimiter**: comma, semicolon, tab, space, **Other** -- every
+  character typed in the box beside it is one -- or **Fixed width**,
+  when the columns line up with no delimiter at all. A fixed-width file
+  has a ruler over the preview: click it to put in a column break,
+  drag a break to move it, double-click one to take it away.
 - **Column type**, for the columns chosen in the preview: General
   reads it as typed, Text keeps `00123` a code, Date reads it in the
   order chosen (MDY, DMY, YMD and the rest), and Skip Column leaves it
@@ -945,17 +935,26 @@ as they change:
   the keyboard, Left, Right, Home and End go from column to column,
   with Shift choosing on the way, and Ctrl+A chooses every one.
 
-The first guesses are good ones, so OK is often all there is to it:
-the separator is the character that comes the same number of times on
-most lines, spaces after every one of them are trimmed, a file of
-semicolons with `1.234,50` in it is read with a decimal comma, and a
-file with no separator but columns that line up is fixed width.
+The guesses: the delimiter is the character that comes the same
+number of times on most lines, spaces after every one of them are
+trimmed, a file of semicolons with `1.234,50` in it has a decimal
+comma, and a file with no delimiter but columns that line up is fixed
+width. What they set is under **More options**, folded away until it
+is wanted: the text qualifier, `"` or `'`; two delimiters together
+counting as one; **Trim spaces**, which takes the spaces off each
+field and lets a qualifier come after them, so that `a, "b, c"` is two
+fields; the decimal and thousands separators and a minus sign behind,
+`12-`, as mainframes print it; **Format quoted fields as text**, which
+keeps `"00123"` a code however it looks; and **Evaluate formulas** --
+turned off, a field such as `=A1*2` comes in as the text it is, the
+safe way to open a file from somewhere you do not know. More options
+stays open or shut as it was left.
 
 File ▸ Import Text File asks the same, and puts the records into the
 sheet on show at the active cell, wherever **Put the data at** says,
-or **On a new sheet**, as one step to undo; **Skip empty cells**
-leaves what is under an empty field as it was. The book is not the
-file's afterwards.
+or **On a new sheet**, as one step to undo; **Skip empty cells**,
+under More options, leaves what is under an empty field as it was.
+The book is not the file's afterwards.
 
 Saving keeps a text file as it came: a semicolon file with a decimal
 comma in Windows-1252 goes back as one, CR LF or LF as it had them.
