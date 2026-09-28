@@ -28,7 +28,13 @@
  * "justify A1:C6", "insertrows 3 2", "deleterows 3", "insertcols 2" and
  * "deletecols 2" move cells about, with row and column numbers as the
  * headers show them.  "save FILE" and "load FILE" write and read a
- * .gnumeric file, or a .csv one if the name ends that way.  "sort A1:C9 B
+ * .gnumeric file, or a .csv one if the name ends that way.  "import FILE"
+ * reads a text file the way the Text Import Wizard would, with words
+ * after the name for what its pages ask -- sep=tab+; quote=' merge
+ * start=3 enc=WINDOWS-1252 fixed=8,20 cols=G,T,D:DMY,S decimal=,
+ * thousands=. nominus at=B2 -- "export FILE" writes one with sep=; enc=
+ * bom lf raw formulas quoteall, and "sniff FILE" says what the wizard
+ * would guess.  "sort A1:C9 B
  * desc header", "find TEXT" and "replace OLD -> NEW" do what they say;
  * "pdf FILE" exports.  "sheet NAME" switches to (or makes) a sheet, "rename
  * NAME" renames the current one and "delsheet" removes it; formulas reach
@@ -135,6 +141,108 @@ spell_word (const char *word, gsize offset, gsize length, gpointer user)
   printf ("\n");
   g_strfreev (suggestions);
   g_free (where);
+}
+
+/* ---- Text files ---------------------------------------------------------- */
+
+/* "tab", "space", "comma", "semicolon", "pipe", or the characters
+ * themselves, joined with '+'. */
+static char *
+csv_separators (const char *spec)
+{
+  GString *out = g_string_new (NULL);
+  char **parts = g_strsplit (spec, "+", -1);
+
+  for (int i = 0; parts[i] != NULL; i++)
+    {
+      const char *p = parts[i];
+
+      if (strcmp (p, "tab") == 0)            g_string_append_c (out, '\t');
+      else if (strcmp (p, "space") == 0)     g_string_append_c (out, ' ');
+      else if (strcmp (p, "comma") == 0)     g_string_append_c (out, ',');
+      else if (strcmp (p, "semicolon") == 0) g_string_append_c (out, ';');
+      else if (strcmp (p, "pipe") == 0)      g_string_append_c (out, '|');
+      else                                   g_string_append (out, p);
+    }
+  g_strfreev (parts);
+  return g_string_free (out, FALSE);
+}
+
+/* One word of an import or export line into the options; FALSE for a
+ * word it does not know. */
+static gboolean
+csv_option (O42CsvOptions *o, const char *word, int *at_row, int *at_col)
+{
+  if (g_str_has_prefix (word, "sep="))
+    {
+      char *seps = csv_separators (word + 4);
+      o42_csv_options_set_separators (o, seps);
+      g_free (seps);
+      o->fixed_width = FALSE;
+    }
+  else if (g_str_has_prefix (word, "quote="))
+    o->quote = strcmp (word + 6, "none") == 0 ? '\0' : word[6];
+  else if (strcmp (word, "merge") == 0)
+    o->merge_separators = TRUE;
+  else if (g_str_has_prefix (word, "start="))
+    o->start_row = MAX (0, atoi (word + 6) - 1);
+  else if (g_str_has_prefix (word, "enc="))
+    o42_csv_options_set_encoding (o, word + 4);
+  else if (g_str_has_prefix (word, "fixed="))
+    {
+      char **at = g_strsplit (word + 6, ",", -1);
+
+      g_array_set_size (o->breaks, 0);
+      for (int i = 0; at[i] != NULL; i++)
+        if (*at[i] != '\0')
+          {
+            int b = atoi (at[i]);
+            g_array_append_val (o->breaks, b);
+          }
+      g_strfreev (at);
+      o->fixed_width = TRUE;
+    }
+  else if (g_str_has_prefix (word, "cols="))
+    {
+      char **kinds = g_strsplit (word + 5, ",", -1);
+
+      for (int i = 0; kinds[i] != NULL; i++)
+        {
+          O42SplitType type = kinds[i][0] == 'T' ? O42_SPLIT_TEXT
+                            : kinds[i][0] == 'D' ? O42_SPLIT_DATE
+                            : kinds[i][0] == 'S' ? O42_SPLIT_SKIP : O42_SPLIT_GENERAL;
+          O42DateOrder order = O42_DATE_MDY;
+
+          if (type == O42_SPLIT_DATE && kinds[i][1] == ':')
+            for (int k = 0; O42_DATE_ORDER_NAMES[k] != NULL; k++)
+              if (g_ascii_strcasecmp (kinds[i] + 2, O42_DATE_ORDER_NAMES[k]) == 0)
+                order = (O42DateOrder) k;
+          o42_csv_options_set_column (o, i, type, order);
+        }
+      g_strfreev (kinds);
+    }
+  else if (g_str_has_prefix (word, "decimal="))
+    o->decimal = word[8];
+  else if (g_str_has_prefix (word, "thousands="))
+    o->thousands = strcmp (word + 10, "none") == 0 ? '\0'
+                 : strcmp (word + 10, "space") == 0 ? ' ' : word[10];
+  else if (strcmp (word, "nominus") == 0)
+    o->trailing_minus = FALSE;
+  else if (g_str_has_prefix (word, "at=") && at_row != NULL)
+    return o42_ref_parse (word + 3, at_row, at_col, NULL);
+  else if (strcmp (word, "bom") == 0)
+    o->bom = TRUE;
+  else if (strcmp (word, "lf") == 0)
+    o->crlf = FALSE;
+  else if (strcmp (word, "raw") == 0)
+    o->as_shown = FALSE;
+  else if (strcmp (word, "formulas") == 0)
+    o->formulas = TRUE;
+  else if (strcmp (word, "quoteall") == 0)
+    o->quote_all = TRUE;
+  else
+    return FALSE;
+  return TRUE;
 }
 
 /* ---- What the terminal does for a script ------------------------------ */
@@ -265,7 +373,7 @@ main (int argc, char *argv[])
               "          analyse whatif split splitfixed customlist customlists\n"
               "Objects   chart charts chartset chartinfo shape shapes controlset click\n"
               "          picture pictures pictureset objects order objgroup objungroup note link links\n"
-              "Files     load save pdf pdfbook printarea printscale printsetup printopt\n"
+              "Files     load save import export sniff pdf pdfbook printarea printscale printsetup printopt\n"
               "          pagebreak margin pageopt header footer titlerows titlecols\n"
               "Python    py pyfile script scripts runscript delscript record select fire\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
@@ -552,6 +660,97 @@ main (int argc, char *argv[])
             sheet = o42_book_sheet (book, 0);
           else
             fprintf (stderr, "cannot delete the only sheet\n");
+          continue;
+        }
+
+      /* import FILE [options]: File > Open through the Text Import
+       * Wizard, or with at=B2 its Import Text File into the sheet;
+       * export FILE [options]: Save As a text file; sniff FILE: what
+       * the wizard's first page would guess. */
+      if (g_str_has_prefix (text, "import ") || g_str_has_prefix (text, "export ") ||
+          g_str_has_prefix (text, "sniff "))
+        {
+          char **words = g_strsplit (text, " ", -1);
+          GFile *file = g_file_new_for_path (words[1] != NULL ? words[1] : "");
+          char *contents = NULL, *decoded = NULL, *name = g_file_get_basename (file);
+          gsize length = 0;
+          GError *error = NULL;
+          O42CsvOptions *o = o42_csv_options_new ();
+          const char *found = NULL;
+          gboolean bom = FALSE, ok = TRUE;
+          int at_row = -1, at_col = -1;
+
+          if (text[0] != 'e')
+            {
+              ok = g_file_load_contents (file, NULL, &contents, &length, NULL, &error);
+              if (ok)
+                {
+                  /* The encoding and the first row before the guess,
+                   * since the guess reads the text from there. */
+                  for (int i = 2; words[i] != NULL; i++)
+                    if (g_str_has_prefix (words[i], "enc=") || g_str_has_prefix (words[i], "start="))
+                      csv_option (o, words[i], NULL, NULL);
+                  decoded = o42_csv_decode (contents, length, o->encoding, &found, &bom);
+                  o42_csv_sniff (decoded, name, o);
+                  o->bom = bom;
+                }
+            }
+          else
+            {
+              o42_csv_options_free (o);
+              o = o42_csv_options_for_file (file);
+            }
+
+          for (int i = 2; ok && words[i] != NULL; i++)
+            if (*words[i] != '\0' && !csv_option (o, words[i], &at_row, &at_col))
+              fprintf (stderr, "%s: not an option\n", words[i]);
+
+          if (ok && text[0] == 's')
+            {
+              printf ("encoding %s%s, lines end %s, %d lines\n", found, bom ? " with a mark" : "",
+                      o->crlf ? "CR LF" : "LF", o42_csv_count_lines (decoded));
+              if (o->fixed_width)
+                printf ("fixed width");
+              else
+                {
+                  printf ("delimited by");
+                  for (const char *p = o->separators; *p != '\0'; p++)
+                    printf (" %s", *p == '\t' ? "tab" : *p == ' ' ? "space" : (char[]) { *p, '\0' });
+                }
+              printf (", breaks");
+              for (guint i = 0; i < o->breaks->len; i++)
+                printf ("%s%d", i > 0 ? "," : " ", g_array_index (o->breaks, int, i));
+              printf ("%s\n", o->breaks->len == 0 ? " none" : "");
+            }
+          else if (ok && text[0] == 'i')
+            {
+              int n, widest = 0;
+
+              if (at_row < 0)
+                {
+                  o42_book_begin_load (book);
+                  n = o42_csv_import (sheet, decoded, o, 0, 0, TRUE, &widest);
+                  o42_book_end_load (book);
+                }
+              else
+                n = o42_csv_import (sheet, decoded, o, at_row, at_col, FALSE, &widest);
+              printf ("%d rows by %d columns imported\n", n, widest);
+            }
+          else if (ok)
+            ok = o42_csv_save_with (sheet, file, o, &error);
+
+          if (!ok)
+            {
+              fprintf (stderr, "%s: %s\n", words[1] != NULL ? words[1] : "",
+                       error != NULL ? error->message : "failed");
+              g_clear_error (&error);
+            }
+          o42_csv_options_free (o);
+          g_free (contents);
+          g_free (decoded);
+          g_free (name);
+          g_object_unref (file);
+          g_strfreev (words);
           continue;
         }
 

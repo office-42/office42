@@ -701,6 +701,13 @@ o42_application_open (GApplication *app, GFile **files, int n_files,
     {
       GtkWidget *window = o42_window_new (GTK_APPLICATION (app));
 
+      /* A text file is asked about first, over the window it will fill. */
+      if (o42_window_is_text_file (files[i]))
+        {
+          present_first (O42_APPLICATION (app), GTK_WINDOW (window));
+          o42_window_import_text (O42_WINDOW (window), files[i], TRUE);
+          continue;
+        }
       o42_window_open_file (O42_WINDOW (window), files[i]);
       present_first (O42_APPLICATION (app), GTK_WINDOW (window));
       if (i == 0)

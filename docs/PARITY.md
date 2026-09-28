@@ -293,6 +293,26 @@ row 1,048,576, and the writers leave such cells out and say how many,
 as the .xls writer has done for its own smaller grid; .gnumeric keeps
 them.
 
+**Text files** went through a reader that guessed and asked nothing.
+A .csv, .txt or .prn now opens through Excel 97's Text Import Wizard
+-- delimited or fixed width, the first row, the file's encoding; the
+delimiters and the qualifier, or the column breaks on a ruler; each
+column General, Text, Date in an order, or skipped -- with Excel
+2002's decimal and thousands separators and trailing minus beside
+it, and File ▸ Import Text File puts a file's records at the active
+cell.  The guess behind it counts each separator on every line and
+takes the one that holds steady, reads a decimal comma from the
+numbers, and knows UTF-16 and Windows-1252 from UTF-8.  Saving had
+been comma and UTF-8 whatever the file was; a file goes back now in
+its own separator, encoding, line ends and decimal comma, Save As
+asks, and .prn is written as Excel's Formatted Text rather than as a
+.gnumeric with the wrong name.  Checked through office42-calc's new
+import, export and sniff on files in Windows-1252 and UTF-16, and a
+million-row .csv read and written as fast as before and written
+byte for byte the same; and through the window, driven under Xvfb,
+every page of the wizard, Import Text File and its undo, and Save
+and Save As to each kind of text file.
+
 **The charts' colours** were near Excel 97's and are now its own: the
 chart fills from its palette for a filled series -- periwinkle, plum,
 ivory, turquoise, purple, coral, ocean blue, ice blue -- and the chart

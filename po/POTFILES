@@ -16,6 +16,7 @@ src/main.c
 src/ui/o42-application.c
 src/ui/o42-dialogs-data.c
 src/ui/o42-dialogs-edit.c
+src/ui/o42-dialogs-file.c
 src/ui/o42-dialogs-format.c
 src/ui/o42-dialogs-tools.c
 src/ui/o42-grid.c

@@ -111,6 +111,7 @@ o42_ui_sources = files(
   'ui/o42-grid.c',
   'ui/o42-dialogs-data.c',
   'ui/o42-dialogs-edit.c',
+  'ui/o42-dialogs-file.c',
   'ui/o42-dialogs-tools.c',
   'ui/o42-dialogs-format.c',
   'ui/o42-window.c',

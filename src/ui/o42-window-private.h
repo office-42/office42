@@ -15,6 +15,7 @@
 
 #include "o42-window.h"
 
+#include "o42-csv.h"
 #include "o42-grid.h"
 #include "o42-sql.h"
 
@@ -34,6 +35,8 @@ struct _O42Window {
   GtkWidget  *tabs;
 
   GFile      *file;            /* where the book lives, or NULL for a new one */
+  O42CsvOptions *csv;          /* how the text file it came from or went to
+                                * was written, for Save to write it the same */
   gboolean    close_after_save;
   int         view_number;     /* 0 for the only window on the book, else 1, 2... */
   gboolean    telling;         /* inside o42_book_changed, to skip our own echo */
@@ -162,6 +165,17 @@ void action_new_from_template (GSimpleAction *a, GVariant *p, gpointer data);
 
 /* A book that came from a template is nobody's file yet. */
 void o42_window_forget_file (O42Window *self);
+
+/* The dialogs-file.c half of the text files: File > Import Text File,
+ * and the options Save As asks before it writes one. */
+void action_import_text (GSimpleAction *a, GVariant *p, gpointer data);
+void o42_window_save_text_as (O42Window *self, GFile *file);
+
+/* The window.c half: the book made from the text the wizard read, and
+ * the sheet saved with the options chosen for it. */
+gboolean o42_window_open_text (O42Window *self, GFile *file, const char *text,
+                               const O42CsvOptions *options);
+gboolean o42_window_save_to (O42Window *self, GFile *file, const O42CsvOptions *options);
 void action_clear_circles (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_rows (GSimpleAction *a, GVariant *p, gpointer data);
 void action_group_cols (GSimpleAction *a, GVariant *p, gpointer data);

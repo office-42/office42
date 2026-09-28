@@ -6721,23 +6721,19 @@ o42_sheet_text_to_columns_fixed (O42Sheet *sheet, const O42Range *range,
 }
 
 void
-o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *breaks)
+o42_guess_fixed_breaks (const char *const *lines, guint n_lines, GArray *breaks)
 {
-  GPtrArray *texts = g_ptr_array_new_with_free_func (g_free);
   glong longest = 0;
+  glong *lengths;
 
-  g_return_if_fail (sheet != NULL && range != NULL && breaks != NULL);
-  for (int row = range->row0; row <= range->row1 && row < range->row0 + 200; row++)
+  g_return_if_fail (breaks != NULL);
+  g_return_if_fail (n_lines == 0 || lines != NULL);
+
+  lengths = g_new (glong, MAX (n_lines, 1));
+  for (guint i = 0; i < n_lines; i++)
     {
-      O42Value v;
-
-      o42_sheet_get_value (sheet, row, range->col0, &v);
-      if (v.type == O42_VALUE_TEXT)
-        {
-          longest = MAX (longest, g_utf8_strlen (v.as.text, -1));
-          g_ptr_array_add (texts, g_strdup (v.as.text));
-        }
-      o42_value_clear (&v);
+      lengths[i] = g_utf8_strlen (lines[i], -1);
+      longest = MAX (longest, lengths[i]);
     }
 
   /* A column starts where every row long enough to reach it goes from
@@ -6747,13 +6743,12 @@ o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *br
     {
       gboolean gap_before = TRUE, content_here = FALSE;
 
-      for (guint i = 0; i < texts->len && gap_before; i++)
+      for (guint i = 0; i < n_lines && gap_before; i++)
         {
-          const char *t = g_ptr_array_index (texts, i);
-          glong len = g_utf8_strlen (t, -1);
+          const char *t = lines[i];
           gunichar before, here;
 
-          if (len <= at)
+          if (lengths[i] <= at)
             continue;
           before = g_utf8_get_char (g_utf8_offset_to_pointer (t, at - 1));
           here = g_utf8_get_char (g_utf8_offset_to_pointer (t, at));
@@ -6768,6 +6763,25 @@ o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *br
           g_array_append_val (breaks, b);
         }
     }
+  g_free (lengths);
+}
+
+void
+o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *breaks)
+{
+  GPtrArray *texts = g_ptr_array_new_with_free_func (g_free);
+
+  g_return_if_fail (sheet != NULL && range != NULL && breaks != NULL);
+  for (int row = range->row0; row <= range->row1 && row < range->row0 + 200; row++)
+    {
+      O42Value v;
+
+      o42_sheet_get_value (sheet, row, range->col0, &v);
+      if (v.type == O42_VALUE_TEXT)
+        g_ptr_array_add (texts, g_strdup (v.as.text));
+      o42_value_clear (&v);
+    }
+  o42_guess_fixed_breaks ((const char *const *) texts->pdata, texts->len, breaks);
   g_ptr_array_unref (texts);
 }
 

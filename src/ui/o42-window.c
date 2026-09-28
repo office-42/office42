@@ -5494,7 +5494,10 @@ action_open_recent (GSimpleAction *a, GVariant *param, gpointer data)
   GFile *file = g_file_new_for_uri (g_variant_get_string (param, NULL));
 
   (void) a;
-  o42_window_open_file (self, file);
+  if (o42_window_is_text_file (file))
+    o42_window_import_text (self, file, TRUE);
+  else
+    o42_window_open_file (self, file);
   g_object_unref (file);
 }
 
@@ -5742,11 +5745,48 @@ static gboolean
 file_is_csv (GFile *file)
 {
   char *name = g_file_get_basename (file);
-  /* .txt, .tsv and .tab are the same thing with tabs, as Excel has them. */
-  gboolean csv = name != NULL && (g_str_has_suffix (name, ".csv") || g_str_has_suffix (name, ".txt") ||
-                                  g_str_has_suffix (name, ".tsv") || g_str_has_suffix (name, ".tab"));
+  char *folded = name != NULL ? g_ascii_strdown (name, -1) : NULL;
+  /* .txt, .tsv and .tab are the same thing with tabs, as Excel has them,
+   * and .prn its "Formatted Text", the columns padded with spaces. */
+  gboolean csv = folded != NULL && (g_str_has_suffix (folded, ".csv") || g_str_has_suffix (folded, ".txt") ||
+                                    g_str_has_suffix (folded, ".tsv") || g_str_has_suffix (folded, ".tab") ||
+                                    g_str_has_suffix (folded, ".prn"));
+  g_free (folded);
   g_free (name);
   return csv;
+}
+
+gboolean
+o42_window_is_text_file (GFile *file)
+{
+  g_return_val_if_fail (G_IS_FILE (file), FALSE);
+  return file_is_csv (file);
+}
+
+/* A book read from a text file has its sheet named after the file, as
+ * Excel names it: people.csv opens on a sheet called people.  What a
+ * sheet's name may not hold is left out, and it is cut at Excel's 31. */
+static void
+window_name_sheet_after (O42Window *self, GFile *file)
+{
+  char *base = g_file_get_basename (file);
+  char *dot = base != NULL ? strrchr (base, '.') : NULL;
+  GString *name = g_string_new (NULL);
+  int n = 0;
+
+  if (dot != NULL && dot != base)
+    *dot = '\0';
+  for (const char *p = base != NULL ? base : ""; *p != '\0' && n < 31; p = g_utf8_next_char (p), n++)
+    {
+      gunichar c = g_utf8_get_char (p);
+
+      if (strchr ("[]:*?/\\!'", (int) (c < 128 ? c : 'x')) == NULL)
+        g_string_append_unichar (name, c);
+    }
+  if (name->len > 0)
+    o42_book_rename_sheet_unrecorded (self->book, o42_book_sheet_index (self->book, self->sheet), name->str);
+  g_string_free (name, TRUE);
+  g_free (base);
 }
 
 /* The three text formats: DIF and SYLK hold one sheet each and LaTeX
@@ -5825,21 +5865,44 @@ file_is_xls (GFile *file)
   return xls;
 }
 
-gboolean
-o42_window_open_file (O42Window *self, GFile *file)
+/* Opens the file into the window.  A text file is read with the
+ * options given, from the text given, when the Text Import Wizard has
+ * them; else it is read and guessed at here, as Finish on the wizard's
+ * first page would have it. */
+static gboolean
+window_open (O42Window *self, GFile *file, const char *text, const O42CsvOptions *options)
 {
   GError *error = NULL;
   gboolean ok;
 
-  g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
-  g_return_val_if_fail (G_IS_FILE (file), FALSE);
-
   o42_book_begin_load (self->book);
-  if (file_is_csv (file) || file_is_html (file) ||
-      file_is_dif (file) || file_is_sylk (file) || file_is_lotus (file))
+  g_clear_pointer (&self->csv, o42_csv_options_free);
+  if (file_is_csv (file))
     {
-      ok = file_is_csv (file)   ? o42_csv_load (self->sheet, file, &error)
-         : file_is_dif (file)   ? o42_dif_load (self->sheet, file, &error)
+      char *read = NULL;
+
+      if (text == NULL)
+        {
+          O42CsvOptions *guessed = NULL;
+
+          text = read = o42_csv_read_file (file, &guessed, &error);
+          self->csv = guessed;
+        }
+      else
+        self->csv = o42_csv_options_copy (options);
+      ok = text != NULL;
+      if (ok)
+        {
+          o42_csv_import (self->sheet, text, self->csv, 0, 0, TRUE, NULL);
+          window_name_sheet_after (self, file);
+        }
+      g_free (read);
+      o42_sheet_clear_undo (self->sheet);
+      o42_sheet_set_modified (self->sheet, FALSE);
+    }
+  else if (file_is_html (file) || file_is_dif (file) || file_is_sylk (file) || file_is_lotus (file))
+    {
+      ok = file_is_dif (file)   ? o42_dif_load (self->sheet, file, &error)
          : file_is_sylk (file)  ? o42_sylk_load (self->sheet, file, &error)
          : file_is_lotus (file) ? o42_lotus_load (self->sheet, file, &error)
                                 : o42_html_load (self->sheet, file, &error);
@@ -5897,6 +5960,26 @@ o42_window_open_file (O42Window *self, GFile *file)
   return ok;
 }
 
+gboolean
+o42_window_open_file (O42Window *self, GFile *file)
+{
+  g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
+  g_return_val_if_fail (G_IS_FILE (file), FALSE);
+
+  return window_open (self, file, NULL, NULL);
+}
+
+gboolean
+o42_window_open_text (O42Window *self, GFile *file, const char *text,
+                      const O42CsvOptions *options)
+{
+  g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
+  g_return_val_if_fail (G_IS_FILE (file), FALSE);
+  g_return_val_if_fail (text != NULL && options != NULL, FALSE);
+
+  return window_open (self, file, text, options);
+}
+
 /* Whether any sheet of the book has a formula calling the function. */
 gboolean
 window_book_calls (O42Window *self, const char *name)
@@ -5934,8 +6017,12 @@ o42_window_is_blank (O42Window *self)
          o42_sheet_pictures (self->sheet)->len == 0;
 }
 
+/* Saves the book to the file.  A text file is written with the options
+ * given, or when none are given and it is the file the book is already
+ * in, the way that file was written before -- a semicolon file stays
+ * one, and so does its encoding. */
 static gboolean
-window_save_to (O42Window *self, GFile *file)
+window_save_to (O42Window *self, GFile *file, const O42CsvOptions *options)
 {
   GError *error = NULL;
   gboolean ok;
@@ -5943,7 +6030,16 @@ window_save_to (O42Window *self, GFile *file)
   o42_window_fire_event (self, "before_save", NULL);
 
   if (file_is_csv (file))
-    ok = o42_csv_save (self->sheet, file, &error);
+    {
+      if (options == NULL && self->csv != NULL && self->file != NULL && g_file_equal (file, self->file))
+        options = self->csv;
+      ok = o42_csv_save_with (self->sheet, file, options, &error);
+      if (ok && options != NULL && options != self->csv)
+        {
+          g_clear_pointer (&self->csv, o42_csv_options_free);
+          self->csv = o42_csv_options_copy (options);
+        }
+    }
   else if (file_is_dif (file))
     ok = o42_dif_save (self->sheet, file, &error);
   else if (file_is_sylk (file))
@@ -6002,6 +6098,10 @@ window_save_to (O42Window *self, GFile *file)
       show_error (self, said, NULL);
       g_free (said);
     }
+  if (file_is_csv (file) && o42_csv_lost_characters)
+    show_error (self, _("Some characters have no place in the encoding this text file is "
+                        "written in, and were saved as question marks. Save As lets you "
+                        "choose Unicode (UTF-8), which holds every one."), NULL);
 
   if (file_is_csv (file) || file_is_dif (file) || file_is_sylk (file) ||
       file_is_lotus (file))
@@ -6017,6 +6117,15 @@ window_save_to (O42Window *self, GFile *file)
     }
 
   return TRUE;
+}
+
+gboolean
+o42_window_save_to (O42Window *self, GFile *file, const O42CsvOptions *options)
+{
+  g_return_val_if_fail (O42_IS_WINDOW (self), FALSE);
+  g_return_val_if_fail (G_IS_FILE (file), FALSE);
+
+  return window_save_to (self, file, options);
 }
 
 /* A filter over several endings at once, by suffix rather than by
@@ -6079,7 +6188,18 @@ book_filters (gboolean opening)
   g_list_store_append (filters, pattern_filter (_("Gnumeric Spreadsheets (*.gnumeric)"), "*.gnumeric"));
   g_list_store_append (filters, pattern_filter (_("OpenDocument Spreadsheets (*.ods, *.fods)"), "*.ods"));
   g_list_store_append (filters, pattern_filter (_("Web Pages (*.html)"), "*.html"));
-  g_list_store_append (filters, pattern_filter (_("Comma-Separated Values (*.csv)"), "*.csv"));
+  if (opening)
+    {
+      static const char *const text[] = { "prn", "txt", "csv", "tsv", "tab", NULL };
+
+      g_list_store_append (filters, suffix_filter (_("Text Files (*.prn, *.txt, *.csv)"), text));
+    }
+  else
+    {
+      g_list_store_append (filters, pattern_filter (_("CSV (Comma Delimited) (*.csv)"), "*.csv"));
+      g_list_store_append (filters, pattern_filter (_("Text (Tab Delimited) (*.txt)"), "*.txt"));
+      g_list_store_append (filters, pattern_filter (_("Formatted Text (Space Delimited) (*.prn)"), "*.prn"));
+    }
   g_list_store_append (filters, pattern_filter (_("Data Interchange Format (*.dif)"), "*.dif"));
   g_list_store_append (filters, pattern_filter ("SYLK (*.slk)", "*.slk"));
   g_list_store_append (filters, pattern_filter (_("LaTeX Tables (*.tex)"), "*.tex"));
@@ -6096,7 +6216,7 @@ static GtkFileFilter *
 save_filter_for (GListModel *filters, GFile *file)
 {
   static const char *const SUFFIXES[] = {
-    ".xlsx", ".xlsm", ".xls", ".gnumeric", ".ods", ".html", ".csv",
+    ".xlsx", ".xlsm", ".xls", ".gnumeric", ".ods", ".html", ".csv", ".txt", ".prn",
     ".dif", ".slk", ".tex", ".wk1"
   };
   char *name = file != NULL ? g_file_get_basename (file) : NULL;
@@ -6105,9 +6225,10 @@ save_filter_for (GListModel *filters, GFile *file)
 
   if (folded != NULL)
     {
-      /* The two endings that share a line with another. */
+      /* The endings that share a line with another. */
       if (g_str_has_suffix (folded, ".fods")) pick = 4;
       else if (g_str_has_suffix (folded, ".htm")) pick = 5;
+      else if (g_str_has_suffix (folded, ".tsv") || g_str_has_suffix (folded, ".tab")) pick = 7;
       else
         for (guint i = 0; i < G_N_ELEMENTS (SUFFIXES); i++)
           if (g_str_has_suffix (folded, SUFFIXES[i]))
@@ -6133,7 +6254,12 @@ on_save_as_response (GObject *source, GAsyncResult *result, gpointer data)
 
   if (file != NULL)
     {
-      window_save_to (self, file);
+      /* A text file has more than one way to be written; the options
+       * are asked, and it is written when they have been answered. */
+      if (file_is_csv (file))
+        o42_window_save_text_as (self, file);
+      else
+        window_save_to (self, file, NULL);
       g_object_unref (file);
     }
   else
@@ -6187,7 +6313,7 @@ action_save (GSimpleAction *a, GVariant *p, gpointer data)
       return;
     }
 
-  window_save_to (self, self->file);
+  window_save_to (self, self->file, NULL);
 }
 
 static void
@@ -6202,6 +6328,16 @@ on_open_response (GObject *source, GAsyncResult *result, gpointer data)
   if (file != NULL)
     {
       O42Window *target = self;
+
+      /* A text file goes through the Text Import Wizard first, which
+       * finds its own window at the end. */
+      if (file_is_csv (file))
+        {
+          o42_window_import_text (self, file, TRUE);
+          g_object_unref (file);
+          g_clear_error (&error);
+          return;
+        }
 
       /* A book with work in it stays; the file opens beside it. */
       if (!o42_window_is_blank (self))
@@ -6658,6 +6794,7 @@ static const GActionEntry ACTIONS[] = {
   { "replace",        action_replace,        NULL, NULL, NULL, { 0 } },
   { "export-pdf", action_export_pdf, NULL, NULL, NULL, { 0 } },
   { "import-pdf", action_import_pdf, NULL, NULL, NULL, { 0 } },
+  { "import-text", action_import_text, NULL, NULL, NULL, { 0 } },
   { "about",      action_about,      NULL, NULL, NULL, { 0 } },
 };
 
@@ -7539,7 +7676,7 @@ host_save (gpointer user, O42Book *book, const char *path, char **message)
       return FALSE;
     }
   file = path != NULL ? g_file_new_for_path (path) : g_object_ref (self->file);
-  ok = window_save_to (self, file);
+  ok = window_save_to (self, file, NULL);
   if (!ok)
     *message = g_strdup_printf ("the book could not be saved to %s", path != NULL ? path : "its file");
   g_object_unref (file);
@@ -7642,6 +7779,7 @@ o42_window_dispose (GObject *object)
     }
   g_clear_pointer (&self->db, o42_db_close);
   g_clear_object (&self->file);
+  g_clear_pointer (&self->csv, o42_csv_options_free);
   g_clear_object (&self->print_settings);
 
   G_OBJECT_CLASS (o42_window_parent_class)->dispose (object);

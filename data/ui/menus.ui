@@ -43,6 +43,7 @@
         </submenu>
       </section>
       <section>
+        <item><attribute name="label" translatable="yes">Import _Text File...</attribute><attribute name="action">win.import-text</attribute></item>
         <item><attribute name="label" translatable="yes">I_mport from PDF...</attribute><attribute name="action">win.import-pdf</attribute></item>
       </section>
       <section>

@@ -1073,6 +1073,9 @@ int o42_sheet_text_to_columns_fixed (O42Sheet *sheet, const O42Range *range,
  * Appended to `breaks` (int). */
 void o42_sheet_guess_fixed_breaks (O42Sheet *sheet, const O42Range *range, GArray *breaks);
 
+/* The same guess over lines of text, as a fixed-width file has them. */
+void o42_guess_fixed_breaks (const char *const *lines, guint n_lines, GArray *breaks);
+
 /* ---- View state -------------------------------------------------------- */
 
 /* How many rows and columns are frozen at the top and left: a view
