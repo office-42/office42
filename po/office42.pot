@@ -7671,7 +7671,7 @@ msgid ""
 "Also known as Numbers42.\n"
 "A spreadsheet in the shape of Excel 97, at parity with its features and "
 "Gnumeric's arithmetic, written in C on GTK 4, Pango and Cairo.\n"
-"Source: github.com/office-42/office42"
+"Source: github.com/office-42/office42-spreadsheet"
 msgstr ""
 
 #: src/ui/o42-window.c:6910

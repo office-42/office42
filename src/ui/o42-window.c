@@ -6597,7 +6597,7 @@ action_about (GSimpleAction *a, GVariant *p, gpointer data)
                          "comments", _("Also known as Numbers42.\n"
                                        "A spreadsheet in the shape of Excel 97, at parity with its features and Gnumeric's arithmetic, "
                                        "written in C on GTK 4, Pango and Cairo.\n"
-                                       "Source: github.com/office-42/office42"),
+                                       "Source: github.com/office-42/office42-spreadsheet"),
                          "website", "https://office42.net",
                          "website-label", "office42.net",
                          "copyright", "Copyright \302\251 2026 The office42 authors",

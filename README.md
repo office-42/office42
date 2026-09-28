@@ -10,9 +10,9 @@ Gnumeric, written from scratch in C on GTK 4, Pango and Cairo. It is the sister 
 principles: a small, honest codebase that does one thing well.
 The site is [office42.net](https://office42.net/).
 
-[![Linux](https://github.com/office-42/office42/actions/workflows/linux.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/linux.yml)
-[![macOS](https://github.com/office-42/office42/actions/workflows/macos.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/macos.yml)
-[![Windows](https://github.com/office-42/office42/actions/workflows/windows.yml/badge.svg)](https://github.com/office-42/office42/actions/workflows/windows.yml)
+[![Linux](https://github.com/office-42/office42-spreadsheet/actions/workflows/linux.yml/badge.svg)](https://github.com/office-42/office42-spreadsheet/actions/workflows/linux.yml)
+[![macOS](https://github.com/office-42/office42-spreadsheet/actions/workflows/macos.yml/badge.svg)](https://github.com/office-42/office42-spreadsheet/actions/workflows/macos.yml)
+[![Windows](https://github.com/office-42/office42-spreadsheet/actions/workflows/windows.yml/badge.svg)](https://github.com/office-42/office42-spreadsheet/actions/workflows/windows.yml)
 
 ![Office42 Spreadsheet showing the dashboard of an outdoor-gear retailer's accounts: a title set in two fonts in one cell, a strip of four merged key figures -- revenue, gross margin, operating profit and web-shop share -- over a table of revenue by channel and quarter under a red-to-green colour scale, an operating margin row with a conditional format on the weakest quarter and notes attached, the formula bar showing =SUMIFS(Amount,Channel,$A9,Qtr,B$8,CrAcct,">=4000") over named ranges of the journal, a stacked column chart of revenue by channel and quarter, a doughnut chart of where the revenue comes from with labels and a legend, and eight coloured sheet tabs -- Dashboard, Profit, Channels, Balance, Cashflow, Trial, Journal and Accounts](docs/images/screenshot.png)
 

@@ -230,7 +230,7 @@ inside it.
 It reads and writes Excel's .xlsx and .xls, OpenDocument .ods,
 Gnumeric's own format, CSV, HTML and the old Lotus, SYLK and DIF files,
 and opens what LibreOffice and Excel wrote. Free software under the
-GPL; the source is at github.com/office-42/office42 and the site at
+GPL; the source is at github.com/office-42/office42-spreadsheet and the site at
 office42.net.
 
 **Features** (the Store shows up to twenty):
