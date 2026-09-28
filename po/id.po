@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 07:18+0000\n"
+"POT-Creation-Date: 2026-09-28 07:41+0000\n"
 "PO-Revision-Date: 2026-09-25 19:58+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Indonesian\n"
@@ -40,7 +40,7 @@ msgstr "_Buka..."
 msgid "_Close"
 msgstr "T_utup"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1603
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1795
 #: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "Si_mpan"
@@ -703,7 +703,7 @@ msgstr "_Garis Bawah"
 msgid "_Alignment"
 msgstr "_Perataan"
 
-#: data/ui/menus.ui:280 data/ui/menus.ui:287 src/ui/o42-dialogs-file.c:1079
+#: data/ui/menus.ui:280 data/ui/menus.ui:287
 msgid "_General"
 msgstr "_Umum"
 
@@ -3650,7 +3650,7 @@ msgstr "Daftar saya memiliki baris _header"
 #: src/ui/o42-dialogs-edit.c:289 src/ui/o42-dialogs-edit.c:375
 #: src/ui/o42-dialogs-edit.c:531 src/ui/o42-dialogs-edit.c:594
 #: src/ui/o42-dialogs-edit.c:652 src/ui/o42-dialogs-edit.c:728
-#: src/ui/o42-dialogs-file.c:1272 src/ui/o42-dialogs-format.c:458
+#: src/ui/o42-dialogs-file.c:1464 src/ui/o42-dialogs-format.c:458
 #: src/ui/o42-dialogs-format.c:572 src/ui/o42-dialogs-format.c:673
 #: src/ui/o42-dialogs-format.c:772 src/ui/o42-dialogs-format.c:829
 #: src/ui/o42-dialogs-tools.c:127 src/ui/o42-dialogs-tools.c:411
@@ -3675,8 +3675,8 @@ msgstr "_OK"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1273
-#: src/ui/o42-dialogs-file.c:1604 src/ui/o42-dialogs-format.c:459
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1465
+#: src/ui/o42-dialogs-file.c:1796 src/ui/o42-dialogs-format.c:459
 #: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
 #: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
 #: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
@@ -4108,7 +4108,7 @@ msgid "List"
 msgstr "Daftar"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-file.c:163 src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "Tanggal"
 
@@ -4192,35 +4192,36 @@ msgstr "Tampilkan peringatan kesalahan setelah data tidak valid _dimasukkan"
 msgid "_Clear"
 msgstr "_Bersihkan"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Comma"
 msgstr "_Koma"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Tab"
 msgstr "_Tab"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Semicolon"
 msgstr "Titik k_oma"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "S_pace"
 msgstr "_Spasi"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:163
-#: src/ui/o42-dialogs-format.c:61 src/ui/o42-dialogs-format.c:104
-#: src/ui/o42-window.c:5304
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
+#: src/ui/o42-dialogs-file.c:1343 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5304
 msgid "General"
 msgstr "Umum"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:163
-#: src/ui/o42-dialogs-format.c:61 src/ui/o42-window.c:4854
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
+#: src/ui/o42-dialogs-file.c:1344 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "Teks"
 
@@ -4244,7 +4245,7 @@ msgstr "Lainnya:"
 msgid "Delimited"
 msgstr "Dengan pembatas"
 
-#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:813
+#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:938
 msgid ""
 "Click the ruler to put in a break, drag one to move it, double-click one to "
 "take it away.  Click a column to choose its format."
@@ -4604,150 +4605,159 @@ msgstr "Tionghoa, Tradisional (Big5)"
 msgid "Korean (EUC-KR)"
 msgstr "Korea (EUC-KR)"
 
-#: src/ui/o42-dialogs-file.c:163
+#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-file.c:1352
 msgid "Skip Column"
 msgstr "Lewati Kolom"
 
-#: src/ui/o42-dialogs-file.c:815
-msgid "Click a column to choose its format, Shift+click to choose several."
-msgstr "Klik kolom untuk memilih formatnya, Shift+klik untuk memilih beberapa kolom."
+#: src/ui/o42-dialogs-file.c:940
+msgid ""
+"Click a column to choose it, Shift+click to choose several, the corner to "
+"choose all."
+msgstr ""
+"Klik kolom untuk memilihnya, Shift+klik untuk memilih beberapa kolom, atau "
+"sudutnya untuk memilih semua."
 
-#: src/ui/o42-dialogs-file.c:912
+#: src/ui/o42-dialogs-file.c:1067
 msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
 msgstr ""
 "Lembar diproteksi: gunakan Alat > Proteksi > Buka Proteksi Lembar terlebih "
 "dahulu."
 
-#: src/ui/o42-dialogs-file.c:919
+#: src/ui/o42-dialogs-file.c:1074
 msgid "Put the data at a cell, such as A1."
 msgstr "Tentukan sel tempat data diletakkan, misalnya A1."
 
-#: src/ui/o42-dialogs-file.c:968
+#: src/ui/o42-dialogs-file.c:1163
 msgid "File _origin:"
 msgstr "_Asal berkas:"
 
-#: src/ui/o42-dialogs-file.c:975
+#: src/ui/o42-dialogs-file.c:1167
 msgid "Start import at _row:"
 msgstr "Mulai impor pada ba_ris:"
 
-#: src/ui/o42-dialogs-file.c:990 src/ui/o42-dialogs-file.c:1082
-#: src/ui/o42-dialogs-file.c:1543
+#: src/ui/o42-dialogs-file.c:1178 src/ui/o42-dialogs-file.c:1266
+#: src/ui/o42-dialogs-file.c:1735
 msgid "{none}"
 msgstr "{tidak ada}"
 
-#: src/ui/o42-dialogs-file.c:998
-msgid "_Delimited - Characters such as commas or tabs separate each field."
-msgstr ""
-"_Dengan pembatas - Karakter seperti koma atau tab memisahkan setiap bidang."
+#: src/ui/o42-dialogs-file.c:1188
+msgid "_Delimited"
+msgstr "_Dengan pembatas"
 
-#: src/ui/o42-dialogs-file.c:1009 src/ui/o42-dialogs-file.c:1498
+#: src/ui/o42-dialogs-file.c:1197 src/ui/o42-dialogs-file.c:1690
 msgid "_Other:"
 msgstr "_Lainnya:"
 
-#: src/ui/o42-dialogs-file.c:1019
+#: src/ui/o42-dialogs-file.c:1207
 msgid "Treat consecutive delimiters as o_ne"
 msgstr "Perlakukan pembatas berurutan sebagai sat_u"
 
-#: src/ui/o42-dialogs-file.c:1021 src/ui/o42-dialogs-file.c:1538
+#: src/ui/o42-dialogs-file.c:1209
+msgid "Tr_im spaces"
+msgstr "Pangkas _spasi"
+
+#: src/ui/o42-dialogs-file.c:1214 src/ui/o42-dialogs-file.c:1730
 msgid "Text _qualifier:"
 msgstr "Kualifikas_i teks:"
 
-#: src/ui/o42-dialogs-file.c:1033
-msgid ""
-"Fixed _width - Fields are aligned in columns with spaces between each field."
-msgstr ""
-"_Lebar tetap - Bidang-bidang disejajarkan dalam kolom dengan spasi di antara "
-"setiap bidang."
+#: src/ui/o42-dialogs-file.c:1217
+msgid "Fixed _width"
+msgstr "Lebar te_tap"
 
-#: src/ui/o42-dialogs-file.c:1071
+#: src/ui/o42-dialogs-file.c:1257
 msgid "Original data type"
 msgstr "Jenis data asli"
 
-#: src/ui/o42-dialogs-file.c:1079
-msgid "_Text"
-msgstr "_Teks"
-
-#: src/ui/o42-dialogs-file.c:1079
-msgid "_Date:"
-msgstr "T_anggal:"
-
-#: src/ui/o42-dialogs-file.c:1080
-msgid "Do not _import column (skip)"
-msgstr "Jangan _impor kolom (lewati)"
-
-#: src/ui/o42-dialogs-file.c:1082
+#: src/ui/o42-dialogs-file.c:1266
 msgid "space"
 msgstr "spasi"
 
-#: src/ui/o42-dialogs-file.c:1106
-msgid "Column data format"
-msgstr "Format data kolom"
-
-#: src/ui/o42-dialogs-file.c:1116
+#: src/ui/o42-dialogs-file.c:1273
 msgid "De_cimal separator:"
 msgstr "Pemisah _desimal:"
 
-#: src/ui/o42-dialogs-file.c:1122
+#: src/ui/o42-dialogs-file.c:1277
 msgid "T_housands separator:"
 msgstr "Pemisah _ribuan:"
 
-#: src/ui/o42-dialogs-file.c:1130
+#: src/ui/o42-dialogs-file.c:1278
 msgid "Trailing _minus for negative numbers"
 msgstr "_Minus di belakang untuk bilangan negatif"
 
-#: src/ui/o42-dialogs-file.c:1144
-msgid "_Advanced"
-msgstr "Tingkat _Lanjut"
+#: src/ui/o42-dialogs-file.c:1283
+msgid "Format quoted fields as te_xt"
+msgstr "Format bidang berkutip sebagai te_ks"
 
-#: src/ui/o42-dialogs-file.c:1198 src/ui/o42-dialogs-file.c:1301
+#: src/ui/o42-dialogs-file.c:1285
+msgid "Evalu_ate formulas"
+msgstr "E_valuasi rumus"
+
+#: src/ui/o42-dialogs-file.c:1304
+msgid "Other options"
+msgstr "Opsi lainnya"
+
+#: src/ui/o42-dialogs-file.c:1324
+msgid "_Put the data at:"
+msgstr "Tem_patkan data di:"
+
+#: src/ui/o42-dialogs-file.c:1326
+msgid "On a _new sheet"
+msgstr "Di lembar _baru"
+
+#: src/ui/o42-dialogs-file.c:1329
+msgid "S_kip empty cells"
+msgstr "Lewati sel _kosong"
+
+#: src/ui/o42-dialogs-file.c:1347
+#, c-format
+msgid "Date (%s)"
+msgstr "Tanggal (%s)"
+
+#: src/ui/o42-dialogs-file.c:1354
+msgid "Column t_ype:"
+msgstr "_Jenis kolom:"
+
+#: src/ui/o42-dialogs-file.c:1421 src/ui/o42-dialogs-file.c:1493
 #: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
 #: src/ui/o42-window.c:6354
 msgid "office42 could not open that file."
 msgstr "office42 tidak dapat membuka berkas tersebut."
 
-#: src/ui/o42-dialogs-file.c:1224
+#: src/ui/o42-dialogs-file.c:1448
 #, c-format
 msgid "Text Import - %s"
 msgstr "Impor Teks - %s"
 
-#: src/ui/o42-dialogs-file.c:1241
-msgid "_Put the data at:"
-msgstr "Tem_patkan data di:"
-
-#: src/ui/o42-dialogs-file.c:1256
-msgid "Data preview"
-msgstr "Pratinjau data"
-
-#: src/ui/o42-dialogs-file.c:1317 src/ui/o42-window.c:6195
+#: src/ui/o42-dialogs-file.c:1509 src/ui/o42-window.c:6195
 msgid "Text Files (*.prn, *.txt, *.csv)"
 msgstr "Berkas Teks (*.prn, *.txt, *.csv)"
 
-#: src/ui/o42-dialogs-file.c:1320 src/ui/o42-window.c:6207
+#: src/ui/o42-dialogs-file.c:1512 src/ui/o42-window.c:6207
 msgid "All Files"
 msgstr "Semua Berkas"
 
-#: src/ui/o42-dialogs-file.c:1325
+#: src/ui/o42-dialogs-file.c:1517
 msgid "Import Text File"
 msgstr "Impor Berkas Teks"
 
-#: src/ui/o42-dialogs-file.c:1370
+#: src/ui/o42-dialogs-file.c:1562
 msgid "Type the character to put between the fields."
 msgstr "Ketik karakter yang akan diletakkan di antara bidang."
 
-#: src/ui/o42-dialogs-file.c:1443
+#: src/ui/o42-dialogs-file.c:1635
 msgid "Windows (CR LF)"
 msgstr "Windows (CR LF)"
 
-#: src/ui/o42-dialogs-file.c:1443
+#: src/ui/o42-dialogs-file.c:1635
 msgid "Unix and macOS (LF)"
 msgstr "Unix dan macOS (LF)"
 
-#: src/ui/o42-dialogs-file.c:1471
+#: src/ui/o42-dialogs-file.c:1663
 #, c-format
 msgid "Save %s as Text"
 msgstr "Simpan %s sebagai Teks"
 
-#: src/ui/o42-dialogs-file.c:1479
+#: src/ui/o42-dialogs-file.c:1671
 #, c-format
 msgid ""
 "A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
@@ -4756,51 +4766,51 @@ msgstr ""
 "Berkas teks hanya memuat satu lembar. Hanya lembar yang ditampilkan, “%s”, "
 "yang akan disimpan; buku kerja tetap memuat lembar lainnya sampai ditutup."
 
-#: src/ui/o42-dialogs-file.c:1507
+#: src/ui/o42-dialogs-file.c:1699
 msgid "_Fixed width - the columns padded with spaces"
 msgstr "Leb_ar tetap - kolom diisi dengan spasi"
 
-#: src/ui/o42-dialogs-file.c:1510
+#: src/ui/o42-dialogs-file.c:1702
 msgid "Between the fields"
 msgstr "Di antara bidang"
 
-#: src/ui/o42-dialogs-file.c:1550
+#: src/ui/o42-dialogs-file.c:1742
 msgid "_Encoding:"
 msgstr "_Pengodean:"
 
-#: src/ui/o42-dialogs-file.c:1556
+#: src/ui/o42-dialogs-file.c:1748
 msgid ""
 "With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
 msgstr ""
 "Dengan tanda _urutan byte (BOM), seperti “CSV UTF-8” dan “Teks Unicode” di "
 "Excel"
 
-#: src/ui/o42-dialogs-file.c:1561
+#: src/ui/o42-dialogs-file.c:1753
 msgid "_Lines end:"
 msgstr "Ak_hir baris:"
 
 #. A file read with a decimal comma is written with one.
-#: src/ui/o42-dialogs-file.c:1573
+#: src/ui/o42-dialogs-file.c:1765
 msgid "_Decimal separator:"
 msgstr "Pemisah _desimal:"
 
-#: src/ui/o42-dialogs-file.c:1577
+#: src/ui/o42-dialogs-file.c:1769
 msgid "Point (1,234.50)"
 msgstr "Titik (1,234.50)"
 
-#: src/ui/o42-dialogs-file.c:1577
+#: src/ui/o42-dialogs-file.c:1769
 msgid "Comma (1.234,50)"
 msgstr "Koma (1.234,50)"
 
-#: src/ui/o42-dialogs-file.c:1590
+#: src/ui/o42-dialogs-file.c:1782
 msgid "Save cell contents as _shown"
 msgstr "Simpan isi sel seperti _yang ditampilkan"
 
-#: src/ui/o42-dialogs-file.c:1593
+#: src/ui/o42-dialogs-file.c:1785
 msgid "Save _formulas rather than what they work out to"
 msgstr "Simpan _rumus, bukan hasil perhitungannya"
 
-#: src/ui/o42-dialogs-file.c:1596
+#: src/ui/o42-dialogs-file.c:1788
 msgid "_Quote all text cells"
 msgstr "Beri tanda kutip pada s_emua sel teks"
 
@@ -7943,6 +7953,36 @@ msgstr "_Jalankan Skrip"
 #: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "_Skrip..."
+
+#~ msgid "_Delimited - Characters such as commas or tabs separate each field."
+#~ msgstr ""
+#~ "_Dengan pembatas - Karakter seperti koma atau tab memisahkan setiap "
+#~ "bidang."
+
+#~ msgid ""
+#~ "Fixed _width - Fields are aligned in columns with spaces between each "
+#~ "field."
+#~ msgstr ""
+#~ "_Lebar tetap - Bidang-bidang disejajarkan dalam kolom dengan spasi di "
+#~ "antara setiap bidang."
+
+#~ msgid "_Text"
+#~ msgstr "_Teks"
+
+#~ msgid "_Date:"
+#~ msgstr "T_anggal:"
+
+#~ msgid "Do not _import column (skip)"
+#~ msgstr "Jangan _impor kolom (lewati)"
+
+#~ msgid "Column data format"
+#~ msgstr "Format data kolom"
+
+#~ msgid "_Advanced"
+#~ msgstr "Tingkat _Lanjut"
+
+#~ msgid "Data preview"
+#~ msgstr "Pratinjau data"
 
 #~ msgid "Text Import Wizard - Step 1 of 3"
 #~ msgstr "Wisaya Impor Teks - Langkah 1 dari 3"

@@ -295,13 +295,16 @@ them.
 
 **Text files** went through a reader that guessed and asked nothing.
 A .csv, .txt or .prn now opens through Text Import, which asks on
-one page what Excel 97's Text Import Wizard asked on three --
-delimited or fixed width, the first row, the file's encoding; the
-delimiters and the qualifier, or the column breaks on a ruler over
-the preview; each column General, Text, Date in an order, or skipped
--- with Excel 2002's decimal and thousands separators and trailing
-minus beside it, and File ▸ Import Text File puts a file's records at
-the active cell.  The guess behind it counts each separator on every line and
+one page, laid out as LibreOffice's is, what Excel 97's Text Import
+Wizard asked on three -- delimited or fixed width, the first row, the
+file's encoding; the delimiters and the qualifier, or the column
+breaks on a ruler over the preview; each column General, Text, Date
+in an order, or skipped -- with Excel 2002's decimal and thousands
+separators and trailing minus, and LibreOffice's trim spaces, quoted
+fields as text and evaluate formulas.  The preview numbers the file's
+lines, and its columns are chosen by mouse or keyboard.  File ▸
+Import Text File puts a file's records at a cell or on a new sheet,
+as Excel 2000's Import Data asked, and can skip empty cells.  The guess behind it counts each separator on every line and
 takes the one that holds steady, reads a decimal comma from the
 numbers, and knows UTF-16 and Windows-1252 from UTF-8.  Saving had
 been comma and UTF-8 whatever the file was; a file goes back now in

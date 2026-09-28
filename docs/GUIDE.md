@@ -914,8 +914,9 @@ documentation.
 **Text files.** A `.csv`, `.txt`, `.tsv`, `.tab` or `.prn` opens
 through Text Import, whichever way it is opened -- File ▸ Open, the
 recent files, the command line. It asks on one page what Excel 97's
-Text Import Wizard asked on three, with the file cut up underneath as
-the answers say, changing as they change:
+Text Import Wizard asked on three, laid out as LibreOffice lays out
+its own, with the file cut up underneath as the answers say, changing
+as they change:
 
 - **File origin** is the encoding: UTF-8 and UTF-16 are known by
   their byte-order marks, anything else that is not UTF-8 is taken for
@@ -923,26 +924,38 @@ the answers say, changing as they change:
   rest. **Start import at row** passes over a report's title lines.
 - **Delimited** or **Fixed width**. For a delimited file, the
   delimiters -- tab, semicolon, comma, space or any other character,
-  two together counting as one if asked -- and the text qualifier,
-  `"` or `'`. For a fixed-width one the preview has a ruler: click it
-  to put in a column break, drag a break to move it, double-click one
-  to take it away.
-- **Column data format**, for the columns chosen in the preview -- a
-  click chooses one, Shift+click several: General reads it as typed,
-  Text keeps `00123` a code, Date reads it in the order chosen (MDY,
-  DMY, YMD and the rest), and Skip leaves it out. **Advanced** says
-  how the file writes its numbers -- the decimal and thousands
-  separators, and a minus sign behind, `12-`, as mainframes print it.
+  two together counting as one if asked -- the text qualifier, `"` or
+  `'`, and **Trim spaces**, which takes the spaces off each field and
+  lets a qualifier come after them, so that `a, "b, c"` is two fields.
+  For a fixed-width one the preview has a ruler: click it to put in a
+  column break, drag a break to move it, double-click one to take it
+  away.
+- **Other options**: how the file writes its numbers -- the decimal
+  and thousands separators, and a minus sign behind, `12-`, as
+  mainframes print it -- **Format quoted fields as text**, which keeps
+  `"00123"` a code however it looks, and **Evaluate formulas**: turned
+  off, a field such as `=A1*2` comes in as the text it is, which is
+  the safe way to open a file from somewhere you do not know.
+- **Column type**, for the columns chosen in the preview: General
+  reads it as typed, Text keeps `00123` a code, Date reads it in the
+  order chosen (MDY, DMY, YMD and the rest), and Skip Column leaves it
+  out. The preview numbers the file's lines down the left as a sheet
+  does its rows; a click on a column chooses it, Shift+click several,
+  the corner above the numbers all of them, and once the preview has
+  the keyboard, Left, Right, Home and End go from column to column,
+  with Shift choosing on the way, and Ctrl+A chooses every one.
 
 The first guesses are good ones, so OK is often all there is to it:
 the separator is the character that comes the same number of times on
-most lines, a file of semicolons with `1.234,50` in it is read with a
-decimal comma, and a file with no separator but columns that line up
-is fixed width.
+most lines, spaces after every one of them are trimmed, a file of
+semicolons with `1.234,50` in it is read with a decimal comma, and a
+file with no separator but columns that line up is fixed width.
 
 File ▸ Import Text File asks the same, and puts the records into the
-sheet on show at the active cell (or wherever **Put the data at**
-says), as one step to undo; the book is not the file's afterwards.
+sheet on show at the active cell, wherever **Put the data at** says,
+or **On a new sheet**, as one step to undo; **Skip empty cells**
+leaves what is under an empty field as it was. The book is not the
+file's afterwards.
 
 Saving keeps a text file as it came: a semicolon file with a decimal
 comma in Windows-1252 goes back as one, CR LF or LF as it had them.
@@ -1084,9 +1097,9 @@ prints the used range. The commands, by family:
 `import FILE` reads a text file as Text Import would, with its
 answers as words after the name -- `sep=tab+;`,
 `quote='`, `merge`, `start=3`, `enc=WINDOWS-1252`, `fixed=8,20`,
-`cols=G,T,D:DMY,S`, `decimal=,`, `thousands=.`, `nominus`, and
-`at=B2` to put the records into the sheet there instead of replacing
-it. `export FILE` writes one with `sep=`, `quote=`, `enc=`, `decimal=`,
+`cols=G,T,D:DMY,S`, `decimal=,`, `thousands=.`, `nominus`, `trim`
+(or `notrim`), `quotedtext`, `noformulas`, `skipempty`, and `at=B2`
+to put the records into the sheet there instead of replacing it. `export FILE` writes one with `sep=`, `quote=`, `enc=`, `decimal=`,
 `fixed=`, `bom`, `lf`, `raw`, `formulas` and `quoteall`, and
 `sniff FILE` says what Text Import would guess of it.
 

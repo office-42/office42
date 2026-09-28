@@ -76,6 +76,12 @@ typedef struct {
   char     decimal;          /* the decimal separator the file uses */
   char     thousands;        /* its thousands separator, or '\0' */
   gboolean trailing_minus;   /* 5- is minus five, as a mainframe prints it */
+  gboolean trim_spaces;      /* spaces round a field are not part of it, and
+                              * a qualifier may come after them */
+  gboolean quoted_as_text;   /* a field in quotes is text, "00123" and all */
+  gboolean evaluate_formulas;/* =A1*2 in a field is a formula, not text */
+  gboolean skip_empty;       /* an empty field leaves the cell it lands on
+                              * as it was, rather than emptying it */
 
   /* What o42_csv_sniff found, for the writer to give back the same. */
   gboolean bom;              /* a byte-order mark in front */
@@ -89,7 +95,7 @@ typedef struct {
 } O42CsvOptions;
 
 /* Excel's defaults: comma, double quote, the encoding guessed, CR LF,
- * values as shown. */
+ * formulas evaluated, values as shown. */
 O42CsvOptions *o42_csv_options_new  (void);
 O42CsvOptions *o42_csv_options_copy (const O42CsvOptions *options);
 void           o42_csv_options_free (O42CsvOptions *options);
@@ -135,14 +141,20 @@ GPtrArray *o42_csv_lines (const char *text, int max_lines);
 
 /* The first `max_rows` records of the text as the options cut them,
  * each a NULL-terminated vector of fields as they are in the file
- * (quotes taken off, nothing converted).  For Text Import's preview. */
-GPtrArray *o42_csv_preview (const char *text, const O42CsvOptions *options, int max_rows);
+ * (quotes taken off, nothing converted).  For Text Import's preview.
+ * `first_lines`, when given, gets the line of the file (int, from 1)
+ * each record starts on, which a quoted field running over several
+ * lines puts ahead of the record's count. */
+GPtrArray *o42_csv_preview (const char *text, const O42CsvOptions *options, int max_rows,
+                            GArray *first_lines);
 
 /* A field put into a cell as a column of that kind takes it: General as
  * if typed, Text kept as text, Date read in the column's order, with
- * the options' decimal and thousands separators understood. */
+ * the options' decimal and thousands separators understood.  `quoted`
+ * says the field was in the text qualifier in the file. */
 void o42_csv_set_cell (O42Sheet *sheet, int row, int col, const char *field,
-                       const O42CsvColumn *column, const O42CsvOptions *options);
+                       const O42CsvColumn *column, const O42CsvOptions *options,
+                       gboolean quoted);
 
 /* Puts the decoded text's records into the sheet with their first field
  * at (row, col), as one undo step.  With `replace` the sheet is emptied

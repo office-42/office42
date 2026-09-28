@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 07:18+0000\n"
+"POT-Creation-Date: 2026-09-28 07:41+0000\n"
 "PO-Revision-Date: 2026-09-25 20:03+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Norwegian Bokmal\n"
@@ -41,7 +41,7 @@ msgstr "_Åpne..."
 msgid "_Close"
 msgstr "_Lukk"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1603
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1795
 #: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "_Lagre"
@@ -704,7 +704,7 @@ msgstr "_Understreking"
 msgid "_Alignment"
 msgstr "_Justering"
 
-#: data/ui/menus.ui:280 data/ui/menus.ui:287 src/ui/o42-dialogs-file.c:1079
+#: data/ui/menus.ui:280 data/ui/menus.ui:287
 msgid "_General"
 msgstr "_Generelt"
 
@@ -3635,7 +3635,7 @@ msgstr "Listen min har en _overskriftsrad"
 #: src/ui/o42-dialogs-edit.c:289 src/ui/o42-dialogs-edit.c:375
 #: src/ui/o42-dialogs-edit.c:531 src/ui/o42-dialogs-edit.c:594
 #: src/ui/o42-dialogs-edit.c:652 src/ui/o42-dialogs-edit.c:728
-#: src/ui/o42-dialogs-file.c:1272 src/ui/o42-dialogs-format.c:458
+#: src/ui/o42-dialogs-file.c:1464 src/ui/o42-dialogs-format.c:458
 #: src/ui/o42-dialogs-format.c:572 src/ui/o42-dialogs-format.c:673
 #: src/ui/o42-dialogs-format.c:772 src/ui/o42-dialogs-format.c:829
 #: src/ui/o42-dialogs-tools.c:127 src/ui/o42-dialogs-tools.c:411
@@ -3660,8 +3660,8 @@ msgstr "_OK"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1273
-#: src/ui/o42-dialogs-file.c:1604 src/ui/o42-dialogs-format.c:459
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1465
+#: src/ui/o42-dialogs-file.c:1796 src/ui/o42-dialogs-format.c:459
 #: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
 #: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
 #: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
@@ -4093,7 +4093,7 @@ msgid "List"
 msgstr "Liste"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-file.c:163 src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "Dato"
 
@@ -4177,35 +4177,36 @@ msgstr "Vis feilvarsel etter at ugyldige data er _skrevet inn"
 msgid "_Clear"
 msgstr "_Tøm"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Comma"
 msgstr "_Komma"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Tab"
 msgstr "_Tabulator"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Semicolon"
 msgstr "_Semikolon"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "S_pace"
 msgstr "_Mellomrom"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:163
-#: src/ui/o42-dialogs-format.c:61 src/ui/o42-dialogs-format.c:104
-#: src/ui/o42-window.c:5304
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
+#: src/ui/o42-dialogs-file.c:1343 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5304
 msgid "General"
 msgstr "Generelt"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:163
-#: src/ui/o42-dialogs-format.c:61 src/ui/o42-window.c:4854
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
+#: src/ui/o42-dialogs-file.c:1344 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "Tekst"
 
@@ -4229,7 +4230,7 @@ msgstr "Annet:"
 msgid "Delimited"
 msgstr "Med skilletegn"
 
-#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:813
+#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:938
 msgid ""
 "Click the ruler to put in a break, drag one to move it, double-click one to "
 "take it away.  Click a column to choose its format."
@@ -4587,148 +4588,159 @@ msgstr "Kinesisk, tradisjonell (Big5)"
 msgid "Korean (EUC-KR)"
 msgstr "Koreansk (EUC-KR)"
 
-#: src/ui/o42-dialogs-file.c:163
+#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-file.c:1352
 msgid "Skip Column"
 msgstr "Hopp over kolonne"
 
-#: src/ui/o42-dialogs-file.c:815
-msgid "Click a column to choose its format, Shift+click to choose several."
-msgstr "Klikk en kolonne for å velge formatet, Shift+klikk for å velge flere."
+#: src/ui/o42-dialogs-file.c:940
+msgid ""
+"Click a column to choose it, Shift+click to choose several, the corner to "
+"choose all."
+msgstr ""
+"Klikk en kolonne for å velge den, Shift+klikk for å velge flere, hjørnet for "
+"å velge alle."
 
-#: src/ui/o42-dialogs-file.c:912
+#: src/ui/o42-dialogs-file.c:1067
 msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
 msgstr ""
 "Arket er beskyttet: velg Verktøy ▸ Beskyttelse ▸ Opphev beskyttelse av ark "
 "først."
 
-#: src/ui/o42-dialogs-file.c:919
+#: src/ui/o42-dialogs-file.c:1074
 msgid "Put the data at a cell, such as A1."
 msgstr "Angi en celle å plassere dataene i, for eksempel A1."
 
-#: src/ui/o42-dialogs-file.c:968
+#: src/ui/o42-dialogs-file.c:1163
 msgid "File _origin:"
 msgstr "Fil_opprinnelse:"
 
-#: src/ui/o42-dialogs-file.c:975
+#: src/ui/o42-dialogs-file.c:1167
 msgid "Start import at _row:"
 msgstr "Start import på _rad:"
 
-#: src/ui/o42-dialogs-file.c:990 src/ui/o42-dialogs-file.c:1082
-#: src/ui/o42-dialogs-file.c:1543
+#: src/ui/o42-dialogs-file.c:1178 src/ui/o42-dialogs-file.c:1266
+#: src/ui/o42-dialogs-file.c:1735
 msgid "{none}"
 msgstr "{ingen}"
 
-#: src/ui/o42-dialogs-file.c:998
-msgid "_Delimited - Characters such as commas or tabs separate each field."
-msgstr "_Med skilletegn - Tegn som komma eller tabulator skiller feltene."
+#: src/ui/o42-dialogs-file.c:1188
+msgid "_Delimited"
+msgstr "_Med skilletegn"
 
-#: src/ui/o42-dialogs-file.c:1009 src/ui/o42-dialogs-file.c:1498
+#: src/ui/o42-dialogs-file.c:1197 src/ui/o42-dialogs-file.c:1690
 msgid "_Other:"
 msgstr "_Annet:"
 
-#: src/ui/o42-dialogs-file.c:1019
+#: src/ui/o42-dialogs-file.c:1207
 msgid "Treat consecutive delimiters as o_ne"
 msgstr "Behandle etterfølgende skilletegn som _ett"
 
-#: src/ui/o42-dialogs-file.c:1021 src/ui/o42-dialogs-file.c:1538
+#: src/ui/o42-dialogs-file.c:1209
+msgid "Tr_im spaces"
+msgstr "Fjern me_llomrom"
+
+#: src/ui/o42-dialogs-file.c:1214 src/ui/o42-dialogs-file.c:1730
 msgid "Text _qualifier:"
 msgstr "Tekstbe_grenser:"
 
-#: src/ui/o42-dialogs-file.c:1033
-msgid ""
-"Fixed _width - Fields are aligned in columns with spaces between each field."
-msgstr ""
-"Fa_st bredde - Feltene står i kolonner med mellomrom mellom hvert felt."
+#: src/ui/o42-dialogs-file.c:1217
+msgid "Fixed _width"
+msgstr "_Fast bredde"
 
-#: src/ui/o42-dialogs-file.c:1071
+#: src/ui/o42-dialogs-file.c:1257
 msgid "Original data type"
 msgstr "Opprinnelig datatype"
 
-#: src/ui/o42-dialogs-file.c:1079
-msgid "_Text"
-msgstr "_Tekst"
-
-#: src/ui/o42-dialogs-file.c:1079
-msgid "_Date:"
-msgstr "_Dato:"
-
-#: src/ui/o42-dialogs-file.c:1080
-msgid "Do not _import column (skip)"
-msgstr "Ikke _importer kolonne (hopp over)"
-
-#: src/ui/o42-dialogs-file.c:1082
+#: src/ui/o42-dialogs-file.c:1266
 msgid "space"
 msgstr "mellomrom"
 
-#: src/ui/o42-dialogs-file.c:1106
-msgid "Column data format"
-msgstr "Kolonnedataformat"
-
-#: src/ui/o42-dialogs-file.c:1116
+#: src/ui/o42-dialogs-file.c:1273
 msgid "De_cimal separator:"
 msgstr "Desima_lskilletegn:"
 
-#: src/ui/o42-dialogs-file.c:1122
+#: src/ui/o42-dialogs-file.c:1277
 msgid "T_housands separator:"
 msgstr "T_usenskilletegn:"
 
-#: src/ui/o42-dialogs-file.c:1130
+#: src/ui/o42-dialogs-file.c:1278
 msgid "Trailing _minus for negative numbers"
 msgstr "Etterfølgende _minus for negative tall"
 
-#: src/ui/o42-dialogs-file.c:1144
-msgid "_Advanced"
-msgstr "_Avansert"
+#: src/ui/o42-dialogs-file.c:1283
+msgid "Format quoted fields as te_xt"
+msgstr "Formater felt i anførselstegn som te_kst"
 
-#: src/ui/o42-dialogs-file.c:1198 src/ui/o42-dialogs-file.c:1301
+#: src/ui/o42-dialogs-file.c:1285
+msgid "Evalu_ate formulas"
+msgstr "_Beregn formler"
+
+#: src/ui/o42-dialogs-file.c:1304
+msgid "Other options"
+msgstr "Andre alternativer"
+
+#: src/ui/o42-dialogs-file.c:1324
+msgid "_Put the data at:"
+msgstr "_Plasser dataene i:"
+
+#: src/ui/o42-dialogs-file.c:1326
+msgid "On a _new sheet"
+msgstr "På et _nytt ark"
+
+#: src/ui/o42-dialogs-file.c:1329
+msgid "S_kip empty cells"
+msgstr "Hopp over t_omme celler"
+
+#: src/ui/o42-dialogs-file.c:1347
+#, c-format
+msgid "Date (%s)"
+msgstr "Dato (%s)"
+
+#: src/ui/o42-dialogs-file.c:1354
+msgid "Column t_ype:"
+msgstr "Kolonne_type:"
+
+#: src/ui/o42-dialogs-file.c:1421 src/ui/o42-dialogs-file.c:1493
 #: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
 #: src/ui/o42-window.c:6354
 msgid "office42 could not open that file."
 msgstr "office42 kunne ikke åpne den filen."
 
-#: src/ui/o42-dialogs-file.c:1224
+#: src/ui/o42-dialogs-file.c:1448
 #, c-format
 msgid "Text Import - %s"
 msgstr "Tekstimport - %s"
 
-#: src/ui/o42-dialogs-file.c:1241
-msgid "_Put the data at:"
-msgstr "_Plasser dataene i:"
-
-#: src/ui/o42-dialogs-file.c:1256
-msgid "Data preview"
-msgstr "Forhåndsvisning av data"
-
-#: src/ui/o42-dialogs-file.c:1317 src/ui/o42-window.c:6195
+#: src/ui/o42-dialogs-file.c:1509 src/ui/o42-window.c:6195
 msgid "Text Files (*.prn, *.txt, *.csv)"
 msgstr "Tekstfiler (*.prn, *.txt, *.csv)"
 
-#: src/ui/o42-dialogs-file.c:1320 src/ui/o42-window.c:6207
+#: src/ui/o42-dialogs-file.c:1512 src/ui/o42-window.c:6207
 msgid "All Files"
 msgstr "Alle filer"
 
-#: src/ui/o42-dialogs-file.c:1325
+#: src/ui/o42-dialogs-file.c:1517
 msgid "Import Text File"
 msgstr "Importer tekstfil"
 
-#: src/ui/o42-dialogs-file.c:1370
+#: src/ui/o42-dialogs-file.c:1562
 msgid "Type the character to put between the fields."
 msgstr "Skriv inn tegnet som skal stå mellom feltene."
 
-#: src/ui/o42-dialogs-file.c:1443
+#: src/ui/o42-dialogs-file.c:1635
 msgid "Windows (CR LF)"
 msgstr "Windows (CR LF)"
 
-#: src/ui/o42-dialogs-file.c:1443
+#: src/ui/o42-dialogs-file.c:1635
 msgid "Unix and macOS (LF)"
 msgstr "Unix og macOS (LF)"
 
-#: src/ui/o42-dialogs-file.c:1471
+#: src/ui/o42-dialogs-file.c:1663
 #, c-format
 msgid "Save %s as Text"
 msgstr "Lagre %s som tekst"
 
-#: src/ui/o42-dialogs-file.c:1479
+#: src/ui/o42-dialogs-file.c:1671
 #, c-format
 msgid ""
 "A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
@@ -4737,51 +4749,51 @@ msgstr ""
 "En tekstfil rommer ett ark. Bare arket som vises, «%s», blir lagret; "
 "arbeidsboken beholder de andre til den lukkes."
 
-#: src/ui/o42-dialogs-file.c:1507
+#: src/ui/o42-dialogs-file.c:1699
 msgid "_Fixed width - the columns padded with spaces"
 msgstr "_Fast bredde - kolonnene fylt ut med mellomrom"
 
-#: src/ui/o42-dialogs-file.c:1510
+#: src/ui/o42-dialogs-file.c:1702
 msgid "Between the fields"
 msgstr "Mellom feltene"
 
-#: src/ui/o42-dialogs-file.c:1550
+#: src/ui/o42-dialogs-file.c:1742
 msgid "_Encoding:"
 msgstr "K_oding:"
 
-#: src/ui/o42-dialogs-file.c:1556
+#: src/ui/o42-dialogs-file.c:1748
 msgid ""
 "With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
 msgstr ""
 "Med _byterekkefølgemerke (BOM), slik Excels «CSV UTF-8» og «Unicode-tekst» "
 "har"
 
-#: src/ui/o42-dialogs-file.c:1561
+#: src/ui/o42-dialogs-file.c:1753
 msgid "_Lines end:"
 msgstr "L_injeslutt:"
 
 #. A file read with a decimal comma is written with one.
-#: src/ui/o42-dialogs-file.c:1573
+#: src/ui/o42-dialogs-file.c:1765
 msgid "_Decimal separator:"
 msgstr "_Desimalskilletegn:"
 
-#: src/ui/o42-dialogs-file.c:1577
+#: src/ui/o42-dialogs-file.c:1769
 msgid "Point (1,234.50)"
 msgstr "Punktum (1,234.50)"
 
-#: src/ui/o42-dialogs-file.c:1577
+#: src/ui/o42-dialogs-file.c:1769
 msgid "Comma (1.234,50)"
 msgstr "Komma (1.234,50)"
 
-#: src/ui/o42-dialogs-file.c:1590
+#: src/ui/o42-dialogs-file.c:1782
 msgid "Save cell contents as _shown"
 msgstr "Lagre celleinnholdet slik det _vises"
 
-#: src/ui/o42-dialogs-file.c:1593
+#: src/ui/o42-dialogs-file.c:1785
 msgid "Save _formulas rather than what they work out to"
 msgstr "Lagre formlene i stedet for _resultatene"
 
-#: src/ui/o42-dialogs-file.c:1596
+#: src/ui/o42-dialogs-file.c:1788
 msgid "_Quote all text cells"
 msgstr "Sett a_nførselstegn rundt alle tekstceller"
 
@@ -7927,6 +7939,33 @@ msgstr "_Kjør skript"
 #: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "_Skript..."
+
+#~ msgid "_Delimited - Characters such as commas or tabs separate each field."
+#~ msgstr "_Med skilletegn - Tegn som komma eller tabulator skiller feltene."
+
+#~ msgid ""
+#~ "Fixed _width - Fields are aligned in columns with spaces between each "
+#~ "field."
+#~ msgstr ""
+#~ "Fa_st bredde - Feltene står i kolonner med mellomrom mellom hvert felt."
+
+#~ msgid "_Text"
+#~ msgstr "_Tekst"
+
+#~ msgid "_Date:"
+#~ msgstr "_Dato:"
+
+#~ msgid "Do not _import column (skip)"
+#~ msgstr "Ikke _importer kolonne (hopp over)"
+
+#~ msgid "Column data format"
+#~ msgstr "Kolonnedataformat"
+
+#~ msgid "_Advanced"
+#~ msgstr "_Avansert"
+
+#~ msgid "Data preview"
+#~ msgstr "Forhåndsvisning av data"
 
 #~ msgid "Text Import Wizard - Step 1 of 3"
 #~ msgstr "Veiviser for tekstimport - trinn 1 av 3"

@@ -32,7 +32,8 @@
  * reads a text file the way Text Import would, with words after the
  * name for what it asks -- sep=tab+; quote=' merge
  * start=3 enc=WINDOWS-1252 fixed=8,20 cols=G,T,D:DMY,S decimal=,
- * thousands=. nominus at=B2 -- "export FILE" writes one with sep=; enc=
+ * thousands=. nominus trim notrim quotedtext noformulas skipempty at=B2
+ * -- "export FILE" writes one with sep=; enc=
  * bom lf raw formulas quoteall, and "sniff FILE" says what Text Import
  * would guess.  "sort A1:C9 B
  * desc header", "find TEXT" and "replace OLD -> NEW" do what they say;
@@ -228,6 +229,16 @@ csv_option (O42CsvOptions *o, const char *word, int *at_row, int *at_col)
                  : strcmp (word + 10, "space") == 0 ? ' ' : word[10];
   else if (strcmp (word, "nominus") == 0)
     o->trailing_minus = FALSE;
+  else if (strcmp (word, "trim") == 0)
+    o->trim_spaces = TRUE;
+  else if (strcmp (word, "notrim") == 0)
+    o->trim_spaces = FALSE;
+  else if (strcmp (word, "quotedtext") == 0)
+    o->quoted_as_text = TRUE;
+  else if (strcmp (word, "noformulas") == 0)
+    o->evaluate_formulas = FALSE;
+  else if (strcmp (word, "skipempty") == 0)
+    o->skip_empty = TRUE;
   else if (g_str_has_prefix (word, "at=") && at_row != NULL)
     return o42_ref_parse (word + 3, at_row, at_col, NULL);
   else if (strcmp (word, "bom") == 0)
@@ -720,7 +731,8 @@ main (int argc, char *argv[])
               printf (", breaks");
               for (guint i = 0; i < o->breaks->len; i++)
                 printf ("%s%d", i > 0 ? "," : " ", g_array_index (o->breaks, int, i));
-              printf ("%s\n", o->breaks->len == 0 ? " none" : "");
+              printf ("%s", o->breaks->len == 0 ? " none" : "");
+              printf (", decimal %c%s\n", o->decimal, o->trim_spaces ? ", spaces trimmed" : "");
             }
           else if (ok && text[0] == 'i')
             {

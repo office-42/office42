@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-28 07:18+0000\n"
+"POT-Creation-Date: 2026-09-28 07:41+0000\n"
 "PO-Revision-Date: 2026-09-25 19:58+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Chinese (simplified)\n"
@@ -40,7 +40,7 @@ msgstr "打开(_O)..."
 msgid "_Close"
 msgstr "关闭(_C)"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1603
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1795
 #: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "保存(_S)"
@@ -703,7 +703,7 @@ msgstr "下划线(_U)"
 msgid "_Alignment"
 msgstr "对齐(_A)"
 
-#: data/ui/menus.ui:280 data/ui/menus.ui:287 src/ui/o42-dialogs-file.c:1079
+#: data/ui/menus.ui:280 data/ui/menus.ui:287
 msgid "_General"
 msgstr "常规(_G)"
 
@@ -3590,7 +3590,7 @@ msgstr "数据清单有标题行(_H)"
 #: src/ui/o42-dialogs-edit.c:289 src/ui/o42-dialogs-edit.c:375
 #: src/ui/o42-dialogs-edit.c:531 src/ui/o42-dialogs-edit.c:594
 #: src/ui/o42-dialogs-edit.c:652 src/ui/o42-dialogs-edit.c:728
-#: src/ui/o42-dialogs-file.c:1272 src/ui/o42-dialogs-format.c:458
+#: src/ui/o42-dialogs-file.c:1464 src/ui/o42-dialogs-format.c:458
 #: src/ui/o42-dialogs-format.c:572 src/ui/o42-dialogs-format.c:673
 #: src/ui/o42-dialogs-format.c:772 src/ui/o42-dialogs-format.c:829
 #: src/ui/o42-dialogs-tools.c:127 src/ui/o42-dialogs-tools.c:411
@@ -3615,8 +3615,8 @@ msgstr "确定(_O)"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1273
-#: src/ui/o42-dialogs-file.c:1604 src/ui/o42-dialogs-format.c:459
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1465
+#: src/ui/o42-dialogs-file.c:1796 src/ui/o42-dialogs-format.c:459
 #: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
 #: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
 #: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
@@ -4040,7 +4040,7 @@ msgid "List"
 msgstr "序列"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-file.c:163 src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "日期"
 
@@ -4123,35 +4123,36 @@ msgstr "输入无效数据时显示出错警告(_E)"
 msgid "_Clear"
 msgstr "清除(_C)"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Comma"
 msgstr "逗号(_C)"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Tab"
 msgstr "Tab 键(_T)"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "_Semicolon"
 msgstr "分号(_S)"
 
-#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:989
-#: src/ui/o42-dialogs-file.c:1442
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1177
+#: src/ui/o42-dialogs-file.c:1634
 msgid "S_pace"
 msgstr "空格(_P)"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:163
-#: src/ui/o42-dialogs-format.c:61 src/ui/o42-dialogs-format.c:104
-#: src/ui/o42-window.c:5304
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
+#: src/ui/o42-dialogs-file.c:1343 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5304
 msgid "General"
 msgstr "常规"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:163
-#: src/ui/o42-dialogs-format.c:61 src/ui/o42-window.c:4854
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:328
+#: src/ui/o42-dialogs-file.c:1344 src/ui/o42-dialogs-format.c:61
+#: src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "文本"
 
@@ -4175,7 +4176,7 @@ msgstr "其他："
 msgid "Delimited"
 msgstr "分隔符号"
 
-#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:813
+#: src/ui/o42-dialogs-data.c:1966 src/ui/o42-dialogs-file.c:938
 msgid ""
 "Click the ruler to put in a break, drag one to move it, double-click one to "
 "take it away.  Click a column to choose its format."
@@ -4531,145 +4532,156 @@ msgstr "繁体中文 (Big5)"
 msgid "Korean (EUC-KR)"
 msgstr "韩语 (EUC-KR)"
 
-#: src/ui/o42-dialogs-file.c:163
+#: src/ui/o42-dialogs-file.c:328 src/ui/o42-dialogs-file.c:1352
 msgid "Skip Column"
 msgstr "忽略列"
 
-#: src/ui/o42-dialogs-file.c:815
-msgid "Click a column to choose its format, Shift+click to choose several."
-msgstr "单击某列可选择其格式，按住 Shift 单击可选定多列。"
+#: src/ui/o42-dialogs-file.c:940
+msgid ""
+"Click a column to choose it, Shift+click to choose several, the corner to "
+"choose all."
+msgstr ""
+"单击某列可选定该列，按住 Shift 单击可选定多列，单击左上角可选定所有列。"
 
-#: src/ui/o42-dialogs-file.c:912
+#: src/ui/o42-dialogs-file.c:1067
 msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
 msgstr "工作表受保护：请先使用“工具 > 保护 > 撤消工作表保护”。"
 
-#: src/ui/o42-dialogs-file.c:919
+#: src/ui/o42-dialogs-file.c:1074
 msgid "Put the data at a cell, such as A1."
 msgstr "请指定一个单元格作为数据的放置位置，例如 A1。"
 
-#: src/ui/o42-dialogs-file.c:968
+#: src/ui/o42-dialogs-file.c:1163
 msgid "File _origin:"
 msgstr "文件原始格式(_O)："
 
-#: src/ui/o42-dialogs-file.c:975
+#: src/ui/o42-dialogs-file.c:1167
 msgid "Start import at _row:"
 msgstr "导入起始行(_R)："
 
-#: src/ui/o42-dialogs-file.c:990 src/ui/o42-dialogs-file.c:1082
-#: src/ui/o42-dialogs-file.c:1543
+#: src/ui/o42-dialogs-file.c:1178 src/ui/o42-dialogs-file.c:1266
+#: src/ui/o42-dialogs-file.c:1735
 msgid "{none}"
 msgstr "{无}"
 
-#: src/ui/o42-dialogs-file.c:998
-msgid "_Delimited - Characters such as commas or tabs separate each field."
-msgstr "分隔符号 - 用分隔字符（如逗号或制表符）分隔每个字段(_D)"
+#: src/ui/o42-dialogs-file.c:1188
+msgid "_Delimited"
+msgstr "分隔符号(_D)"
 
-#: src/ui/o42-dialogs-file.c:1009 src/ui/o42-dialogs-file.c:1498
+#: src/ui/o42-dialogs-file.c:1197 src/ui/o42-dialogs-file.c:1690
 msgid "_Other:"
 msgstr "其他(_O)："
 
-#: src/ui/o42-dialogs-file.c:1019
+#: src/ui/o42-dialogs-file.c:1207
 msgid "Treat consecutive delimiters as o_ne"
 msgstr "连续分隔符号视为单个处理(_N)"
 
-#: src/ui/o42-dialogs-file.c:1021 src/ui/o42-dialogs-file.c:1538
+#: src/ui/o42-dialogs-file.c:1209
+msgid "Tr_im spaces"
+msgstr "去除空格(_I)"
+
+#: src/ui/o42-dialogs-file.c:1214 src/ui/o42-dialogs-file.c:1730
 msgid "Text _qualifier:"
 msgstr "文本识别符号(_Q)："
 
-#: src/ui/o42-dialogs-file.c:1033
-msgid ""
-"Fixed _width - Fields are aligned in columns with spaces between each field."
-msgstr "固定宽度 - 每列字段加空格对齐(_W)"
+#: src/ui/o42-dialogs-file.c:1217
+msgid "Fixed _width"
+msgstr "固定宽度(_W)"
 
-#: src/ui/o42-dialogs-file.c:1071
+#: src/ui/o42-dialogs-file.c:1257
 msgid "Original data type"
 msgstr "原始数据类型"
 
-#: src/ui/o42-dialogs-file.c:1079
-msgid "_Text"
-msgstr "文本(_T)"
-
-#: src/ui/o42-dialogs-file.c:1079
-msgid "_Date:"
-msgstr "日期(_D)："
-
-#: src/ui/o42-dialogs-file.c:1080
-msgid "Do not _import column (skip)"
-msgstr "不导入此列(跳过)(_I)"
-
-#: src/ui/o42-dialogs-file.c:1082
+#: src/ui/o42-dialogs-file.c:1266
 msgid "space"
 msgstr "空格"
 
-#: src/ui/o42-dialogs-file.c:1106
-msgid "Column data format"
-msgstr "列数据格式"
-
-#: src/ui/o42-dialogs-file.c:1116
+#: src/ui/o42-dialogs-file.c:1273
 msgid "De_cimal separator:"
 msgstr "小数分隔符(_C)："
 
-#: src/ui/o42-dialogs-file.c:1122
+#: src/ui/o42-dialogs-file.c:1277
 msgid "T_housands separator:"
 msgstr "千位分隔符(_H)："
 
-#: src/ui/o42-dialogs-file.c:1130
+#: src/ui/o42-dialogs-file.c:1278
 msgid "Trailing _minus for negative numbers"
 msgstr "以尾随负号表示负数(_M)"
 
-#: src/ui/o42-dialogs-file.c:1144
-msgid "_Advanced"
-msgstr "高级(_A)"
+#: src/ui/o42-dialogs-file.c:1283
+msgid "Format quoted fields as te_xt"
+msgstr "将带引号的字段设为文本(_X)"
 
-#: src/ui/o42-dialogs-file.c:1198 src/ui/o42-dialogs-file.c:1301
+#: src/ui/o42-dialogs-file.c:1285
+msgid "Evalu_ate formulas"
+msgstr "计算公式(_A)"
+
+#: src/ui/o42-dialogs-file.c:1304
+msgid "Other options"
+msgstr "其他选项"
+
+#: src/ui/o42-dialogs-file.c:1324
+msgid "_Put the data at:"
+msgstr "数据放置于(_P)："
+
+#: src/ui/o42-dialogs-file.c:1326
+msgid "On a _new sheet"
+msgstr "放在新工作表中(_N)"
+
+#: src/ui/o42-dialogs-file.c:1329
+msgid "S_kip empty cells"
+msgstr "跳过空单元格(_K)"
+
+#: src/ui/o42-dialogs-file.c:1347
+#, c-format
+msgid "Date (%s)"
+msgstr "日期 (%s)"
+
+#: src/ui/o42-dialogs-file.c:1354
+msgid "Column t_ype:"
+msgstr "列类型(_Y)："
+
+#: src/ui/o42-dialogs-file.c:1421 src/ui/o42-dialogs-file.c:1493
 #: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
 #: src/ui/o42-window.c:6354
 msgid "office42 could not open that file."
 msgstr "office42 无法打开该文件。"
 
-#: src/ui/o42-dialogs-file.c:1224
+#: src/ui/o42-dialogs-file.c:1448
 #, c-format
 msgid "Text Import - %s"
 msgstr "文本导入 - %s"
 
-#: src/ui/o42-dialogs-file.c:1241
-msgid "_Put the data at:"
-msgstr "数据放置于(_P)："
-
-#: src/ui/o42-dialogs-file.c:1256
-msgid "Data preview"
-msgstr "数据预览"
-
-#: src/ui/o42-dialogs-file.c:1317 src/ui/o42-window.c:6195
+#: src/ui/o42-dialogs-file.c:1509 src/ui/o42-window.c:6195
 msgid "Text Files (*.prn, *.txt, *.csv)"
 msgstr "文本文件 (*.prn, *.txt, *.csv)"
 
-#: src/ui/o42-dialogs-file.c:1320 src/ui/o42-window.c:6207
+#: src/ui/o42-dialogs-file.c:1512 src/ui/o42-window.c:6207
 msgid "All Files"
 msgstr "所有文件"
 
-#: src/ui/o42-dialogs-file.c:1325
+#: src/ui/o42-dialogs-file.c:1517
 msgid "Import Text File"
 msgstr "导入文本文件"
 
-#: src/ui/o42-dialogs-file.c:1370
+#: src/ui/o42-dialogs-file.c:1562
 msgid "Type the character to put between the fields."
 msgstr "请键入要放在字段之间的字符。"
 
-#: src/ui/o42-dialogs-file.c:1443
+#: src/ui/o42-dialogs-file.c:1635
 msgid "Windows (CR LF)"
 msgstr "Windows (CR LF)"
 
-#: src/ui/o42-dialogs-file.c:1443
+#: src/ui/o42-dialogs-file.c:1635
 msgid "Unix and macOS (LF)"
 msgstr "Unix 和 macOS (LF)"
 
-#: src/ui/o42-dialogs-file.c:1471
+#: src/ui/o42-dialogs-file.c:1663
 #, c-format
 msgid "Save %s as Text"
 msgstr "将 %s 另存为文本"
 
-#: src/ui/o42-dialogs-file.c:1479
+#: src/ui/o42-dialogs-file.c:1671
 #, c-format
 msgid ""
 "A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
@@ -4678,49 +4690,49 @@ msgstr ""
 "文本文件只能容纳一个工作表。只会保存当前显示的工作表“%s”；其他工作表在工作簿"
 "关闭之前仍保留在工作簿中。"
 
-#: src/ui/o42-dialogs-file.c:1507
+#: src/ui/o42-dialogs-file.c:1699
 msgid "_Fixed width - the columns padded with spaces"
 msgstr "固定宽度 - 各列以空格补齐(_F)"
 
-#: src/ui/o42-dialogs-file.c:1510
+#: src/ui/o42-dialogs-file.c:1702
 msgid "Between the fields"
 msgstr "字段之间"
 
-#: src/ui/o42-dialogs-file.c:1550
+#: src/ui/o42-dialogs-file.c:1742
 msgid "_Encoding:"
 msgstr "编码(_E)："
 
-#: src/ui/o42-dialogs-file.c:1556
+#: src/ui/o42-dialogs-file.c:1748
 msgid ""
 "With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
 msgstr "带字节顺序标记，与 Excel 的“CSV UTF-8”和“Unicode 文本”相同(_B)"
 
-#: src/ui/o42-dialogs-file.c:1561
+#: src/ui/o42-dialogs-file.c:1753
 msgid "_Lines end:"
 msgstr "换行符(_L)："
 
 #. A file read with a decimal comma is written with one.
-#: src/ui/o42-dialogs-file.c:1573
+#: src/ui/o42-dialogs-file.c:1765
 msgid "_Decimal separator:"
 msgstr "小数分隔符(_D)："
 
-#: src/ui/o42-dialogs-file.c:1577
+#: src/ui/o42-dialogs-file.c:1769
 msgid "Point (1,234.50)"
 msgstr "句点 (1,234.50)"
 
-#: src/ui/o42-dialogs-file.c:1577
+#: src/ui/o42-dialogs-file.c:1769
 msgid "Comma (1.234,50)"
 msgstr "逗号 (1.234,50)"
 
-#: src/ui/o42-dialogs-file.c:1590
+#: src/ui/o42-dialogs-file.c:1782
 msgid "Save cell contents as _shown"
 msgstr "按显示的格式保存单元格内容(_S)"
 
-#: src/ui/o42-dialogs-file.c:1593
+#: src/ui/o42-dialogs-file.c:1785
 msgid "Save _formulas rather than what they work out to"
 msgstr "保存公式而非其计算结果(_F)"
 
-#: src/ui/o42-dialogs-file.c:1596
+#: src/ui/o42-dialogs-file.c:1788
 msgid "_Quote all text cells"
 msgstr "为所有文本单元格加引号(_Q)"
 
@@ -7816,6 +7828,32 @@ msgstr "运行脚本(_R)"
 #: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "脚本(_S)..."
+
+#~ msgid "_Delimited - Characters such as commas or tabs separate each field."
+#~ msgstr "分隔符号 - 用分隔字符（如逗号或制表符）分隔每个字段(_D)"
+
+#~ msgid ""
+#~ "Fixed _width - Fields are aligned in columns with spaces between each "
+#~ "field."
+#~ msgstr "固定宽度 - 每列字段加空格对齐(_W)"
+
+#~ msgid "_Text"
+#~ msgstr "文本(_T)"
+
+#~ msgid "_Date:"
+#~ msgstr "日期(_D)："
+
+#~ msgid "Do not _import column (skip)"
+#~ msgstr "不导入此列(跳过)(_I)"
+
+#~ msgid "Column data format"
+#~ msgstr "列数据格式"
+
+#~ msgid "_Advanced"
+#~ msgstr "高级(_A)"
+
+#~ msgid "Data preview"
+#~ msgstr "数据预览"
 
 #~ msgid "Text Import Wizard - Step 1 of 3"
 #~ msgstr "文本导入向导 - 第 1 步，共 3 步"

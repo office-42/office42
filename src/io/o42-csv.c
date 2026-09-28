@@ -30,6 +30,7 @@ o42_csv_options_new (void)
   options->decimal = '.';
   options->thousands = ',';
   options->trailing_minus = TRUE;
+  options->evaluate_formulas = TRUE;
   options->crlf = TRUE;
   options->as_shown = TRUE;
   return options;
@@ -394,6 +395,8 @@ typedef struct {
   guint8               ascii[128]; /* which ASCII characters separate */
   char               **wide;       /* the separators beyond ASCII, in UTF-8 */
   GArray              *breaks;     /* the fixed-width breaks, put in order */
+  GArray              *quoted;     /* gboolean: which fields of the record were
+                                    * in the qualifier */
   GString             *field;
 } Reader;
 
@@ -425,6 +428,7 @@ reader_init (Reader *r, const char *text, const O42CsvOptions *options)
       if (b > 0 && (r->breaks->len == 0 || b > g_array_index (r->breaks, int, r->breaks->len - 1)))
         g_array_append_val (r->breaks, b);
     }
+  r->quoted = g_array_new (FALSE, FALSE, sizeof (gboolean));
   r->field = g_string_new (NULL);
 }
 
@@ -433,6 +437,7 @@ reader_clear (Reader *r)
 {
   g_strfreev (r->wide);
   g_array_unref (r->breaks);
+  g_array_unref (r->quoted);
   g_string_free (r->field, TRUE);
 }
 
@@ -460,19 +465,30 @@ line_end (char c)
   return c == '\0' || c == '\n' || c == '\r';
 }
 
+/* A space or a tab that is not itself a separator: what Trim spaces
+ * takes off a field. */
+static inline gboolean
+padding_at (const Reader *r, const char *s)
+{
+  return (*s == ' ' || *s == '\t') && separator_at (r, s) == 0;
+}
+
 /* One record of a delimited file into `fields`: RFC 4180's, with the
  * qualifier and separators the options say.  A qualifier opens a quoted
- * field only at the field's start, as Excel reads it, and a quoted field
- * may run over several lines. */
+ * field only at the field's start, as Excel reads it -- after the
+ * spaces, when they are trimmed, so that a, "b, c" is two fields -- and
+ * a quoted field may run over several lines. */
 static gboolean
 read_delimited (Reader *r, GPtrArray *fields)
 {
   const char *s = r->p;
   char q = r->options->quote;
   gboolean merge = r->options->merge_separators;
+  gboolean trim = r->options->trim_spaces;
   gsize n;
 
   g_ptr_array_set_size (fields, 0);
+  g_array_set_size (r->quoted, 0);
   if (*s == '\0')
     return FALSE;
 
@@ -484,10 +500,15 @@ read_delimited (Reader *r, GPtrArray *fields)
   for (;;)
     {
       GString *f = r->field;
+      gboolean quoted = FALSE;
 
       g_string_truncate (f, 0);
+      if (trim)
+        while (padding_at (r, s))
+          s++;
       if (q != '\0' && *s == q)
         {
+          quoted = TRUE;
           s++;
           while (*s != '\0')
             {
@@ -509,8 +530,19 @@ read_delimited (Reader *r, GPtrArray *fields)
               g_string_append_len (f, start, s - start);
             }
 
-          /* Anything between the closing quote and the separator is a
-           * malformed file; keeping it is kinder than dropping it. */
+          /* Spaces before the separator are the file's layout when they
+           * are trimmed.  Anything else between the closing quote and
+           * the separator is a malformed file; keeping it is kinder
+           * than dropping it. */
+          if (trim)
+            {
+              const char *after = s;
+
+              while (padding_at (r, after))
+                after++;
+              if (line_end (*after) || separator_at (r, after) > 0)
+                s = after;
+            }
           while (!line_end (*s) && separator_at (r, s) == 0)
             g_string_append_c (f, *s++);
         }
@@ -521,8 +553,12 @@ read_delimited (Reader *r, GPtrArray *fields)
           while (!line_end (*s) && separator_at (r, s) == 0)
             s++;
           g_string_append_len (f, start, s - start);
+          if (trim)
+            while (f->len > 0 && (f->str[f->len - 1] == ' ' || f->str[f->len - 1] == '\t'))
+              g_string_truncate (f, f->len - 1);
         }
       g_ptr_array_add (fields, g_strndup (f->str, f->len));
+      g_array_append_val (r->quoted, quoted);
 
       n = separator_at (r, s);
       if (n > 0)
@@ -557,6 +593,7 @@ read_fixed (Reader *r, GPtrArray *fields)
   glong position = 0;
 
   g_ptr_array_set_size (fields, 0);
+  g_array_set_size (r->quoted, 0);
   if (*s == '\0')
     return FALSE;
 
@@ -590,22 +627,40 @@ read_record (Reader *r, GPtrArray *fields)
 }
 
 GPtrArray *
-o42_csv_preview (const char *text, const O42CsvOptions *options, int max_rows)
+o42_csv_preview (const char *text, const O42CsvOptions *options, int max_rows,
+                 GArray *first_lines)
 {
   GPtrArray *rows = g_ptr_array_new_with_free_func ((GDestroyNotify) g_strfreev);
   GPtrArray *fields = g_ptr_array_new_with_free_func (g_free);
+  int line = MAX (options != NULL ? options->start_row : 0, 0) + 1;
   Reader r;
 
   g_return_val_if_fail (text != NULL && options != NULL, rows);
 
+  if (first_lines != NULL)
+    g_array_set_size (first_lines, 0);
   reader_init (&r, text, options);
-  while ((int) rows->len < max_rows && read_record (&r, fields))
+  for (;;)
     {
-      char **copy = g_new0 (char *, fields->len + 1);
+      const char *from = r.p;
+      char **copy;
 
+      if ((int) rows->len >= max_rows || !read_record (&r, fields))
+        break;
+      copy = g_new0 (char *, fields->len + 1);
       for (guint i = 0; i < fields->len; i++)
         copy[i] = g_strdup (g_ptr_array_index (fields, i));
       g_ptr_array_add (rows, copy);
+      if (first_lines != NULL)
+        {
+          g_array_append_val (first_lines, line);
+          /* The lines the record took, a CR LF counted once. */
+          for (const char *p = from; p < r.p; p++)
+            if (*p == '\n' || (*p == '\r' && p[1] != '\n'))
+              line++;
+          if (r.p > from && r.p[-1] != '\n' && r.p[-1] != '\r')
+            line++;
+        }
     }
   reader_clear (&r);
   g_ptr_array_unref (fields);
@@ -757,6 +812,33 @@ o42_csv_sniff (const char *text, const char *name, O42CsvOptions *options)
     o42_csv_options_set_separators (options, sep);
   }
 
+  /* "Name, Age, City": a file written for people to read puts a space
+   * after every separator, and it is not part of the field that
+   * follows.  Every one of them on the first records, not most. */
+  options->trim_spaces = FALSE;
+  if (best >= 0 && order[best] != ' ')
+    {
+      const char *s = text;
+      char sep = order[best];
+      gboolean in_quote = FALSE;
+      int seen = 0, spaced = 0, records = 0;
+
+      while (*s != '\0' && records < SNIFF_RECORDS)
+        {
+          if (*s == '"')
+            in_quote = !in_quote;
+          else if (!in_quote && *s == sep)
+            {
+              seen++;
+              spaced += s[1] == ' ';
+            }
+          else if (!in_quote && *s == '\n')
+            records++;
+          s++;
+        }
+      options->trim_spaces = seen > 0 && spaced == seen;
+    }
+
   /* Where the columns would be cut if it is fixed width, which is what
    * a file with no separator in sight is taken for, unless its name
    * says it is comma-separated. */
@@ -780,7 +862,7 @@ o42_csv_sniff (const char *text, const char *name, O42CsvOptions *options)
   options->decimal = '.';
   options->thousands = ',';
   {
-    GPtrArray *rows = o42_csv_preview (text, options, SNIFF_RECORDS);
+    GPtrArray *rows = o42_csv_preview (text, options, SNIFF_RECORDS, NULL);
     int comma = 0, point = 0;
 
     for (guint i = 0; i < rows->len; i++)
@@ -1038,7 +1120,8 @@ date_in_order (const char *field, O42DateOrder order)
 
 void
 o42_csv_set_cell (O42Sheet *sheet, int row, int col, const char *field,
-                  const O42CsvColumn *column, const O42CsvOptions *options)
+                  const O42CsvColumn *column, const O42CsvOptions *options,
+                  gboolean quoted)
 {
   O42SplitType type = column != NULL ? column->type : O42_SPLIT_GENERAL;
 
@@ -1048,11 +1131,23 @@ o42_csv_set_cell (O42Sheet *sheet, int row, int col, const char *field,
     return;
   if (*field == '\0')
     {
-      /* Over cells that were there: the file's empty field empties it. */
-      if (!o42_sheet_is_empty (sheet, row, col))
+      /* Over cells that were there: the file's empty field empties it,
+       * unless empty fields are to be passed over. */
+      if ((options == NULL || !options->skip_empty) && !o42_sheet_is_empty (sheet, row, col))
         o42_sheet_set_input (sheet, row, col, NULL);
       return;
     }
+
+  /* The quotes were the file's way of saying text: a code, a ZIP, a
+   * number that is a name. */
+  if (type == O42_SPLIT_GENERAL && quoted && options != NULL && options->quoted_as_text)
+    type = O42_SPLIT_TEXT;
+
+  /* A formula in a file from elsewhere is kept as the text it is, when
+   * asked -- what a file can do by being opened is then only what its
+   * values do. */
+  if (type == O42_SPLIT_GENERAL && *field == '=' && options != NULL && !options->evaluate_formulas)
+    type = O42_SPLIT_TEXT;
 
   if (type == O42_SPLIT_TEXT)
     {
@@ -1150,7 +1245,8 @@ o42_csv_import (O42Sheet *sheet, const char *text, const O42CsvOptions *options,
           if (column.type == O42_SPLIT_SKIP)
             continue;
           if (c < O42_MAX_COLS && (!replace || *field != '\0'))
-            o42_csv_set_cell (sheet, row + n, c, field, &column, options);
+            o42_csv_set_cell (sheet, row + n, c, field, &column, options,
+                              i < r.quoted->len && g_array_index (r.quoted, gboolean, i));
           c++;
         }
       widest = MAX (widest, c - col);
