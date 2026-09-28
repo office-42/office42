@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: office42 1.0.3\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-25 19:56+0000\n"
+"POT-Creation-Date: 2026-09-28 06:46+0000\n"
 "PO-Revision-Date: 2026-09-25 19:58+0000\n"
 "Last-Translator: The office42 authors\n"
 "Language-Team: Indonesian\n"
@@ -36,11 +36,12 @@ msgstr "_Buka..."
 #: data/ui/menus.ui:14 src/ui/o42-dialogs-data.c:657
 #: src/ui/o42-dialogs-tools.c:1528 src/ui/o42-dialogs-tools.c:1679
 #: src/ui/o42-dialogs-tools.c:1854 src/ui/o42-dialogs-tools.c:3332
-#: src/ui/o42-dialogs-tools.c:3729 src/ui/o42-window.c:5168
+#: src/ui/o42-dialogs-tools.c:3729 src/ui/o42-window.c:5187
 msgid "_Close"
 msgstr "T_utup"
 
-#: data/ui/menus.ui:17 src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6257
+#: data/ui/menus.ui:17 src/ui/o42-dialogs-file.c:1665
+#: src/ui/o42-dialogs-tools.c:1297 src/ui/o42-window.c:6412
 msgid "_Save"
 msgstr "Si_mpan"
 
@@ -48,1018 +49,1022 @@ msgstr "Si_mpan"
 msgid "Save _As..."
 msgstr "Simpan _Sebagai..."
 
-#: data/ui/menus.ui:21
-msgid "Page Set_up..."
-msgstr "_Pengaturan Halaman..."
+#: data/ui/menus.ui:23 src/ui/o42-window.c:2267
+msgid "_Print..."
+msgstr "_Cetak..."
 
 #: data/ui/menus.ui:25
 msgid "P_rinting"
 msgstr "Pen_cetakan"
 
-#: data/ui/menus.ui:23
+#: data/ui/menus.ui:27
+msgid "Page Set_up..."
+msgstr "_Pengaturan Halaman..."
+
+#: data/ui/menus.ui:29
 msgid "Print _Area"
 msgstr "_Area Cetak"
 
-#: data/ui/menus.ui:24
+#: data/ui/menus.ui:30
 msgid "_Set Print Area"
 msgstr "_Tetapkan Area Cetak"
 
-#: data/ui/menus.ui:25
+#: data/ui/menus.ui:31
 msgid "_Clear Print Area"
 msgstr "_Bersihkan Area Cetak"
 
-#: data/ui/menus.ui:27
+#: data/ui/menus.ui:35
 msgid "Print Pre_view"
 msgstr "Pratin_jau Cetak"
 
-#: data/ui/menus.ui:28
+#: data/ui/menus.ui:36
 msgid "Print Preview: Boo_k"
 msgstr "Pratinjau Cetak: Buku Ke_rja"
 
-#: data/ui/menus.ui:29 src/ui/o42-window.c:2267
-msgid "_Print..."
-msgstr "_Cetak..."
-
-#: data/ui/menus.ui:30
+#: data/ui/menus.ui:37
 msgid "Print _Book..."
 msgstr "Cetak Buku K_erja..."
 
-#: data/ui/menus.ui:33
+#: data/ui/menus.ui:40
 msgid "Export as P_DF..."
 msgstr "Ekspor sebagai P_DF..."
 
-#: data/ui/menus.ui:34
+#: data/ui/menus.ui:41
 msgid "Export _Book as PDF..."
 msgstr "Ekspor Buku Kerja sebagai PD_F..."
 
-#: data/ui/menus.ui:35
+#: data/ui/menus.ui:46
+msgid "Import _Text File..."
+msgstr "Impor Berkas _Teks..."
+
+#: data/ui/menus.ui:47
 msgid "I_mport from PDF..."
 msgstr "_Impor dari PDF..."
 
-#: data/ui/menus.ui:38
+#: data/ui/menus.ui:50
 msgid "Propert_ies..."
 msgstr "Pr_operti..."
 
-#: data/ui/menus.ui:43
+#: data/ui/menus.ui:55
 msgid "E_xit"
 msgstr "_Keluar"
 
-#: data/ui/menus.ui:48
+#: data/ui/menus.ui:60
 msgid "_Edit"
 msgstr "_Edit"
 
-#: data/ui/menus.ui:50
+#: data/ui/menus.ui:62
 msgid "_Undo"
 msgstr "_Batalkan"
 
-#: data/ui/menus.ui:51
+#: data/ui/menus.ui:63
 msgid "_Redo"
 msgstr "_Ulangi"
 
-#: data/ui/menus.ui:54 src/ui/o42-grid.c:8175 src/ui/o42-grid.c:8205
-#: src/ui/o42-grid.c:8231
+#: data/ui/menus.ui:66 src/ui/o42-grid.c:8233 src/ui/o42-grid.c:8263
+#: src/ui/o42-grid.c:8289
 msgid "Cu_t"
 msgstr "_Potong"
 
-#: data/ui/menus.ui:55 src/ui/o42-grid.c:8176 src/ui/o42-grid.c:8206
-#: src/ui/o42-grid.c:8232
+#: data/ui/menus.ui:67 src/ui/o42-grid.c:8234 src/ui/o42-grid.c:8264
+#: src/ui/o42-grid.c:8290
 msgid "_Copy"
 msgstr "_Salin"
 
-#: data/ui/menus.ui:56 src/ui/o42-grid.c:8177 src/ui/o42-grid.c:8207
-#: src/ui/o42-grid.c:8233
+#: data/ui/menus.ui:68 src/ui/o42-grid.c:8235 src/ui/o42-grid.c:8265
+#: src/ui/o42-grid.c:8291
 msgid "_Paste"
 msgstr "_Tempel"
 
-#: data/ui/menus.ui:57 src/ui/o42-grid.c:8178
+#: data/ui/menus.ui:69 src/ui/o42-grid.c:8236
 msgid "Paste _Special..."
 msgstr "Tempel Sp_esial..."
 
-#: data/ui/menus.ui:58
+#: data/ui/menus.ui:70
 msgid "Paste as _Hyperlink"
 msgstr "Tempel sebagai H_yperlink"
 
-#: data/ui/menus.ui:62
+#: data/ui/menus.ui:74
 msgid "F_ill"
 msgstr "_Isi"
 
-#: data/ui/menus.ui:63
+#: data/ui/menus.ui:75
 msgid "_Down"
 msgstr "_Bawah"
 
-#: data/ui/menus.ui:64
+#: data/ui/menus.ui:76
 msgctxt "fill direction"
 msgid "_Right"
 msgstr "_Kanan"
 
-#: data/ui/menus.ui:65
+#: data/ui/menus.ui:77
 msgid "_Up"
 msgstr "_Atas"
 
-#: data/ui/menus.ui:66
+#: data/ui/menus.ui:78
 msgctxt "fill direction"
 msgid "_Left"
 msgstr "K_iri"
 
-#: data/ui/menus.ui:67
+#: data/ui/menus.ui:79
 msgid "_Across Worksheets..."
 msgstr "_Lintas Lembar Kerja..."
 
-#: data/ui/menus.ui:68
+#: data/ui/menus.ui:80
 msgid "_Series..."
 msgstr "_Deret..."
 
-#: data/ui/menus.ui:69
+#: data/ui/menus.ui:81
 msgid "_Justify"
 msgstr "_Ratakan"
 
-#: data/ui/menus.ui:72
+#: data/ui/menus.ui:84
 msgid "Cle_ar"
 msgstr "Be_rsihkan"
 
-#: data/ui/menus.ui:73 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
+#: data/ui/menus.ui:85 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
 msgid "_All"
 msgstr "_Semua"
 
-#: data/ui/menus.ui:74 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
+#: data/ui/menus.ui:86 src/ui/o42-dialogs-edit.c:235 src/ui/o42-window.c:850
 msgid "_Formats"
 msgstr "_Format"
 
-#: data/ui/menus.ui:75 src/ui/o42-dialogs-edit.c:235
+#: data/ui/menus.ui:87 src/ui/o42-dialogs-edit.c:235
 msgid "_Contents"
 msgstr "_Isi"
 
-#: data/ui/menus.ui:76
+#: data/ui/menus.ui:88
 msgid "_Notes"
 msgstr "_Komentar"
 
-#: data/ui/menus.ui:78
+#: data/ui/menus.ui:90
 msgid "_Delete..."
 msgstr "_Hapus..."
 
-#: data/ui/menus.ui:79
+#: data/ui/menus.ui:91
 msgid "Delete Ro_ws"
 msgstr "Hapus B_aris"
 
-#: data/ui/menus.ui:80
+#: data/ui/menus.ui:92
 msgid "Delete Colu_mns"
 msgstr "Hapus K_olom"
 
-#: data/ui/menus.ui:81
+#: data/ui/menus.ui:93
 msgid "Delete _Sheet"
 msgstr "Hapus _Lembar"
 
-#: data/ui/menus.ui:82
+#: data/ui/menus.ui:94
 msgid "Mo_ve or Copy Sheet..."
 msgstr "Pin_dahkan atau Salin Lembar..."
 
-#: data/ui/menus.ui:85
+#: data/ui/menus.ui:97
 msgid "Select A_ll"
 msgstr "Pilih Se_mua"
 
-#: data/ui/menus.ui:86
+#: data/ui/menus.ui:98
 msgid "_Find..."
 msgstr "_Cari..."
 
-#: data/ui/menus.ui:87
+#: data/ui/menus.ui:99
 msgid "R_eplace..."
 msgstr "_Ganti..."
 
-#: data/ui/menus.ui:88
+#: data/ui/menus.ui:100
 msgid "_Go To..."
 msgstr "Pergi _Ke..."
 
-#: data/ui/menus.ui:93
+#: data/ui/menus.ui:105
 msgid "_View"
 msgstr "_Tampilan"
 
-#: data/ui/menus.ui:96 src/ui/o42-window.c:2265
+#: data/ui/menus.ui:108 src/ui/o42-window.c:2265
 msgid "_Zoom"
 msgstr "_Zoom"
 
-#: data/ui/menus.ui:97 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:109 src/ui/o42-dialogs-tools.c:3786
 msgid "_200%"
 msgstr "_200%"
 
-#: data/ui/menus.ui:98
+#: data/ui/menus.ui:110
 msgid "_150%"
 msgstr "_150%"
 
-#: data/ui/menus.ui:99 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:111 src/ui/o42-dialogs-tools.c:3786
 msgid "_100%"
 msgstr "_100%"
 
-#: data/ui/menus.ui:100 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:112 src/ui/o42-dialogs-tools.c:3786
 msgid "_75%"
 msgstr "_75%"
 
-#: data/ui/menus.ui:101 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:113 src/ui/o42-dialogs-tools.c:3786
 msgid "_50%"
 msgstr "_50%"
 
-#: data/ui/menus.ui:102 src/ui/o42-dialogs-tools.c:3786
+#: data/ui/menus.ui:114 src/ui/o42-dialogs-tools.c:3786
 msgid "2_5%"
 msgstr "2_5%"
 
-#: data/ui/menus.ui:103
+#: data/ui/menus.ui:115
 msgid "_Zoom..."
 msgstr "_Zoom..."
 
-#: data/ui/menus.ui:105
+#: data/ui/menus.ui:117
 msgid "_Full Screen"
 msgstr "_Layar Penuh"
 
-#: data/ui/menus.ui:109
+#: data/ui/menus.ui:121
 msgid "_Toolbars"
 msgstr "Bilah _Alat"
 
-#: data/ui/menus.ui:110
+#: data/ui/menus.ui:122
 msgid "_Standard"
 msgstr "_Standar"
 
-#: data/ui/menus.ui:111
+#: data/ui/menus.ui:123
 msgid "_Formatting"
 msgstr "_Pemformatan"
 
-#: data/ui/menus.ui:113
+#: data/ui/menus.ui:125
 msgid "Formula _Bar"
 msgstr "Bilah _Rumus"
 
-#: data/ui/menus.ui:114
+#: data/ui/menus.ui:126
 msgid "_Status Bar"
 msgstr "Bilah _Status"
 
-#: data/ui/menus.ui:115
+#: data/ui/menus.ui:127
 msgid "_Comments"
 msgstr "_Komentar"
 
-#: data/ui/menus.ui:118
+#: data/ui/menus.ui:130
 msgid "_Freeze Panes"
 msgstr "_Bekukan Panel"
 
-#: data/ui/menus.ui:119
+#: data/ui/menus.ui:131
 msgid "C_ustom Views..."
 msgstr "Tampilan K_ustom..."
 
-#: data/ui/menus.ui:120
+#: data/ui/menus.ui:132
 msgid "_Page Breaks"
 msgstr "_Hentian Halaman"
 
-#: data/ui/menus.ui:121
+#: data/ui/menus.ui:133
 msgid "_Header and Footer..."
 msgstr "Header dan _Footer..."
 
-#: data/ui/menus.ui:122
+#: data/ui/menus.ui:134
 msgid "Spli_t"
 msgstr "_Pisahkan"
 
-#: data/ui/menus.ui:125
+#: data/ui/menus.ui:137
 msgid "_Calculate Now"
 msgstr "Hi_tung Sekarang"
 
-#: data/ui/menus.ui:126 data/ui/menus.ui:338 src/ui/o42-dialogs-tools.c:2840
+#: data/ui/menus.ui:138 data/ui/menus.ui:350 src/ui/o42-dialogs-tools.c:2840
 msgid "_Options..."
 msgstr "_Opsi..."
 
-#: data/ui/menus.ui:131
+#: data/ui/menus.ui:143
 msgid "_Insert"
 msgstr "_Sisipkan"
 
-#: data/ui/menus.ui:133 data/ui/menus.ui:212
+#: data/ui/menus.ui:145 data/ui/menus.ui:224
 msgid "C_ells..."
 msgstr "_Sel..."
 
-#: data/ui/menus.ui:134 src/ui/o42-dialogs-edit.c:129
+#: data/ui/menus.ui:146 src/ui/o42-dialogs-edit.c:129
 msgid "_Rows"
 msgstr "_Baris"
 
-#: data/ui/menus.ui:135 src/ui/o42-dialogs-edit.c:129
+#: data/ui/menus.ui:147 src/ui/o42-dialogs-edit.c:129
 msgid "_Columns"
 msgstr "_Kolom"
 
-#: data/ui/menus.ui:136
+#: data/ui/menus.ui:148
 msgid "_Worksheet"
 msgstr "_Lembar Kerja"
 
-#: data/ui/menus.ui:139 data/ui/menus.ui:220
+#: data/ui/menus.ui:151 data/ui/menus.ui:232
 msgid "C_hart..."
 msgstr "B_agan..."
 
-#: data/ui/menus.ui:140
+#: data/ui/menus.ui:152
 msgid "_Function..."
 msgstr "_Fungsi..."
 
-#: data/ui/menus.ui:141
+#: data/ui/menus.ui:153
 msgid "N_ote..."
 msgstr "Kome_ntar..."
 
-#: data/ui/menus.ui:142
+#: data/ui/menus.ui:154
 msgid "H_yperlink..."
 msgstr "H_yperlink..."
 
-#: data/ui/menus.ui:143
+#: data/ui/menus.ui:155
 msgid "Page _Break"
 msgstr "_Hentian Halaman"
 
-#: data/ui/menus.ui:145
+#: data/ui/menus.ui:157
 msgid "Sh_ape"
 msgstr "B_entuk"
 
-#: data/ui/menus.ui:146
+#: data/ui/menus.ui:158
 msgid "_Rectangle"
 msgstr "_Persegi Panjang"
 
-#: data/ui/menus.ui:147
+#: data/ui/menus.ui:159
 msgid "_Oval"
 msgstr "_Oval"
 
-#: data/ui/menus.ui:148
+#: data/ui/menus.ui:160
 msgctxt "shape"
 msgid "_Line"
 msgstr "_Garis"
 
-#: data/ui/menus.ui:149
+#: data/ui/menus.ui:161
 msgid "_Arrow"
 msgstr "P_anah"
 
-#: data/ui/menus.ui:150
+#: data/ui/menus.ui:162
 msgid "_Text Box"
 msgstr "_Kotak Teks"
 
-#: data/ui/menus.ui:151
+#: data/ui/menus.ui:163
 msgid "_Freeform"
 msgstr "Bentuk _Bebas"
 
-#: data/ui/menus.ui:153
+#: data/ui/menus.ui:165
 msgid "Rounded Rectan_gle"
 msgstr "Persegi Panjang Sudut B_ulat"
 
-#: data/ui/menus.ui:154
+#: data/ui/menus.ui:166
 msgid "Tr_iangle"
 msgstr "Seg_itiga"
 
-#: data/ui/menus.ui:155
+#: data/ui/menus.ui:167
 msgid "Right Triangle"
 msgstr "Segitiga Siku-siku"
 
-#: data/ui/menus.ui:156
+#: data/ui/menus.ui:168
 msgid "_Diamond"
 msgstr "Bela_h Ketupat"
 
-#: data/ui/menus.ui:157
+#: data/ui/menus.ui:169
 msgid "_Pentagon"
 msgstr "Segi _Lima"
 
-#: data/ui/menus.ui:158
+#: data/ui/menus.ui:170
 msgid "_Hexagon"
 msgstr "Segi Ena_m"
 
-#: data/ui/menus.ui:159
+#: data/ui/menus.ui:171
 msgid "Octagon"
 msgstr "Segi Delapan"
 
-#: data/ui/menus.ui:160 src/ui/o42-window.c:5344
+#: data/ui/menus.ui:172 src/ui/o42-window.c:5363
 msgid "Cross"
 msgstr "Silang"
 
-#: data/ui/menus.ui:161
+#: data/ui/menus.ui:173
 msgid "_4-Point Star"
 msgstr "Bintang _4 Sudut"
 
-#: data/ui/menus.ui:162
+#: data/ui/menus.ui:174
 msgid "_5-Point Star"
 msgstr "Bintang _5 Sudut"
 
-#: data/ui/menus.ui:163
+#: data/ui/menus.ui:175
 msgid "_8-Point Star"
 msgstr "Bintang _8 Sudut"
 
-#: data/ui/menus.ui:166
+#: data/ui/menus.ui:178
 msgid "Right Arro_w"
 msgstr "Panah Ka_nan"
 
-#: data/ui/menus.ui:167
+#: data/ui/menus.ui:179
 msgid "Le_ft Arrow"
 msgstr "Panah Ki_ri"
 
-#: data/ui/menus.ui:168
+#: data/ui/menus.ui:180
 msgid "_Up Arrow"
 msgstr "Panah A_tas"
 
-#: data/ui/menus.ui:169
+#: data/ui/menus.ui:181
 msgid "Down Arrow"
 msgstr "Panah Bawah"
 
-#: data/ui/menus.ui:170
+#: data/ui/menus.ui:182
 msgid "Left-Right Arrow"
 msgstr "Panah Kiri-Kanan"
 
-#: data/ui/menus.ui:173
+#: data/ui/menus.ui:185
 msgid "Rectangular _Callout"
 msgstr "Ket_erangan Persegi Panjang"
 
-#: data/ui/menus.ui:174
+#: data/ui/menus.ui:186
 msgid "Oval Callout"
 msgstr "Keterangan Oval"
 
-#: data/ui/menus.ui:175
+#: data/ui/menus.ui:187
 msgid "Flowchart: Proc_ess"
 msgstr "Diagram Alir: Pro_ses"
 
-#: data/ui/menus.ui:176
+#: data/ui/menus.ui:188
 msgid "Flowchart: Decisio_n"
 msgstr "_Diagram Alir: Keputusan"
 
-#: data/ui/menus.ui:177
+#: data/ui/menus.ui:189
 msgid "Flowchart: Ter_minator"
 msgstr "Diagram Alir: _Terminator"
 
-#: data/ui/menus.ui:181
+#: data/ui/menus.ui:193
 msgid "Co_ntrol"
 msgstr "K_ontrol"
 
-#: data/ui/menus.ui:182
+#: data/ui/menus.ui:194
 msgid "_Button"
 msgstr "_Tombol"
 
-#: data/ui/menus.ui:183
+#: data/ui/menus.ui:195
 msgid "_Check Box"
 msgstr "_Kotak Centang"
 
-#: data/ui/menus.ui:184
+#: data/ui/menus.ui:196
 msgid "_Option Button"
 msgstr "Tombol _Opsi"
 
-#: data/ui/menus.ui:185
+#: data/ui/menus.ui:197
 msgid "_Spinner"
 msgstr "Tombol _Putar"
 
-#: data/ui/menus.ui:186
+#: data/ui/menus.ui:198
 msgid "S_croll Bar"
 msgstr "Bilah _Gulir"
 
-#: data/ui/menus.ui:187
+#: data/ui/menus.ui:199
 msgid "_List Box"
 msgstr "Kotak _Daftar"
 
-#: data/ui/menus.ui:188
+#: data/ui/menus.ui:200
 msgid "Co_mbo Box"
 msgstr "Kotak Ko_mbo"
 
-#: data/ui/menus.ui:189
+#: data/ui/menus.ui:201
 msgid "L_abel"
 msgstr "_Label"
 
-#: data/ui/menus.ui:190
+#: data/ui/menus.ui:202
 msgid "_Group Box"
 msgstr "Kotak G_rup"
 
-#: data/ui/menus.ui:193
+#: data/ui/menus.ui:205
 msgid "_Name"
 msgstr "_Nama"
 
-#: data/ui/menus.ui:194
+#: data/ui/menus.ui:206
 msgid "_Define..."
 msgstr "_Definisikan..."
 
-#: data/ui/menus.ui:195
+#: data/ui/menus.ui:207
 msgid "_Paste..."
 msgstr "Tem_pel..."
 
-#: data/ui/menus.ui:196
+#: data/ui/menus.ui:208
 msgid "_Create..."
 msgstr "_Buat..."
 
-#: data/ui/menus.ui:197
+#: data/ui/menus.ui:209
 msgid "_Apply..."
 msgstr "_Terapkan..."
 
-#: data/ui/menus.ui:202
+#: data/ui/menus.ui:214
 msgid "_Picture"
 msgstr "_Gambar"
 
-#: data/ui/menus.ui:203
+#: data/ui/menus.ui:215
 msgid "_From File..."
 msgstr "_Dari Berkas..."
 
-#: data/ui/menus.ui:204
+#: data/ui/menus.ui:216
 msgid "From _Scanner or Camera..."
 msgstr "Dari _Pemindai atau Kamera..."
 
-#: data/ui/menus.ui:210
+#: data/ui/menus.ui:222
 msgid "F_ormat"
 msgstr "F_ormat"
 
-#: data/ui/menus.ui:213
+#: data/ui/menus.ui:225
 msgid "St_yle..."
 msgstr "Ga_ya..."
 
-#: data/ui/menus.ui:214
+#: data/ui/menus.ui:226
 msgid "_AutoFormat..."
 msgstr "Format _Otomatis..."
 
-#: data/ui/menus.ui:215
+#: data/ui/menus.ui:227
 msgid "Format _Painter"
 msgstr "_Pewarna Format"
 
-#: data/ui/menus.ui:216
+#: data/ui/menus.ui:228
 msgid "_Column Width..."
 msgstr "_Lebar Kolom..."
 
-#: data/ui/menus.ui:217
+#: data/ui/menus.ui:229
 msgid "_Row Height..."
 msgstr "_Tinggi Baris..."
 
-#: data/ui/menus.ui:218
+#: data/ui/menus.ui:230
 msgid "Column _AutoFit"
 msgstr "Paskan Otomatis Kolo_m"
 
-#: data/ui/menus.ui:219
+#: data/ui/menus.ui:231
 msgid "Conditional _Formatting..."
 msgstr "_Format Bersyarat..."
 
-#: data/ui/menus.ui:221
+#: data/ui/menus.ui:233
 msgid "Sha_pe..."
 msgstr "B_entuk..."
 
-#: data/ui/menus.ui:222
+#: data/ui/menus.ui:234
 msgid "P_icture..."
 msgstr "Gamba_r..."
 
-#: data/ui/menus.ui:223
+#: data/ui/menus.ui:235
 msgid "Contro_l..."
 msgstr "Ko_ntrol..."
 
-#: data/ui/menus.ui:224 src/ui/o42-grid.c:8267
+#: data/ui/menus.ui:236 src/ui/o42-grid.c:8325
 msgid "_Group Objects"
 msgstr "_Kelompokkan Objek"
 
-#: data/ui/menus.ui:225
+#: data/ui/menus.ui:237
 msgid "U_ngroup Objects"
 msgstr "Pisa_hkan Grup Objek"
 
-#: data/ui/menus.ui:227 src/ui/o42-grid.c:8276
+#: data/ui/menus.ui:239 src/ui/o42-grid.c:8334
 msgid "O_rder"
 msgstr "_Urutan"
 
-#: data/ui/menus.ui:228 src/ui/o42-grid.c:8272
+#: data/ui/menus.ui:240 src/ui/o42-grid.c:8330
 msgid "Bring to _Front"
 msgstr "Bawa ke _Depan"
 
-#: data/ui/menus.ui:229 src/ui/o42-grid.c:8273
+#: data/ui/menus.ui:241 src/ui/o42-grid.c:8331
 msgid "Send to _Back"
 msgstr "Kirim ke _Belakang"
 
-#: data/ui/menus.ui:230 src/ui/o42-grid.c:8274
+#: data/ui/menus.ui:242 src/ui/o42-grid.c:8332
 msgid "Bring F_orward"
 msgstr "Bawa _Maju"
 
-#: data/ui/menus.ui:231 src/ui/o42-grid.c:8275
+#: data/ui/menus.ui:243 src/ui/o42-grid.c:8333
 msgid "Send Back_ward"
 msgstr "Kirim Mundu_r"
 
-#: data/ui/menus.ui:233
+#: data/ui/menus.ui:245
 msgid "_Merge Cells"
 msgstr "_Gabungkan Sel"
 
-#: data/ui/menus.ui:234
+#: data/ui/menus.ui:246
 msgid "Unmer_ge Cells"
 msgstr "P_isahkan Sel"
 
-#: data/ui/menus.ui:236
+#: data/ui/menus.ui:248
 msgid "S_heet"
 msgstr "Lem_bar"
 
-#: data/ui/menus.ui:237
+#: data/ui/menus.ui:249
 msgid "_Rename..."
 msgstr "_Ganti Nama..."
 
-#: data/ui/menus.ui:238 src/ui/o42-window.c:3370
+#: data/ui/menus.ui:250 src/ui/o42-window.c:3370
 msgid "Move _Left"
 msgstr "Pindah ke _Kiri"
 
-#: data/ui/menus.ui:239
+#: data/ui/menus.ui:251
 msgid "Move R_ight"
 msgstr "Pindah ke K_anan"
 
-#: data/ui/menus.ui:240 data/ui/menus.ui:250 data/ui/menus.ui:256
-#: data/ui/menus.ui:400 src/ui/o42-window.c:7769
+#: data/ui/menus.ui:252 data/ui/menus.ui:262 data/ui/menus.ui:268
+#: data/ui/menus.ui:412 src/ui/o42-window.c:7926
 msgid "_Hide"
 msgstr "_Sembunyikan"
 
-#: data/ui/menus.ui:241 data/ui/menus.ui:401
+#: data/ui/menus.ui:253 data/ui/menus.ui:413
 msgid "_Unhide..."
 msgstr "_Tampilkan..."
 
-#: data/ui/menus.ui:242
+#: data/ui/menus.ui:254
 msgid "_Background..."
 msgstr "_Latar Belakang..."
 
-#: data/ui/menus.ui:243
+#: data/ui/menus.ui:255
 msgid "_Delete Background"
 msgstr "_Hapus Latar Belakang"
 
-#: data/ui/menus.ui:248
+#: data/ui/menus.ui:260
 msgid "R_ow"
 msgstr "_Baris"
 
-#: data/ui/menus.ui:249 src/ui/o42-grid.c:8240
+#: data/ui/menus.ui:261 src/ui/o42-grid.c:8298
 msgid "_AutoFit"
 msgstr "Paskan _Otomatis"
 
-#: data/ui/menus.ui:251 data/ui/menus.ui:257 src/ui/o42-grid.c:8215
-#: src/ui/o42-grid.c:8242
+#: data/ui/menus.ui:263 data/ui/menus.ui:269 src/ui/o42-grid.c:8273
+#: src/ui/o42-grid.c:8300
 msgid "_Unhide"
 msgstr "T_ampilkan"
 
-#: data/ui/menus.ui:254
+#: data/ui/menus.ui:266
 msgid "Colu_mn"
 msgstr "K_olom"
 
-#: data/ui/menus.ui:255
+#: data/ui/menus.ui:267
 msgid "_Standard Width..."
 msgstr "_Lebar Standar..."
 
-#: data/ui/menus.ui:261 src/ui/o42-dialogs-format.c:386
-#: src/ui/o42-dialogs-format.c:555 src/ui/o42-window.c:4851
+#: data/ui/menus.ui:273 src/ui/o42-dialogs-format.c:386
+#: src/ui/o42-dialogs-format.c:555 src/ui/o42-window.c:4870
 msgid "_Bold"
 msgstr "_Tebal"
 
-#: data/ui/menus.ui:262 src/ui/o42-dialogs-format.c:387
-#: src/ui/o42-dialogs-format.c:556 src/ui/o42-window.c:4853
+#: data/ui/menus.ui:274 src/ui/o42-dialogs-format.c:387
+#: src/ui/o42-dialogs-format.c:556 src/ui/o42-window.c:4872
 msgid "_Italic"
 msgstr "_Miring"
 
-#: data/ui/menus.ui:263 src/ui/o42-dialogs-format.c:388
+#: data/ui/menus.ui:275 src/ui/o42-dialogs-format.c:388
 msgid "_Underline"
 msgstr "_Garis Bawah"
 
-#: data/ui/menus.ui:267
+#: data/ui/menus.ui:279
 msgid "_Alignment"
 msgstr "_Perataan"
 
-#: data/ui/menus.ui:268 data/ui/menus.ui:275
+#: data/ui/menus.ui:280 data/ui/menus.ui:287 src/ui/o42-dialogs-file.c:1153
 msgid "_General"
 msgstr "_Umum"
 
-#: data/ui/menus.ui:269
+#: data/ui/menus.ui:281
 msgid "_Left"
 msgstr "K_iri"
 
-#: data/ui/menus.ui:270
+#: data/ui/menus.ui:282
 msgid "_Center"
 msgstr "_Tengah"
 
-#: data/ui/menus.ui:271
+#: data/ui/menus.ui:283
 msgid "_Right"
 msgstr "_Kanan"
 
-#: data/ui/menus.ui:274
+#: data/ui/menus.ui:286
 msgid "_Number"
 msgstr "_Angka"
 
-#: data/ui/menus.ui:276
+#: data/ui/menus.ui:288
 msgid "_Fixed"
 msgstr "_Tetap"
 
-#: data/ui/menus.ui:277
+#: data/ui/menus.ui:289
 msgctxt "number format"
 msgid "_Comma"
 msgstr "_Koma"
 
-#: data/ui/menus.ui:278
+#: data/ui/menus.ui:290
 msgid "C_urrency"
 msgstr "_Mata Uang"
 
-#: data/ui/menus.ui:279
+#: data/ui/menus.ui:291
 msgid "_Percent"
 msgstr "_Persen"
 
-#: data/ui/menus.ui:280
+#: data/ui/menus.ui:292
 msgid "_Scientific"
 msgstr "_Ilmiah"
 
-#: data/ui/menus.ui:281 src/ui/o42-dialogs-edit.c:130 src/ui/o42-window.c:2436
+#: data/ui/menus.ui:293 src/ui/o42-dialogs-edit.c:130 src/ui/o42-window.c:2436
 msgid "_Date"
 msgstr "Tan_ggal"
 
-#: data/ui/menus.ui:282
+#: data/ui/menus.ui:294
 msgid "_Time"
 msgstr "_Waktu"
 
-#: data/ui/menus.ui:283
+#: data/ui/menus.ui:295
 msgid "Date and Ti_me"
 msgstr "Tanggal _dan Waktu"
 
-#: data/ui/menus.ui:289
+#: data/ui/menus.ui:301
 msgid "_Tools"
 msgstr "_Alat"
 
-#: data/ui/menus.ui:291
+#: data/ui/menus.ui:303
 msgid "_Goal Seek..."
 msgstr "_Pencarian Tujuan..."
 
-#: data/ui/menus.ui:292
+#: data/ui/menus.ui:304
 msgid "_Euro Conversion..."
 msgstr "Konversi E_uro..."
 
-#: data/ui/menus.ui:293
+#: data/ui/menus.ui:305
 msgid "Sol_ver..."
 msgstr "Sol_ver..."
 
-#: data/ui/menus.ui:295
+#: data/ui/menus.ui:307
 msgid "_Protection"
 msgstr "Pro_teksi"
 
-#: data/ui/menus.ui:296
+#: data/ui/menus.ui:308
 msgid "Protect _Sheet..."
 msgstr "Proteksi _Lembar..."
 
-#: data/ui/menus.ui:297
+#: data/ui/menus.ui:309
 msgid "Protect _Workbook..."
 msgstr "Proteksi _Buku Kerja..."
 
-#: data/ui/menus.ui:302
+#: data/ui/menus.ui:314
 msgid "_Auditing"
 msgstr "Aud_it"
 
-#: data/ui/menus.ui:303
+#: data/ui/menus.ui:315
 msgid "Trace _Precedents"
 msgstr "Lacak _Preseden"
 
-#: data/ui/menus.ui:304
+#: data/ui/menus.ui:316
 msgid "Trace _Dependents"
 msgstr "Lacak _Dependen"
 
-#: data/ui/menus.ui:305
+#: data/ui/menus.ui:317
 msgid "Trace _Error"
 msgstr "Lacak _Kesalahan"
 
-#: data/ui/menus.ui:306
+#: data/ui/menus.ui:318
 msgid "_Remove All Arrows"
 msgstr "_Hapus Semua Panah"
 
-#: data/ui/menus.ui:307
+#: data/ui/menus.ui:319
 msgid "_Evaluate Formula..."
 msgstr "_Evaluasi Rumus..."
 
-#: data/ui/menus.ui:308
+#: data/ui/menus.ui:320
 msgid "Show _Watch Window"
 msgstr "Tampilkan _Jendela Pengawas"
 
-#: data/ui/menus.ui:313
+#: data/ui/menus.ui:325
 msgid "_Macro"
 msgstr "_Makro"
 
-#: data/ui/menus.ui:315
+#: data/ui/menus.ui:327
 msgid "_Macros..."
 msgstr "_Makro..."
 
-#: data/ui/menus.ui:316
+#: data/ui/menus.ui:328
 msgid "_Record Macro"
 msgstr "_Rekam Makro"
 
-#: data/ui/menus.ui:317
+#: data/ui/menus.ui:329
 msgid "S_top Recording"
 msgstr "_Hentikan Perekaman"
 
-#: data/ui/menus.ui:318
+#: data/ui/menus.ui:330
 msgid "Use Re_lative References"
 msgstr "_Gunakan Referensi Relatif"
 
-#: data/ui/menus.ui:321
+#: data/ui/menus.ui:333
 msgid "_Scripts in this Book..."
 msgstr "_Skrip dalam Buku Kerja Ini..."
 
-#: data/ui/menus.ui:322
+#: data/ui/menus.ui:334
 msgid "S_tep Into Script"
 msgstr "_Langkah Masuk ke Skrip"
 
-#: data/ui/menus.ui:323
+#: data/ui/menus.ui:335
 msgid "_Python Console..."
 msgstr "Konsol _Python..."
 
-#: data/ui/menus.ui:324
+#: data/ui/menus.ui:336
 msgid "Run Python Script _File..."
 msgstr "Jalankan _Berkas Skrip Python..."
 
-#: data/ui/menus.ui:329
+#: data/ui/menus.ui:341
 msgid "Statistical _Analysis..."
 msgstr "_Analisis Statistik..."
 
-#: data/ui/menus.ui:330
+#: data/ui/menus.ui:342
 msgid "_Spelling..."
 msgstr "_Ejaan..."
 
-#: data/ui/menus.ui:331
+#: data/ui/menus.ui:343
 msgid "_AutoCorrect..."
 msgstr "_Koreksi Otomatis..."
 
-#: data/ui/menus.ui:333
+#: data/ui/menus.ui:345
 msgid "_Wizards"
 msgstr "_Wisaya"
 
-#: data/ui/menus.ui:334
+#: data/ui/menus.ui:346
 msgid "_Conditional Sum..."
 msgstr "_Jumlah Bersyarat..."
 
-#: data/ui/menus.ui:335
+#: data/ui/menus.ui:347
 msgid "_Lookup..."
 msgstr "_Pencarian..."
 
-#: data/ui/menus.ui:337
+#: data/ui/menus.ui:349
 msgid "Custom _Lists..."
 msgstr "_Daftar Kustom..."
 
-#: data/ui/menus.ui:343
+#: data/ui/menus.ui:355
 msgid "_Data"
 msgstr "_Data"
 
-#: data/ui/menus.ui:345
+#: data/ui/menus.ui:357
 msgid "_Sort..."
 msgstr "_Urutkan..."
 
-#: data/ui/menus.ui:346
+#: data/ui/menus.ui:358
 msgid "F_orm..."
 msgstr "_Formulir..."
 
-#: data/ui/menus.ui:348
+#: data/ui/menus.ui:360
 msgid "_Filter"
 msgstr "F_ilter"
 
-#: data/ui/menus.ui:349
+#: data/ui/menus.ui:361
 msgid "Auto_Filter"
 msgstr "Filter _Otomatis"
 
-#: data/ui/menus.ui:350
+#: data/ui/menus.ui:362
 msgid "_Show All"
 msgstr "Tampilkan _Semua"
 
-#: data/ui/menus.ui:351
+#: data/ui/menus.ui:363
 msgid "Ad_vanced Filter..."
 msgstr "Filter _Lanjutan..."
 
-#: data/ui/menus.ui:353
+#: data/ui/menus.ui:365
 msgid "Te_xt to Columns..."
 msgstr "_Teks ke Kolom..."
 
-#: data/ui/menus.ui:354
+#: data/ui/menus.ui:366
 msgid "_Validation..."
 msgstr "_Validasi..."
 
-#: data/ui/menus.ui:355
+#: data/ui/menus.ui:367
 msgid "Circle _Invalid Data"
 msgstr "Lingka_ri Data Tidak Valid"
 
-#: data/ui/menus.ui:356
+#: data/ui/menus.ui:368
 msgid "Clear Validation Circles"
 msgstr "Bersihkan Lingkaran Validasi"
 
-#: data/ui/menus.ui:359
+#: data/ui/menus.ui:371
 msgid "_Table..."
 msgstr "Ta_bel..."
 
-#: data/ui/menus.ui:360
+#: data/ui/menus.ui:372
 msgid "_What-If Table..."
 msgstr "Tabel Bagaimana-_Jika..."
 
-#: data/ui/menus.ui:361
+#: data/ui/menus.ui:373
 msgid "Sc_enarios..."
 msgstr "Sk_enario..."
 
-#: data/ui/menus.ui:362
+#: data/ui/menus.ui:374
 msgid "Co_nsolidate..."
 msgstr "Ko_nsolidasi..."
 
-#: data/ui/menus.ui:363
+#: data/ui/menus.ui:375
 msgid "Su_btotals..."
 msgstr "_Subtotal..."
 
-#: data/ui/menus.ui:364
+#: data/ui/menus.ui:376
 msgid "Remove _Duplicates..."
 msgstr "Hapus _Duplikat..."
 
-#: data/ui/menus.ui:367
+#: data/ui/menus.ui:379
 msgid "_Pivot Table..."
 msgstr "_PivotTable..."
 
-#: data/ui/menus.ui:368
+#: data/ui/menus.ui:380
 msgid "Re_fresh Pivot Table"
 msgstr "Se_garkan PivotTable"
 
-#: data/ui/menus.ui:372
+#: data/ui/menus.ui:384
 msgid "Data_base"
 msgstr "B_asis Data"
 
-#: data/ui/menus.ui:373
+#: data/ui/menus.ui:385
 msgid "_Connect..."
 msgstr "_Sambungkan..."
 
-#: data/ui/menus.ui:374
+#: data/ui/menus.ui:386
 msgid "_Embed New Database"
 msgstr "_Tanamkan Basis Data Baru"
 
-#: data/ui/menus.ui:375
+#: data/ui/menus.ui:387
 msgid "_Get Data..."
 msgstr "_Ambil Data..."
 
-#: data/ui/menus.ui:376
+#: data/ui/menus.ui:388
 msgid "_Refresh Queries"
 msgstr "Se_garkan Kueri"
 
-#: data/ui/menus.ui:377
+#: data/ui/menus.ui:389
 msgid "_Send Selection to Table..."
 msgstr "_Kirim Pilihan ke Tabel..."
 
-#: data/ui/menus.ui:382
+#: data/ui/menus.ui:394
 msgid "_Group and Outline"
 msgstr "_Kelompok dan Kerangka"
 
-#: data/ui/menus.ui:383
+#: data/ui/menus.ui:395
 msgid "Group _Rows"
 msgstr "Kelompokkan _Baris"
 
-#: data/ui/menus.ui:384
+#: data/ui/menus.ui:396
 msgid "Group _Columns"
 msgstr "Kelompokkan _Kolom"
 
-#: data/ui/menus.ui:385
+#: data/ui/menus.ui:397
 msgid "Ungroup R_ows"
 msgstr "Pisahkan Grup B_aris"
 
-#: data/ui/menus.ui:386
+#: data/ui/menus.ui:398
 msgid "Ungroup Co_lumns"
 msgstr "Pisahkan Grup K_olom"
 
-#: data/ui/menus.ui:387
+#: data/ui/menus.ui:399
 msgid "_Show Detail"
 msgstr "_Tampilkan Detail"
 
-#: data/ui/menus.ui:388
+#: data/ui/menus.ui:400
 msgid "_Hide Detail"
 msgstr "_Sembunyikan Detail"
 
-#: data/ui/menus.ui:389
+#: data/ui/menus.ui:401
 msgid "_Auto Outline"
 msgstr "K_erangka Otomatis"
 
-#: data/ui/menus.ui:390
+#: data/ui/menus.ui:402
 msgid "Cl_ear Outline"
 msgstr "Bersi_hkan Kerangka"
 
-#: data/ui/menus.ui:391
+#: data/ui/menus.ui:403
 msgid "_Settings..."
 msgstr "_Pengaturan..."
 
-#: data/ui/menus.ui:397
+#: data/ui/menus.ui:409
 msgid "_Window"
 msgstr "_Jendela"
 
-#: data/ui/menus.ui:399
+#: data/ui/menus.ui:411
 msgid "_New Window"
 msgstr "_Jendela Baru"
 
-#: data/ui/menus.ui:408
+#: data/ui/menus.ui:420
 msgid "_Help"
 msgstr "Bant_uan"
 
-#: data/ui/menus.ui:410
+#: data/ui/menus.ui:422
 msgctxt "help"
 msgid "_Contents"
 msgstr "Daftar _Isi"
 
-#: data/ui/menus.ui:413
+#: data/ui/menus.ui:425
 msgid "_About office42"
 msgstr "_Tentang office42"
 
-#: src/formula/o42-eval.c:11176
+#: src/formula/o42-eval.c:11390
 msgid "Gnumeric's: the Fourier transform of a sequence, or its inverse."
 msgstr "Dari Gnumeric: transformasi Fourier suatu deret, atau inversnya."
 
-#: src/formula/o42-eval.c:11177
+#: src/formula/o42-eval.c:11391
 msgid "How many values fall in each bin."
 msgstr "Banyaknya nilai yang jatuh di setiap bin."
 
-#: src/formula/o42-eval.c:11178
+#: src/formula/o42-eval.c:11392
 msgid "Gnumeric's: Hodrick and Prescott's trend and what is left over."
 msgstr "Dari Gnumeric: tren Hodrick-Prescott dan sisanya."
 
-#: src/formula/o42-eval.c:11179
+#: src/formula/o42-eval.c:11393
 msgid "Gnumeric's: the ordinates read off at the targets, six ways."
 msgstr ""
 "Dari Gnumeric: ordinat yang dibaca pada titik-titik target, dengan enam cara."
 
-#: src/formula/o42-eval.c:11180
+#: src/formula/o42-eval.c:11394
 msgid "Gnumeric's: how much each row of a design matrix pulls on the fit."
 msgstr ""
 "Dari Gnumeric: seberapa besar setiap baris matriks desain memengaruhi "
 "kecocokan."
 
-#: src/formula/o42-eval.c:11181
+#: src/formula/o42-eval.c:11395
 msgid "The least-squares line, with its statistics."
 msgstr "Garis kuadrat terkecil, beserta statistiknya."
 
-#: src/formula/o42-eval.c:11182
+#: src/formula/o42-eval.c:11396
 msgid ""
 "Gnumeric's fit of y = a + b ln(sign (x - c)): sign, a, b, c and the "
 "residuals."
@@ -1067,83 +1072,83 @@ msgstr ""
 "Pencocokan Gnumeric untuk y = a + b ln(sign (x - c)): sign, a, b, c, dan "
 "residunya."
 
-#: src/formula/o42-eval.c:11183
+#: src/formula/o42-eval.c:11397
 msgid ""
 "Gnumeric's: the least-squares fit of y = m ln(x) + b, with its statistics."
 msgstr ""
 "Dari Gnumeric: pencocokan kuadrat terkecil y = m ln(x) + b, beserta "
 "statistiknya."
 
-#: src/formula/o42-eval.c:11184
+#: src/formula/o42-eval.c:11398
 msgid "The inverse of a square matrix."
 msgstr "Invers matriks persegi."
 
-#: src/formula/o42-eval.c:11185
+#: src/formula/o42-eval.c:11399
 msgid "The product of two matrices."
 msgstr "Hasil kali dua matriks."
 
-#: src/formula/o42-eval.c:11186
+#: src/formula/o42-eval.c:11400
 msgid "Gnumeric's: how much of each frequency is in a series."
 msgstr ""
 "Dari Gnumeric: seberapa banyak setiap frekuensi terdapat dalam suatu deret."
 
-#: src/formula/o42-eval.c:11187
+#: src/formula/o42-eval.c:11401
 msgid "A rectangle turned on its side."
 msgstr "Persegi panjang yang ditransposisikan: baris menjadi kolom."
 
-#: src/formula/o42-eval.c:11188
+#: src/formula/o42-eval.c:11402
 msgid "The columns named, in the order named."
 msgstr "Kolom-kolom yang disebut, dalam urutan penyebutannya."
 
-#: src/formula/o42-eval.c:11189
+#: src/formula/o42-eval.c:11403
 msgid "The rows named, in the order named."
 msgstr "Baris-baris yang disebut, dalam urutan penyebutannya."
 
-#: src/formula/o42-eval.c:11190
+#: src/formula/o42-eval.c:11404
 msgid "So many rows and columns from the near end, or the far one."
 msgstr "Sejumlah baris dan kolom dari ujung awal, atau dari ujung akhir."
 
-#: src/formula/o42-eval.c:11191
+#: src/formula/o42-eval.c:11405
 msgid "The arrays one under another, short ones padded with #N/A."
 msgstr "Array-array ditumpuk ke bawah; yang lebih pendek diisi dengan #N/A."
 
-#: src/formula/o42-eval.c:11192
+#: src/formula/o42-eval.c:11406
 msgid "The arrays side by side, short ones padded with #N/A."
 msgstr "Array-array berdampingan; yang lebih pendek diisi dengan #N/A."
 
-#: src/formula/o42-eval.c:11193
+#: src/formula/o42-eval.c:11407
 msgid "The array grown to a size, the new cells #N/A or the padding."
 msgstr ""
 "Array yang diperbesar ke suatu ukuran; sel barunya berisi #N/A atau nilai "
 "pengisi."
 
-#: src/formula/o42-eval.c:11194
+#: src/formula/o42-eval.c:11408
 msgid "A vector folded into rows of so many."
 msgstr "Vektor yang dilipat menjadi baris-baris dengan sejumlah elemen."
 
-#: src/formula/o42-eval.c:11195
+#: src/formula/o42-eval.c:11409
 msgid "A vector folded into columns of so many."
 msgstr "Vektor yang dilipat menjadi kolom-kolom dengan sejumlah elemen."
 
-#: src/formula/o42-eval.c:11196
+#: src/formula/o42-eval.c:11410
 msgid "An array as one column, blanks or errors left out when asked."
 msgstr ""
 "Array sebagai satu kolom; sel kosong atau kesalahan dilewati jika diminta."
 
-#: src/formula/o42-eval.c:11197
+#: src/formula/o42-eval.c:11411
 msgid "An array as one row, blanks or errors left out when asked."
 msgstr ""
 "Array sebagai satu baris; sel kosong atau kesalahan dilewati jika diminta."
 
-#: src/formula/o42-eval.c:11198
+#: src/formula/o42-eval.c:11412
 msgid "The identity matrix of a size."
 msgstr "Matriks identitas berukuran tertentu."
 
-#: src/formula/o42-eval.c:11199
+#: src/formula/o42-eval.c:11413
 msgid "The range without its empty outer rows and columns."
 msgstr "Rentang tanpa baris dan kolom kosong di tepi luarnya."
 
-#: src/formula/o42-eval.c:11200
+#: src/formula/o42-eval.c:11414
 msgid ""
 "What a regular expression matches: the first match, all of them, or the "
 "groups."
@@ -1151,24 +1156,24 @@ msgstr ""
 "Apa yang cocok dengan ekspresi reguler: kecocokan pertama, semuanya, atau "
 "grup-grupnya."
 
-#: src/formula/o42-eval.c:11201
+#: src/formula/o42-eval.c:11415
 msgid "A value from a pivot table; #REF! here, whose pivots are plain cells."
 msgstr ""
 "Nilai dari PivotTable; di sini #REF!, karena PivotTable-nya berupa sel biasa."
 
-#: src/formula/o42-eval.c:11202
+#: src/formula/o42-eval.c:11416
 msgid "The rectangle with so many rows and columns left off."
 msgstr "Persegi panjang dengan sejumlah baris dan kolom dibuang."
 
-#: src/formula/o42-eval.c:11203
+#: src/formula/o42-eval.c:11417
 msgid "A text cut into a rectangle at its delimiters."
 msgstr "Teks yang dipotong menjadi persegi panjang pada pembatasnya."
 
-#: src/formula/o42-eval.c:11204
+#: src/formula/o42-eval.c:11418
 msgid "Every value that turns up as often as the commonest."
 msgstr "Setiap nilai yang muncul sesering nilai yang paling umum."
 
-#: src/formula/o42-eval.c:11205
+#: src/formula/o42-eval.c:11419
 msgid ""
 "Gnumeric's: the lower triangle whose product with its transpose is the "
 "matrix."
@@ -1176,7 +1181,7 @@ msgstr ""
 "Dari Gnumeric: segitiga bawah yang hasil kalinya dengan transposnya sama "
 "dengan matriks tersebut."
 
-#: src/formula/o42-eval.c:11206
+#: src/formula/o42-eval.c:11420
 msgid ""
 "Gnumeric's: the eigenvalues of a symmetric matrix, each with its vector "
 "under it."
@@ -1184,357 +1189,357 @@ msgstr ""
 "Dari Gnumeric: nilai eigen matriks simetris, masing-masing dengan vektornya "
 "di bawahnya."
 
-#: src/formula/o42-eval.c:11207
+#: src/formula/o42-eval.c:11421
 msgid "Gnumeric's: Moore and Penrose's inverse, which any matrix has."
 msgstr "Dari Gnumeric: invers Moore-Penrose, yang dimiliki setiap matriks."
 
-#: src/formula/o42-eval.c:11268
+#: src/formula/o42-eval.c:11482
 msgid "The absolute value of a number."
 msgstr "Nilai absolut suatu bilangan."
 
-#: src/formula/o42-eval.c:11269
+#: src/formula/o42-eval.c:11483
 msgid "The arccosine, in radians."
 msgstr "Arkus kosinus, dalam radian."
 
-#: src/formula/o42-eval.c:11270
+#: src/formula/o42-eval.c:11484
 msgid "The inverse hyperbolic cosine."
 msgstr "Invers kosinus hiperbolik."
 
-#: src/formula/o42-eval.c:11271
+#: src/formula/o42-eval.c:11485
 msgid "The arccotangent, in radians."
 msgstr "Arkus kotangen, dalam radian."
 
-#: src/formula/o42-eval.c:11272
+#: src/formula/o42-eval.c:11486
 msgid "The inverse hyperbolic cotangent."
 msgstr "Invers kotangen hiperbolik."
 
-#: src/formula/o42-eval.c:11273
+#: src/formula/o42-eval.c:11487
 msgid "A cell reference as text."
 msgstr "Referensi sel sebagai teks."
 
-#: src/formula/o42-eval.c:11274
+#: src/formula/o42-eval.c:11488
 msgid "Anderson and Darling's test: the chance a sample this far from normal."
 msgstr ""
 "Uji Anderson-Darling: peluang sampel sejauh ini dari distribusi normal."
 
-#: src/formula/o42-eval.c:11275
+#: src/formula/o42-eval.c:11489
 msgid "TRUE if every argument is TRUE."
 msgstr "TRUE jika setiap argumen bernilai TRUE."
 
-#: src/formula/o42-eval.c:11276
+#: src/formula/o42-eval.c:11490
 msgid "A Roman numeral as a number."
 msgstr "Angka Romawi sebagai bilangan."
 
-#: src/formula/o42-eval.c:11277
+#: src/formula/o42-eval.c:11491
 msgid "The number of areas in a reference: one."
 msgstr "Jumlah area dalam referensi: satu."
 
-#: src/formula/o42-eval.c:11278
+#: src/formula/o42-eval.c:11492
 msgid "A rectangle as text, plainly or in braces."
 msgstr "Persegi panjang sebagai teks, polos atau dalam kurung kurawal."
 
-#: src/formula/o42-eval.c:11279
+#: src/formula/o42-eval.c:11493
 msgid "Ascension Thursday, thirty-nine days after Easter."
 msgstr "Kamis Kenaikan, tiga puluh sembilan hari setelah Paskah."
 
-#: src/formula/o42-eval.c:11280
+#: src/formula/o42-eval.c:11494
 msgid "Ash Wednesday, forty-six days before Easter."
 msgstr "Rabu Abu, empat puluh enam hari sebelum Paskah."
 
-#: src/formula/o42-eval.c:11281
+#: src/formula/o42-eval.c:11495
 msgid "The arcsine, in radians."
 msgstr "Arkus sinus, dalam radian."
 
-#: src/formula/o42-eval.c:11282
+#: src/formula/o42-eval.c:11496
 msgid "The inverse hyperbolic sine."
 msgstr "Invers sinus hiperbolik."
 
-#: src/formula/o42-eval.c:11283
+#: src/formula/o42-eval.c:11497
 msgid "The arctangent, in radians."
 msgstr "Arkus tangen, dalam radian."
 
-#: src/formula/o42-eval.c:11284
+#: src/formula/o42-eval.c:11498
 msgid "The arctangent of y/x, in radians, in the right quadrant."
 msgstr "Arkus tangen dari y/x, dalam radian, pada kuadran yang tepat."
 
-#: src/formula/o42-eval.c:11285
+#: src/formula/o42-eval.c:11499
 msgid "The inverse hyperbolic tangent."
 msgstr "Invers tangen hiperbolik."
 
-#: src/formula/o42-eval.c:11286
+#: src/formula/o42-eval.c:11500
 msgid "The arithmetic mean; text and blanks in a range are skipped."
 msgstr "Rata-rata aritmetika; teks dan sel kosong dalam rentang dilewati."
 
-#: src/formula/o42-eval.c:11287
+#: src/formula/o42-eval.c:11501
 msgid "The average, counting text as 0 and TRUE as 1."
 msgstr "Rata-rata, dengan teks dihitung 0 dan TRUE dihitung 1."
 
-#: src/formula/o42-eval.c:11288
+#: src/formula/o42-eval.c:11502
 msgid "The mean of the cells that meet a condition."
 msgstr "Rata-rata sel yang memenuhi suatu kondisi."
 
-#: src/formula/o42-eval.c:11289
+#: src/formula/o42-eval.c:11503
 msgid "The mean of the cells meeting every condition."
 msgstr "Rata-rata sel yang memenuhi setiap kondisi."
 
-#: src/formula/o42-eval.c:11290
+#: src/formula/o42-eval.c:11504
 msgid "A number as text in another base."
 msgstr "Bilangan sebagai teks dalam basis lain."
 
-#: src/formula/o42-eval.c:11291
+#: src/formula/o42-eval.c:11505
 msgid "The beta function."
 msgstr "Fungsi beta."
 
-#: src/formula/o42-eval.c:11292
+#: src/formula/o42-eval.c:11506
 msgid "The beta distribution, density or cumulative."
 msgstr "Distribusi beta, kepadatan atau kumulatif."
 
-#: src/formula/o42-eval.c:11293
+#: src/formula/o42-eval.c:11507
 msgid "The logarithm of the beta function."
 msgstr "Logaritma fungsi beta."
 
-#: src/formula/o42-eval.c:11294
+#: src/formula/o42-eval.c:11508
 msgid "The probability of a range of successes."
 msgstr "Probabilitas suatu rentang jumlah keberhasilan."
 
-#: src/formula/o42-eval.c:11295 src/formula/o42-eval.c:11325
+#: src/formula/o42-eval.c:11509 src/formula/o42-eval.c:11539
 msgid ""
 "The smallest value whose cumulative binomial distribution reaches alpha."
 msgstr "Nilai terkecil yang distribusi binomial kumulatifnya mencapai alpha."
 
-#: src/formula/o42-eval.c:11296
+#: src/formula/o42-eval.c:11510
 msgid "Each column of an array through a function."
 msgstr "Setiap kolom array diproses melalui suatu fungsi."
 
-#: src/formula/o42-eval.c:11297
+#: src/formula/o42-eval.c:11511
 msgid "Each row of an array through a function."
 msgstr "Setiap baris array diproses melalui suatu fungsi."
 
-#: src/formula/o42-eval.c:11298
+#: src/formula/o42-eval.c:11512
 msgid "The Cauchy, Lorentz or Breit-Wigner distribution."
 msgstr "Distribusi Cauchy, Lorentz, atau Breit-Wigner."
 
-#: src/formula/o42-eval.c:11299
+#: src/formula/o42-eval.c:11513
 msgid "Rounded up to the next whole number."
 msgstr "Dibulatkan ke atas ke bilangan bulat berikutnya."
 
-#: src/formula/o42-eval.c:11300
+#: src/formula/o42-eval.c:11514
 msgid "Rounds up, away from zero, to a multiple of significance."
 msgstr "Membulatkan ke atas, menjauhi nol, ke kelipatan signifikansi."
 
-#: src/formula/o42-eval.c:11301 src/formula/o42-eval.c:11428
+#: src/formula/o42-eval.c:11515 src/formula/o42-eval.c:11642
 msgid "Rounds up to a multiple of the significance."
 msgstr "Membulatkan ke atas ke kelipatan signifikansi."
 
-#: src/formula/o42-eval.c:11302
+#: src/formula/o42-eval.c:11516
 msgid "Rounded up towards plus infinity, whatever the sign."
 msgstr "Dibulatkan ke atas menuju plus tak hingga, apa pun tandanya."
 
-#: src/formula/o42-eval.c:11303
+#: src/formula/o42-eval.c:11517
 msgid "The chi-squared distribution, density or cumulative."
 msgstr "Distribusi khi-kuadrat, kepadatan atau kumulatif."
 
-#: src/formula/o42-eval.c:11304
+#: src/formula/o42-eval.c:11518
 msgid "The inverse of the left-tailed chi-squared distribution."
 msgstr "Invers distribusi khi-kuadrat ekor kiri."
 
-#: src/formula/o42-eval.c:11305 src/formula/o42-eval.c:11308
+#: src/formula/o42-eval.c:11519 src/formula/o42-eval.c:11522
 msgid "The chi-squared test for independence."
 msgstr "Uji khi-kuadrat untuk independensi."
 
-#: src/formula/o42-eval.c:11306
+#: src/formula/o42-eval.c:11520
 msgid "The chi-squared distribution, as Gnumeric names it."
 msgstr "Distribusi khi-kuadrat, sebagaimana Gnumeric menamainya."
 
-#: src/formula/o42-eval.c:11307
+#: src/formula/o42-eval.c:11521
 msgid "The value of chi-squared with the given probability below it."
 msgstr "Nilai khi-kuadrat dengan probabilitas tertentu di bawahnya."
 
-#: src/formula/o42-eval.c:11309
+#: src/formula/o42-eval.c:11523
 msgid "The value at a given position in the list."
 msgstr "Nilai pada posisi tertentu dalam daftar."
 
-#: src/formula/o42-eval.c:11310
+#: src/formula/o42-eval.c:11524
 msgid "The column number of a reference, or of this cell."
 msgstr "Nomor kolom suatu referensi, atau sel ini."
 
-#: src/formula/o42-eval.c:11311
+#: src/formula/o42-eval.c:11525
 msgid "How many ways k things can be chosen from n."
 msgstr "Banyaknya cara memilih k benda dari n."
 
-#: src/formula/o42-eval.c:11312
+#: src/formula/o42-eval.c:11526
 msgid "Combinations with repetition."
 msgstr "Kombinasi dengan pengulangan."
 
-#: src/formula/o42-eval.c:11313
+#: src/formula/o42-eval.c:11527
 msgid "Half the width of a confidence interval, by Student's t."
 msgstr "Setengah lebar interval kepercayaan, menurut t Student."
 
-#: src/formula/o42-eval.c:11314
+#: src/formula/o42-eval.c:11528
 msgid "A measurement in other units: CONVERT(1,\"mi\",\"km\")."
 msgstr "Ukuran dalam satuan lain: CONVERT(1,\"mi\",\"km\")."
 
-#: src/formula/o42-eval.c:11315
+#: src/formula/o42-eval.c:11529
 msgid "The cosine of an angle in radians."
 msgstr "Kosinus suatu sudut dalam radian."
 
-#: src/formula/o42-eval.c:11316
+#: src/formula/o42-eval.c:11530
 msgid "The hyperbolic cosine."
 msgstr "Kosinus hiperbolik."
 
-#: src/formula/o42-eval.c:11317
+#: src/formula/o42-eval.c:11531
 msgid "The cotangent."
 msgstr "Kotangen."
 
-#: src/formula/o42-eval.c:11318
+#: src/formula/o42-eval.c:11532
 msgid "The hyperbolic cotangent."
 msgstr "Kotangen hiperbolik."
 
-#: src/formula/o42-eval.c:11319
+#: src/formula/o42-eval.c:11533
 msgid "How many of the arguments are numbers."
 msgstr "Banyaknya argumen yang berupa bilangan."
 
-#: src/formula/o42-eval.c:11320
+#: src/formula/o42-eval.c:11534
 msgid "How many of the arguments are not blank."
 msgstr "Banyaknya argumen yang tidak kosong."
 
-#: src/formula/o42-eval.c:11321
+#: src/formula/o42-eval.c:11535
 msgid "How many cells in a range are blank."
 msgstr "Banyaknya sel kosong dalam suatu rentang."
 
-#: src/formula/o42-eval.c:11322
+#: src/formula/o42-eval.c:11536
 msgid "How many cells meet a condition such as \">5\" or \"a*\"."
 msgstr "Banyaknya sel yang memenuhi kondisi seperti \">5\" atau \"a*\"."
 
-#: src/formula/o42-eval.c:11323
+#: src/formula/o42-eval.c:11537
 msgid "How many cells meet every condition."
 msgstr "Banyaknya sel yang memenuhi setiap kondisi."
 
-#: src/formula/o42-eval.c:11324
+#: src/formula/o42-eval.c:11538
 msgid "The sample covariance."
 msgstr "Kovarians sampel."
 
-#: src/formula/o42-eval.c:11326
+#: src/formula/o42-eval.c:11540
 msgid "Cronbach's alpha: how far the items measure one thing."
 msgstr "Alpha Cronbach: sejauh mana butir-butir mengukur satu hal yang sama."
 
-#: src/formula/o42-eval.c:11327
+#: src/formula/o42-eval.c:11541
 msgid "The cosecant."
 msgstr "Kosekan."
 
-#: src/formula/o42-eval.c:11328
+#: src/formula/o42-eval.c:11542
 msgid "The hyperbolic cosecant."
 msgstr "Kosekan hiperbolik."
 
-#: src/formula/o42-eval.c:11329
+#: src/formula/o42-eval.c:11543
 msgid "Interest paid between two periods of a loan."
 msgstr "Bunga yang dibayar di antara dua periode pinjaman."
 
-#: src/formula/o42-eval.c:11330
+#: src/formula/o42-eval.c:11544
 msgid "Principal paid between two periods of a loan."
 msgstr "Pokok yang dibayar di antara dua periode pinjaman."
 
-#: src/formula/o42-eval.c:11331
+#: src/formula/o42-eval.c:11545
 msgid "The Julian day number of a date."
 msgstr "Nomor hari Julian suatu tanggal."
 
-#: src/formula/o42-eval.c:11332
+#: src/formula/o42-eval.c:11546
 msgid "A date as Unix time: seconds since the start of 1970."
 msgstr "Tanggal sebagai waktu Unix: detik sejak awal tahun 1970."
 
-#: src/formula/o42-eval.c:11333
+#: src/formula/o42-eval.c:11547
 msgid "The mean of a field in the records that match the criteria."
 msgstr "Rata-rata suatu bidang pada rekaman yang cocok dengan kriteria."
 
-#: src/formula/o42-eval.c:11334
+#: src/formula/o42-eval.c:11548
 msgid "Fixed-declining-balance depreciation."
 msgstr "Penyusutan saldo menurun tetap."
 
-#: src/formula/o42-eval.c:11335
+#: src/formula/o42-eval.c:11549
 msgid "How many records match the criteria and hold a number in the field."
 msgstr ""
 "Banyaknya rekaman yang cocok dengan kriteria dan berisi bilangan pada bidang "
 "tersebut."
 
-#: src/formula/o42-eval.c:11336
+#: src/formula/o42-eval.c:11550
 msgid "How many records match the criteria and are not blank in the field."
 msgstr ""
 "Banyaknya rekaman yang cocok dengan kriteria dan tidak kosong pada bidang "
 "tersebut."
 
-#: src/formula/o42-eval.c:11337
+#: src/formula/o42-eval.c:11551
 msgid "Depreciation by the double-declining balance method."
 msgstr "Penyusutan dengan metode saldo menurun ganda."
 
-#: src/formula/o42-eval.c:11338
+#: src/formula/o42-eval.c:11552
 msgid "Text in another base as a number."
 msgstr "Teks dalam basis lain sebagai bilangan."
 
-#: src/formula/o42-eval.c:11339
+#: src/formula/o42-eval.c:11553
 msgid "Radians to degrees."
 msgstr "Radian ke derajat."
 
-#: src/formula/o42-eval.c:11340
+#: src/formula/o42-eval.c:11554
 msgid "The field of the one record that matches the criteria."
 msgstr "Bidang dari satu-satunya rekaman yang cocok dengan kriteria."
 
-#: src/formula/o42-eval.c:11341
+#: src/formula/o42-eval.c:11555
 msgid "The largest value of a field in the matching records."
 msgstr "Nilai terbesar suatu bidang pada rekaman yang cocok."
 
-#: src/formula/o42-eval.c:11342
+#: src/formula/o42-eval.c:11556
 msgid "The smallest value of a field in the matching records."
 msgstr "Nilai terkecil suatu bidang pada rekaman yang cocok."
 
-#: src/formula/o42-eval.c:11343
+#: src/formula/o42-eval.c:11557
 msgid "A price quoted as a fraction, as a decimal."
 msgstr "Harga yang dikutip sebagai pecahan, sebagai desimal."
 
-#: src/formula/o42-eval.c:11344
+#: src/formula/o42-eval.c:11558
 msgid "A decimal price as a fraction quote."
 msgstr "Harga desimal sebagai kutipan pecahan."
 
-#: src/formula/o42-eval.c:11345
+#: src/formula/o42-eval.c:11559
 msgid "The product of a field in the matching records."
 msgstr "Hasil kali suatu bidang pada rekaman yang cocok."
 
-#: src/formula/o42-eval.c:11346
+#: src/formula/o42-eval.c:11560
 msgid "The sample standard deviation of a field in the matching records."
 msgstr "Simpangan baku sampel suatu bidang pada rekaman yang cocok."
 
-#: src/formula/o42-eval.c:11347
+#: src/formula/o42-eval.c:11561
 msgid "Population standard deviation of matching records."
 msgstr "Simpangan baku populasi dari rekaman yang cocok."
 
-#: src/formula/o42-eval.c:11348
+#: src/formula/o42-eval.c:11562
 msgid "The sum of a field in the records that match the criteria."
 msgstr "Jumlah suatu bidang pada rekaman yang cocok dengan kriteria."
 
-#: src/formula/o42-eval.c:11349
+#: src/formula/o42-eval.c:11563
 msgid "The sample variance of a field in the matching records."
 msgstr "Varians sampel suatu bidang pada rekaman yang cocok."
 
-#: src/formula/o42-eval.c:11350
+#: src/formula/o42-eval.c:11564
 msgid "Population variance of matching records."
 msgstr "Varians populasi dari rekaman yang cocok."
 
-#: src/formula/o42-eval.c:11351
+#: src/formula/o42-eval.c:11565
 msgid "Easter Sunday, by the Gregorian computus."
 msgstr "Minggu Paskah, menurut perhitungan Gregorian."
 
-#: src/formula/o42-eval.c:11352
+#: src/formula/o42-eval.c:11566
 msgid "The effective annual interest rate."
 msgstr "Suku bunga tahunan efektif."
 
-#: src/formula/o42-eval.c:11353
+#: src/formula/o42-eval.c:11567
 msgid "The error value that text names."
 msgstr "Nilai kesalahan yang dinamai oleh teks."
 
-#: src/formula/o42-eval.c:11354
+#: src/formula/o42-eval.c:11568
 msgid "A number for each kind of error value."
 msgstr "Sebuah bilangan untuk setiap jenis nilai kesalahan."
 
-#: src/formula/o42-eval.c:11355
+#: src/formula/o42-eval.c:11569
 msgid ""
 "One of nineteen aggregates, leaving out hidden rows or errors as the options "
 "say."
@@ -1542,763 +1547,763 @@ msgstr ""
 "Salah satu dari sembilan belas agregat, melewati baris tersembunyi atau "
 "kesalahan sesuai opsi."
 
-#: src/formula/o42-eval.c:11356
+#: src/formula/o42-eval.c:11570
 msgid "Rounds away from zero to an even integer."
 msgstr "Membulatkan menjauhi nol ke bilangan bulat genap."
 
-#: src/formula/o42-eval.c:11357
+#: src/formula/o42-eval.c:11571
 msgid "e raised to a power."
 msgstr "e dipangkatkan."
 
-#: src/formula/o42-eval.c:11358
+#: src/formula/o42-eval.c:11572
 msgid "exp(x) - 1, keeping the digits a small x would lose."
 msgstr "exp(x) - 1, mempertahankan digit yang akan hilang untuk x kecil."
 
-#: src/formula/o42-eval.c:11359
+#: src/formula/o42-eval.c:11573
 msgid "The density of the exponential power distribution."
 msgstr "Kepadatan distribusi pangkat eksponensial."
 
-#: src/formula/o42-eval.c:11360
+#: src/formula/o42-eval.c:11574
 msgid "The F distribution, density or cumulative."
 msgstr "Distribusi F, kepadatan atau kumulatif."
 
-#: src/formula/o42-eval.c:11361
+#: src/formula/o42-eval.c:11575
 msgid "The inverse of the left-tailed F distribution."
 msgstr "Invers distribusi F ekor kiri."
 
-#: src/formula/o42-eval.c:11362
+#: src/formula/o42-eval.c:11576
 msgid "The two-tailed F-test probability."
 msgstr "Probabilitas uji F dua ekor."
 
-#: src/formula/o42-eval.c:11363
+#: src/formula/o42-eval.c:11577
 msgid "The factorial."
 msgstr "Faktorial."
 
-#: src/formula/o42-eval.c:11364
+#: src/formula/o42-eval.c:11578
 msgid "The double factorial."
 msgstr "Faktorial ganda."
 
-#: src/formula/o42-eval.c:11365
+#: src/formula/o42-eval.c:11579
 msgid "The logical value FALSE."
 msgstr "Nilai logika FALSE."
 
-#: src/formula/o42-eval.c:11366
+#: src/formula/o42-eval.c:11580
 msgid "The rows (or columns) of an array where a condition holds."
 msgstr "Baris (atau kolom) array yang memenuhi suatu kondisi."
 
-#: src/formula/o42-eval.c:11367
+#: src/formula/o42-eval.c:11581
 msgid "The Fisher transformation."
 msgstr "Transformasi Fisher."
 
-#: src/formula/o42-eval.c:11368
+#: src/formula/o42-eval.c:11582
 msgid "The inverse of the Fisher transformation."
 msgstr "Invers transformasi Fisher."
 
-#: src/formula/o42-eval.c:11369
+#: src/formula/o42-eval.c:11583
 msgid "Rounds down, toward zero, to a multiple of significance."
 msgstr "Membulatkan ke bawah, menuju nol, ke kelipatan signifikansi."
 
-#: src/formula/o42-eval.c:11370
+#: src/formula/o42-eval.c:11584
 msgid "Rounds down to a multiple of the significance."
 msgstr "Membulatkan ke bawah ke kelipatan signifikansi."
 
-#: src/formula/o42-eval.c:11371
+#: src/formula/o42-eval.c:11585
 msgid "Rounded down towards minus infinity, whatever the sign."
 msgstr "Dibulatkan ke bawah menuju minus tak hingga, apa pun tandanya."
 
-#: src/formula/o42-eval.c:11372
+#: src/formula/o42-eval.c:11586
 msgid "What was typed into a cell, formula and all."
 msgstr "Apa yang diketikkan ke dalam sel, termasuk rumusnya."
 
-#: src/formula/o42-eval.c:11373
+#: src/formula/o42-eval.c:11587
 msgid "The two-tailed F-test probability that the variances differ."
 msgstr "Probabilitas uji F dua ekor bahwa varians-variansnya berbeda."
 
-#: src/formula/o42-eval.c:11374
+#: src/formula/o42-eval.c:11588
 msgid "The future value of regular payments."
 msgstr "Nilai masa depan dari pembayaran berkala."
 
-#: src/formula/o42-eval.c:11375
+#: src/formula/o42-eval.c:11589
 msgid "The gamma function."
 msgstr "Fungsi gamma."
 
-#: src/formula/o42-eval.c:11376
+#: src/formula/o42-eval.c:11590
 msgid "The probability between the mean and z standard deviations."
 msgstr "Probabilitas antara rata-rata dan z simpangan baku."
 
-#: src/formula/o42-eval.c:11377
+#: src/formula/o42-eval.c:11591
 msgid "The greatest common divisor."
 msgstr "Faktor persekutuan terbesar."
 
-#: src/formula/o42-eval.c:11378
+#: src/formula/o42-eval.c:11592
 msgid "How many failures before the first success."
 msgstr "Banyaknya kegagalan sebelum keberhasilan pertama."
 
-#: src/formula/o42-eval.c:11379
+#: src/formula/o42-eval.c:11593
 msgid "A value from the machine's environment."
 msgstr "Sebuah nilai dari lingkungan mesin."
 
-#: src/formula/o42-eval.c:11380
+#: src/formula/o42-eval.c:11594
 msgid "Good Friday, two days before Easter."
 msgstr "Jumat Agung, dua hari sebelum Paskah."
 
-#: src/formula/o42-eval.c:11381
+#: src/formula/o42-eval.c:11595
 msgid "Values on the exponential curve fitted to the points."
 msgstr ""
 "Nilai-nilai pada kurva eksponensial yang dicocokkan dengan titik-titik."
 
-#: src/formula/o42-eval.c:11382
+#: src/formula/o42-eval.c:11596
 msgid "Finds a value in the top row and returns from that column."
 msgstr ""
 "Mencari nilai di baris teratas dan mengembalikan nilai dari kolom tersebut."
 
-#: src/formula/o42-eval.c:11383
+#: src/formula/o42-eval.c:11597
 msgid "The text to show for a link."
 msgstr "Teks yang ditampilkan untuk suatu tautan."
 
-#: src/formula/o42-eval.c:11384 src/formula/o42-eval.c:11385
+#: src/formula/o42-eval.c:11598 src/formula/o42-eval.c:11599
 msgid "The hypergeometric distribution."
 msgstr "Distribusi hipergeometrik."
 
-#: src/formula/o42-eval.c:11386
+#: src/formula/o42-eval.c:11600
 msgid "One value if a condition holds, another if not."
 msgstr "Satu nilai jika kondisi terpenuhi, nilai lain jika tidak."
 
-#: src/formula/o42-eval.c:11387
+#: src/formula/o42-eval.c:11601
 msgid "A value, or something else if it is an error."
 msgstr "Sebuah nilai, atau nilai lain jika berupa kesalahan."
 
-#: src/formula/o42-eval.c:11388
+#: src/formula/o42-eval.c:11602
 msgid "A value, or something else if it is #N/A."
 msgstr "Sebuah nilai, atau nilai lain jika berupa #N/A."
 
-#: src/formula/o42-eval.c:11389
+#: src/formula/o42-eval.c:11603
 msgid "The first value whose test holds."
 msgstr "Nilai pertama yang ujiannya terpenuhi."
 
-#: src/formula/o42-eval.c:11390
+#: src/formula/o42-eval.c:11604
 msgid "The inverse cosine of a complex number."
 msgstr "Invers kosinus bilangan kompleks."
 
-#: src/formula/o42-eval.c:11391
+#: src/formula/o42-eval.c:11605
 msgid "The inverse hyperbolic cosine of a complex number."
 msgstr "Invers kosinus hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11392
+#: src/formula/o42-eval.c:11606
 msgid "The inverse cotangent of a complex number."
 msgstr "Invers kotangen bilangan kompleks."
 
-#: src/formula/o42-eval.c:11393
+#: src/formula/o42-eval.c:11607
 msgid "The inverse hyperbolic cotangent of a complex number."
 msgstr "Invers kotangen hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11394
+#: src/formula/o42-eval.c:11608
 msgid "The inverse cosecant of a complex number."
 msgstr "Invers kosekan bilangan kompleks."
 
-#: src/formula/o42-eval.c:11395
+#: src/formula/o42-eval.c:11609
 msgid "The inverse hyperbolic cosecant of a complex number."
 msgstr "Invers kosekan hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11396
+#: src/formula/o42-eval.c:11610
 msgid "The inverse secant of a complex number."
 msgstr "Invers sekan bilangan kompleks."
 
-#: src/formula/o42-eval.c:11397
+#: src/formula/o42-eval.c:11611
 msgid "The inverse hyperbolic secant of a complex number."
 msgstr "Invers sekan hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11398
+#: src/formula/o42-eval.c:11612
 msgid "The inverse sine of a complex number."
 msgstr "Invers sinus bilangan kompleks."
 
-#: src/formula/o42-eval.c:11399
+#: src/formula/o42-eval.c:11613
 msgid "The inverse hyperbolic sine of a complex number."
 msgstr "Invers sinus hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11400
+#: src/formula/o42-eval.c:11614
 msgid "The inverse tangent of a complex number."
 msgstr "Invers tangen bilangan kompleks."
 
-#: src/formula/o42-eval.c:11401
+#: src/formula/o42-eval.c:11615
 msgid "The inverse hyperbolic tangent of a complex number."
 msgstr "Invers tangen hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11402
+#: src/formula/o42-eval.c:11616
 msgid "The hyperbolic cosine of a complex number."
 msgstr "Kosinus hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11403
+#: src/formula/o42-eval.c:11617
 msgid "The cotangent of a complex number."
 msgstr "Kotangen bilangan kompleks."
 
-#: src/formula/o42-eval.c:11404
+#: src/formula/o42-eval.c:11618
 msgid "The hyperbolic cotangent of a complex number."
 msgstr "Kotangen hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11405
+#: src/formula/o42-eval.c:11619
 msgid "The cosecant of a complex number."
 msgstr "Kosekan bilangan kompleks."
 
-#: src/formula/o42-eval.c:11406
+#: src/formula/o42-eval.c:11620
 msgid "The hyperbolic cosecant of a complex number."
 msgstr "Kosekan hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11407
+#: src/formula/o42-eval.c:11621
 msgid "One divided by a complex number."
 msgstr "Satu dibagi bilangan kompleks."
 
-#: src/formula/o42-eval.c:11408
+#: src/formula/o42-eval.c:11622
 msgid "A complex number with its sign turned round."
 msgstr "Bilangan kompleks dengan tanda dibalik."
 
-#: src/formula/o42-eval.c:11409
+#: src/formula/o42-eval.c:11623
 msgid "The secant of a complex number."
 msgstr "Sekan bilangan kompleks."
 
-#: src/formula/o42-eval.c:11410
+#: src/formula/o42-eval.c:11624
 msgid "The hyperbolic secant of a complex number."
 msgstr "Sekan hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11411
+#: src/formula/o42-eval.c:11625
 msgid "The hyperbolic sine of a complex number."
 msgstr "Sinus hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11412
+#: src/formula/o42-eval.c:11626
 msgid "The tangent of a complex number."
 msgstr "Tangen bilangan kompleks."
 
-#: src/formula/o42-eval.c:11413
+#: src/formula/o42-eval.c:11627
 msgid "The hyperbolic tangent of a complex number."
 msgstr "Tangen hiperbolik bilangan kompleks."
 
-#: src/formula/o42-eval.c:11414
+#: src/formula/o42-eval.c:11628
 msgid "The cell at a row and column of a range."
 msgstr "Sel pada baris dan kolom tertentu dalam suatu rentang."
 
-#: src/formula/o42-eval.c:11415
+#: src/formula/o42-eval.c:11629
 msgid "The reference the text names."
 msgstr "Referensi yang dinamai oleh teks."
 
-#: src/formula/o42-eval.c:11416
+#: src/formula/o42-eval.c:11630
 msgid "Rounds down to the nearest integer."
 msgstr "Membulatkan ke bawah ke bilangan bulat terdekat."
 
-#: src/formula/o42-eval.c:11417
+#: src/formula/o42-eval.c:11631
 msgid "The interest part of one payment."
 msgstr "Bagian bunga dari satu pembayaran."
 
-#: src/formula/o42-eval.c:11418
+#: src/formula/o42-eval.c:11632
 msgid "The internal rate of return of a series of cash flows."
 msgstr "Tingkat pengembalian internal dari serangkaian arus kas."
 
-#: src/formula/o42-eval.c:11419
+#: src/formula/o42-eval.c:11633
 msgid "TRUE for an empty cell."
 msgstr "TRUE untuk sel kosong."
 
-#: src/formula/o42-eval.c:11420
+#: src/formula/o42-eval.c:11634
 msgid "TRUE for any error but #N/A."
 msgstr "TRUE untuk kesalahan apa pun kecuali #N/A."
 
-#: src/formula/o42-eval.c:11421
+#: src/formula/o42-eval.c:11635
 msgid "TRUE for any error."
 msgstr "TRUE untuk kesalahan apa pun."
 
-#: src/formula/o42-eval.c:11422
+#: src/formula/o42-eval.c:11636
 msgid "TRUE for an even number."
 msgstr "TRUE untuk bilangan genap."
 
-#: src/formula/o42-eval.c:11423
+#: src/formula/o42-eval.c:11637
 msgid "Whether the cell holds a formula."
 msgstr "Apakah sel berisi rumus."
 
-#: src/formula/o42-eval.c:11424
+#: src/formula/o42-eval.c:11638
 msgid "TRUE for TRUE or FALSE."
 msgstr "TRUE untuk TRUE atau FALSE."
 
-#: src/formula/o42-eval.c:11425
+#: src/formula/o42-eval.c:11639
 msgid "TRUE for #N/A."
 msgstr "TRUE untuk #N/A."
 
-#: src/formula/o42-eval.c:11426
+#: src/formula/o42-eval.c:11640
 msgid "TRUE for anything that is not text."
 msgstr "TRUE untuk apa pun yang bukan teks."
 
-#: src/formula/o42-eval.c:11427
+#: src/formula/o42-eval.c:11641
 msgid "TRUE for a number."
 msgstr "TRUE untuk bilangan."
 
-#: src/formula/o42-eval.c:11429
+#: src/formula/o42-eval.c:11643
 msgid "TRUE for an odd number."
 msgstr "TRUE untuk bilangan ganjil."
 
-#: src/formula/o42-eval.c:11430
+#: src/formula/o42-eval.c:11644
 msgid "Whether a LAMBDA argument was left out."
 msgstr "Apakah suatu argumen LAMBDA dihilangkan."
 
-#: src/formula/o42-eval.c:11431
+#: src/formula/o42-eval.c:11645
 msgid "The year the ISO 8601 week of a date belongs to."
 msgstr "Tahun tempat minggu ISO 8601 suatu tanggal berada."
 
-#: src/formula/o42-eval.c:11432
+#: src/formula/o42-eval.c:11646
 msgid "Interest paid in a period of an even-principal loan."
 msgstr "Bunga yang dibayar dalam satu periode pinjaman dengan pokok merata."
 
-#: src/formula/o42-eval.c:11433
+#: src/formula/o42-eval.c:11647
 msgid "TRUE if the number is prime."
 msgstr "TRUE jika bilangan tersebut prima."
 
-#: src/formula/o42-eval.c:11434
+#: src/formula/o42-eval.c:11648
 msgid "TRUE if the value is a reference."
 msgstr "TRUE jika nilai tersebut berupa referensi."
 
-#: src/formula/o42-eval.c:11435
+#: src/formula/o42-eval.c:11649
 msgid "TRUE for text."
 msgstr "TRUE untuk teks."
 
-#: src/formula/o42-eval.c:11436
+#: src/formula/o42-eval.c:11650
 msgid "The ith prime number."
 msgstr "Bilangan prima ke-i."
 
-#: src/formula/o42-eval.c:11437
+#: src/formula/o42-eval.c:11651
 msgid "The kurtosis of a whole population."
 msgstr "Kurtosis seluruh populasi."
 
-#: src/formula/o42-eval.c:11438
+#: src/formula/o42-eval.c:11652
 msgid "A function of its own, called at once or through LET."
 msgstr "Fungsi buatan sendiri, dipanggil langsung atau melalui LET."
 
-#: src/formula/o42-eval.c:11439
+#: src/formula/o42-eval.c:11653
 msgid "The Landau distribution, by its integral."
 msgstr "Distribusi Landau, melalui integralnya."
 
-#: src/formula/o42-eval.c:11440
+#: src/formula/o42-eval.c:11654
 msgid "The density of Laplace's distribution."
 msgstr "Kepadatan distribusi Laplace."
 
-#: src/formula/o42-eval.c:11441
+#: src/formula/o42-eval.c:11655
 msgid "The least common multiple."
 msgstr "Kelipatan persekutuan terkecil."
 
-#: src/formula/o42-eval.c:11442
+#: src/formula/o42-eval.c:11656
 msgid "Names values for use in a calculation."
 msgstr "Menamai nilai-nilai untuk dipakai dalam perhitungan."
 
-#: src/formula/o42-eval.c:11443
+#: src/formula/o42-eval.c:11657
 msgid "The natural logarithm."
 msgstr "Logaritma natural."
 
-#: src/formula/o42-eval.c:11444
+#: src/formula/o42-eval.c:11658
 msgid "log(1 + x), keeping the digits a small x would lose."
 msgstr "log(1 + x), mempertahankan digit yang akan hilang untuk x kecil."
 
-#: src/formula/o42-eval.c:11445
+#: src/formula/o42-eval.c:11659
 msgid "The logarithm to a base, 10 if none is given."
 msgstr "Logaritma dengan suatu basis, 10 jika tidak diberikan."
 
-#: src/formula/o42-eval.c:11446
+#: src/formula/o42-eval.c:11660
 msgid "The logarithm to base 10."
 msgstr "Logaritma basis 10."
 
-#: src/formula/o42-eval.c:11447
+#: src/formula/o42-eval.c:11661
 msgid "The exponential curve through the points: m and b of y = b*m^x."
 msgstr "Kurva eksponensial melalui titik-titik: m dan b dari y = b*m^x."
 
-#: src/formula/o42-eval.c:11448
+#: src/formula/o42-eval.c:11662
 msgid "The inverse lognormal distribution."
 msgstr "Invers distribusi lognormal."
 
-#: src/formula/o42-eval.c:11449
+#: src/formula/o42-eval.c:11663
 msgid "The density of the logistic distribution."
 msgstr "Kepadatan distribusi logistik."
 
-#: src/formula/o42-eval.c:11450
+#: src/formula/o42-eval.c:11664
 msgid "The lognormal distribution."
 msgstr "Distribusi lognormal."
 
-#: src/formula/o42-eval.c:11451
+#: src/formula/o42-eval.c:11665
 msgid "The inverse of the cumulative lognormal distribution."
 msgstr "Invers distribusi lognormal kumulatif."
 
-#: src/formula/o42-eval.c:11452
+#: src/formula/o42-eval.c:11666
 msgid "Finds a value in one vector and returns from another."
 msgstr ""
 "Mencari nilai dalam satu vektor dan mengembalikan nilai dari vektor lain."
 
-#: src/formula/o42-eval.c:11453
+#: src/formula/o42-eval.c:11667
 msgid "An array from a function of the row and column."
 msgstr "Array dari suatu fungsi baris dan kolom."
 
-#: src/formula/o42-eval.c:11454
+#: src/formula/o42-eval.c:11668
 msgid "Every element of an array through a function."
 msgstr "Setiap elemen array diproses melalui suatu fungsi."
 
-#: src/formula/o42-eval.c:11455
+#: src/formula/o42-eval.c:11669
 msgid "The position of a value in a range."
 msgstr "Posisi suatu nilai dalam rentang."
 
-#: src/formula/o42-eval.c:11456
+#: src/formula/o42-eval.c:11670
 msgid "The largest number."
 msgstr "Bilangan terbesar."
 
-#: src/formula/o42-eval.c:11457
+#: src/formula/o42-eval.c:11671
 msgid "The largest value, counting text as 0 and TRUE as 1."
 msgstr "Nilai terbesar, dengan teks dihitung 0 dan TRUE dihitung 1."
 
-#: src/formula/o42-eval.c:11458
+#: src/formula/o42-eval.c:11672
 msgid "The largest value among the cells meeting every condition."
 msgstr "Nilai terbesar di antara sel-sel yang memenuhi setiap kondisi."
 
-#: src/formula/o42-eval.c:11459
+#: src/formula/o42-eval.c:11673
 msgid "The determinant of a square matrix."
 msgstr "Determinan matriks persegi."
 
-#: src/formula/o42-eval.c:11460
+#: src/formula/o42-eval.c:11674
 msgid "The middle value."
 msgstr "Nilai tengah."
 
-#: src/formula/o42-eval.c:11461
+#: src/formula/o42-eval.c:11675
 msgid "The smallest number."
 msgstr "Bilangan terkecil."
 
-#: src/formula/o42-eval.c:11462
+#: src/formula/o42-eval.c:11676
 msgid "The smallest value, counting text as 0 and TRUE as 1."
 msgstr "Nilai terkecil, dengan teks dihitung 0 dan TRUE dihitung 1."
 
-#: src/formula/o42-eval.c:11463
+#: src/formula/o42-eval.c:11677
 msgid "The smallest value among the cells meeting every condition."
 msgstr "Nilai terkecil di antara sel-sel yang memenuhi setiap kondisi."
 
-#: src/formula/o42-eval.c:11464
+#: src/formula/o42-eval.c:11678
 msgid "The modified internal rate of return."
 msgstr "Tingkat pengembalian internal yang dimodifikasi."
 
-#: src/formula/o42-eval.c:11465
+#: src/formula/o42-eval.c:11679
 msgid "The remainder, with the sign of the divisor."
 msgstr "Sisa pembagian, dengan tanda pembagi."
 
-#: src/formula/o42-eval.c:11466
+#: src/formula/o42-eval.c:11680
 msgid "Rounds to the nearest multiple."
 msgstr "Membulatkan ke kelipatan terdekat."
 
-#: src/formula/o42-eval.c:11467
+#: src/formula/o42-eval.c:11681
 msgid "The multinomial of a set of numbers."
 msgstr "Multinomial dari sekumpulan bilangan."
 
-#: src/formula/o42-eval.c:11468
+#: src/formula/o42-eval.c:11682
 msgid "A value as a number; text becomes 0."
 msgstr "Nilai sebagai bilangan; teks menjadi 0."
 
-#: src/formula/o42-eval.c:11469
+#: src/formula/o42-eval.c:11683
 msgid "The error value #N/A."
 msgstr "Nilai kesalahan #N/A."
 
-#: src/formula/o42-eval.c:11470 src/formula/o42-eval.c:11471
+#: src/formula/o42-eval.c:11684 src/formula/o42-eval.c:11685
 msgid "The negative binomial distribution."
 msgstr "Distribusi binomial negatif."
 
-#: src/formula/o42-eval.c:11472
+#: src/formula/o42-eval.c:11686
 msgid "Working days between two dates, with the weekend named."
 msgstr "Hari kerja di antara dua tanggal, dengan akhir pekan yang ditentukan."
 
-#: src/formula/o42-eval.c:11473
+#: src/formula/o42-eval.c:11687
 msgid "The nominal annual interest rate."
 msgstr "Suku bunga tahunan nominal."
 
-#: src/formula/o42-eval.c:11474
+#: src/formula/o42-eval.c:11688
 msgid "The standard normal distribution."
 msgstr "Distribusi normal standar."
 
-#: src/formula/o42-eval.c:11475
+#: src/formula/o42-eval.c:11689
 msgid ""
 "D'Agostino and Pearson's test for normality, from the skew and kurtosis."
 msgstr "Uji normalitas D'Agostino-Pearson, dari kemencengan dan kurtosis."
 
-#: src/formula/o42-eval.c:11476
+#: src/formula/o42-eval.c:11690
 msgid "The opposite of a logical value."
 msgstr "Kebalikan suatu nilai logika."
 
-#: src/formula/o42-eval.c:11477
+#: src/formula/o42-eval.c:11691
 msgid "How many payments an investment takes."
 msgstr "Banyaknya pembayaran yang diperlukan suatu investasi."
 
-#: src/formula/o42-eval.c:11478
+#: src/formula/o42-eval.c:11692
 msgid "The net present value of a series of cash flows."
 msgstr "Nilai sekarang bersih dari serangkaian arus kas."
 
-#: src/formula/o42-eval.c:11479
+#: src/formula/o42-eval.c:11693
 msgid "How many divisors a number has."
 msgstr "Banyaknya pembagi suatu bilangan."
 
-#: src/formula/o42-eval.c:11480
+#: src/formula/o42-eval.c:11694
 msgid "The Moebius mu function of a number."
 msgstr "Fungsi mu Moebius suatu bilangan."
 
-#: src/formula/o42-eval.c:11481
+#: src/formula/o42-eval.c:11695
 msgid "How many distinct primes go into a number."
 msgstr "Banyaknya faktor prima berbeda suatu bilangan."
 
-#: src/formula/o42-eval.c:11482
+#: src/formula/o42-eval.c:11696
 msgid "Euler's totient: how many below n are coprime to it."
 msgstr "Totient Euler: banyaknya bilangan di bawah n yang koprima dengannya."
 
-#: src/formula/o42-eval.c:11483
+#: src/formula/o42-eval.c:11697
 msgid "How many primes there are up to n."
 msgstr "Banyaknya bilangan prima hingga n."
 
-#: src/formula/o42-eval.c:11484
+#: src/formula/o42-eval.c:11698
 msgid "The product of the distinct primes of a number."
 msgstr "Hasil kali faktor-faktor prima berbeda suatu bilangan."
 
-#: src/formula/o42-eval.c:11485
+#: src/formula/o42-eval.c:11699
 msgid "What the divisors of a number add up to."
 msgstr "Jumlah semua pembagi suatu bilangan."
 
-#: src/formula/o42-eval.c:11486
+#: src/formula/o42-eval.c:11700
 msgid "Text as a number, ignoring spaces."
 msgstr "Teks sebagai bilangan, mengabaikan spasi."
 
-#: src/formula/o42-eval.c:11487
+#: src/formula/o42-eval.c:11701
 msgid "Rounds away from zero to an odd integer."
 msgstr "Membulatkan menjauhi nol ke bilangan bulat ganjil."
 
-#: src/formula/o42-eval.c:11488
+#: src/formula/o42-eval.c:11702
 msgid "A reference moved and resized from another."
 msgstr "Referensi yang digeser dan diubah ukurannya dari referensi lain."
 
-#: src/formula/o42-eval.c:11489
+#: src/formula/o42-eval.c:11703
 msgid "TRUE if any argument is TRUE."
 msgstr "TRUE jika ada argumen yang bernilai TRUE."
 
-#: src/formula/o42-eval.c:11490
+#: src/formula/o42-eval.c:11704
 msgid "Owen's T function."
 msgstr "Fungsi T Owen."
 
-#: src/formula/o42-eval.c:11491
+#: src/formula/o42-eval.c:11705
 msgid "The density of Pareto's distribution."
 msgstr "Kepadatan distribusi Pareto."
 
-#: src/formula/o42-eval.c:11492
+#: src/formula/o42-eval.c:11706
 msgid "Periods for an investment to reach a value."
 msgstr "Banyaknya periode hingga investasi mencapai suatu nilai."
 
-#: src/formula/o42-eval.c:11493
+#: src/formula/o42-eval.c:11707
 msgid "Pentecost, forty-nine days after Easter."
 msgstr "Pentakosta, empat puluh sembilan hari setelah Paskah."
 
-#: src/formula/o42-eval.c:11494
+#: src/formula/o42-eval.c:11708
 msgid "The k-th percentile, exclusive."
 msgstr "Persentil ke-k, eksklusif."
 
-#: src/formula/o42-eval.c:11495
+#: src/formula/o42-eval.c:11709
 msgid "The rank of a value as a fraction of the set."
 msgstr "Peringkat suatu nilai sebagai pecahan dari himpunan."
 
-#: src/formula/o42-eval.c:11496
+#: src/formula/o42-eval.c:11710
 msgid "The rank of a value, with the ends counted out."
 msgstr "Peringkat suatu nilai, dengan kedua ujung tidak dihitung."
 
-#: src/formula/o42-eval.c:11497
+#: src/formula/o42-eval.c:11711
 msgid "The rank of a value as a fraction of the set, inclusive."
 msgstr "Peringkat suatu nilai sebagai pecahan dari himpunan, inklusif."
 
-#: src/formula/o42-eval.c:11498
+#: src/formula/o42-eval.c:11712
 msgid "How many ordered ways k things can be chosen from n."
 msgstr "Banyaknya cara terurut memilih k benda dari n."
 
-#: src/formula/o42-eval.c:11499
+#: src/formula/o42-eval.c:11713
 msgid "Permutations with repetition."
 msgstr "Permutasi dengan pengulangan."
 
-#: src/formula/o42-eval.c:11500
+#: src/formula/o42-eval.c:11714
 msgid "The smallest prime that goes into a number."
 msgstr "Bilangan prima terkecil yang membagi suatu bilangan."
 
-#: src/formula/o42-eval.c:11501
+#: src/formula/o42-eval.c:11715
 msgid "The standard normal density."
 msgstr "Kepadatan normal standar."
 
-#: src/formula/o42-eval.c:11502
+#: src/formula/o42-eval.c:11716
 msgid "3.14159265358979."
 msgstr "3.14159265358979."
 
-#: src/formula/o42-eval.c:11503
+#: src/formula/o42-eval.c:11717
 msgid "The payment on a loan."
 msgstr "Pembayaran suatu pinjaman."
 
-#: src/formula/o42-eval.c:11504
+#: src/formula/o42-eval.c:11718
 msgid "A number raised to a power."
 msgstr "Bilangan yang dipangkatkan."
 
-#: src/formula/o42-eval.c:11505
+#: src/formula/o42-eval.c:11719
 msgid "The principal part of one payment."
 msgstr "Bagian pokok dari satu pembayaran."
 
-#: src/formula/o42-eval.c:11506
+#: src/formula/o42-eval.c:11720
 msgid "The probability that a value lies between two limits."
 msgstr "Probabilitas bahwa suatu nilai terletak di antara dua batas."
 
-#: src/formula/o42-eval.c:11507
+#: src/formula/o42-eval.c:11721
 msgid "Multiplies its arguments."
 msgstr "Mengalikan argumen-argumennya."
 
-#: src/formula/o42-eval.c:11508
+#: src/formula/o42-eval.c:11722
 msgid "The present value of regular payments."
 msgstr "Nilai sekarang dari pembayaran berkala."
 
-#: src/formula/o42-eval.c:11509
+#: src/formula/o42-eval.c:11723
 msgid "A quartile, exclusive."
 msgstr "Kuartil, eksklusif."
 
-#: src/formula/o42-eval.c:11510
+#: src/formula/o42-eval.c:11724
 msgid "The integer part of a division."
 msgstr "Bagian bilangan bulat dari suatu pembagian."
 
-#: src/formula/o42-eval.c:11511
+#: src/formula/o42-eval.c:11725
 msgid "Degrees to radians."
 msgstr "Derajat ke radian."
 
-#: src/formula/o42-eval.c:11512
+#: src/formula/o42-eval.c:11726
 msgid "A random number between 0 and 1."
 msgstr "Bilangan acak antara 0 dan 1."
 
-#: src/formula/o42-eval.c:11513
+#: src/formula/o42-eval.c:11727
 msgid "An array of random numbers."
 msgstr "Array bilangan acak."
 
-#: src/formula/o42-eval.c:11514
+#: src/formula/o42-eval.c:11728
 msgid "A random integer in a range."
 msgstr "Bilangan bulat acak dalam suatu rentang."
 
-#: src/formula/o42-eval.c:11515
+#: src/formula/o42-eval.c:11729
 msgid "The rank of a number, averaged over ties."
 msgstr "Peringkat suatu bilangan, dirata-ratakan untuk nilai seri."
 
-#: src/formula/o42-eval.c:11516
+#: src/formula/o42-eval.c:11730
 msgid "The interest rate per period of an annuity."
 msgstr "Suku bunga per periode suatu anuitas."
 
-#: src/formula/o42-eval.c:11517
+#: src/formula/o42-eval.c:11731
 msgid "The density of Rayleigh's distribution."
 msgstr "Kepadatan distribusi Rayleigh."
 
-#: src/formula/o42-eval.c:11518
+#: src/formula/o42-eval.c:11732
 msgid "An array folded into one value."
 msgstr "Array yang direduksi menjadi satu nilai."
 
-#: src/formula/o42-eval.c:11519
+#: src/formula/o42-eval.c:11733
 msgid "A number as a Roman numeral."
 msgstr "Bilangan sebagai angka Romawi."
 
-#: src/formula/o42-eval.c:11520
+#: src/formula/o42-eval.c:11734
 msgid "Rounds to a number of digits, halves away from zero."
 msgstr "Membulatkan ke sejumlah digit, setengah dibulatkan menjauhi nol."
 
-#: src/formula/o42-eval.c:11521
+#: src/formula/o42-eval.c:11735
 msgid "Rounds toward zero."
 msgstr "Membulatkan menuju nol."
 
-#: src/formula/o42-eval.c:11522
+#: src/formula/o42-eval.c:11736
 msgid "Rounds away from zero."
 msgstr "Membulatkan menjauhi nol."
 
-#: src/formula/o42-eval.c:11523
+#: src/formula/o42-eval.c:11737
 msgid "The row number of a reference, or of this cell."
 msgstr "Nomor baris suatu referensi, atau sel ini."
 
-#: src/formula/o42-eval.c:11524
+#: src/formula/o42-eval.c:11738
 msgid "The rate that grows pv to fv over nper periods."
 msgstr "Suku bunga yang menumbuhkan pv menjadi fv selama nper periode."
 
-#: src/formula/o42-eval.c:11525
+#: src/formula/o42-eval.c:11739
 msgid "The running results of folding an array."
 msgstr "Hasil berjalan dari reduksi suatu array."
 
-#: src/formula/o42-eval.c:11526
+#: src/formula/o42-eval.c:11740
 msgid "The secant."
 msgstr "Sekan."
 
-#: src/formula/o42-eval.c:11527
+#: src/formula/o42-eval.c:11741
 msgid "The hyperbolic secant."
 msgstr "Sekan hiperbolik."
 
-#: src/formula/o42-eval.c:11528
+#: src/formula/o42-eval.c:11742
 msgid "An array of numbers in sequence."
 msgstr "Array bilangan berurutan."
 
-#: src/formula/o42-eval.c:11529
+#: src/formula/o42-eval.c:11743
 msgid "A power series."
 msgstr "Deret pangkat."
 
-#: src/formula/o42-eval.c:11530
+#: src/formula/o42-eval.c:11744
 msgid "The number of the sheet, counting from one."
 msgstr "Nomor lembar, dihitung dari satu."
 
-#: src/formula/o42-eval.c:11531
+#: src/formula/o42-eval.c:11745
 msgid "How many sheets the book has."
 msgstr "Banyaknya lembar dalam buku kerja."
 
-#: src/formula/o42-eval.c:11532
+#: src/formula/o42-eval.c:11746
 msgid "1, 0 or -1 by the sign of a number."
 msgstr "1, 0, atau -1 menurut tanda suatu bilangan."
 
-#: src/formula/o42-eval.c:11533
+#: src/formula/o42-eval.c:11747
 msgid "The sine of an angle in radians."
 msgstr "Sinus suatu sudut dalam radian."
 
-#: src/formula/o42-eval.c:11534
+#: src/formula/o42-eval.c:11748
 msgid "The hyperbolic sine."
 msgstr "Sinus hiperbolik."
 
-#: src/formula/o42-eval.c:11535
+#: src/formula/o42-eval.c:11749
 msgid "The skewness of a population."
 msgstr "Kemencengan suatu populasi."
 
-#: src/formula/o42-eval.c:11536
+#: src/formula/o42-eval.c:11750
 msgid "The skew of a whole population."
 msgstr "Kemencengan seluruh populasi."
 
-#: src/formula/o42-eval.c:11537
+#: src/formula/o42-eval.c:11751
 msgid "Straight-line depreciation for one period."
 msgstr "Penyusutan garis lurus untuk satu periode."
 
-#: src/formula/o42-eval.c:11538
+#: src/formula/o42-eval.c:11752
 msgid "The chance a standard normal falls between the two."
 msgstr "Peluang variabel normal standar jatuh di antara kedua nilai."
 
-#: src/formula/o42-eval.c:11539
+#: src/formula/o42-eval.c:11753
 msgid "An array sorted by one of its columns."
 msgstr "Array yang diurutkan menurut salah satu kolomnya."
 
-#: src/formula/o42-eval.c:11540
+#: src/formula/o42-eval.c:11754
 msgid "An array sorted by another."
 msgstr "Array yang diurutkan menurut array lain."
 
-#: src/formula/o42-eval.c:11541
+#: src/formula/o42-eval.c:11755
 msgid "The square root."
 msgstr "Akar kuadrat."
 
-#: src/formula/o42-eval.c:11542
+#: src/formula/o42-eval.c:11756
 msgid "The square root of a number times pi."
 msgstr "Akar kuadrat dari suatu bilangan dikali pi."
 
-#: src/formula/o42-eval.c:11543
+#: src/formula/o42-eval.c:11757
 msgid "The median of grouped data, interpolated inside its bin."
 msgstr "Median data berkelompok, diinterpolasi di dalam bin-nya."
 
-#: src/formula/o42-eval.c:11544
+#: src/formula/o42-eval.c:11758
 msgid "Sample standard deviation, counting text as 0 and TRUE as 1."
 msgstr "Simpangan baku sampel, dengan teks dihitung 0 dan TRUE dihitung 1."
 
-#: src/formula/o42-eval.c:11545
+#: src/formula/o42-eval.c:11759
 msgid "Population standard deviation, counting text as 0 and TRUE as 1."
 msgstr "Simpangan baku populasi, dengan teks dihitung 0 dan TRUE dihitung 1."
 
-#: src/formula/o42-eval.c:11546
+#: src/formula/o42-eval.c:11760
 msgid "The standard error of the predicted y for each x."
 msgstr "Galat baku dari y prediksi untuk setiap x."
 
-#: src/formula/o42-eval.c:11547
+#: src/formula/o42-eval.c:11761
 msgid ""
 "An aggregate chosen by number: 1 AVERAGE, 2 COUNT, 3 COUNTA, 4 MAX, 5 MIN, 6 "
 "PRODUCT, 7 STDEV, 8 STDEVP, 9 SUM, 10 VAR, 11 VARP."
@@ -2306,182 +2311,182 @@ msgstr ""
 "Agregat yang dipilih menurut nomor: 1 AVERAGE, 2 COUNT, 3 COUNTA, 4 MAX, 5 "
 "MIN, 6 PRODUCT, 7 STDEV, 8 STDEVP, 9 SUM, 10 VAR, 11 VARP."
 
-#: src/formula/o42-eval.c:11548
+#: src/formula/o42-eval.c:11762
 msgid "Adds its arguments; text in a range is skipped."
 msgstr "Menjumlahkan argumen-argumennya; teks dalam rentang dilewati."
 
-#: src/formula/o42-eval.c:11549
+#: src/formula/o42-eval.c:11763
 msgid "The sum, counting text as 0 and TRUE as 1."
 msgstr "Jumlah, dengan teks dihitung 0 dan TRUE dihitung 1."
 
-#: src/formula/o42-eval.c:11550
+#: src/formula/o42-eval.c:11764
 msgid "Adds the cells that meet a condition."
 msgstr "Menjumlahkan sel-sel yang memenuhi suatu kondisi."
 
-#: src/formula/o42-eval.c:11551
+#: src/formula/o42-eval.c:11765
 msgid "Adds the cells meeting every condition."
 msgstr "Menjumlahkan sel-sel yang memenuhi setiap kondisi."
 
-#: src/formula/o42-eval.c:11552
+#: src/formula/o42-eval.c:11766
 msgid "Multiplies ranges cell by cell and adds the products."
 msgstr "Mengalikan rentang sel demi sel dan menjumlahkan hasil kalinya."
 
-#: src/formula/o42-eval.c:11553
+#: src/formula/o42-eval.c:11767
 msgid "The sum of the squares."
 msgstr "Jumlah kuadrat."
 
-#: src/formula/o42-eval.c:11554
+#: src/formula/o42-eval.c:11768
 msgid "The sum of the differences of squares."
 msgstr "Jumlah selisih kuadrat."
 
-#: src/formula/o42-eval.c:11555
+#: src/formula/o42-eval.c:11769
 msgid "The sum of the sums of squares."
 msgstr "Jumlah dari jumlah kuadrat."
 
-#: src/formula/o42-eval.c:11556
+#: src/formula/o42-eval.c:11770
 msgid "The sum of the squares of differences."
 msgstr "Jumlah kuadrat selisih."
 
-#: src/formula/o42-eval.c:11557
+#: src/formula/o42-eval.c:11771
 msgid "The result matching a value, or the default."
 msgstr "Hasil yang cocok dengan suatu nilai, atau nilai bawaan."
 
-#: src/formula/o42-eval.c:11558
+#: src/formula/o42-eval.c:11772
 msgid "Sum-of-years'-digits depreciation for one period."
 msgstr "Penyusutan jumlah angka tahun untuk satu periode."
 
-#: src/formula/o42-eval.c:11559
+#: src/formula/o42-eval.c:11773
 msgid "A value if it is text, otherwise empty text."
 msgstr "Nilai jika berupa teks, selain itu teks kosong."
 
-#: src/formula/o42-eval.c:11560
+#: src/formula/o42-eval.c:11774
 msgid "Student's t distribution, density or cumulative."
 msgstr "Distribusi t Student, kepadatan atau kumulatif."
 
-#: src/formula/o42-eval.c:11561
+#: src/formula/o42-eval.c:11775
 msgid "Both tails of Student's t distribution."
 msgstr "Kedua ekor distribusi t Student."
 
-#: src/formula/o42-eval.c:11562
+#: src/formula/o42-eval.c:11776
 msgid "The right tail of Student's t distribution."
 msgstr "Ekor kanan distribusi t Student."
 
-#: src/formula/o42-eval.c:11563
+#: src/formula/o42-eval.c:11777
 msgid "The inverse of the left-tailed t distribution."
 msgstr "Invers distribusi t ekor kiri."
 
-#: src/formula/o42-eval.c:11564
+#: src/formula/o42-eval.c:11778
 msgid "Student's t-test probability."
 msgstr "Probabilitas uji t Student."
 
-#: src/formula/o42-eval.c:11565
+#: src/formula/o42-eval.c:11779
 msgid "The tangent of an angle in radians."
 msgstr "Tangen suatu sudut dalam radian."
 
-#: src/formula/o42-eval.c:11566
+#: src/formula/o42-eval.c:11780
 msgid "The hyperbolic tangent."
 msgstr "Tangen hiperbolik."
 
-#: src/formula/o42-eval.c:11567
+#: src/formula/o42-eval.c:11781
 msgid "The part of a text after the delimiter, or the nth of them."
 msgstr "Bagian teks setelah pembatas, atau setelah pembatas ke-n."
 
-#: src/formula/o42-eval.c:11568
+#: src/formula/o42-eval.c:11782
 msgid "The part of a text before the delimiter, or the nth of them."
 msgstr "Bagian teks sebelum pembatas, atau sebelum pembatas ke-n."
 
-#: src/formula/o42-eval.c:11569
+#: src/formula/o42-eval.c:11783
 msgid "Joins texts with a delimiter between them."
 msgstr "Menggabungkan teks-teks dengan pembatas di antaranya."
 
-#: src/formula/o42-eval.c:11570
+#: src/formula/o42-eval.c:11784
 msgid "Values on the line fitted to the points."
 msgstr "Nilai-nilai pada garis yang dicocokkan dengan titik-titik."
 
-#: src/formula/o42-eval.c:11571
+#: src/formula/o42-eval.c:11785
 msgid "The logical value TRUE."
 msgstr "Nilai logika TRUE."
 
-#: src/formula/o42-eval.c:11572
+#: src/formula/o42-eval.c:11786
 msgid "Cuts a number off at a number of digits."
 msgstr "Memotong bilangan pada sejumlah digit."
 
-#: src/formula/o42-eval.c:11573
+#: src/formula/o42-eval.c:11787
 msgid ""
 "Student's t-test probability: type 1 paired, 2 equal variance, 3 unequal."
 msgstr ""
 "Probabilitas uji t Student: tipe 1 berpasangan, 2 varians sama, 3 varians "
 "tidak sama."
 
-#: src/formula/o42-eval.c:11574
+#: src/formula/o42-eval.c:11788
 msgid "A number for the kind of value: 1, 2, 4, 16 or 64."
 msgstr "Bilangan untuk jenis nilai: 1, 2, 4, 16, atau 64."
 
-#: src/formula/o42-eval.c:11575
+#: src/formula/o42-eval.c:11789
 msgid "The character with a Unicode code point."
 msgstr "Karakter dengan titik kode Unicode tertentu."
 
-#: src/formula/o42-eval.c:11576
+#: src/formula/o42-eval.c:11790
 msgid "The code point of the first character."
 msgstr "Titik kode karakter pertama."
 
-#: src/formula/o42-eval.c:11577
+#: src/formula/o42-eval.c:11791
 msgid "The distinct rows (or columns) of an array."
 msgstr "Baris (atau kolom) yang berbeda dari suatu array."
 
-#: src/formula/o42-eval.c:11578
+#: src/formula/o42-eval.c:11792
 msgid "Unix time as a date and time."
 msgstr "Waktu Unix sebagai tanggal dan waktu."
 
-#: src/formula/o42-eval.c:11579
+#: src/formula/o42-eval.c:11793
 msgid "A value as text, plainly or with its quotes."
 msgstr "Nilai sebagai teks, polos atau dengan tanda kutipnya."
 
-#: src/formula/o42-eval.c:11580
+#: src/formula/o42-eval.c:11794
 msgid "Sample variance, counting text as 0 and TRUE as 1."
 msgstr "Varians sampel, dengan teks dihitung 0 dan TRUE dihitung 1."
 
-#: src/formula/o42-eval.c:11581
+#: src/formula/o42-eval.c:11795
 msgid "Population variance, counting text as 0 and TRUE as 1."
 msgstr "Varians populasi, dengan teks dihitung 0 dan TRUE dihitung 1."
 
-#: src/formula/o42-eval.c:11582
+#: src/formula/o42-eval.c:11796
 msgid "Declining-balance depreciation over part of a life."
 msgstr "Penyusutan saldo menurun selama sebagian masa manfaat."
 
-#: src/formula/o42-eval.c:11583
+#: src/formula/o42-eval.c:11797
 msgid "Finds a value in the first column and returns from that row."
 msgstr ""
 "Mencari nilai di kolom pertama dan mengembalikan nilai dari baris tersebut."
 
-#: src/formula/o42-eval.c:11584
+#: src/formula/o42-eval.c:11798
 msgid "The date so many working days on, with the weekend named."
 msgstr ""
 "Tanggal setelah sejumlah hari kerja, dengan akhir pekan yang ditentukan."
 
-#: src/formula/o42-eval.c:11585
+#: src/formula/o42-eval.c:11799
 msgid "The internal rate of return of dated cash flows."
 msgstr "Tingkat pengembalian internal dari arus kas bertanggal."
 
-#: src/formula/o42-eval.c:11586
+#: src/formula/o42-eval.c:11800
 msgid "Finds a value in one vector and returns the matching one from another."
 msgstr ""
 "Mencari nilai dalam satu vektor dan mengembalikan nilai yang sesuai dari "
 "vektor lain."
 
-#: src/formula/o42-eval.c:11587
+#: src/formula/o42-eval.c:11801
 msgid "The position of a value in a vector."
 msgstr "Posisi suatu nilai dalam vektor."
 
-#: src/formula/o42-eval.c:11588
+#: src/formula/o42-eval.c:11802
 msgid "The net present value of dated cash flows."
 msgstr "Nilai sekarang bersih dari arus kas bertanggal."
 
-#: src/formula/o42-eval.c:11589
+#: src/formula/o42-eval.c:11803
 msgid "TRUE if an odd number of arguments are TRUE."
 msgstr "TRUE jika banyaknya argumen yang bernilai TRUE ganjil."
 
-#: src/formula/o42-eval.c:11590 src/formula/o42-eval.c:11591
+#: src/formula/o42-eval.c:11804 src/formula/o42-eval.c:11805
 msgid "The one-tailed probability of a z-test."
 msgstr "Probabilitas satu ekor dari uji z."
 
@@ -2501,179 +2506,179 @@ msgstr "Fungsi Bessel termodifikasi Kn(x)."
 msgid "The Bessel function Yn(x)."
 msgstr "Fungsi Bessel Yn(x)."
 
-#: src/formula/o42-fn-dates.c:401
+#: src/formula/o42-fn-dates.c:411
 msgid "The serial number of a date; months and days roll over."
 msgstr "Nomor seri suatu tanggal; bulan dan hari yang berlebih dilanjutkan."
 
-#: src/formula/o42-fn-dates.c:402
+#: src/formula/o42-fn-dates.c:412
 msgid "The serial number of a date written as text."
 msgstr "Nomor seri suatu tanggal yang ditulis sebagai teks."
 
-#: src/formula/o42-fn-dates.c:403
+#: src/formula/o42-fn-dates.c:413
 msgid "The day of the month, 1 to 31."
 msgstr "Hari dalam bulan, 1 sampai 31."
 
-#: src/formula/o42-fn-dates.c:404
+#: src/formula/o42-fn-dates.c:414
 msgid "The number of days between two dates."
 msgstr "Banyaknya hari di antara dua tanggal."
 
-#: src/formula/o42-fn-dates.c:405
+#: src/formula/o42-fn-dates.c:415
 msgid "Days between two dates on a 360-day year."
 msgstr "Hari di antara dua tanggal berdasarkan tahun 360 hari."
 
-#: src/formula/o42-fn-dates.c:406
+#: src/formula/o42-fn-dates.c:416
 msgid "The date a number of months before or after another."
 msgstr "Tanggal sejumlah bulan sebelum atau sesudah tanggal lain."
 
-#: src/formula/o42-fn-dates.c:407
+#: src/formula/o42-fn-dates.c:417
 msgid "The last day of the month a number of months away."
 msgstr "Hari terakhir bulan yang berjarak sejumlah bulan."
 
-#: src/formula/o42-fn-dates.c:408
+#: src/formula/o42-fn-dates.c:418
 msgid "The hour of a time, 0 to 23."
 msgstr "Jam dari suatu waktu, 0 sampai 23."
 
-#: src/formula/o42-fn-dates.c:409
+#: src/formula/o42-fn-dates.c:419
 msgid "The minute of a time, 0 to 59."
 msgstr "Menit dari suatu waktu, 0 sampai 59."
 
-#: src/formula/o42-fn-dates.c:410
+#: src/formula/o42-fn-dates.c:420
 msgid "The month of a date, 1 to 12."
 msgstr "Bulan dari suatu tanggal, 1 sampai 12."
 
-#: src/formula/o42-fn-dates.c:411
+#: src/formula/o42-fn-dates.c:421
 msgid "The current date and time."
 msgstr "Tanggal dan waktu saat ini."
 
-#: src/formula/o42-fn-dates.c:412
+#: src/formula/o42-fn-dates.c:422
 msgid "The second of a time, 0 to 59."
 msgstr "Detik dari suatu waktu, 0 sampai 59."
 
-#: src/formula/o42-fn-dates.c:413
+#: src/formula/o42-fn-dates.c:423
 msgid "The fraction of a day for a time."
 msgstr "Pecahan hari untuk suatu waktu."
 
-#: src/formula/o42-fn-dates.c:414
+#: src/formula/o42-fn-dates.c:424
 msgid "The fraction of a day for a time written as text."
 msgstr "Pecahan hari untuk suatu waktu yang ditulis sebagai teks."
 
-#: src/formula/o42-fn-dates.c:415
+#: src/formula/o42-fn-dates.c:425
 msgid "Today's date."
 msgstr "Tanggal hari ini."
 
-#: src/formula/o42-fn-dates.c:416
+#: src/formula/o42-fn-dates.c:426
 msgid "The day of the week as a number."
 msgstr "Hari dalam minggu sebagai bilangan."
 
-#: src/formula/o42-fn-dates.c:417
+#: src/formula/o42-fn-dates.c:427
 msgid "The year of a date."
 msgstr "Tahun dari suatu tanggal."
 
-#: src/formula/o42-fn-dates.c:418
+#: src/formula/o42-fn-dates.c:428
 msgid "The working days between two dates, weekends and holidays left out."
 msgstr "Hari kerja di antara dua tanggal, tanpa akhir pekan dan hari libur."
 
-#: src/formula/o42-fn-dates.c:419
+#: src/formula/o42-fn-dates.c:429
 msgid "The date a number of working days away."
 msgstr "Tanggal yang berjarak sejumlah hari kerja."
 
-#: src/formula/o42-fn-distributions.c:542
-#: src/formula/o42-fn-distributions.c:544
+#: src/formula/o42-fn-distributions.c:546
+#: src/formula/o42-fn-distributions.c:548
 msgid "The inverse of the cumulative beta distribution."
 msgstr "Invers distribusi beta kumulatif."
 
-#: src/formula/o42-fn-distributions.c:543
+#: src/formula/o42-fn-distributions.c:547
 msgid "The cumulative beta distribution."
 msgstr "Distribusi beta kumulatif."
 
-#: src/formula/o42-fn-distributions.c:545
-#: src/formula/o42-fn-distributions.c:546
+#: src/formula/o42-fn-distributions.c:549
+#: src/formula/o42-fn-distributions.c:550
 msgid "The binomial distribution."
 msgstr "Distribusi binomial."
 
-#: src/formula/o42-fn-distributions.c:547
-#: src/formula/o42-fn-distributions.c:549
+#: src/formula/o42-fn-distributions.c:551
+#: src/formula/o42-fn-distributions.c:553
 msgid "The right tail of the chi-squared distribution."
 msgstr "Ekor kanan distribusi khi-kuadrat."
 
-#: src/formula/o42-fn-distributions.c:548
-#: src/formula/o42-fn-distributions.c:550
+#: src/formula/o42-fn-distributions.c:552
+#: src/formula/o42-fn-distributions.c:554
 msgid "The inverse of the right-tailed chi-squared distribution."
 msgstr "Invers distribusi khi-kuadrat ekor kanan."
 
-#: src/formula/o42-fn-distributions.c:551
+#: src/formula/o42-fn-distributions.c:555
 msgid "The half-width of a confidence interval for a mean."
 msgstr "Setengah lebar interval kepercayaan untuk rata-rata."
 
-#: src/formula/o42-fn-distributions.c:552
+#: src/formula/o42-fn-distributions.c:556
 msgid "Half the width of a confidence interval for a mean."
 msgstr "Setengah lebar interval kepercayaan untuk rata-rata."
 
-#: src/formula/o42-fn-distributions.c:553
-#: src/formula/o42-fn-distributions.c:554
+#: src/formula/o42-fn-distributions.c:557
+#: src/formula/o42-fn-distributions.c:558
 msgid "The exponential distribution."
 msgstr "Distribusi eksponensial."
 
-#: src/formula/o42-fn-distributions.c:555
-#: src/formula/o42-fn-distributions.c:557
+#: src/formula/o42-fn-distributions.c:559
+#: src/formula/o42-fn-distributions.c:561
 msgid "The right tail of the F distribution."
 msgstr "Ekor kanan distribusi F."
 
-#: src/formula/o42-fn-distributions.c:556
-#: src/formula/o42-fn-distributions.c:558
+#: src/formula/o42-fn-distributions.c:560
+#: src/formula/o42-fn-distributions.c:562
 msgid "The inverse of the right-tailed F distribution."
 msgstr "Invers distribusi F ekor kanan."
 
-#: src/formula/o42-fn-distributions.c:559
-#: src/formula/o42-fn-distributions.c:561
+#: src/formula/o42-fn-distributions.c:563
+#: src/formula/o42-fn-distributions.c:565
 msgid "The gamma distribution."
 msgstr "Distribusi gamma."
 
-#: src/formula/o42-fn-distributions.c:560
-#: src/formula/o42-fn-distributions.c:562
+#: src/formula/o42-fn-distributions.c:564
+#: src/formula/o42-fn-distributions.c:566
 msgid "The inverse of the cumulative gamma distribution."
 msgstr "Invers distribusi gamma kumulatif."
 
-#: src/formula/o42-fn-distributions.c:563
-#: src/formula/o42-fn-distributions.c:564
+#: src/formula/o42-fn-distributions.c:567
+#: src/formula/o42-fn-distributions.c:568
 msgid "The natural logarithm of the gamma function."
 msgstr "Logaritma natural fungsi gamma."
 
-#: src/formula/o42-fn-distributions.c:565
+#: src/formula/o42-fn-distributions.c:569
 msgid "The kurtosis of a sample."
 msgstr "Kurtosis suatu sampel."
 
-#: src/formula/o42-fn-distributions.c:566
+#: src/formula/o42-fn-distributions.c:570
 msgid "The cumulative lognormal distribution."
 msgstr "Distribusi lognormal kumulatif."
 
-#: src/formula/o42-fn-distributions.c:567
-#: src/formula/o42-fn-distributions.c:568
+#: src/formula/o42-fn-distributions.c:571
+#: src/formula/o42-fn-distributions.c:572
 msgid "The Poisson distribution."
 msgstr "Distribusi Poisson."
 
-#: src/formula/o42-fn-distributions.c:569
+#: src/formula/o42-fn-distributions.c:573
 msgid "The skewness of a sample."
 msgstr "Kemencengan suatu sampel."
 
-#: src/formula/o42-fn-distributions.c:570
+#: src/formula/o42-fn-distributions.c:574
 msgid "The inverse of the two-tailed t distribution."
 msgstr "Invers distribusi t dua ekor."
 
-#: src/formula/o42-fn-distributions.c:571
+#: src/formula/o42-fn-distributions.c:575
 msgid "The tail of Student's t distribution, one or both."
 msgstr "Ekor distribusi t Student, satu atau kedua ekor."
 
-#: src/formula/o42-fn-distributions.c:572
+#: src/formula/o42-fn-distributions.c:576
 msgid "The two-tailed inverse of Student's t distribution."
 msgstr "Invers dua ekor distribusi t Student."
 
-#: src/formula/o42-fn-distributions.c:573
+#: src/formula/o42-fn-distributions.c:577
 msgid "The mean with a fraction of the extremes left out."
 msgstr "Rata-rata dengan sebagian nilai ekstrem tidak diikutkan."
 
-#: src/formula/o42-fn-distributions.c:574
-#: src/formula/o42-fn-distributions.c:575
+#: src/formula/o42-fn-distributions.c:578
+#: src/formula/o42-fn-distributions.c:579
 msgid "The Weibull distribution."
 msgstr "Distribusi Weibull."
 
@@ -3146,123 +3151,123 @@ msgstr ""
 "Opsi yang membayar untuk setiap interval yang dilalui dalam keadaan in the "
 "money."
 
-#: src/formula/o42-fn-random.c:695
+#: src/formula/o42-fn-random.c:702
 msgid "One or nothing, with the given chance of one."
 msgstr "Satu atau nol, dengan peluang munculnya satu yang diberikan."
 
-#: src/formula/o42-fn-random.c:696
+#: src/formula/o42-fn-random.c:703
 msgid "A random number from the beta distribution."
 msgstr "Bilangan acak dari distribusi beta."
 
-#: src/formula/o42-fn-random.c:697
+#: src/formula/o42-fn-random.c:704
 msgid "How many successes in so many trials."
 msgstr "Banyaknya keberhasilan dalam sejumlah percobaan."
 
-#: src/formula/o42-fn-random.c:698
+#: src/formula/o42-fn-random.c:705
 msgid "A random number from Cauchy's distribution."
 msgstr "Bilangan acak dari distribusi Cauchy."
 
-#: src/formula/o42-fn-random.c:699
+#: src/formula/o42-fn-random.c:706
 msgid "A random number from the chi-squared distribution."
 msgstr "Bilangan acak dari distribusi khi-kuadrat."
 
-#: src/formula/o42-fn-random.c:700
+#: src/formula/o42-fn-random.c:707
 msgid "One of the values, drawn with the given weights."
 msgstr "Salah satu nilai, diambil dengan bobot yang diberikan."
 
-#: src/formula/o42-fn-random.c:701
+#: src/formula/o42-fn-random.c:708
 msgid "A random number from the exponential distribution."
 msgstr "Bilangan acak dari distribusi eksponensial."
 
-#: src/formula/o42-fn-random.c:702
+#: src/formula/o42-fn-random.c:709
 msgid "A random number from the exponential power distribution."
 msgstr "Bilangan acak dari distribusi pangkat eksponensial."
 
-#: src/formula/o42-fn-random.c:703
+#: src/formula/o42-fn-random.c:710
 msgid "A random number from Fisher's F distribution."
 msgstr "Bilangan acak dari distribusi F Fisher."
 
-#: src/formula/o42-fn-random.c:704
+#: src/formula/o42-fn-random.c:711
 msgid "A random number from the gamma distribution."
 msgstr "Bilangan acak dari distribusi gamma."
 
-#: src/formula/o42-fn-random.c:705
+#: src/formula/o42-fn-random.c:712
 msgid "How many trials until the first success."
 msgstr "Banyaknya percobaan hingga keberhasilan pertama."
 
-#: src/formula/o42-fn-random.c:706
+#: src/formula/o42-fn-random.c:713
 msgid "A random number from Gumbel's first distribution."
 msgstr "Bilangan acak dari distribusi Gumbel pertama."
 
-#: src/formula/o42-fn-random.c:707
+#: src/formula/o42-fn-random.c:714
 msgid "A random number from Gumbel's second distribution."
 msgstr "Bilangan acak dari distribusi Gumbel kedua."
 
-#: src/formula/o42-fn-random.c:708
+#: src/formula/o42-fn-random.c:715
 msgid "How many of the first kind in a draw from an urn."
 msgstr "Banyaknya jenis pertama dalam pengambilan dari sebuah guci."
 
-#: src/formula/o42-fn-random.c:709
+#: src/formula/o42-fn-random.c:716
 msgid "A random number from Laplace's distribution."
 msgstr "Bilangan acak dari distribusi Laplace."
 
-#: src/formula/o42-fn-random.c:710
+#: src/formula/o42-fn-random.c:717
 msgid "A random number from Levy's alpha-stable distribution."
 msgstr "Bilangan acak dari distribusi alpha-stabil Levy."
 
-#: src/formula/o42-fn-random.c:711 src/formula/o42-fn-random.c:712
+#: src/formula/o42-fn-random.c:718 src/formula/o42-fn-random.c:719
 msgid "A random number from the logarithmic distribution."
 msgstr "Bilangan acak dari distribusi logaritmik."
 
-#: src/formula/o42-fn-random.c:713
+#: src/formula/o42-fn-random.c:720
 msgid "A random number from the logistic distribution."
 msgstr "Bilangan acak dari distribusi logistik."
 
-#: src/formula/o42-fn-random.c:714
+#: src/formula/o42-fn-random.c:721
 msgid "A random number from the log-normal distribution."
 msgstr "Bilangan acak dari distribusi log-normal."
 
-#: src/formula/o42-fn-random.c:715
+#: src/formula/o42-fn-random.c:722
 msgid "How many successes before so many failures."
 msgstr "Banyaknya keberhasilan sebelum sejumlah kegagalan."
 
-#: src/formula/o42-fn-random.c:716
+#: src/formula/o42-fn-random.c:723
 msgid "A random number from the normal distribution."
 msgstr "Bilangan acak dari distribusi normal."
 
-#: src/formula/o42-fn-random.c:717
+#: src/formula/o42-fn-random.c:724
 msgid "A random number from the tail of a normal distribution above a."
 msgstr "Bilangan acak dari ekor distribusi normal di atas a."
 
-#: src/formula/o42-fn-random.c:718
+#: src/formula/o42-fn-random.c:725
 msgid "A random number from Pareto's distribution."
 msgstr "Bilangan acak dari distribusi Pareto."
 
-#: src/formula/o42-fn-random.c:719
+#: src/formula/o42-fn-random.c:726
 msgid "A random number from Poisson's distribution."
 msgstr "Bilangan acak dari distribusi Poisson."
 
-#: src/formula/o42-fn-random.c:720
+#: src/formula/o42-fn-random.c:727
 msgid "A random number from Rayleigh's distribution."
 msgstr "Bilangan acak dari distribusi Rayleigh."
 
-#: src/formula/o42-fn-random.c:721
+#: src/formula/o42-fn-random.c:728
 msgid "Rayleigh's distribution from a upwards."
 msgstr "Distribusi Rayleigh dari a ke atas."
 
-#: src/formula/o42-fn-random.c:722 src/formula/o42-fn-random.c:723
+#: src/formula/o42-fn-random.c:729 src/formula/o42-fn-random.c:730
 msgid "A random number from the standard normal distribution."
 msgstr "Bilangan acak dari distribusi normal standar."
 
-#: src/formula/o42-fn-random.c:724
+#: src/formula/o42-fn-random.c:731
 msgid "A random number from Student's t distribution."
 msgstr "Bilangan acak dari distribusi t Student."
 
-#: src/formula/o42-fn-random.c:725
+#: src/formula/o42-fn-random.c:732
 msgid "A random number between the two, evenly."
 msgstr "Bilangan acak di antara kedua nilai, secara merata."
 
-#: src/formula/o42-fn-random.c:726
+#: src/formula/o42-fn-random.c:733
 msgid "A random number from Weibull's distribution."
 msgstr "Bilangan acak dari distribusi Weibull."
 
@@ -3418,39 +3423,39 @@ msgstr ""
 "Hasil rumus tabel Bagaimana-Jika untuk sel ini; Data > Tabel yang "
 "menuliskannya."
 
-#: src/formula/o42-fn-text.c:956
+#: src/formula/o42-fn-text.c:1017
 msgid "How many characters a text has; the same as LEN here."
 msgstr "Banyaknya karakter dalam teks; di sini sama dengan LEN."
 
-#: src/formula/o42-fn-text.c:957
+#: src/formula/o42-fn-text.c:1018
 msgid "The first characters of a text; the same as LEFT here."
 msgstr "Karakter-karakter pertama suatu teks; di sini sama dengan LEFT."
 
-#: src/formula/o42-fn-text.c:958
+#: src/formula/o42-fn-text.c:1019
 msgid "The last characters of a text; the same as RIGHT here."
 msgstr "Karakter-karakter terakhir suatu teks; di sini sama dengan RIGHT."
 
-#: src/formula/o42-fn-text.c:959
+#: src/formula/o42-fn-text.c:1020
 msgid "Characters from the middle of a text; the same as MID here."
 msgstr "Karakter-karakter dari tengah suatu teks; di sini sama dengan MID."
 
-#: src/formula/o42-fn-text.c:960
+#: src/formula/o42-fn-text.c:1021
 msgid "Where one text starts inside another; the same as FIND here."
 msgstr "Posisi awal suatu teks di dalam teks lain; di sini sama dengan FIND."
 
-#: src/formula/o42-fn-text.c:961
+#: src/formula/o42-fn-text.c:1022
 msgid "Where one text starts inside another; the same as SEARCH here."
 msgstr "Posisi awal suatu teks di dalam teks lain; di sini sama dengan SEARCH."
 
-#: src/formula/o42-fn-text.c:962
+#: src/formula/o42-fn-text.c:1023
 msgid "Replaces part of a text by position; the same as REPLACE here."
 msgstr "Mengganti bagian teks menurut posisi; di sini sama dengan REPLACE."
 
-#: src/formula/o42-fn-text.c:963
+#: src/formula/o42-fn-text.c:1024
 msgid "Halfwidth letters, digits and marks made fullwidth."
 msgstr "Huruf, angka, dan tanda setengah lebar dijadikan lebar penuh."
 
-#: src/formula/o42-fn-text.c:964
+#: src/formula/o42-fn-text.c:1025
 msgid ""
 "Halfwidth letters, digits and marks made fullwidth; Excel's newer name for "
 "JIS."
@@ -3458,133 +3463,133 @@ msgstr ""
 "Huruf, angka, dan tanda setengah lebar dijadikan lebar penuh; nama baru "
 "Excel untuk JIS."
 
-#: src/formula/o42-fn-text.c:965
+#: src/formula/o42-fn-text.c:1026
 msgid "Fullwidth letters, digits and marks made halfwidth."
 msgstr "Huruf, angka, dan tanda lebar penuh dijadikan setengah lebar."
 
-#: src/formula/o42-fn-text.c:966
+#: src/formula/o42-fn-text.c:1027
 msgid "Whether a regular expression matches somewhere in the text."
 msgstr "Apakah ekspresi reguler cocok di suatu tempat dalam teks."
 
-#: src/formula/o42-fn-text.c:967
+#: src/formula/o42-fn-text.c:1028
 msgid ""
 "The text with what a regular expression matches replaced; \\1 for a group."
 msgstr ""
 "Teks dengan bagian yang cocok dengan ekspresi reguler diganti; \\1 untuk "
 "suatu grup."
 
-#: src/formula/o42-fn-text.c:968
+#: src/formula/o42-fn-text.c:1029
 msgid "The sum of a subset as a share of the sum of the whole."
 msgstr "Jumlah suatu subhimpunan sebagai bagian dari jumlah keseluruhan."
 
-#: src/formula/o42-fn-text.c:970
+#: src/formula/o42-fn-text.c:1031
 #, no-c-format
 msgid "The text as it goes into a URL, %XX for what is not a letter or digit."
 msgstr ""
 "Teks sebagaimana dimasukkan ke URL, %XX untuk yang bukan huruf atau angka."
 
-#: src/formula/o42-fn-text.c:971
+#: src/formula/o42-fn-text.c:1032
 msgid "How many columns a range spans."
 msgstr "Banyaknya kolom yang dicakup suatu rentang."
 
-#: src/formula/o42-fn-text.c:972
+#: src/formula/o42-fn-text.c:1033
 msgid "Joins pieces of text into one; Excel's newer name for CONCATENATE."
 msgstr ""
 "Menggabungkan potongan-potongan teks menjadi satu; nama baru Excel untuk "
 "CONCATENATE."
 
-#: src/formula/o42-fn-text.c:973
+#: src/formula/o42-fn-text.c:1034
 msgid "Joins pieces of text into one."
 msgstr "Menggabungkan potongan-potongan teks menjadi satu."
 
-#: src/formula/o42-fn-text.c:974
+#: src/formula/o42-fn-text.c:1035
 msgid "Where one text starts inside another; case matters."
 msgstr ""
 "Posisi awal suatu teks di dalam teks lain; huruf besar/kecil dibedakan."
 
-#: src/formula/o42-fn-text.c:975
+#: src/formula/o42-fn-text.c:1036
 msgid "The first characters of a text."
 msgstr "Karakter-karakter pertama suatu teks."
 
-#: src/formula/o42-fn-text.c:976
+#: src/formula/o42-fn-text.c:1037
 msgid "How many characters a text has."
 msgstr "Banyaknya karakter dalam teks."
 
-#: src/formula/o42-fn-text.c:977
+#: src/formula/o42-fn-text.c:1038
 msgid "Text in lower case."
 msgstr "Teks dalam huruf kecil."
 
-#: src/formula/o42-fn-text.c:978
+#: src/formula/o42-fn-text.c:1039
 msgid "Characters from the middle of a text."
 msgstr "Karakter-karakter dari tengah suatu teks."
 
-#: src/formula/o42-fn-text.c:979
+#: src/formula/o42-fn-text.c:1040
 msgid "A text repeated."
 msgstr "Teks yang diulang."
 
-#: src/formula/o42-fn-text.c:980
+#: src/formula/o42-fn-text.c:1041
 msgid "The last characters of a text."
 msgstr "Karakter-karakter terakhir suatu teks."
 
-#: src/formula/o42-fn-text.c:981
+#: src/formula/o42-fn-text.c:1042
 msgid "How many rows a range spans."
 msgstr "Banyaknya baris yang dicakup suatu rentang."
 
-#: src/formula/o42-fn-text.c:982
+#: src/formula/o42-fn-text.c:1043
 msgid "Replaces old_text with new_text, every time or only the nth."
 msgstr "Mengganti old_text dengan new_text, setiap kali atau hanya yang ke-n."
 
-#: src/formula/o42-fn-text.c:983
+#: src/formula/o42-fn-text.c:1044
 msgid "Text without spaces at the ends, and one between words."
 msgstr "Teks tanpa spasi di kedua ujung, dan satu spasi di antara kata."
 
-#: src/formula/o42-fn-text.c:984
+#: src/formula/o42-fn-text.c:1045
 msgid "Text in upper case."
 msgstr "Teks dalam huruf besar."
 
-#: src/formula/o42-fn-text.c:985
+#: src/formula/o42-fn-text.c:1046
 msgid "Text read as a number."
 msgstr "Teks yang dibaca sebagai bilangan."
 
-#: src/formula/o42-fn-text.c:986
+#: src/formula/o42-fn-text.c:1047
 msgid "The character with a given code."
 msgstr "Karakter dengan kode tertentu."
 
-#: src/formula/o42-fn-text.c:987
+#: src/formula/o42-fn-text.c:1048
 msgid "Removes the characters that cannot be printed."
 msgstr "Menghapus karakter yang tidak dapat dicetak."
 
-#: src/formula/o42-fn-text.c:988
+#: src/formula/o42-fn-text.c:1049
 msgid "The code of the first character."
 msgstr "Kode karakter pertama."
 
-#: src/formula/o42-fn-text.c:989
+#: src/formula/o42-fn-text.c:1050
 msgid "A number as currency text."
 msgstr "Bilangan sebagai teks mata uang."
 
-#: src/formula/o42-fn-text.c:990
+#: src/formula/o42-fn-text.c:1051
 msgid "TRUE if two texts are identical, case included."
 msgstr "TRUE jika dua teks identik, termasuk huruf besar/kecilnya."
 
-#: src/formula/o42-fn-text.c:991
+#: src/formula/o42-fn-text.c:1052
 msgid "A number as text with a fixed number of decimals."
 msgstr "Bilangan sebagai teks dengan jumlah desimal tetap."
 
-#: src/formula/o42-fn-text.c:992
+#: src/formula/o42-fn-text.c:1053
 msgid "Text with each word capitalised."
 msgstr "Teks dengan huruf awal setiap kata dikapitalkan."
 
-#: src/formula/o42-fn-text.c:993
+#: src/formula/o42-fn-text.c:1054
 msgid "Replaces part of a text by position."
 msgstr "Mengganti bagian teks menurut posisi."
 
-#: src/formula/o42-fn-text.c:994
+#: src/formula/o42-fn-text.c:1055
 msgid "Where one text starts inside another; case ignored, wildcards allowed."
 msgstr ""
 "Posisi awal suatu teks di dalam teks lain; huruf besar/kecil diabaikan, "
 "karakter pengganti diizinkan."
 
-#: src/formula/o42-fn-text.c:995
+#: src/formula/o42-fn-text.c:1056
 msgid "A number as text in a format such as \"#,##0.00\"."
 msgstr "Bilangan sebagai teks dalam format seperti \"#,##0.00\"."
 
@@ -3597,7 +3602,7 @@ msgstr "Bilangan sebagai teks dalam format seperti \"#,##0.00\"."
 msgid "default:LTR"
 msgstr "default:LTR"
 
-#: src/ui/o42-application.c:664 src/ui/o42-window.c:7461
+#: src/ui/o42-application.c:664 src/ui/o42-window.c:7617
 msgid "Office42 Spreadsheet"
 msgstr "Office42 Spreadsheet"
 
@@ -3619,7 +3624,7 @@ msgstr "Kolom %s"
 msgid "(none)"
 msgstr "(tidak ada)"
 
-#: src/ui/o42-dialogs-data.c:125 src/ui/o42-window.c:6772
+#: src/ui/o42-dialogs-data.c:125 src/ui/o42-window.c:6928
 msgid "Sort"
 msgstr "Urutkan"
 
@@ -3652,14 +3657,14 @@ msgstr "Daftar saya memiliki baris _header"
 #: src/ui/o42-dialogs-tools.c:2799 src/ui/o42-dialogs-tools.c:3099
 #: src/ui/o42-dialogs-tools.c:3181 src/ui/o42-dialogs-tools.c:3426
 #: src/ui/o42-dialogs-tools.c:3488 src/ui/o42-dialogs-tools.c:3829
-#: src/ui/o42-grid.c:4187 src/ui/o42-window.c:877 src/ui/o42-window.c:1095
+#: src/ui/o42-grid.c:4231 src/ui/o42-window.c:877 src/ui/o42-window.c:1095
 #: src/ui/o42-window.c:1173 src/ui/o42-window.c:1601 src/ui/o42-window.c:2488
 #: src/ui/o42-window.c:2752 src/ui/o42-window.c:3042 src/ui/o42-window.c:3140
 #: src/ui/o42-window.c:3628 src/ui/o42-window.c:3674 src/ui/o42-window.c:3749
 #: src/ui/o42-window.c:3825 src/ui/o42-window.c:3987 src/ui/o42-window.c:4147
-#: src/ui/o42-window.c:4433 src/ui/o42-window.c:4543 src/ui/o42-window.c:4876
-#: src/ui/o42-window.c:4997 src/ui/o42-window.c:5364 src/ui/o42-window.c:5646
-#: src/ui/o42-window.c:7471
+#: src/ui/o42-window.c:4452 src/ui/o42-window.c:4562 src/ui/o42-window.c:4895
+#: src/ui/o42-window.c:5016 src/ui/o42-window.c:5383 src/ui/o42-window.c:5668
+#: src/ui/o42-window.c:7627
 msgid "_OK"
 msgstr "_OK"
 
@@ -3670,20 +3675,21 @@ msgstr "_OK"
 #: src/ui/o42-dialogs-edit.c:173 src/ui/o42-dialogs-edit.c:290
 #: src/ui/o42-dialogs-edit.c:376 src/ui/o42-dialogs-edit.c:532
 #: src/ui/o42-dialogs-edit.c:595 src/ui/o42-dialogs-edit.c:653
-#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-format.c:459
-#: src/ui/o42-dialogs-format.c:674 src/ui/o42-dialogs-format.c:773
-#: src/ui/o42-dialogs-format.c:830 src/ui/o42-dialogs-tools.c:2424
-#: src/ui/o42-dialogs-tools.c:2800 src/ui/o42-dialogs-tools.c:3100
-#: src/ui/o42-dialogs-tools.c:3182 src/ui/o42-dialogs-tools.c:3427
-#: src/ui/o42-dialogs-tools.c:3489 src/ui/o42-dialogs-tools.c:3830
-#: src/ui/o42-grid.c:4188 src/ui/o42-window.c:878 src/ui/o42-window.c:1096
+#: src/ui/o42-dialogs-edit.c:729 src/ui/o42-dialogs-file.c:1666
+#: src/ui/o42-dialogs-format.c:459 src/ui/o42-dialogs-format.c:674
+#: src/ui/o42-dialogs-format.c:773 src/ui/o42-dialogs-format.c:830
+#: src/ui/o42-dialogs-tools.c:2424 src/ui/o42-dialogs-tools.c:2800
+#: src/ui/o42-dialogs-tools.c:3100 src/ui/o42-dialogs-tools.c:3182
+#: src/ui/o42-dialogs-tools.c:3427 src/ui/o42-dialogs-tools.c:3489
+#: src/ui/o42-dialogs-tools.c:3830 src/ui/o42-grid.c:4232
+#: src/ui/o42-grid.c:5286 src/ui/o42-window.c:878 src/ui/o42-window.c:1096
 #: src/ui/o42-window.c:1174 src/ui/o42-window.c:1602 src/ui/o42-window.c:2489
 #: src/ui/o42-window.c:2753 src/ui/o42-window.c:3043 src/ui/o42-window.c:3141
 #: src/ui/o42-window.c:3630 src/ui/o42-window.c:3674 src/ui/o42-window.c:3750
 #: src/ui/o42-window.c:3826 src/ui/o42-window.c:3988 src/ui/o42-window.c:4148
-#: src/ui/o42-window.c:4434 src/ui/o42-window.c:4544 src/ui/o42-window.c:4877
-#: src/ui/o42-window.c:4998 src/ui/o42-window.c:5365 src/ui/o42-window.c:5647
-#: src/ui/o42-window.c:6257 src/ui/o42-window.c:7472
+#: src/ui/o42-window.c:4453 src/ui/o42-window.c:4563 src/ui/o42-window.c:4896
+#: src/ui/o42-window.c:5017 src/ui/o42-window.c:5384 src/ui/o42-window.c:5669
+#: src/ui/o42-window.c:6412 src/ui/o42-window.c:7628
 msgid "_Cancel"
 msgstr "_Batal"
 
@@ -4041,8 +4047,9 @@ msgstr ""
 "kembali."
 
 #: src/ui/o42-dialogs-data.c:1272 src/ui/o42-dialogs-data.c:1382
-#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-format.c:574
-#: src/ui/o42-dialogs-tools.c:307 src/ui/o42-window.c:7019
+#: src/ui/o42-dialogs-data.c:1577 src/ui/o42-dialogs-file.c:1334
+#: src/ui/o42-dialogs-format.c:574 src/ui/o42-dialogs-tools.c:307
+#: src/ui/o42-window.c:7175
 msgid "Cancel"
 msgstr "Batal"
 
@@ -4102,7 +4109,7 @@ msgid "List"
 msgstr "Daftar"
 
 #: src/ui/o42-dialogs-data.c:1436 src/ui/o42-dialogs-data.c:1909
-#: src/ui/o42-dialogs-format.c:62
+#: src/ui/o42-dialogs-file.c:160 src/ui/o42-dialogs-format.c:62
 msgid "Date"
 msgstr "Tanggal"
 
@@ -4114,15 +4121,15 @@ msgstr "Waktu"
 msgid "Text length"
 msgstr "Panjang teks"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3134
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3178
 msgid "Stop"
 msgstr "Berhenti"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3133
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3177
 msgid "Warning"
 msgstr "Peringatan"
 
-#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3134
+#: src/ui/o42-dialogs-data.c:1438 src/ui/o42-grid.c:3178
 msgid "Information"
 msgstr "Informasi"
 
@@ -4186,30 +4193,35 @@ msgstr "Tampilkan peringatan kesalahan setelah data tidak valid _dimasukkan"
 msgid "_Clear"
 msgstr "_Bersihkan"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Comma"
 msgstr "_Koma"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Tab"
 msgstr "_Tab"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "_Semicolon"
 msgstr "Titik k_oma"
 
-#: src/ui/o42-dialogs-data.c:1908
+#: src/ui/o42-dialogs-data.c:1908 src/ui/o42-dialogs-file.c:1035
+#: src/ui/o42-dialogs-file.c:1504
 msgid "S_pace"
 msgstr "_Spasi"
 
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-format.c:61
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:5285
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-format.c:61 src/ui/o42-dialogs-format.c:104
+#: src/ui/o42-window.c:5304
 msgid "General"
 msgstr "Umum"
 
 #. Text
-#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-format.c:61
-#: src/ui/o42-window.c:4835
+#: src/ui/o42-dialogs-data.c:1909 src/ui/o42-dialogs-file.c:160
+#: src/ui/o42-dialogs-format.c:61 src/ui/o42-window.c:4854
 msgid "Text"
 msgstr "Teks"
 
@@ -4493,18 +4505,398 @@ msgid "Comments:"
 msgstr "Komentar:"
 
 #. Properties
-#: src/ui/o42-dialogs-edit.c:705 src/ui/o42-window.c:4830
+#: src/ui/o42-dialogs-edit.c:705 src/ui/o42-window.c:4849
 msgid "Properties"
 msgstr "Properti"
+
+#: src/ui/o42-dialogs-file.c:33
+msgid "Unicode (UTF-8)"
+msgstr "Unicode (UTF-8)"
+
+#: src/ui/o42-dialogs-file.c:34
+msgid "Unicode (UTF-16, little-endian)"
+msgstr "Unicode (UTF-16, little-endian)"
+
+#: src/ui/o42-dialogs-file.c:35
+msgid "Unicode (UTF-16, big-endian)"
+msgstr "Unicode (UTF-16, big-endian)"
+
+#: src/ui/o42-dialogs-file.c:36
+msgid "Windows (ANSI), Western European"
+msgstr "Windows (ANSI), Eropa Barat"
+
+#: src/ui/o42-dialogs-file.c:37
+msgid "Windows, Central European"
+msgstr "Windows, Eropa Tengah"
+
+#: src/ui/o42-dialogs-file.c:38
+msgid "Windows, Cyrillic"
+msgstr "Windows, Sirilik"
+
+#: src/ui/o42-dialogs-file.c:39
+msgid "Windows, Greek"
+msgstr "Windows, Yunani"
+
+#: src/ui/o42-dialogs-file.c:40
+msgid "Windows, Turkish"
+msgstr "Windows, Turki"
+
+#: src/ui/o42-dialogs-file.c:41
+msgid "Windows, Hebrew"
+msgstr "Windows, Ibrani"
+
+#: src/ui/o42-dialogs-file.c:42
+msgid "Windows, Arabic"
+msgstr "Windows, Arab"
+
+#: src/ui/o42-dialogs-file.c:43
+msgid "Windows, Baltic"
+msgstr "Windows, Baltik"
+
+#: src/ui/o42-dialogs-file.c:44
+msgid "Windows, Vietnamese"
+msgstr "Windows, Vietnam"
+
+#: src/ui/o42-dialogs-file.c:45
+msgid "DOS or OS/2 (PC-8)"
+msgstr "DOS atau OS/2 (PC-8)"
+
+#: src/ui/o42-dialogs-file.c:46
+msgid "DOS, Western European (PC-850)"
+msgstr "DOS, Eropa Barat (PC-850)"
+
+#: src/ui/o42-dialogs-file.c:47
+msgid "Macintosh"
+msgstr "Macintosh"
+
+#: src/ui/o42-dialogs-file.c:48
+msgid "ISO 8859-1, Western European"
+msgstr "ISO 8859-1, Eropa Barat"
+
+#: src/ui/o42-dialogs-file.c:49
+msgid "ISO 8859-15, Western European with the euro"
+msgstr "ISO 8859-15, Eropa Barat dengan euro"
+
+#: src/ui/o42-dialogs-file.c:50
+msgid "ISO 8859-2, Central European"
+msgstr "ISO 8859-2, Eropa Tengah"
+
+#: src/ui/o42-dialogs-file.c:51
+msgid "KOI8-R, Russian"
+msgstr "KOI8-R, Rusia"
+
+#: src/ui/o42-dialogs-file.c:52
+msgid "Japanese (Shift JIS)"
+msgstr "Jepang (Shift JIS)"
+
+#: src/ui/o42-dialogs-file.c:53
+msgid "Japanese (EUC-JP)"
+msgstr "Jepang (EUC-JP)"
+
+#: src/ui/o42-dialogs-file.c:54
+msgid "Chinese, Simplified (GB 18030)"
+msgstr "Tionghoa, Sederhana (GB 18030)"
+
+#: src/ui/o42-dialogs-file.c:55
+msgid "Chinese, Traditional (Big5)"
+msgstr "Tionghoa, Tradisional (Big5)"
+
+#: src/ui/o42-dialogs-file.c:56
+msgid "Korean (EUC-KR)"
+msgstr "Korea (EUC-KR)"
+
+#: src/ui/o42-dialogs-file.c:160
+msgid "Skip Column"
+msgstr "Lewati Kolom"
+
+#: src/ui/o42-dialogs-file.c:848 src/ui/o42-dialogs-file.c:1316
+msgid "Text Import Wizard - Step 1 of 3"
+msgstr "Wisaya Impor Teks - Langkah 1 dari 3"
+
+#: src/ui/o42-dialogs-file.c:849
+msgid "Text Import Wizard - Step 2 of 3"
+msgstr "Wisaya Impor Teks - Langkah 2 dari 3"
+
+#: src/ui/o42-dialogs-file.c:850
+msgid "Text Import Wizard - Step 3 of 3"
+msgstr "Wisaya Impor Teks - Langkah 3 dari 3"
+
+#: src/ui/o42-dialogs-file.c:914
+msgid "The sheet is protected: Tools > Protection > Unprotect Sheet first."
+msgstr ""
+"Lembar diproteksi: gunakan Alat > Proteksi > Buka Proteksi Lembar terlebih "
+"dahulu."
+
+#: src/ui/o42-dialogs-file.c:921
+msgid "Put the data at a cell, such as A1."
+msgstr "Tentukan sel tempat data diletakkan, misalnya A1."
+
+#: src/ui/o42-dialogs-file.c:987
+msgid ""
+"If this is correct, choose Next, or choose the data type that best describes "
+"your data."
+msgstr ""
+"Jika ini sudah benar, pilih Berikutnya, atau pilih jenis data yang paling "
+"sesuai dengan data Anda."
+
+#: src/ui/o42-dialogs-file.c:991
+msgid "_Delimited - Characters such as commas or tabs separate each field."
+msgstr ""
+"_Dengan pembatas - Karakter seperti koma atau tab memisahkan setiap bidang."
+
+#: src/ui/o42-dialogs-file.c:993
+msgid ""
+"Fixed _width - Fields are aligned in columns with spaces between each field."
+msgstr ""
+"_Lebar tetap - Bidang-bidang disejajarkan dalam kolom dengan spasi di antara "
+"setiap bidang."
+
+#: src/ui/o42-dialogs-file.c:997
+msgid "Original data type"
+msgstr "Jenis data asli"
+
+#: src/ui/o42-dialogs-file.c:1001
+msgid "Start import at _row:"
+msgstr "Mulai impor pada ba_ris:"
+
+#: src/ui/o42-dialogs-file.c:1008
+msgid "File _origin:"
+msgstr "_Asal berkas:"
+
+#: src/ui/o42-dialogs-file.c:1018
+#, c-format
+msgid "Preview of file %s:"
+msgstr "Pratinjau berkas %s:"
+
+#: src/ui/o42-dialogs-file.c:1036 src/ui/o42-dialogs-file.c:1156
+#: src/ui/o42-dialogs-file.c:1605
+msgid "{none}"
+msgstr "{tidak ada}"
+
+#: src/ui/o42-dialogs-file.c:1045
+msgid ""
+"This screen lets you set the delimiters your data contains. You can see how "
+"your text is affected in the preview below."
+msgstr ""
+"Layar ini memungkinkan Anda mengatur pembatas yang terdapat dalam data Anda. "
+"Pengaruhnya pada teks dapat Anda lihat di pratinjau di bawah."
+
+#: src/ui/o42-dialogs-file.c:1053 src/ui/o42-dialogs-file.c:1560
+msgid "_Other:"
+msgstr "_Lainnya:"
+
+#: src/ui/o42-dialogs-file.c:1060
+msgid "Delimiters"
+msgstr "Pembatas"
+
+#: src/ui/o42-dialogs-file.c:1063
+msgid "Treat consecutive delimiters as o_ne"
+msgstr "Perlakukan pembatas berurutan sebagai sat_u"
+
+#: src/ui/o42-dialogs-file.c:1065 src/ui/o42-dialogs-file.c:1600
+msgid "Text _qualifier:"
+msgstr "Kualifikas_i teks:"
+
+#: src/ui/o42-dialogs-file.c:1075 src/ui/o42-dialogs-file.c:1092
+#: src/ui/o42-dialogs-file.c:1258
+msgid "Data preview"
+msgstr "Pratinjau data"
+
+#: src/ui/o42-dialogs-file.c:1086
+msgid ""
+"This screen lets you set field widths (column breaks). Lines with arrows "
+"signify a column break."
+msgstr ""
+"Layar ini memungkinkan Anda mengatur lebar bidang (pemisah kolom). Garis "
+"dengan panah menandakan pemisah kolom."
+
+#: src/ui/o42-dialogs-file.c:1089
+msgid ""
+"To CREATE a break line, click at the desired position.\n"
+"To DELETE a break line, double click on the line.\n"
+"To MOVE a break line, click and drag it."
+msgstr ""
+"Untuk MEMBUAT garis pemisah, klik pada posisi yang diinginkan.\n"
+"Untuk MENGHAPUS garis pemisah, klik ganda pada garis tersebut.\n"
+"Untuk MEMINDAHKAN garis pemisah, klik dan seret garis tersebut."
+
+#: src/ui/o42-dialogs-file.c:1153
+msgid "_Text"
+msgstr "_Teks"
+
+#: src/ui/o42-dialogs-file.c:1153
+msgid "_Date:"
+msgstr "T_anggal:"
+
+#: src/ui/o42-dialogs-file.c:1154
+msgid "Do not _import column (skip)"
+msgstr "Jangan _impor kolom (lewati)"
+
+#: src/ui/o42-dialogs-file.c:1156
+msgid "space"
+msgstr "spasi"
+
+#: src/ui/o42-dialogs-file.c:1167
+msgid ""
+"This screen lets you select each column and set the Data Format. Click a "
+"column in the preview to choose it, Shift+click to choose several."
+msgstr ""
+"Layar ini memungkinkan Anda memilih setiap kolom dan mengatur Format Data. "
+"Klik kolom di pratinjau untuk memilihnya, Shift+klik untuk memilih beberapa "
+"kolom."
+
+#: src/ui/o42-dialogs-file.c:1188
+msgid "Column data format"
+msgstr "Format data kolom"
+
+#: src/ui/o42-dialogs-file.c:1191
+msgid ""
+"'General' converts numeric values to numbers, date values to dates, and all "
+"remaining values to text."
+msgstr ""
+"“Umum” mengonversi nilai numerik menjadi bilangan, nilai tanggal menjadi "
+"tanggal, dan semua nilai lainnya menjadi teks."
+
+#: src/ui/o42-dialogs-file.c:1199
+msgid "De_cimal separator:"
+msgstr "Pemisah _desimal:"
+
+#: src/ui/o42-dialogs-file.c:1205
+msgid "T_housands separator:"
+msgstr "Pemisah _ribuan:"
+
+#: src/ui/o42-dialogs-file.c:1213
+msgid "Trailing _minus for negative numbers"
+msgstr "_Minus di belakang untuk bilangan negatif"
+
+#: src/ui/o42-dialogs-file.c:1227
+msgid "_Advanced"
+msgstr "Tingkat _Lanjut"
+
+#: src/ui/o42-dialogs-file.c:1242
+msgid "_Put the data at:"
+msgstr "Tem_patkan data di:"
+
+#: src/ui/o42-dialogs-file.c:1289 src/ui/o42-dialogs-file.c:1363
+#: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5924
+#: src/ui/o42-window.c:6354
+msgid "office42 could not open that file."
+msgstr "office42 tidak dapat membuka berkas tersebut."
+
+#: src/ui/o42-dialogs-file.c:1330
+msgid "The Text Wizard has determined that your data is Fixed Width."
+msgstr "Wisaya Teks telah menentukan bahwa data Anda memiliki lebar tetap."
+
+#: src/ui/o42-dialogs-file.c:1331
+msgid "The Text Wizard has determined that your data is Delimited."
+msgstr "Wisaya Teks telah menentukan bahwa data Anda menggunakan pembatas."
+
+#: src/ui/o42-dialogs-file.c:1335
+msgid "< _Back"
+msgstr "< Kem_bali"
+
+#: src/ui/o42-dialogs-file.c:1336
+msgid "_Next >"
+msgstr "Beri_kutnya >"
+
+#: src/ui/o42-dialogs-file.c:1337
+msgid "_Finish"
+msgstr "S_elesai"
+
+#: src/ui/o42-dialogs-file.c:1379 src/ui/o42-window.c:6195
+msgid "Text Files (*.prn, *.txt, *.csv)"
+msgstr "Berkas Teks (*.prn, *.txt, *.csv)"
+
+#: src/ui/o42-dialogs-file.c:1382 src/ui/o42-window.c:6207
+msgid "All Files"
+msgstr "Semua Berkas"
+
+#: src/ui/o42-dialogs-file.c:1387
+msgid "Import Text File"
+msgstr "Impor Berkas Teks"
+
+#: src/ui/o42-dialogs-file.c:1432
+msgid "Type the character to put between the fields."
+msgstr "Ketik karakter yang akan diletakkan di antara bidang."
+
+#: src/ui/o42-dialogs-file.c:1505
+msgid "Windows (CR LF)"
+msgstr "Windows (CR LF)"
+
+#: src/ui/o42-dialogs-file.c:1505
+msgid "Unix and macOS (LF)"
+msgstr "Unix dan macOS (LF)"
+
+#: src/ui/o42-dialogs-file.c:1533
+#, c-format
+msgid "Save %s as Text"
+msgstr "Simpan %s sebagai Teks"
+
+#: src/ui/o42-dialogs-file.c:1541
+#, c-format
+msgid ""
+"A text file holds one sheet. Only the sheet on show, “%s”, will be saved; "
+"the book keeps the others until it is closed."
+msgstr ""
+"Berkas teks hanya memuat satu lembar. Hanya lembar yang ditampilkan, “%s”, "
+"yang akan disimpan; buku kerja tetap memuat lembar lainnya sampai ditutup."
+
+#: src/ui/o42-dialogs-file.c:1569
+msgid "_Fixed width - the columns padded with spaces"
+msgstr "Leb_ar tetap - kolom diisi dengan spasi"
+
+#: src/ui/o42-dialogs-file.c:1572
+msgid "Between the fields"
+msgstr "Di antara bidang"
+
+#: src/ui/o42-dialogs-file.c:1612
+msgid "_Encoding:"
+msgstr "_Pengodean:"
+
+#: src/ui/o42-dialogs-file.c:1618
+msgid ""
+"With a _byte-order mark, as Excel's \"CSV UTF-8\" and \"Unicode Text\" have"
+msgstr ""
+"Dengan tanda _urutan byte (BOM), seperti “CSV UTF-8” dan “Teks Unicode” di "
+"Excel"
+
+#: src/ui/o42-dialogs-file.c:1623
+msgid "_Lines end:"
+msgstr "Ak_hir baris:"
+
+#. A file read with a decimal comma is written with one.
+#: src/ui/o42-dialogs-file.c:1635
+msgid "_Decimal separator:"
+msgstr "Pemisah _desimal:"
+
+#: src/ui/o42-dialogs-file.c:1639
+msgid "Point (1,234.50)"
+msgstr "Titik (1,234.50)"
+
+#: src/ui/o42-dialogs-file.c:1639
+msgid "Comma (1.234,50)"
+msgstr "Koma (1.234,50)"
+
+#: src/ui/o42-dialogs-file.c:1652
+msgid "Save cell contents as _shown"
+msgstr "Simpan isi sel seperti _yang ditampilkan"
+
+#: src/ui/o42-dialogs-file.c:1655
+msgid "Save _formulas rather than what they work out to"
+msgstr "Simpan _rumus, bukan hasil perhitungannya"
+
+#: src/ui/o42-dialogs-file.c:1658
+msgid "_Quote all text cells"
+msgstr "Beri tanda kutip pada s_emua sel teks"
 
 #. Excel 97's pie-of-pie and bar-of-pie: a pie's last slices shown
 #. * again in a second plot.
 #. In the order of O42TrendKind, so the row is the kind.
 #. In the order of O42ErrBarKind.
 #: src/ui/o42-dialogs-format.c:53 src/ui/o42-dialogs-format.c:312
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4791
-#: src/ui/o42-window.c:5302 src/ui/o42-window.c:5317 src/ui/o42-window.c:5329
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4810
+#: src/ui/o42-window.c:5321 src/ui/o42-window.c:5336 src/ui/o42-window.c:5348
+#: src/ui/o42-window.c:5362
 msgid "None"
 msgstr "Tidak Ada"
 
@@ -4512,7 +4904,7 @@ msgstr "Tidak Ada"
 msgid "Thin"
 msgstr "Tipis"
 
-#: src/ui/o42-dialogs-format.c:53 src/ui/o42-window.c:4793
+#: src/ui/o42-dialogs-format.c:53 src/ui/o42-window.c:4812
 msgid "Medium"
 msgstr "Sedang"
 
@@ -4580,27 +4972,27 @@ msgstr "(1,234.10)"
 msgid "(1,234.10) in red"
 msgstr "(1,234.10) merah"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4880
 msgid "Left"
 msgstr "Kiri"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:6847
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:7003
 msgid "Center"
 msgstr "Tengah"
 
-#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4861
+#: src/ui/o42-dialogs-format.c:104 src/ui/o42-window.c:4880
 msgid "Right"
 msgstr "Kanan"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Bottom"
 msgstr "Bawah"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Middle"
 msgstr "Tengah"
 
-#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4862
+#: src/ui/o42-dialogs-format.c:105 src/ui/o42-window.c:4881
 msgid "Top"
 msgstr "Atas"
 
@@ -4634,11 +5026,11 @@ msgstr "Kode format:"
 msgid "Alignment"
 msgstr "Perataan"
 
-#: src/ui/o42-dialogs-format.c:358 src/ui/o42-window.c:4865
+#: src/ui/o42-dialogs-format.c:358 src/ui/o42-window.c:4884
 msgid "Horizontal:"
 msgstr "Horizontal:"
 
-#: src/ui/o42-dialogs-format.c:360 src/ui/o42-window.c:4867
+#: src/ui/o42-dialogs-format.c:360 src/ui/o42-window.c:4886
 msgid "Vertical:"
 msgstr "Vertikal:"
 
@@ -4663,7 +5055,7 @@ msgstr "Orientasi (derajat):"
 msgid "Font"
 msgstr "Font"
 
-#: src/ui/o42-dialogs-format.c:376 src/ui/o42-window.c:4845
+#: src/ui/o42-dialogs-format.c:376 src/ui/o42-window.c:4864
 msgid "Font:"
 msgstr "Font:"
 
@@ -4751,41 +5143,41 @@ msgstr "Arsiran Sel"
 #. * for.
 #. In the order of O42Dash, O42Head and O42HeadSize, so the row is
 #. * the value.
-#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4764
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-dialogs-format.c:443 src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4808
 msgid "Solid"
 msgstr "Padat"
 
-#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4765
+#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4784
 #, no-c-format
 msgid "75% grey"
 msgstr "Abu-abu 75%"
 
-#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4766
+#: src/ui/o42-dialogs-format.c:444 src/ui/o42-window.c:4785
 #, no-c-format
 msgid "50% grey"
 msgstr "Abu-abu 50%"
 
-#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4767
+#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4786
 #, no-c-format
 msgid "25% grey"
 msgstr "Abu-abu 25%"
 
-#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4768
+#: src/ui/o42-dialogs-format.c:445 src/ui/o42-window.c:4787
 #, no-c-format
 msgid "12.5% grey"
 msgstr "Abu-abu 12,5%"
 
-#: src/ui/o42-dialogs-format.c:446 src/ui/o42-window.c:4769
+#: src/ui/o42-dialogs-format.c:446 src/ui/o42-window.c:4788
 #, no-c-format
 msgid "6.25% grey"
 msgstr "Abu-abu 6,25%"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4770
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4789
 msgid "Horizontal"
 msgstr "Horizontal"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4770
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4789
 msgid "Vertical"
 msgstr "Vertikal"
 
@@ -4797,19 +5189,19 @@ msgstr "Diagonal ke bawah"
 msgid "Diagonal up"
 msgstr "Diagonal ke atas"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4790
 msgid "Grid"
 msgstr "Kisi"
 
-#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:447 src/ui/o42-window.c:4790
 msgid "Trellis"
 msgstr "Teralis"
 
-#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4790
 msgid "Thin horizontal"
 msgstr "Horizontal tipis"
 
-#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4771
+#: src/ui/o42-dialogs-format.c:448 src/ui/o42-window.c:4790
 msgid "Thin vertical"
 msgstr "Vertikal tipis"
 
@@ -4821,15 +5213,15 @@ msgstr "Diagonal ke bawah tipis"
 msgid "Thin diagonal up"
 msgstr "Diagonal ke atas tipis"
 
-#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4772
+#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4791
 msgid "Thin grid"
 msgstr "Kisi tipis"
 
-#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4772
+#: src/ui/o42-dialogs-format.c:449 src/ui/o42-window.c:4791
 msgid "Thin trellis"
 msgstr "Teralis tipis"
 
-#: src/ui/o42-dialogs-format.c:452 src/ui/o42-window.c:4779
+#: src/ui/o42-dialogs-format.c:452 src/ui/o42-window.c:4798
 msgid "Pattern:"
 msgstr "Pola:"
 
@@ -4885,11 +5277,11 @@ msgstr "Nilai sel adalah"
 msgid "Then show the cell as:"
 msgstr "Lalu tampilkan sel sebagai:"
 
-#: src/ui/o42-dialogs-format.c:560 src/ui/o42-window.c:4859
+#: src/ui/o42-dialogs-format.c:560 src/ui/o42-window.c:4878
 msgid "Colour:"
 msgstr "Warna:"
 
-#: src/ui/o42-dialogs-format.c:561 src/ui/o42-window.c:4859
+#: src/ui/o42-dialogs-format.c:561 src/ui/o42-window.c:4878
 msgid "Text Colour"
 msgstr "Warna Teks"
 
@@ -4974,7 +5366,7 @@ msgstr "Baru dari Templat"
 msgid "A .gnumeric in %s is offered here too."
 msgstr "Berkas .gnumeric di %s juga ditawarkan di sini."
 
-#: src/ui/o42-dialogs-tools.c:306
+#: src/ui/o42-dialogs-tools.c:306 src/ui/o42-grid.c:5286
 msgid "_Open"
 msgstr "_Buka"
 
@@ -5067,11 +5459,6 @@ msgstr "Pesan skrip:"
 msgid "The script failed."
 msgstr "Skrip gagal."
 
-#: src/ui/o42-dialogs-tools.c:632 src/ui/o42-window.c:5842
-#: src/ui/o42-window.c:6199
-msgid "office42 could not open that file."
-msgstr "office42 tidak dapat membuka berkas tersebut."
-
 #: src/ui/o42-dialogs-tools.c:645
 msgid "Python scripts (*.py)"
 msgstr "Skrip Python (*.py)"
@@ -5161,8 +5548,8 @@ msgstr "Abaikan _Semua"
 msgid "The dashed lines are where the pages divide."
 msgstr "Garis putus-putus menandai batas antarhalaman."
 
-#: src/ui/o42-dialogs-tools.c:1546 src/ui/o42-window.c:7061
-#: src/ui/o42-window.c:7212 src/ui/o42-window.c:7213
+#: src/ui/o42-dialogs-tools.c:1546 src/ui/o42-window.c:7217
+#: src/ui/o42-window.c:7368 src/ui/o42-window.c:7369
 msgid "Ready"
 msgstr "Siap"
 
@@ -5695,164 +6082,171 @@ msgstr "Zoom"
 msgid "Magnification"
 msgstr "Perbesaran"
 
-#: src/ui/o42-grid.c:3115
+#: src/ui/o42-grid.c:3159
 msgid "Cannot change part of a data table."
 msgstr "Tidak dapat mengubah sebagian tabel data."
 
-#: src/ui/o42-grid.c:3116
+#: src/ui/o42-grid.c:3160
 msgid "Data > Table made these cells; change the edges or the formula instead."
 msgstr "Data > Tabel membuat sel-sel ini; ubahlah tepinya atau rumusnya."
 
-#: src/ui/o42-grid.c:3129
+#: src/ui/o42-grid.c:3173
 msgid "The value is not allowed in this cell."
 msgstr "Nilai tersebut tidak diizinkan dalam sel ini."
 
-#: src/ui/o42-grid.c:3140
+#: src/ui/o42-grid.c:3184
 msgid "_Yes"
 msgstr "_Ya"
 
-#: src/ui/o42-grid.c:3140
+#: src/ui/o42-grid.c:3184
 msgid "_No"
 msgstr "_Tidak"
 
-#: src/ui/o42-grid.c:3149
+#: src/ui/o42-grid.c:3193
 msgid "Continue?"
 msgstr "Lanjutkan?"
 
 #. Translators: the conditions of the Custom AutoFilter dialog, read
 #. * after "Show rows where the column:".
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "equals"
 msgstr "sama dengan"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "does not equal"
 msgstr "tidak sama dengan"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "is greater than"
 msgstr "lebih besar dari"
 
-#: src/ui/o42-grid.c:4154
+#: src/ui/o42-grid.c:4198
 msgid "is greater than or equal to"
 msgstr "lebih besar dari atau sama dengan"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "is less than"
 msgstr "lebih kecil dari"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "is less than or equal to"
 msgstr "lebih kecil dari atau sama dengan"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "begins with"
 msgstr "diawali dengan"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "ends with"
 msgstr "diakhiri dengan"
 
-#: src/ui/o42-grid.c:4155
+#: src/ui/o42-grid.c:4199
 msgid "contains"
 msgstr "berisi"
 
-#: src/ui/o42-grid.c:4194
+#: src/ui/o42-grid.c:4238
 msgid "Custom AutoFilter"
 msgstr "Filter Otomatis Kustom"
 
-#: src/ui/o42-grid.c:4205
+#: src/ui/o42-grid.c:4249
 msgid "Show rows where the column:"
 msgstr "Tampilkan baris yang kolomnya:"
 
-#: src/ui/o42-grid.c:4276
+#: src/ui/o42-grid.c:4320
 msgid "(All)"
 msgstr "(Semua)"
 
-#: src/ui/o42-grid.c:4280
+#: src/ui/o42-grid.c:4324
 msgid "(Custom...)"
 msgstr "(Kustom...)"
 
-#: src/ui/o42-grid.c:7728
+#. Anything else -- a file, a share, a program's own scheme --
+#. * is the file's say-so, and may run something: the user is
+#. * asked first, and shown where it goes.
+#: src/ui/o42-grid.c:5285
+msgid "This link does not go to a web page. Open it anyway?"
+msgstr "Tautan ini tidak menuju ke halaman web. Tetap buka?"
+
+#: src/ui/o42-grid.c:7786
 #, c-format
 msgid "Page %d"
 msgstr "Halaman %d"
 
-#: src/ui/o42-grid.c:8181
+#: src/ui/o42-grid.c:8239
 msgid "_Insert Cells..."
 msgstr "Sisip_kan Sel..."
 
-#: src/ui/o42-grid.c:8182
+#: src/ui/o42-grid.c:8240
 msgid "_Delete Cells..."
 msgstr "_Hapus Sel..."
 
-#: src/ui/o42-grid.c:8183 src/ui/o42-grid.c:8212 src/ui/o42-grid.c:8238
+#: src/ui/o42-grid.c:8241 src/ui/o42-grid.c:8270 src/ui/o42-grid.c:8296
 msgid "Clear Co_ntents"
 msgstr "Bersihkan _Isi"
 
-#: src/ui/o42-grid.c:8186 src/ui/o42-grid.c:8216 src/ui/o42-grid.c:8243
+#: src/ui/o42-grid.c:8244 src/ui/o42-grid.c:8274 src/ui/o42-grid.c:8301
 msgid "_Format Cells..."
 msgstr "_Format Sel..."
 
-#: src/ui/o42-grid.c:8187
+#: src/ui/o42-grid.c:8245
 msgid "Insert N_ote..."
 msgstr "Sisipkan K_omentar..."
 
-#: src/ui/o42-grid.c:8188
+#: src/ui/o42-grid.c:8246
 msgid "_Hyperlink..."
 msgstr "H_yperlink..."
 
-#: src/ui/o42-grid.c:8210
+#: src/ui/o42-grid.c:8268
 msgid "_Insert Rows"
 msgstr "Sisip_kan Baris"
 
-#: src/ui/o42-grid.c:8211
+#: src/ui/o42-grid.c:8269
 msgid "_Delete Rows"
 msgstr "_Hapus Baris"
 
-#: src/ui/o42-grid.c:8213
+#: src/ui/o42-grid.c:8271
 msgid "Row _Height..."
 msgstr "Ti_nggi Baris..."
 
-#: src/ui/o42-grid.c:8214 src/ui/o42-grid.c:8241
+#: src/ui/o42-grid.c:8272 src/ui/o42-grid.c:8299
 msgid "H_ide"
 msgstr "Se_mbunyikan"
 
-#: src/ui/o42-grid.c:8236
+#: src/ui/o42-grid.c:8294
 msgid "_Insert Columns"
 msgstr "Sisip_kan Kolom"
 
-#: src/ui/o42-grid.c:8237
+#: src/ui/o42-grid.c:8295
 msgid "_Delete Columns"
 msgstr "_Hapus Kolom"
 
-#: src/ui/o42-grid.c:8239
+#: src/ui/o42-grid.c:8297
 msgid "Column _Width..."
 msgstr "_Lebar Kolom..."
 
-#: src/ui/o42-grid.c:8259
+#: src/ui/o42-grid.c:8317
 msgid "Format C_hart..."
 msgstr "Format B_agan..."
 
-#: src/ui/o42-grid.c:8262
+#: src/ui/o42-grid.c:8320
 msgid "Format Sha_pe..."
 msgstr "Format B_entuk..."
 
-#: src/ui/o42-grid.c:8263
+#: src/ui/o42-grid.c:8321
 msgid "Format Contro_l..."
 msgstr "Format K_ontrol..."
 
-#: src/ui/o42-grid.c:8266
+#: src/ui/o42-grid.c:8324
 msgid "Format P_icture..."
 msgstr "Format _Gambar..."
 
-#: src/ui/o42-grid.c:8268
+#: src/ui/o42-grid.c:8326
 msgid "_Ungroup Objects"
 msgstr "_Pisahkan Grup Objek"
 
 #. Translators: the tooltip of a cell with a hyperlink; %s is where
 #. * the link goes, a web address or a cell reference.
-#: src/ui/o42-grid.c:8488
+#: src/ui/o42-grid.c:8546
 #, c-format
 msgid ""
 "%s\n"
@@ -5980,7 +6374,7 @@ msgstr ""
 msgid "Paste Special"
 msgstr "Tempel Spesial"
 
-#: src/ui/o42-window.c:864 src/ui/o42-window.c:6762
+#: src/ui/o42-window.c:864 src/ui/o42-window.c:6918
 msgid "Paste"
 msgstr "Tempel"
 
@@ -6573,7 +6967,7 @@ msgstr "_Warna Tab..."
 msgid "_No Tab Colour"
 msgstr "_Tanpa Warna Tab"
 
-#: src/ui/o42-window.c:3609 src/ui/o42-window.c:5642
+#: src/ui/o42-window.c:3609 src/ui/o42-window.c:5664
 msgid "Unhide"
 msgstr "Tampilkan"
 
@@ -6702,7 +7096,7 @@ msgstr "Kon_tur"
 msgid "Chart of %s"
 msgstr "Bagan %s"
 
-#: src/ui/o42-window.c:3937 src/ui/o42-window.c:6773
+#: src/ui/o42-window.c:3937 src/ui/o42-window.c:6929
 msgid "Chart Wizard"
 msgstr "Wisaya Bagan"
 
@@ -6771,15 +7165,19 @@ msgstr "Perubahan halaman:"
 msgid "A plain click works the control; Ctrl+click takes hold of it."
 msgstr "Klik biasa menjalankan kontrol; Ctrl+klik memegangnya."
 
-#: src/ui/o42-window.c:4165
+#: src/ui/o42-window.c:4167 src/ui/o42-window.c:5953 src/ui/o42-window.c:7919
+msgid "This book has Python scripts in it. They have not been run."
+msgstr "Buku kerja ini berisi skrip Python. Skrip tersebut belum dijalankan."
+
+#: src/ui/o42-window.c:4182
 msgid "This button names a script the book has not got."
 msgstr "Tombol ini menyebut skrip yang tidak dimiliki buku kerja."
 
-#: src/ui/o42-window.c:4189 src/ui/o42-window.c:4252 src/ui/o42-window.c:4285
+#: src/ui/o42-window.c:4208 src/ui/o42-window.c:4271 src/ui/o42-window.c:4304
 msgid "This build of office42 has no SQLite in it."
 msgstr "Versi office42 ini tidak menyertakan SQLite."
 
-#: src/ui/o42-window.c:4200
+#: src/ui/o42-window.c:4219
 msgid ""
 "This book has no database: Data > Database > Connect opens one, or Embed New "
 "puts one inside the book."
@@ -6788,47 +7186,47 @@ msgstr ""
 "membuka basis data, atau Tanamkan Basis Data Baru menaruhnya di dalam buku "
 "kerja."
 
-#: src/ui/o42-window.c:4206
+#: src/ui/o42-window.c:4225
 msgid "The database would not open."
 msgstr "Basis data tidak dapat dibuka."
 
-#: src/ui/o42-window.c:4257
+#: src/ui/o42-window.c:4276
 msgid "Open Database"
 msgstr "Buka Basis Data"
 
-#: src/ui/o42-window.c:4260
+#: src/ui/o42-window.c:4279
 msgid "SQLite databases"
 msgstr "Basis data SQLite"
 
-#: src/ui/o42-window.c:4266
+#: src/ui/o42-window.c:4285
 msgid "All files"
 msgstr "Semua berkas"
 
-#: src/ui/o42-window.c:4295
+#: src/ui/o42-window.c:4314
 msgid "There was nowhere to put the database."
 msgstr "Tidak ada tempat untuk menaruh basis data."
 
-#: src/ui/o42-window.c:4347
+#: src/ui/o42-window.c:4366
 msgid "The query failed."
 msgstr "Kueri gagal."
 
-#: src/ui/o42-window.c:4390
+#: src/ui/o42-window.c:4409
 msgid "Get Data"
 msgstr "Ambil Data"
 
-#: src/ui/o42-window.c:4392
+#: src/ui/o42-window.c:4411
 msgid "Tables in the database:"
 msgstr "Tabel dalam basis data:"
 
-#: src/ui/o42-window.c:4414
+#: src/ui/o42-window.c:4433
 msgid "Query:"
 msgstr "Kueri:"
 
-#: src/ui/o42-window.c:4426
+#: src/ui/o42-window.c:4445
 msgid "Write the column _names above it"
 msgstr "Tulis _nama kolom di atasnya"
 
-#: src/ui/o42-window.c:4430
+#: src/ui/o42-window.c:4449
 msgid ""
 "The answer is laid out from the active cell, and Data > Refresh Queries runs "
 "it again."
@@ -6836,43 +7234,43 @@ msgstr ""
 "Hasilnya disusun mulai dari sel aktif, dan Data > Segarkan Kueri "
 "menjalankannya lagi."
 
-#: src/ui/o42-window.c:4454
+#: src/ui/o42-window.c:4473
 msgid "A query failed."
 msgstr "Sebuah kueri gagal."
 
-#: src/ui/o42-window.c:4461
+#: src/ui/o42-window.c:4480
 #, c-format
 msgid "%d query refreshed"
 msgid_plural "%d queries refreshed"
 msgstr[0] "%d kueri disegarkan"
 
-#: src/ui/o42-window.c:4495
+#: src/ui/o42-window.c:4514
 msgid "The rows would not go in."
 msgstr "Baris-baris tidak dapat dimasukkan."
 
 #. Translators: %s is the name of a table in the database.
-#: src/ui/o42-window.c:4502
+#: src/ui/o42-window.c:4521
 #, c-format
 msgid "The selection went into %s"
 msgstr "Pilihan dimasukkan ke %s"
 
-#: src/ui/o42-window.c:4527
+#: src/ui/o42-window.c:4546
 msgid "Send to Table"
 msgstr "Kirim ke Tabel"
 
-#: src/ui/o42-window.c:4534
+#: src/ui/o42-window.c:4553
 msgid "Table:"
 msgstr "Tabel:"
 
-#: src/ui/o42-window.c:4536
+#: src/ui/o42-window.c:4555
 msgid "The first row _names the columns"
 msgstr "Baris pertama berisi _nama kolom"
 
-#: src/ui/o42-window.c:4540
+#: src/ui/o42-window.c:4559
 msgid "The selection is added to the table, which is made if it is not there."
 msgstr "Pilihan ditambahkan ke tabel, yang akan dibuat jika belum ada."
 
-#: src/ui/o42-window.c:4569
+#: src/ui/o42-window.c:4588
 msgid ""
 "Click the points of the freeform; double-click the last, or click the first "
 "again to close it."
@@ -6880,298 +7278,298 @@ msgstr ""
 "Klik titik-titik bentuk bebas; klik ganda titik terakhir, atau klik titik "
 "pertama lagi untuk menutupnya."
 
-#: src/ui/o42-window.c:4606
+#: src/ui/o42-window.c:4625
 msgid ""
 "Click a picture, shape or chart first; Format > Order moves the selected one."
 msgstr ""
 "Klik gambar, bentuk, atau bagan terlebih dahulu; Format > Urutan memindahkan "
 "yang dipilih."
 
-#: src/ui/o42-window.c:4619
+#: src/ui/o42-window.c:4638
 msgid "_Move and size with cells"
 msgstr "_Pindahkan dan ubah ukuran bersama sel"
 
-#: src/ui/o42-window.c:4619
+#: src/ui/o42-window.c:4638
 msgid "Move but _don't size with cells"
 msgstr "Pindahkan tetapi _jangan ubah ukuran bersama sel"
 
-#: src/ui/o42-window.c:4620
+#: src/ui/o42-window.c:4639
 msgid "Don't move or si_ze with cells"
 msgstr "Jangan pindahkan atau ubah _ukuran bersama sel"
 
-#: src/ui/o42-window.c:4742
+#: src/ui/o42-window.c:4761
 msgid "Click a shape first; Format > Shape works on the selected one."
 msgstr ""
 "Klik bentuk terlebih dahulu; Format > Bentuk bekerja pada yang dipilih."
 
-#: src/ui/o42-window.c:4750
+#: src/ui/o42-window.c:4769
 msgid "Format Shape"
 msgstr "Format Bentuk"
 
 #. Colors and Lines
-#: src/ui/o42-window.c:4755
+#: src/ui/o42-window.c:4774
 msgid "Colors and Lines"
 msgstr "Warna dan Garis"
 
-#: src/ui/o42-window.c:4756
+#: src/ui/o42-window.c:4775
 msgid "Fill:"
 msgstr "Isian:"
 
-#: src/ui/o42-window.c:4756
+#: src/ui/o42-window.c:4775
 msgid "Shape Fill"
 msgstr "Isian Bentuk"
 
-#: src/ui/o42-window.c:4757
+#: src/ui/o42-window.c:4776
 msgid "_No fill"
 msgstr "_Tanpa isian"
 
-#: src/ui/o42-window.c:4764
+#: src/ui/o42-window.c:4783
 msgid "Gradient"
 msgstr "Gradien"
 
-#: src/ui/o42-window.c:4764
+#: src/ui/o42-window.c:4783
 msgid "Pattern"
 msgstr "Pola"
 
-#: src/ui/o42-window.c:4770
+#: src/ui/o42-window.c:4789
 msgid "Down diagonal"
 msgstr "Diagonal ke bawah"
 
-#: src/ui/o42-window.c:4770
+#: src/ui/o42-window.c:4789
 msgid "Up diagonal"
 msgstr "Diagonal ke atas"
 
-#: src/ui/o42-window.c:4772
+#: src/ui/o42-window.c:4791
 msgid "Thin down diagonal"
 msgstr "Diagonal ke bawah tipis"
 
-#: src/ui/o42-window.c:4772
+#: src/ui/o42-window.c:4791
 msgid "Thin up diagonal"
 msgstr "Diagonal ke atas tipis"
 
-#: src/ui/o42-window.c:4774
+#: src/ui/o42-window.c:4793
 msgid "Fill style:"
 msgstr "Gaya isian:"
 
-#: src/ui/o42-window.c:4776
+#: src/ui/o42-window.c:4795
 msgid "Second colour:"
 msgstr "Warna kedua:"
 
-#: src/ui/o42-window.c:4776
+#: src/ui/o42-window.c:4795
 msgid "Gradient End or Pattern Colour"
 msgstr "Warna Akhir Gradien atau Warna Pola"
 
-#: src/ui/o42-window.c:4777
+#: src/ui/o42-window.c:4796
 msgid "Gradient angle:"
 msgstr "Sudut gradien:"
 
-#: src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4802
 msgid "Line:"
 msgstr "Garis:"
 
-#: src/ui/o42-window.c:4783
+#: src/ui/o42-window.c:4802
 msgid "Shape Line"
 msgstr "Garis Bentuk"
 
-#: src/ui/o42-window.c:4784
+#: src/ui/o42-window.c:4803
 msgid "Line width:"
 msgstr "Lebar garis:"
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dash"
 msgstr "Putus"
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dot"
 msgstr "Titik"
 
-#: src/ui/o42-window.c:4789
+#: src/ui/o42-window.c:4808
 msgid "Dash dot"
 msgstr "Putus titik"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Long dash"
 msgstr "Putus panjang"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Short dash"
 msgstr "Putus pendek"
 
-#: src/ui/o42-window.c:4790
+#: src/ui/o42-window.c:4809
 msgid "Short dot"
 msgstr "Titik pendek"
 
-#: src/ui/o42-window.c:4791 src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:4810 src/ui/o42-window.c:5363
 msgid "Triangle"
 msgstr "Segitiga"
 
-#: src/ui/o42-window.c:4791
+#: src/ui/o42-window.c:4810
 msgid "Stealth"
 msgstr "Stealth"
 
-#: src/ui/o42-window.c:4791 src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:4810 src/ui/o42-window.c:5363
 msgid "Diamond"
 msgstr "Belah ketupat"
 
-#: src/ui/o42-window.c:4792
+#: src/ui/o42-window.c:4811
 msgid "Oval"
 msgstr "Oval"
 
-#: src/ui/o42-window.c:4792
+#: src/ui/o42-window.c:4811
 msgid "Open arrow"
 msgstr "Panah terbuka"
 
-#: src/ui/o42-window.c:4793
+#: src/ui/o42-window.c:4812
 msgid "Small"
 msgstr "Kecil"
 
-#: src/ui/o42-window.c:4793
+#: src/ui/o42-window.c:4812
 msgid "Large"
 msgstr "Besar"
 
-#: src/ui/o42-window.c:4795
+#: src/ui/o42-window.c:4814
 msgid "Dash:"
 msgstr "Putus-putus:"
 
-#: src/ui/o42-window.c:4799
+#: src/ui/o42-window.c:4818
 msgid "Begin arrow:"
 msgstr "Panah awal:"
 
-#: src/ui/o42-window.c:4801
+#: src/ui/o42-window.c:4820
 msgid "Begin size:"
 msgstr "Ukuran awal:"
 
-#: src/ui/o42-window.c:4803
+#: src/ui/o42-window.c:4822
 msgid "End arrow:"
 msgstr "Panah akhir:"
 
-#: src/ui/o42-window.c:4805
+#: src/ui/o42-window.c:4824
 msgid "End size:"
 msgstr "Ukuran akhir:"
 
-#: src/ui/o42-window.c:4809
+#: src/ui/o42-window.c:4828
 msgid "_Shadow"
 msgstr "Ba_yangan"
 
-#: src/ui/o42-window.c:4812
+#: src/ui/o42-window.c:4831
 msgid "Shadow colour:"
 msgstr "Warna bayangan:"
 
-#: src/ui/o42-window.c:4812
+#: src/ui/o42-window.c:4831
 msgid "Shadow Colour"
 msgstr "Warna Bayangan"
 
-#: src/ui/o42-window.c:4813
+#: src/ui/o42-window.c:4832
 msgid "Shadow offset across:"
 msgstr "Geser bayangan ke samping:"
 
-#: src/ui/o42-window.c:4815
+#: src/ui/o42-window.c:4834
 msgid "Shadow offset down:"
 msgstr "Geser bayangan ke bawah:"
 
 #. Size
-#: src/ui/o42-window.c:4819
+#: src/ui/o42-window.c:4838
 msgid "Size"
 msgstr "Ukuran"
 
-#: src/ui/o42-window.c:4820 src/ui/o42-window.c:4961
+#: src/ui/o42-window.c:4839 src/ui/o42-window.c:4980
 msgid "Rotation (degrees):"
 msgstr "Rotasi (derajat):"
 
-#: src/ui/o42-window.c:4822 src/ui/o42-window.c:4988
+#: src/ui/o42-window.c:4841 src/ui/o42-window.c:5007
 msgid "Flip _horizontal"
 msgstr "Balik _horizontal"
 
-#: src/ui/o42-window.c:4825 src/ui/o42-window.c:4991
+#: src/ui/o42-window.c:4844 src/ui/o42-window.c:5010
 msgid "Flip _vertical"
 msgstr "Balik _vertikal"
 
-#: src/ui/o42-window.c:4831 src/ui/o42-window.c:4994
+#: src/ui/o42-window.c:4850 src/ui/o42-window.c:5013
 msgid "Object positioning:"
 msgstr "Penempatan objek:"
 
-#: src/ui/o42-window.c:4847
+#: src/ui/o42-window.c:4866
 msgid "Size (points):"
 msgstr "Ukuran (poin):"
 
-#: src/ui/o42-window.c:4857
+#: src/ui/o42-window.c:4876
 msgid "Style:"
 msgstr "Gaya:"
 
-#: src/ui/o42-window.c:4861
+#: src/ui/o42-window.c:4880
 msgid "As the shape has it"
 msgstr "Mengikuti bentuk"
 
-#: src/ui/o42-window.c:4861
+#: src/ui/o42-window.c:4880
 msgid "Centre"
 msgstr "Tengah"
 
-#: src/ui/o42-window.c:4870
+#: src/ui/o42-window.c:4889
 msgid "_Wrap text in the shape"
 msgstr "Bung_kus teks dalam bentuk"
 
-#: src/ui/o42-window.c:4873
+#: src/ui/o42-window.c:4892
 msgid "Internal margin (pixels):"
 msgstr "Margin internal (piksel):"
 
-#: src/ui/o42-window.c:4945
+#: src/ui/o42-window.c:4964
 msgid "Click a picture first; Format > Picture works on the selected one."
 msgstr ""
 "Klik gambar terlebih dahulu; Format > Gambar bekerja pada yang dipilih."
 
-#: src/ui/o42-window.c:4952
+#: src/ui/o42-window.c:4971
 msgid "Format Picture"
 msgstr "Format Gambar"
 
-#: src/ui/o42-window.c:4957
+#: src/ui/o42-window.c:4976
 msgid "Width (pixels):"
 msgstr "Lebar (piksel):"
 
-#: src/ui/o42-window.c:4959
+#: src/ui/o42-window.c:4978
 msgid "Height (pixels):"
 msgstr "Tinggi (piksel):"
 
 #. The crop, as Excel's Picture tab has it: how much of each side
 #. * is cut away.
-#: src/ui/o42-window.c:4966
+#: src/ui/o42-window.c:4985
 msgid "Crop left (%):"
 msgstr "Pangkas kiri (%):"
 
-#: src/ui/o42-window.c:4966
+#: src/ui/o42-window.c:4985
 msgid "Crop top (%):"
 msgstr "Pangkas atas (%):"
 
-#: src/ui/o42-window.c:4967
+#: src/ui/o42-window.c:4986
 msgid "Crop right (%):"
 msgstr "Pangkas kanan (%):"
 
-#: src/ui/o42-window.c:4967
+#: src/ui/o42-window.c:4986
 msgid "Crop bottom (%):"
 msgstr "Pangkas bawah (%):"
 
 #. Excel's picture toolbar: More and Less Brightness, More and Less
 #. * Contrast, as two sliders.
-#: src/ui/o42-window.c:4977
+#: src/ui/o42-window.c:4996
 msgid "Brightness (%):"
 msgstr "Kecerahan (%):"
 
-#: src/ui/o42-window.c:4980
+#: src/ui/o42-window.c:4999
 msgid "Contrast (%):"
 msgstr "Kontras (%):"
 
-#: src/ui/o42-window.c:4985
+#: src/ui/o42-window.c:5004
 msgid "_Lock aspect ratio"
 msgstr "_Kunci rasio aspek"
 
-#: src/ui/o42-window.c:5129
+#: src/ui/o42-window.c:5148
 msgid "Style"
 msgstr "Gaya"
 
-#: src/ui/o42-window.c:5141
+#: src/ui/o42-window.c:5160
 msgid "Style name:"
 msgstr "Nama gaya:"
 
-#: src/ui/o42-window.c:5149
+#: src/ui/o42-window.c:5168
 msgid ""
 "Define takes the active cell's formatting; redefining a style restyles every "
 "cell wearing it."
@@ -7179,217 +7577,213 @@ msgstr ""
 "Definisikan mengambil format sel aktif; mendefinisikan ulang suatu gaya akan "
 "mengubah tampilan setiap sel yang memakainya."
 
-#: src/ui/o42-window.c:5165
+#: src/ui/o42-window.c:5184
 msgid "_Define"
 msgstr "_Definisikan"
 
-#: src/ui/o42-window.c:5166
+#: src/ui/o42-window.c:5185
 msgid "De_lete"
 msgstr "_Hapus"
 
-#: src/ui/o42-window.c:5167
+#: src/ui/o42-window.c:5186
 msgid "_Apply"
 msgstr "_Terapkan"
 
-#: src/ui/o42-window.c:5257
+#: src/ui/o42-window.c:5276
 msgid "Click a chart first; Format > Chart works on the selected chart."
 msgstr ""
 "Klik bagan terlebih dahulu; Format > Bagan bekerja pada bagan yang dipilih."
 
-#: src/ui/o42-window.c:5264
+#: src/ui/o42-window.c:5283
 msgid "Format Chart"
 msgstr "Format Bagan"
 
-#: src/ui/o42-window.c:5268
+#: src/ui/o42-window.c:5287
 msgid "Chart title:"
 msgstr "Judul bagan:"
 
-#: src/ui/o42-window.c:5269
+#: src/ui/o42-window.c:5288
 msgid "Category (X) axis title:"
 msgstr "Judul sumbu kategori (X):"
 
-#: src/ui/o42-window.c:5270
+#: src/ui/o42-window.c:5289
 msgid "Value (Y) axis title:"
 msgstr "Judul sumbu nilai (Y):"
 
-#: src/ui/o42-window.c:5271
+#: src/ui/o42-window.c:5290
 msgid "Value axis minimum:"
 msgstr "Minimum sumbu nilai:"
 
-#: src/ui/o42-window.c:5272
+#: src/ui/o42-window.c:5291
 msgid "Value axis maximum:"
 msgstr "Maksimum sumbu nilai:"
 
-#: src/ui/o42-window.c:5273
+#: src/ui/o42-window.c:5292
 msgid "Value axis format:"
 msgstr "Format sumbu nilai:"
 
-#: src/ui/o42-window.c:5274
+#: src/ui/o42-window.c:5293
 msgid "Second axis from series:"
 msgstr "Sumbu kedua mulai dari deret:"
 
-#: src/ui/o42-window.c:5280 src/ui/o42-window.c:5281
+#: src/ui/o42-window.c:5299 src/ui/o42-window.c:5300
 msgid "automatic"
 msgstr "otomatis"
 
-#: src/ui/o42-window.c:5287
+#: src/ui/o42-window.c:5306
 msgid "Show _legend"
 msgstr "Tampilkan _legenda"
 
-#: src/ui/o42-window.c:5290
+#: src/ui/o42-window.c:5309
 msgid "Show _gridlines"
 msgstr "Tampilkan _garis kisi"
 
-#: src/ui/o42-window.c:5293
+#: src/ui/o42-window.c:5312
 msgid "Show _data labels"
 msgstr "Tampilkan label _data"
 
-#: src/ui/o42-window.c:5296
+#: src/ui/o42-window.c:5315
 msgid "Draw in three _dimensions"
 msgstr "Gambar dalam _tiga dimensi"
 
-#: src/ui/o42-window.c:5302
+#: src/ui/o42-window.c:5321
 msgid "A second pie"
 msgstr "Pai kedua"
 
-#: src/ui/o42-window.c:5302
+#: src/ui/o42-window.c:5321
 msgid "A bar"
 msgstr "Batang"
 
-#: src/ui/o42-window.c:5305
+#: src/ui/o42-window.c:5324
 msgid "Second plot for a pie's last slices:"
 msgstr "Plot kedua untuk irisan terakhir pai:"
 
-#: src/ui/o42-window.c:5312
+#: src/ui/o42-window.c:5331
 msgid "slices"
 msgstr "irisan"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Linear"
 msgstr "Linear"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Polynomial"
 msgstr "Polinomial"
 
-#: src/ui/o42-window.c:5317
+#: src/ui/o42-window.c:5336
 msgid "Exponential"
 msgstr "Eksponensial"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Logarithmic"
 msgstr "Logaritmik"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Power"
 msgstr "Pangkat"
 
-#: src/ui/o42-window.c:5318
+#: src/ui/o42-window.c:5337
 msgid "Moving average"
 msgstr "Rata-rata bergerak"
 
-#: src/ui/o42-window.c:5320
+#: src/ui/o42-window.c:5339
 msgid "Trendline:"
 msgstr "Garis tren:"
 
-#: src/ui/o42-window.c:5322
+#: src/ui/o42-window.c:5341
 msgid "Order or period:"
 msgstr "Orde atau periode:"
 
-#: src/ui/o42-window.c:5329
+#: src/ui/o42-window.c:5348
 msgid "Fixed value"
 msgstr "Nilai tetap"
 
-#: src/ui/o42-window.c:5329
+#: src/ui/o42-window.c:5348
 msgid "Percentage"
 msgstr "Persentase"
 
-#: src/ui/o42-window.c:5330
+#: src/ui/o42-window.c:5349
 msgid "Standard deviations"
 msgstr "Simpangan baku"
 
-#: src/ui/o42-window.c:5330
+#: src/ui/o42-window.c:5349
 msgid "Standard error"
 msgstr "Galat baku"
 
-#: src/ui/o42-window.c:5333
+#: src/ui/o42-window.c:5352
 msgid "Error bars:"
 msgstr "Bilah kesalahan:"
 
-#: src/ui/o42-window.c:5335
+#: src/ui/o42-window.c:5354
 msgid "Error bar amount:"
 msgstr "Besar bilah kesalahan:"
 
 #. In the order of O42MarkerKind, so the row is the kind.  The
 #. * picture is named by its number, which "Insert > Picture" gives it
 #. * and office42-calc's "pictures" prints.
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Automatic"
 msgstr "Otomatis"
 
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Circle"
 msgstr "Lingkaran"
 
-#: src/ui/o42-window.c:5343
+#: src/ui/o42-window.c:5362
 msgid "Square"
 msgstr "Persegi"
 
-#: src/ui/o42-window.c:5344
+#: src/ui/o42-window.c:5363
 msgid "Plus"
 msgstr "Plus"
 
-#: src/ui/o42-window.c:5345
+#: src/ui/o42-window.c:5364
 msgid "Star"
 msgstr "Bintang"
 
-#: src/ui/o42-window.c:5345
+#: src/ui/o42-window.c:5364
 msgid "Picture"
 msgstr "Gambar"
 
-#: src/ui/o42-window.c:5347
+#: src/ui/o42-window.c:5366
 msgid "Point marker:"
 msgstr "Penanda titik:"
 
-#: src/ui/o42-window.c:5349
+#: src/ui/o42-window.c:5368
 msgid "Marker size:"
 msgstr "Ukuran penanda:"
 
-#: src/ui/o42-window.c:5352
+#: src/ui/o42-window.c:5371
 msgid "Picture number:"
 msgstr "Nomor gambar:"
 
-#: src/ui/o42-window.c:5356
+#: src/ui/o42-window.c:5375
 msgid "Text font:"
 msgstr "Font teks:"
 
-#: src/ui/o42-window.c:5357
+#: src/ui/o42-window.c:5376
 msgid "Sans"
 msgstr "Sans"
 
-#: src/ui/o42-window.c:5360
+#: src/ui/o42-window.c:5379
 msgid "Text size:"
 msgstr "Ukuran teks:"
 
-#: src/ui/o42-window.c:5577
+#: src/ui/o42-window.c:5599
 msgid "This is the only window on show; open another before hiding it."
 msgstr ""
 "Ini satu-satunya jendela yang ditampilkan; buka jendela lain sebelum "
 "menyembunyikannya."
 
-#: src/ui/o42-window.c:5637
+#: src/ui/o42-window.c:5659
 msgid "No window is hidden."
 msgstr "Tidak ada jendela yang disembunyikan."
 
-#: src/ui/o42-window.c:5643
+#: src/ui/o42-window.c:5665
 msgid "Unhide window:"
 msgstr "Tampilkan jendela:"
 
-#: src/ui/o42-window.c:5871 src/ui/o42-window.c:7762
-msgid "This book has Python scripts in it. They have not been run."
-msgstr "Buku kerja ini berisi skrip Python. Skrip tersebut belum dijalankan."
-
-#: src/ui/o42-window.c:5872
+#: src/ui/o42-window.c:5954
 msgid ""
 "This book has Visual Basic macros, which office42 does not run; they are "
 "kept for Excel when it is saved as .xlsm."
@@ -7398,11 +7792,11 @@ msgstr ""
 "office42; makro tersebut dipertahankan untuk Excel saat buku kerja disimpan "
 "sebagai .xlsm."
 
-#: src/ui/o42-window.c:5949 src/ui/o42-window.c:6125
+#: src/ui/o42-window.c:6064 src/ui/o42-window.c:6270
 msgid "office42 could not save the file."
 msgstr "office42 tidak dapat menyimpan berkas."
 
-#: src/ui/o42-window.c:5960
+#: src/ui/o42-window.c:6075
 #, c-format
 msgid ""
 "%d cell lies beyond the 1,048,576 rows this kind of file can hold, and was "
@@ -7414,7 +7808,7 @@ msgstr[0] ""
 "%d sel berada di luar 1.048.576 baris yang dapat ditampung jenis berkas ini, "
 "dan tidak ditulis. Simpan sebagai .gnumeric untuk mempertahankannya."
 
-#: src/ui/o42-window.c:5974
+#: src/ui/o42-window.c:6089
 #, c-format
 msgid ""
 "%d cell lies outside the 65,536 rows by 256 columns an .xls file can hold, "
@@ -7427,81 +7821,95 @@ msgstr[0] ""
 "berkas .xls, dan tidak ditulis. Simpan sebagai .xlsx atau .gnumeric untuk "
 "mempertahankannya."
 
-#: src/ui/o42-window.c:6025
+#: src/ui/o42-window.c:6102
+msgid ""
+"Some characters have no place in the encoding this text file is written in, "
+"and were saved as question marks. Save As lets you choose Unicode (UTF-8), "
+"which holds every one."
+msgstr ""
+"Beberapa karakter tidak ada dalam pengodean yang digunakan untuk menulis "
+"berkas teks ini, sehingga disimpan sebagai tanda tanya. Di Simpan Sebagai, "
+"Anda dapat memilih Unicode (UTF-8), yang dapat memuat semuanya."
+
+#: src/ui/o42-window.c:6153
 msgid "Excel Files (*.xlsx, *.xlsm, *.xls)"
 msgstr "Berkas Excel (*.xlsx, *.xlsm, *.xls)"
 
-#: src/ui/o42-window.c:6037
+#: src/ui/o42-window.c:6165
 msgid "All Spreadsheets"
 msgstr "Semua Lembar Bentang"
 
-#: src/ui/o42-window.c:6056
+#: src/ui/o42-window.c:6184
 msgid "Excel Workbooks (*.xlsx)"
 msgstr "Buku Kerja Excel (*.xlsx)"
 
-#: src/ui/o42-window.c:6057
+#: src/ui/o42-window.c:6185
 msgid "Excel Macro-Enabled Workbooks (*.xlsm)"
 msgstr "Buku Kerja Excel Berkemampuan Makro (*.xlsm)"
 
-#: src/ui/o42-window.c:6058
+#: src/ui/o42-window.c:6186
 msgid "Excel 97-2003 Workbooks (*.xls)"
 msgstr "Buku Kerja Excel 97-2003 (*.xls)"
 
-#: src/ui/o42-window.c:6060
+#: src/ui/o42-window.c:6188
 msgid "Gnumeric Spreadsheets (*.gnumeric)"
 msgstr "Lembar Bentang Gnumeric (*.gnumeric)"
 
-#: src/ui/o42-window.c:6061
+#: src/ui/o42-window.c:6189
 msgid "OpenDocument Spreadsheets (*.ods, *.fods)"
 msgstr "Lembar Bentang OpenDocument (*.ods, *.fods)"
 
-#: src/ui/o42-window.c:6062
+#: src/ui/o42-window.c:6190
 msgid "Web Pages (*.html)"
 msgstr "Halaman Web (*.html)"
 
-#: src/ui/o42-window.c:6063
-msgid "Comma-Separated Values (*.csv)"
-msgstr "Nilai yang Dipisahkan Koma (*.csv)"
+#: src/ui/o42-window.c:6199
+msgid "CSV (Comma Delimited) (*.csv)"
+msgstr "CSV (Dibatasi koma) (*.csv)"
 
-#: src/ui/o42-window.c:6064
+#: src/ui/o42-window.c:6200
+msgid "Text (Tab Delimited) (*.txt)"
+msgstr "Teks (Dibatasi tab) (*.txt)"
+
+#: src/ui/o42-window.c:6201
+msgid "Formatted Text (Space Delimited) (*.prn)"
+msgstr "Teks Terformat (Dibatasi spasi) (*.prn)"
+
+#: src/ui/o42-window.c:6203
 msgid "Data Interchange Format (*.dif)"
 msgstr "Data Interchange Format (*.dif)"
 
-#: src/ui/o42-window.c:6066
+#: src/ui/o42-window.c:6205
 msgid "LaTeX Tables (*.tex)"
 msgstr "Tabel LaTeX (*.tex)"
 
-#: src/ui/o42-window.c:6067
+#: src/ui/o42-window.c:6206
 msgid "Lotus 1-2-3 Worksheets (*.wk1)"
 msgstr "Lembar Kerja Lotus 1-2-3 (*.wk1)"
 
-#: src/ui/o42-window.c:6068
-msgid "All Files"
-msgstr "Semua Berkas"
-
-#: src/ui/o42-window.c:6141
+#: src/ui/o42-window.c:6286
 msgid "Save As"
 msgstr "Simpan Sebagai"
 
-#: src/ui/o42-window.c:6214 src/ui/o42-window.c:6755
+#: src/ui/o42-window.c:6369 src/ui/o42-window.c:6911
 msgid "Open"
 msgstr "Buka"
 
-#: src/ui/o42-window.c:6257
+#: src/ui/o42-window.c:6412
 msgid "Do_n't Save"
 msgstr "_Jangan Simpan"
 
 #. Translators: %s is the book's file name, such as Book1.
-#: src/ui/o42-window.c:6290
+#: src/ui/o42-window.c:6445
 #, c-format
 msgid "Save changes to %s?"
 msgstr "Simpan perubahan pada %s?"
 
-#: src/ui/o42-window.c:6293
+#: src/ui/o42-window.c:6448
 msgid "Your changes will be lost if you don't save them."
 msgstr "Perubahan Anda akan hilang jika tidak disimpan."
 
-#: src/ui/o42-window.c:6442
+#: src/ui/o42-window.c:6597
 msgid ""
 "Also known as Numbers42.\n"
 "A spreadsheet in the shape of Excel 97, at parity with its features and "
@@ -7513,114 +7921,113 @@ msgstr ""
 "aritmetika Gnumeric, ditulis dalam C di atas GTK 4, Pango, dan Cairo.\n"
 "Sumber: github.com/office-42/office42"
 
-#: src/ui/o42-window.c:6754
+#: src/ui/o42-window.c:6910
 msgid "New"
 msgstr "Baru"
 
-#: src/ui/o42-window.c:6756
+#: src/ui/o42-window.c:6912
 msgid "Save"
 msgstr "Simpan"
 
-#: src/ui/o42-window.c:6758
+#: src/ui/o42-window.c:6914
 msgid "Print"
 msgstr "Cetak"
 
-#: src/ui/o42-window.c:6760
+#: src/ui/o42-window.c:6916
 msgid "Cut"
 msgstr "Potong"
 
-#: src/ui/o42-window.c:6761
+#: src/ui/o42-window.c:6917
 msgid "Copy"
 msgstr "Salin"
 
-#: src/ui/o42-window.c:6764
+#: src/ui/o42-window.c:6920
 msgid "Undo"
 msgstr "Batalkan"
 
-#: src/ui/o42-window.c:6765
+#: src/ui/o42-window.c:6921
 msgid "Redo"
 msgstr "Ulangi"
 
 #. The sigma and the fx are letters, not pictures; Excel 97 drew them as
 #. * letters too.  They stay set in type.
-#: src/ui/o42-window.c:6769
+#: src/ui/o42-window.c:6925
 msgid "AutoSum"
 msgstr "JumlahOtomatis"
 
-#: src/ui/o42-window.c:6770
+#: src/ui/o42-window.c:6926
 msgid "Function Wizard"
 msgstr "Wisaya Fungsi"
 
-#: src/ui/o42-window.c:6847
+#: src/ui/o42-window.c:7003
 msgid "Align Left"
 msgstr "Rata Kiri"
 
-#: src/ui/o42-window.c:6847
+#: src/ui/o42-window.c:7003
 msgid "Align Right"
 msgstr "Rata Kanan"
 
-#: src/ui/o42-window.c:6886
+#: src/ui/o42-window.c:7042
 msgid "Bold"
 msgstr "Tebal"
 
-#: src/ui/o42-window.c:6887
+#: src/ui/o42-window.c:7043
 msgid "Italic"
 msgstr "Miring"
 
-#: src/ui/o42-window.c:6888
+#: src/ui/o42-window.c:7044
 msgid "Underline"
 msgstr "Garis Bawah"
 
 #. Excel's Currency Style button puts on the Accounting format, with
 #. * the symbol at the edge; Ctrl+Shift+4 is the Currency format.
-#: src/ui/o42-window.c:6906
+#: src/ui/o42-window.c:7062
 msgid "Currency Style"
 msgstr "Gaya Mata Uang"
 
-#: src/ui/o42-window.c:6907
+#: src/ui/o42-window.c:7063
 msgid "Percent Style"
 msgstr "Gaya Persen"
 
-#: src/ui/o42-window.c:6908
+#: src/ui/o42-window.c:7064
 msgid "Comma Style"
 msgstr "Gaya Koma"
 
-#: src/ui/o42-window.c:6910
+#: src/ui/o42-window.c:7066
 msgid "Increase Decimal"
 msgstr "Tambah Desimal"
 
-#: src/ui/o42-window.c:6912
+#: src/ui/o42-window.c:7068
 msgid "Decrease Decimal"
 msgstr "Kurangi Desimal"
 
-#: src/ui/o42-window.c:6957
+#: src/ui/o42-window.c:7113
 msgid "That cannot be used as a name."
 msgstr "Itu tidak dapat digunakan sebagai nama."
 
-#: src/ui/o42-window.c:7014
+#: src/ui/o42-window.c:7170
 msgid "Name Box"
 msgstr "Kotak Nama"
 
-#: src/ui/o42-window.c:7020
+#: src/ui/o42-window.c:7176
 msgid "Enter"
 msgstr "Masukkan"
 
-#: src/ui/o42-window.c:7417
+#: src/ui/o42-window.c:7573
 msgid "OK"
 msgstr "OK"
 
-#: src/ui/o42-window.c:7717
+#: src/ui/o42-window.c:7874
 msgid "Book1 - Office42 Spreadsheet"
 msgstr "Book1 - Office42 Spreadsheet"
 
-#: src/ui/o42-window.c:7763
+#: src/ui/o42-window.c:7920
 msgid "_Run Scripts"
 msgstr "_Jalankan Skrip"
 
-#: src/ui/o42-window.c:7768
+#: src/ui/o42-window.c:7925
 msgid "_Scripts..."
 msgstr "_Skrip..."
 
-#: src/ui/o42-grid.c:5285
-msgid "This link does not go to a web page. Open it anyway?"
-msgstr "Tautan ini tidak menuju ke halaman web. Tetap buka?"
+#~ msgid "Comma-Separated Values (*.csv)"
+#~ msgstr "Nilai yang Dipisahkan Koma (*.csv)"
