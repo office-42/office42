@@ -2725,6 +2725,52 @@ def set_trace(fn):
     _trace = fn
 
 
+# While a macro runs in a window: called a few times a second with how
+# long it has been running, from the start of every block of statements
+# -- a loop's every turn, every procedure called -- so that a loop that
+# never ends can still be stopped with Esc; and with -1 when it is over,
+# if it was called at all.  None otherwise, and then it costs one look at
+# a global.
+_poll = None
+_poll_count = 0
+_poll_next = 0.0
+_polled = False
+_run_depth = 0
+_run_started = 0.0
+
+
+def set_poll(fn):
+    global _poll
+    _poll = fn
+
+
+def _check_poll():
+    global _poll_next, _polled
+    now = time.monotonic()
+    if now < _poll_next:
+        return
+    _poll_next = now + 0.1
+    _polled = True
+    _poll(now - _run_started)
+
+
+def _run_begin():
+    global _run_depth, _run_started, _poll_next, _polled
+    if _run_depth == 0:
+        _run_started = time.monotonic()
+        _poll_next = _run_started + 0.1
+        _polled = False
+    _run_depth += 1
+
+
+def _run_end():
+    global _run_depth, _polled
+    _run_depth -= 1
+    if _run_depth == 0 and _polled:
+        _polled = False
+        _poll(-1.0)
+
+
 class Frame:
     """A procedure being run: its variables, the object it runs for, the
     With objects open, and what it does with an error."""
@@ -3438,6 +3484,7 @@ class Project:
     def call(self, proc, values, me=None):
         global current
         current = self
+        _run_begin()
         try:
             return self.invoke(proc, [ValueArg(v) for v in values], None,
                                me if me is not None else self.me_for(proc))
@@ -3445,6 +3492,7 @@ class Project:
             self.reset()
             return EMPTY
         finally:
+            _run_end()
             self.flush_debug()
 
     def flush_debug(self):
@@ -3748,6 +3796,7 @@ class Project:
         for slot, factory in sc.init:
             if fr.v[slot] is None:
                 fr.v[slot] = factory()
+        _run_begin()
         try:
             body(fr)
         except ExitProc:
@@ -3755,6 +3804,7 @@ class Project:
         except EndSignal:
             self.reset()
         finally:
+            _run_end()
             self.flush_debug()
 
     # -- procedures, compiled --
@@ -3907,6 +3957,11 @@ def make_block(stmts, lines, labels, top=False):
     n = len(stmts)
 
     def run(fr, start=0):
+        global _poll_count
+        if _poll is not None:
+            _poll_count += 1
+            if not _poll_count & 31:
+                _check_poll()
         i = start
         while i < n:
             try:
@@ -3918,6 +3973,8 @@ def make_block(stmts, lines, labels, top=False):
                 j = labels.get(g.label)
                 if j is None:
                     raise
+                if j <= i and _poll is not None:
+                    _check_poll()
                 i = j
             except Exception as ex:
                 r = _on_error(fr, ex, lines[i])

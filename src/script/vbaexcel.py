@@ -41,6 +41,7 @@ ERROR_NAMES = {v: k for k, v in ERROR_CODES.items()}
 
 XL = {
     "xlup": -4162, "xldown": -4121, "xltoleft": -4159, "xltoright": -4161,
+    "xldisabled": 0, "xlinterrupt": 1, "xlerrorhandler": 2,
     "xlshiftup": -4162, "xlshifttoleft": -4159, "xlshiftdown": -4121, "xlshifttoright": -4161,
     "xlpasteall": -4104, "xlpastevalues": -4163, "xlpasteformats": -4122, "xlpasteformulas": -4123,
     "xlpastecomments": -4144, "xlpastevaluesandnumberformats": 12, "xlpastecolumnwidths": 8,
@@ -4149,6 +4150,36 @@ def _forget(owner):
 
 
 office42._forget_hooks.append(_forget)
+
+
+def _poll(seconds):
+    """vba's poll: the window draws what the macro has done and says
+    whether Esc or Ctrl+Break was pressed, which does what
+    Application.EnableCancelKey says -- nothing, error 18 for the
+    macro's handler, or Excel's question whether to go on."""
+    project = vba.current
+    app = project.host.app if project is not None and isinstance(project.host, ExcelHost) else None
+    draw = app is None or bool(app.__dict__.get("ScreenUpdating", True))
+    pressed = _c.poll(seconds, draw)
+    if pressed is None:
+        vba.set_poll(None)      # no window to listen: office42-calc
+        return
+    if not pressed or seconds < 0:
+        return
+    try:
+        mode = vba.to_long(app.__dict__.get("EnableCancelKey", 1)) if app is not None else 1
+    except VBAError:
+        mode = 1
+    if mode == 0:
+        return
+    if mode == 2:
+        raise VBAError(18)
+    answer = _c.ask("Code execution has been interrupted", "Microsoft Visual Basic", ["Continue", "End"])
+    if answer == 1:
+        raise vba.EndSignal()
+
+
+vba.set_poll(_poll)
 
 
 def state():

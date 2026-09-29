@@ -123,6 +123,11 @@ typedef struct {
    * -1 when the box was closed without one. */
   int      (*ask)           (gpointer user, O42Book *book, const char *title,
                              const char *text, const char *const *buttons);
+  /* A Visual Basic macro has been running for `seconds`: the window
+   * shows what it has done so far (when `draw`) and listens for Esc and
+   * Ctrl+Break, TRUE when one was pressed.  Called a few times a second
+   * while the macro runs, and with `seconds` below 0 when it is over. */
+  gboolean (*poll)          (gpointer user, O42Book *book, double seconds, gboolean draw);
 } O42PythonHost;
 
 void o42_python_set_host (const O42PythonHost *host);

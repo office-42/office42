@@ -7544,6 +7544,115 @@ on_host_alert_done (GObject *source, GAsyncResult *result, gpointer data)
   g_main_loop_quit (loop);
 }
 
+/* A Visual Basic macro that has run for a second gets a small window of
+ * its own saying how to stop it: Esc, Ctrl+Break, its Stop button or
+ * closing it.  Being modal, it keeps the user's clicks and keys away
+ * from the book while the macro is changing it, and the book's window
+ * draws what the macro has done so far.  One macro runs at a time. */
+static struct {
+  GtkWidget *window;
+  gboolean   broken;
+  gint64     quiet_until;   /* not before, after the macro waited for the user */
+} running;
+
+static gboolean
+on_running_key (GtkEventControllerKey *key, guint keyval, guint keycode,
+                GdkModifierType state, gpointer data)
+{
+  (void) key; (void) keycode; (void) state; (void) data;
+  if (keyval == GDK_KEY_Escape || keyval == GDK_KEY_Break || keyval == GDK_KEY_Pause)
+    running.broken = TRUE;
+  return TRUE;
+}
+
+static void
+on_running_stop (GtkWidget *w, gpointer data)
+{
+  (void) w; (void) data;
+  running.broken = TRUE;
+}
+
+static gboolean
+on_running_close_request (GtkWindow *w, gpointer data)
+{
+  (void) w; (void) data;
+  running.broken = TRUE;
+  return TRUE;
+}
+
+static void
+running_close (void)
+{
+  if (running.window != NULL)
+    {
+      GtkWidget *window = running.window;
+      running.window = NULL;
+      g_signal_handlers_disconnect_by_func (window, on_running_close_request, NULL);
+      gtk_window_destroy (GTK_WINDOW (window));
+    }
+}
+
+/* Around a message box, an input box or a pause in the debugger: the
+ * running window goes while the macro waits, and does not come back
+ * the moment the macro goes on. */
+static void
+running_wait (gboolean done)
+{
+  if (!done)
+    running_close ();
+  else
+    running.quiet_until = g_get_monotonic_time () + G_USEC_PER_SEC;
+}
+
+static gboolean
+host_poll (gpointer user, O42Book *book, double seconds, gboolean draw)
+{
+  O42Window *self = host_window (user, book);
+
+  if (seconds < 0)
+    {
+      running_close ();
+      running.broken = FALSE;
+      running.quiet_until = 0;
+      return FALSE;
+    }
+  if (self == NULL || seconds < 1.0 || g_get_monotonic_time () < running.quiet_until)
+    return FALSE;
+  if (running.window == NULL)
+    {
+      GtkWidget *content, *buttons, *label;
+      GtkEventController *key = gtk_event_controller_key_new ();
+
+      running.window = o42_dialog_frame (self, _("Macro Running"), TRUE, &content, &buttons);
+      /* Modal whatever else is: the book must not be edited under the
+       * macro's feet. */
+      gtk_window_set_modal (GTK_WINDOW (running.window), TRUE);
+      gtk_window_set_resizable (GTK_WINDOW (running.window), FALSE);
+      label = gtk_label_new (_("A macro is running.\nPress Esc or Ctrl+Break to interrupt it."));
+      gtk_label_set_xalign (GTK_LABEL (label), 0.0);
+      gtk_box_append (GTK_BOX (content), label);
+      o42_dialog_button (buttons, _("_Stop"), G_CALLBACK (on_running_stop), NULL);
+      gtk_event_controller_set_propagation_phase (key, GTK_PHASE_CAPTURE);
+      g_signal_connect (key, "key-pressed", G_CALLBACK (on_running_key), NULL);
+      gtk_widget_add_controller (running.window, key);
+      g_signal_connect (running.window, "close-request", G_CALLBACK (on_running_close_request), NULL);
+      gtk_window_present (GTK_WINDOW (running.window));
+    }
+  if (draw)
+    {
+      o42_grid_refresh (self->grid);
+      window_sync (self);
+    }
+  for (int i = 0; i < 100 && g_main_context_pending (NULL); i++)
+    g_main_context_iteration (NULL, FALSE);
+  if (running.broken)
+    {
+      running.broken = FALSE;
+      return TRUE;
+    }
+  return FALSE;
+}
+
 static void
 host_message (gpointer user, O42Book *book, const char *text)
 {
@@ -7554,9 +7663,11 @@ host_message (gpointer user, O42Book *book, const char *text)
 
   gtk_alert_dialog_set_buttons (dialog, buttons);
   gtk_alert_dialog_set_modal (dialog, TRUE);
+  running_wait (FALSE);
   gtk_alert_dialog_choose (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL,
                            on_host_alert_done, loop);
   g_main_loop_run (loop);
+  running_wait (TRUE);
   g_main_loop_unref (loop);
   g_object_unref (dialog);
 }
@@ -7609,9 +7720,11 @@ host_input (gpointer user, O42Book *book, const char *text, const char *initial)
   gtk_window_set_default_widget (GTK_WINDOW (prompt.dialog), ok);
   g_signal_connect (prompt.dialog, "destroy", G_CALLBACK (on_host_input_destroy), &prompt);
   prompt.loop = g_main_loop_new (NULL, FALSE);
+  running_wait (FALSE);
   gtk_window_present (GTK_WINDOW (prompt.dialog));
   gtk_widget_grab_focus (prompt.entry);
   g_main_loop_run (prompt.loop);
+  running_wait (TRUE);
   g_main_loop_unref (prompt.loop);
   return prompt.answer;
 }
@@ -7708,8 +7821,14 @@ static int
 host_debug_pause (gpointer user, O42Book *book, const char *filename, int line, const char *variables)
 {
   O42Window *self = host_window (user, book);
+  int answer;
 
-  return self != NULL ? o42_window_debug_pause (self, filename, line, variables) : 0;
+  if (self == NULL)
+    return 0;
+  running_wait (FALSE);
+  answer = o42_window_debug_pause (self, filename, line, variables);
+  running_wait (TRUE);
+  return answer;
 }
 
 typedef struct {
@@ -7762,8 +7881,10 @@ host_ask (gpointer user, O42Book *book, const char *title, const char *text, con
   gtk_alert_dialog_set_buttons (dialog, (const char *const *) labels->pdata);
   gtk_alert_dialog_set_default_button (dialog, 0);
   gtk_alert_dialog_set_modal (dialog, TRUE);
+  running_wait (FALSE);
   gtk_alert_dialog_choose (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL, on_host_ask_done, &ask);
   g_main_loop_run (ask.loop);
+  running_wait (TRUE);
   g_main_loop_unref (ask.loop);
   g_ptr_array_unref (labels);
   g_object_unref (dialog);
@@ -7776,7 +7897,7 @@ window_install_python_host (O42Window *self)
   static gboolean installed = FALSE;
   O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
                          host_input, host_status, host_path, host_save, host_open,
-                         host_close, host_debug_pause, host_ask };
+                         host_close, host_debug_pause, host_ask, host_poll };
 
   if (installed)
     return;

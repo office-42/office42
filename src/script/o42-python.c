@@ -3111,6 +3111,21 @@ m_set_array_formula (PyObject *self, PyObject *args)
   Py_RETURN_NONE;
 }
 
+/* poll(seconds, draw) -> whether the user asked the running macro to
+ * stop; see O42PythonHost.poll.  None without a window to ask. */
+static PyObject *
+m_poll (PyObject *self, PyObject *args)
+{
+  double seconds;
+  int draw = 1;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "d|p", &seconds, &draw))
+    return NULL;
+  if (host.poll == NULL)
+    Py_RETURN_NONE;
+  return PyBool_FromLong (host.poll (host.user, current_book, seconds, draw));
+}
+
 /* ask(text, title, [button labels]) -> the index of the one pressed, -1
  * for none: a message box with a choice, as MsgBox with vbYesNo is. */
 static PyObject *
@@ -3286,6 +3301,7 @@ static PyMethodDef METHODS[] = {
   { "manual",         m_manual,         METH_VARARGS, "Whether calculation is manual; sets it." },
   { "set_array_formula", m_set_array_formula, METH_VARARGS, "An array formula over a range." },
   { "ask",            m_ask,            METH_VARARGS, "A message box with buttons; the one pressed." },
+  { "poll",           m_poll,           METH_VARARGS, "Whether Esc was pressed while a macro runs." },
   { "vba_modules",    m_vba_modules,    METH_NOARGS,  "The book's Visual Basic modules." },
   { "vba_serial",     m_vba_serial,     METH_NOARGS,  "A number that moves when a module changes." },
   { NULL, NULL, 0, NULL }
