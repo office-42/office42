@@ -905,6 +905,54 @@ o42_vba_build_streams (O42Book *book, GBytes *original, const char *prefix,
   g_free (old_project);
 }
 
+GHashTable *
+o42_vba_form_streams (O42Book *book, const char *form, guint *codepage)
+{
+  GBytes *project = o42_book_kept_part (book, "xl/vbaProject.bin");
+  GHashTable *streams;
+  GPtrArray *paths;
+  GBytes *dir;
+
+  if (codepage != NULL)
+    *codepage = 1252;
+  if (project == NULL || form == NULL || *form == '\0')
+    return NULL;
+  paths = o42_ole2_list (project, form);
+  if (paths == NULL || paths->len == 0)
+    {
+      if (paths != NULL)
+        g_ptr_array_unref (paths);
+      return NULL;
+    }
+  streams = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_bytes_unref);
+  for (guint i = 0; i < paths->len; i++)
+    {
+      const char *path = g_ptr_array_index (paths, i);
+      char *full = g_strconcat (form, "/", path, NULL);
+      GBytes *data = o42_ole2_read_path (project, full, NULL);
+      if (data != NULL)
+        g_hash_table_insert (streams, g_strdup (path), data);
+      g_free (full);
+    }
+  g_ptr_array_unref (paths);
+
+  /* The strings a form keeps as bytes are in the project's code page. */
+  dir = o42_ole2_read_path (project, "VBA/dir", NULL);
+  if (dir != NULL && codepage != NULL)
+    {
+      GByteArray *d = decompress (g_bytes_get_data (dir, NULL), g_bytes_get_size (dir));
+      Dir parsed;
+
+      if (dir_parse (d->data, d->len, &parsed))
+        *codepage = parsed.codepage;
+      if (parsed.modules != NULL)
+        g_ptr_array_unref (parsed.modules);
+      g_byte_array_unref (d);
+    }
+  g_clear_pointer (&dir, g_bytes_unref);
+  return streams;
+}
+
 GBytes *
 o42_vba_build (O42Book *book, GBytes *original)
 {

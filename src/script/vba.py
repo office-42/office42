@@ -2187,8 +2187,7 @@ class Parser:
             return None
         if w in ("load", "unload") and not self.is_op("(", 1) and not self.is_op("=", 1):
             self.next()
-            self.parse_expr()
-            return None
+            return Stmt(w, line, expr=self.parse_expr())
         return self.parse_expr_statement(line)
 
     def at_end_after(self, k):
@@ -2939,10 +2938,11 @@ class VBObject:
     """An instance of a class module: its own copy of the module's
     variables, and the module's procedures as its members."""
 
-    __slots__ = ("cls", "v", "gen", "__weakref__")
+    __slots__ = ("cls", "v", "gen", "ext", "__weakref__")
 
     def __init__(self, cls):
         self.cls = cls
+        self.ext = None             # what the host adds: a UserForm's controls
         self.gen = cls.project.generation
         self.v = [None] * len(cls.var_list)
         for slot, factory in cls.var_init:
@@ -2958,7 +2958,7 @@ class VBObject:
         project = cls.project
         if current is not project or self.gen != project.generation:
             return
-        group = cls.procs.get("class_terminate")
+        group = cls.procs.get("userform_terminate" if cls.form is not None else "class_terminate")
         proc = group.get("sub") if group else None
         if proc is None:
             return
@@ -3258,6 +3258,10 @@ class ModuleRT:
         self.instances = weakref.WeakSet()
         self.implements = []
         self.error = None           # VBASyntaxError when the module does not compile
+        self.predeclared = False    # Attribute VB_PredeclaredId = True
+        self.form = None            # a UserForm's design, which the host reads
+        self.form_names = frozenset()   # the names its code may use unqualified: its controls
+        self.default = None         # the instance the module's name stands for, once made
 
     def __repr__(self):
         return "<Module %s>" % self.name
@@ -3386,6 +3390,7 @@ class Project:
             if kind in ("sub", "function") and group:
                 raise VBASyntaxError("Ambiguous name detected: %s" % node.name, node.line, m.name)
             group[kind] = Proc(m, node)
+        m.predeclared = a.attributes.get("vb_predeclaredid") is True
         for key, value in a.attributes.items():
             if key.endswith(".vb_usermemid"):
                 if value == 0:
@@ -3511,7 +3516,10 @@ class Project:
         cls = self.class_module(typename.lower())
         if cls is not None:
             obj = VBObject(cls)
-            init = cls.procs.get("class_initialize", {}).get("sub")
+            if cls.form is not None:
+                obj.ext = self.host.form_instance(obj)
+            init = cls.procs.get("userform_initialize" if cls.form is not None else "class_initialize",
+                                 {}).get("sub")
             if init is not None:
                 self.invoke(init, [], None, obj)
             return obj
@@ -3594,6 +3602,14 @@ class Project:
                 if k in group:
                     return group[k]
         return None
+
+    def default_instance(self, m):
+        """What a UserForm's name, or a class's with VB_PredeclaredId,
+        stands for: an instance made the first time it is used, and made
+        again after Unload."""
+        if m.default is None:
+            m.default = self.create_new(m.name)
+        return m.default
 
     def me_for(self, proc):
         if proc.module.kind == "document":
@@ -3773,6 +3789,8 @@ class Project:
                 proc = group.get("get") or group.get("function") or group.get("sub")
                 if proc is not None:
                     return self.invoke(proc, args, caller, obj)
+            if obj.ext is not None:
+                return self.member_get(obj.ext, lname, args, caller)
             raise VBAError(438)
         if isinstance(obj, UDTValue):
             if lname not in obj.fields:
@@ -3859,6 +3877,9 @@ class Project:
                 if proc is not None:
                     self.invoke(proc, args, caller, obj, value, True)
                     return
+            if obj.ext is not None:
+                self.member_let(obj.ext, lname, args, value, is_set, caller)
+                return
             raise VBAError(438)
         if isinstance(obj, UDTValue):
             if lname not in obj.fields:
@@ -4048,6 +4069,14 @@ class Host:
     no book: MsgBox prints, and there are no objects of its own."""
 
     object_types = ()
+
+    def form_instance(self, obj):
+        """What a UserForm's instance has beside its module: its controls.
+        None where there are no forms."""
+        return None
+
+    def unload(self, obj):
+        raise VBAError(361, "Can't load or unload this object")
 
     def constant(self, lname):
         return MISSING
@@ -4297,6 +4326,8 @@ class Compiler:
         found = self.resolve_in_module(m, lname, True)
         if found is not None:
             return found
+        if lname in m.form_names:
+            return ("docmember", lname)       # a UserForm's control, a member of Me
         project = self.project
         for other in project.order:
             if other is m or other.kind != "standard":
@@ -4311,6 +4342,8 @@ class Compiler:
             if other.kind == "standard":
                 return ("modref", other)
             if other.kind == "class":
+                if other.form is not None or other.predeclared:
+                    return ("predeclared", other)
                 return ("classname", other)
         if m.kind == "document" and project.host.document_has(m, lname):
             return ("docmember", lname)
@@ -4474,6 +4507,9 @@ class Compiler:
         if kind == "declare":
             node = b[1]
             return lambda fr: project.host.declare_call(node, [])
+        if kind == "predeclared":
+            m = b[1]
+            return lambda fr: project.default_instance(m)
         if kind in ("modref", "enum", "classname", "vba"):
             self.error("Expected: variable or procedure, not module", e.line)
         self.error("Unknown name: %s" % e.name, e.line)
@@ -5219,6 +5255,22 @@ class Compiler:
                 raise VBAError(20)
             raise ResumeSignal(how, label)
         return resume
+
+    def st_load(self, st):
+        # Naming a UserForm loads it, running UserForm_Initialize.
+        e = self.expr(st.expr)
+
+        def load(fr):
+            e(fr)
+        return load
+
+    def st_unload(self, st):
+        e = self.expr(st.expr)
+        project = self.project
+
+        def unload(fr):
+            project.host.unload(e(fr))
+        return unload
 
     def st_end(self, st):
         def end(fr):

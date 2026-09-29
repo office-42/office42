@@ -26,6 +26,7 @@ from contextlib import redirect_stdout, redirect_stderr
 
 import _office42 as _c
 import office42
+import o42forms as forms
 import o42vba as vba
 from o42vba import (VBAError, EMPTY, NULL, MISSING, VBArray, VBDate, ErrValue,
                     to_str, to_long, to_double, to_bool, to_num, plain_value, is_object)
@@ -180,6 +181,19 @@ XL.update({
     "xlticklabelpositionhigh": -4127, "xlticklabelpositionnexttoaxis": 4,
 })
 XL = {k.lower(): v for k, v in XL.items()}
+
+# Links and inserting rows and columns.
+XL.update({
+    "xllinktypeexcellinks": 1, "xllinktypeolelinks": 2, "xlexcellinks": 1, "xlolelinks": 2,
+    "xlformatfromleftorabove": 0, "xlformatfromrightorbelow": 1,
+    "xlmoveandsize": 1, "xlmove": 2, "xlfreefloating": 3, "xlformats": -4122,
+    "xlnorestrictions": 0, "xlunlockedcells": 1, "xlnoselection": -4142,
+    "xlolelink": 0, "xloleembed": 1, "xlolecontrol": 2,
+    "xlthemecolordark1": 1, "xlthemecolorlight1": 2, "xlthemecolordark2": 3,
+    "xlthemecolorlight2": 4, "xlthemecoloraccent1": 5, "xlthemecoloraccent2": 6,
+    "xlthemecoloraccent3": 7, "xlthemecoloraccent4": 8, "xlthemecoloraccent5": 9,
+    "xlthemecoloraccent6": 10, "xlthemecolorhyperlink": 11, "xlthemecolorfollowedhyperlink": 12,
+})
 
 # MsoAutoShapeType, as the outlines office42 draws.
 AUTOSHAPES = {1: "rect", 4: "diamond", 5: "roundrect", 6: "octagon", 7: "triangle",
@@ -4211,6 +4225,12 @@ class ExcelHost(vba.Host):
         except RuntimeError:
             return None
 
+    def form_instance(self, obj):
+        return forms.instance(obj)
+
+    def unload(self, obj):
+        forms.unload(obj)
+
     def choose_file(self, mode, title, initial, filters, multiple):
         """The window's file chooser: the paths chosen, or None.  Without
         a window the path is asked for as a line."""
@@ -4417,6 +4437,45 @@ def _poll(seconds):
 vba.set_poll(_poll)
 
 
+def form_event(hid, control, event, value):
+    """What the user did on a UserForm, from the host: (cancelled, what a
+    form left open printed).  A modal form's events come during the
+    macro that showed it; a modeless one's come on their own, and run as
+    a macro does."""
+    if vba._run_depth > 0:
+        return forms._event(hid, control, event, value), ""
+    result = [False]
+
+    def go(st):
+        result[0] = forms._event(hid, control, event, value)
+    ok, text = _run(go)
+    return result[0], text
+
+
+# What a UserForm's code may name without Me beside its controls.
+_FORM_MEMBERS = frozenset(("controls", "caption", "hide", "repaint", "activecontrol"))
+
+
+def _read_form(m):
+    """A UserForm module's design, from the storage beside its code; a
+    form that cannot be read is an empty one, so its code still runs."""
+    design = None
+    got = _c.vba_form_streams(m.name)
+    if got is not None:
+        streams, codepage = got
+        codec = "cp%d" % codepage
+        try:
+            "".encode(codec)
+        except LookupError:
+            codec = "cp1252"
+        try:
+            design = forms.read_form(streams, codec)
+        except Exception:
+            design = None
+    m.form = design if design is not None else forms.Form()
+    m.form_names = frozenset(c.name.lower() for c in m.form.walk() if c.name) | _FORM_MEMBERS
+
+
 def state():
     """The project of the book being run against, compiled afresh when a
     module has changed since."""
@@ -4431,7 +4490,9 @@ def state():
         host.project = project
         vba._OBJECT_TYPES.update(host.object_types)
         for name, kind, code in _c.vba_modules():
-            project.add_module(name, "class" if kind == "form" else kind, code)
+            m = project.add_module(name, "class" if kind == "form" else kind, code)
+            if kind == "form":
+                _read_form(m)
         st.serial = serial
         st.host = host
         st.project = project

@@ -43,6 +43,12 @@ void     o42_vba_build_streams (O42Book *book, GBytes *original, const char *pre
  * with the code names that tie them together. */
 void     o42_vba_ensure_documents (O42Book *book);
 
+/* A form's designer storage in the project the book came with: its
+ * streams ("f", "o", "\003VBFrame", "i05/f" and the rest) by their paths
+ * inside it, as GBytes, and the project's code page, which the form's
+ * byte strings are in.  NULL when the book has no such storage. */
+GHashTable *o42_vba_form_streams (O42Book *book, const char *form, guint *codepage);
+
 /* ---- A module's text ----------------------------------------------------- */
 
 /* The Attribute lines a module's text begins with -- its name, and for

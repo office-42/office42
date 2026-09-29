@@ -361,14 +361,244 @@ calc_status (gpointer user, O42Book *book, const char *text)
   printf ("status: %s\n", text);
 }
 
+/* ---- UserForms in the terminal ------------------------------------------ */
+
+/* A form a macro shows is printed with its controls, and while it is on
+ * show -- a modal one, until the macro hides or closes it -- lines of
+ * input are what the user does to it: "click NAME", "dblclick NAME",
+ * "type NAME TEXT", "check NAME 1", "choose NAME 2" (or "0,2" for a
+ * list that takes several), "spin NAME 5", "page NAME 1", "close" for
+ * the close box, and "dump" to print it again. */
+typedef struct {
+  int         id;
+  int         parent;
+  char       *kind;
+  char       *name;
+  GHashTable *props;
+} CalcControl;
+
+typedef struct {
+  O42Book    *book;
+  GHashTable *props;
+  GPtrArray  *controls;      /* CalcControl * */
+  gboolean    shown;
+  gboolean    closed;
+} CalcForm;
+
+static GPtrArray *calc_forms;   /* by number, from 1 */
+static int calc_next_control = 1;
+
+static CalcForm *
+calc_form (int form)
+{
+  return calc_forms != NULL && form >= 1 && (guint) form <= calc_forms->len
+         ? g_ptr_array_index (calc_forms, form - 1) : NULL;
+}
+
+static int
+calc_form_open (gpointer user, O42Book *book, const char *caption, double width, double height)
+{
+  CalcForm *f = g_new0 (CalcForm, 1);
+  (void) user; (void) width; (void) height;
+  if (calc_forms == NULL)
+    calc_forms = g_ptr_array_new ();
+  f->book = book;
+  f->props = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  f->controls = g_ptr_array_new ();
+  g_hash_table_insert (f->props, g_strdup ("caption"), g_strdup (caption));
+  g_ptr_array_add (calc_forms, f);
+  return (int) calc_forms->len;
+}
+
+static int
+calc_form_add (gpointer user, int form, int parent, const char *kind, const char *name)
+{
+  CalcForm *f = calc_form (form);
+  CalcControl *c;
+  (void) user;
+  if (f == NULL)
+    return 0;
+  c = g_new0 (CalcControl, 1);
+  c->id = calc_next_control++;
+  c->parent = parent;
+  c->kind = g_strdup (kind);
+  c->name = g_strdup (name);
+  c->props = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+  g_ptr_array_add (f->controls, c);
+  return c->id;
+}
+
+static CalcControl *
+calc_control (CalcForm *f, int id, const char *name)
+{
+  for (guint i = 0; f != NULL && i < f->controls->len; i++)
+    {
+      CalcControl *c = g_ptr_array_index (f->controls, i);
+      if ((name != NULL && g_ascii_strcasecmp (c->name, name) == 0) || (name == NULL && c->id == id))
+        return c;
+    }
+  return NULL;
+}
+
+static void
+calc_form_set (gpointer user, int form, int control, const char *property, const char *value)
+{
+  CalcForm *f = calc_form (form);
+  CalcControl *c = control != 0 ? calc_control (f, control, NULL) : NULL;
+  (void) user;
+  if (f == NULL)
+    return;
+  g_hash_table_insert (c != NULL ? c->props : f->props, g_strdup (property), g_strdup (value));
+}
+
+/* A control as a line: what it shows, in the words of its properties. */
+static void
+calc_form_print (CalcForm *f)
+{
+  static const char *const SHOWN[] = { "caption", "text", "value", "items", "index", "selected",
+                                       "pages", "enabled", "visible", "locked", NULL };
+  printf ("form: %s\n", (char *) g_hash_table_lookup (f->props, "caption"));
+  for (guint i = 0; i < f->controls->len; i++)
+    {
+      CalcControl *c = g_ptr_array_index (f->controls, i);
+      GString *line = g_string_new (NULL);
+      int depth = 1;
+
+      for (CalcControl *p = calc_control (f, c->parent, NULL); p != NULL; p = calc_control (f, p->parent, NULL))
+        depth++;
+      g_string_append_printf (line, "%*s%s %s", depth * 2, "", c->kind, c->name);
+      for (int k = 0; SHOWN[k] != NULL; k++)
+        {
+          const char *v = g_hash_table_lookup (c->props, SHOWN[k]);
+          if (v == NULL || (strcmp (SHOWN[k], "enabled") == 0 && strcmp (v, "1") == 0)
+              || (strcmp (SHOWN[k], "visible") == 0 && strcmp (v, "1") == 0)
+              || (strcmp (SHOWN[k], "locked") == 0 && strcmp (v, "0") == 0)
+              || (strcmp (SHOWN[k], "index") == 0 && strcmp (v, "-1") == 0)
+              || (*v == '\0' && strcmp (SHOWN[k], "text") != 0))
+            continue;
+          if (strcmp (SHOWN[k], "items") == 0 || strcmp (SHOWN[k], "pages") == 0)
+            {
+              char *flat = g_strdup (v);
+              g_strdelimit (flat, "\n", '|');
+              g_strdelimit (flat, "\t", ';');
+              g_string_append_printf (line, " %s=%s", SHOWN[k], flat);
+              g_free (flat);
+            }
+          else
+            g_string_append_printf (line, " %s=\"%s\"", SHOWN[k], v);
+        }
+      printf ("%s\n", line->str);
+      g_string_free (line, TRUE);
+    }
+  fflush (stdout);
+}
+
+static void
+calc_form_event (CalcForm *f, int form, CalcControl *c, const char *event, const char *value)
+{
+  char *said = NULL;
+  gboolean cancelled = o42_python_form_event (f->book, form, c != NULL ? c->id : 0, event, value, &said);
+  if (said != NULL)
+    fputs (said, stdout);
+  g_free (said);
+  if (cancelled)
+    printf ("%s cancelled\n", event);
+  fflush (stdout);
+}
+
+static void
+calc_form_show (gpointer user, int form, gboolean modal)
+{
+  CalcForm *f = calc_form (form);
+  char line[4096];
+  (void) user;
+  if (f == NULL)
+    return;
+  f->shown = TRUE;
+  calc_form_print (f);
+  while (modal && f->shown && fgets (line, sizeof line, stdin) != NULL)
+    {
+      char **w;
+      CalcControl *c;
+
+      g_strchomp (line);
+      w = g_strsplit (line, " ", 3);
+      c = w[0] != NULL && w[1] != NULL ? calc_control (f, 0, w[1]) : NULL;
+      if (w[0] == NULL)
+        ;
+      else if (strcmp (w[0], "close") == 0)
+        calc_form_event (f, form, NULL, "close", "");
+      else if (strcmp (w[0], "dump") == 0)
+        calc_form_print (f);
+      else if (c == NULL)
+        fprintf (stderr, "form: no control %s\n", w[1] != NULL ? w[1] : "named");
+      else if (strcmp (w[0], "click") == 0 || strcmp (w[0], "dblclick") == 0)
+        calc_form_event (f, form, c, w[0], "");
+      else if (strcmp (w[0], "type") == 0)
+        {
+          char *value = strcmp (c->kind, "ComboBox") == 0 ? g_strconcat ("text:", w[2] != NULL ? w[2] : "", NULL)
+                                                          : g_strdup (w[2] != NULL ? w[2] : "");
+          g_hash_table_insert (c->props, g_strdup ("text"), g_strdup (w[2] != NULL ? w[2] : ""));
+          calc_form_event (f, form, c, "change", value);
+          g_free (value);
+        }
+      else if (strcmp (w[0], "choose") == 0 && w[2] != NULL && strchr (w[2], ',') != NULL)
+        {
+          char *value = g_strconcat ("selected:", w[2], NULL);
+          calc_form_event (f, form, c, "change", value);
+          g_free (value);
+        }
+      else if (w[2] != NULL && (strcmp (w[0], "check") == 0 || strcmp (w[0], "choose") == 0 ||
+                                strcmp (w[0], "spin") == 0 || strcmp (w[0], "page") == 0))
+        {
+          g_hash_table_insert (c->props, g_strdup (strcmp (w[0], "choose") == 0 ? "index" : "value"),
+                               g_strdup (w[2]));
+          calc_form_event (f, form, c, "change", w[2]);
+        }
+      else
+        fprintf (stderr, "form: click, dblclick, type, check, choose, spin, page, close or dump\n");
+      g_strfreev (w);
+    }
+}
+
+static void
+calc_form_hide (gpointer user, int form)
+{
+  CalcForm *f = calc_form (form);
+  (void) user;
+  if (f != NULL && f->shown)
+    {
+      f->shown = FALSE;
+      printf ("form hidden: %s\n", (char *) g_hash_table_lookup (f->props, "caption"));
+      fflush (stdout);
+    }
+}
+
+static void
+calc_form_close (gpointer user, int form)
+{
+  CalcForm *f = calc_form (form);
+  (void) user;
+  if (f != NULL && !f->closed)
+    {
+      f->shown = FALSE;
+      f->closed = TRUE;
+      printf ("form closed: %s\n", (char *) g_hash_table_lookup (f->props, "caption"));
+      fflush (stdout);
+    }
+}
+
 static void
 calc_install_host (O42Book *book)
 {
+  static const O42FormHost forms = { NULL, calc_form_open, calc_form_add, calc_form_set,
+                                     calc_form_show, calc_form_hide, calc_form_close };
   O42PythonHost host = { NULL, calc_get_selection, calc_set_selection, calc_message,
                          calc_input, calc_status, NULL, NULL, NULL, NULL, NULL, calc_ask, NULL, NULL, NULL };
   calc_selection.sheet = o42_book_sheet (book, 0);
   calc_selection.range = o42_range_normalise (0, 0, 0, 0);
   o42_python_set_host (&host);
+  o42_python_set_form_host (&forms);
 }
 
 int

@@ -146,6 +146,48 @@ typedef struct {
 
 void o42_python_set_host (const O42PythonHost *host);
 
+/* ---- UserForms ------------------------------------------------------------ */
+
+/* A Visual Basic UserForm, drawn by whoever shows it: the window with
+ * widgets, office42-calc as lines of text.  The macro's side keeps the
+ * form's state and says what changes, a property at a time, as text;
+ * the host says back what the user did through o42_python_form_event.
+ * A form and each control on it have a number the host gives them. */
+typedef struct {
+  gpointer user;
+
+  /* A form `width` by `height` points inside, not yet shown. */
+  int   (*open)  (gpointer user, O42Book *book, const char *caption, double width, double height);
+  /* A control of Visual Basic's `kind` -- "TextBox", "Label", "Page"
+   * and the rest -- on the form, or inside the Frame, MultiPage or page
+   * numbered `parent`. */
+  int   (*add)   (gpointer user, int form, int parent, const char *kind, const char *name);
+  /* A property of a control, or of the form itself (control 0): "left",
+   * "top", "width" and "height" in points, "caption", "text", "value",
+   * "enabled", "visible", "items" (rows by "\n", columns by "\t"),
+   * "index", "selected", "font" ("name|size|bold|italic|underline|
+   * strikeout"), "back" and "fore" (#rrggbb), and those vbaforms.py
+   * names beside them.  A host ignores what it does not draw. */
+  void  (*set)   (gpointer user, int form, int control, const char *property, const char *value);
+  /* Shows the form: a modal one returns only once it is hidden or
+   * closed, with the user's events heard meanwhile. */
+  void  (*show)  (gpointer user, int form, gboolean modal);
+  void  (*hide)  (gpointer user, int form);
+  void  (*close) (gpointer user, int form);
+} O42FormHost;
+
+void     o42_python_set_form_host (const O42FormHost *host);
+
+/* What the user did on a form: "click", "dblclick" or "change" (with
+ * the control's new value: its text, "1" or "0", a list's index,
+ * "text:" and a combo box's text, "selected:" and a list's chosen rows)
+ * on a control, or "close" on the form's close box (control 0).  The
+ * macro's handlers run; TRUE when they cancelled it -- a close
+ * QueryClose refused.  `output` (may be NULL) gets what they printed
+ * when the form is not modal, errors included; the caller frees it. */
+gboolean o42_python_form_event (O42Book *book, int form, int control, const char *event,
+                                const char *value, char **output);
+
 /* ---- Visual Basic ------------------------------------------------------ */
 
 /* Excel's macros, run by an interpreter written in Python over the same

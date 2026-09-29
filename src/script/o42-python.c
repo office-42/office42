@@ -19,6 +19,7 @@
 #include "o42-pattern.h"
 #include "o42-image.h"
 #include "o42-pyquote.h"
+#include "o42-vba.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -26,6 +27,7 @@
 
 /* What the window does for a script; every call NULL until it says. */
 static O42PythonHost host;
+static O42FormHost form_host;
 
 void
 o42_python_set_host (const O42PythonHost *table)
@@ -34,6 +36,15 @@ o42_python_set_host (const O42PythonHost *table)
     host = *table;
   else
     memset (&host, 0, sizeof host);
+}
+
+void
+o42_python_set_form_host (const O42FormHost *table)
+{
+  if (table != NULL)
+    form_host = *table;
+  else
+    memset (&form_host, 0, sizeof form_host);
 }
 
 char *
@@ -67,6 +78,14 @@ o42_python_personal_scripts (void)
 
 gboolean    o42_python_available (void) { return FALSE; }
 const char *o42_python_version   (void) { return NULL; }
+gboolean    o42_python_form_event (O42Book *book, int form, int control, const char *event,
+                                   const char *value, char **output)
+{
+  (void) book; (void) form; (void) control; (void) event; (void) value;
+  if (output != NULL)
+    *output = NULL;
+  return FALSE;
+}
 gboolean    o42_python_fire      (O42Book *book, const char *event, O42Sheet *sheet,
                                   const O42Range *range, char **output)
 { (void) book; (void) event; (void) sheet; (void) range; if (output != NULL) *output = NULL; return FALSE; }
@@ -147,6 +166,7 @@ o42_vba_check (O42Book *book, char **where, int *line)
 
 #include "office42-py.h"   /* generated from office42.py: OFFICE42_PY */
 #include "o42vba-py.h"     /* from vba.py: O42VBA_PY, the language */
+#include "o42forms-py.h"   /* from vbaforms.py: O42FORMS_PY, the UserForms */
 #include "o42excel-py.h"   /* from vbaexcel.py: O42EXCEL_PY, Excel's objects */
 
 static O42Book  *current_book  = NULL;
@@ -160,6 +180,7 @@ static int       handler_count = 0;      /* event handlers registered, all books
 static const char *debug_filename = NULL; /* the script being stepped, while it is */
 static int       firing        = 0;      /* inside a handler: no handlers fire */
 static PyObject *vba_module    = NULL;   /* o42excel, loaded when first wanted */
+static PyObject *forms_module  = NULL;   /* o42forms, loaded with it */
 static char     *vba_failure   = NULL;
 
 /* ---- Between the two value systems --------------------------------- */
@@ -3126,6 +3147,86 @@ m_poll (PyObject *self, PyObject *args)
   return PyBool_FromLong (host.poll (host.user, current_book, seconds, draw));
 }
 
+/* form_open(caption, width, height) -> the host's number for a form;
+ * form_add(form, parent, kind, name) -> a control's; form_set(form,
+ * control, property, value); form_show(form, modal); form_hide(form);
+ * form_close(form).  See O42FormHost.  An error without a host. */
+static PyObject *
+m_form_open (PyObject *self, PyObject *args)
+{
+  const char *caption;
+  double width, height;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "sdd", &caption, &width, &height))
+    return NULL;
+  if (form_host.open == NULL)
+    return no_window ("show a form in");
+  return PyLong_FromLong (form_host.open (form_host.user, current_book, caption, width, height));
+}
+
+static PyObject *
+m_form_add (PyObject *self, PyObject *args)
+{
+  int form, parent;
+  const char *kind, *name;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiss", &form, &parent, &kind, &name))
+    return NULL;
+  if (form_host.add == NULL)
+    return no_window ("show a form in");
+  return PyLong_FromLong (form_host.add (form_host.user, form, parent, kind, name));
+}
+
+static PyObject *
+m_form_set (PyObject *self, PyObject *args)
+{
+  int form, control;
+  const char *property, *value;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiss", &form, &control, &property, &value))
+    return NULL;
+  if (form_host.set != NULL)
+    form_host.set (form_host.user, form, control, property, value);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_form_show (PyObject *self, PyObject *args)
+{
+  int form, modal;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "ip", &form, &modal))
+    return NULL;
+  if (form_host.show == NULL)
+    return no_window ("show a form in");
+  form_host.show (form_host.user, form, modal);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_form_hide (PyObject *self, PyObject *args)
+{
+  int form;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &form))
+    return NULL;
+  if (form_host.hide != NULL)
+    form_host.hide (form_host.user, form);
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_form_close (PyObject *self, PyObject *args)
+{
+  int form;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &form))
+    return NULL;
+  if (form_host.close != NULL)
+    form_host.close (form_host.user, form);
+  Py_RETURN_NONE;
+}
+
 /* choose_file(mode, title, initial, [name, patterns, ...], multiple) ->
  * the paths chosen, or None when cancelled; see O42PythonHost.choose_file.
  * An error without a window, which the caller answers by asking for a
@@ -3230,6 +3331,37 @@ m_vba_modules (PyObject *self, PyObject *args)
                                              KINDS[o42_book_vba_module_kind (current_book, i)],
                                              o42_book_vba_module_code (current_book, i)));
   return list;
+}
+
+/* vba_form_streams(name) -> ({path: bytes}, code page) for a form's
+ * designer storage, or None */
+static PyObject *
+m_vba_form_streams (PyObject *self, PyObject *args)
+{
+  const char *name;
+  GHashTable *streams;
+  GHashTableIter it;
+  gpointer key, value;
+  guint codepage;
+  PyObject *dict;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &name))
+    return NULL;
+  streams = current_book != NULL ? o42_vba_form_streams (current_book, name, &codepage) : NULL;
+  if (streams == NULL)
+    Py_RETURN_NONE;
+  dict = PyDict_New ();
+  g_hash_table_iter_init (&it, streams);
+  while (g_hash_table_iter_next (&it, &key, &value))
+    {
+      gsize size;
+      const char *data = g_bytes_get_data (value, &size);
+      PyObject *bytes = PyBytes_FromStringAndSize (data, (Py_ssize_t) size);
+      PyDict_SetItemString (dict, key, bytes);
+      Py_DECREF (bytes);
+    }
+  g_hash_table_unref (streams);
+  return Py_BuildValue ("(NI)", dict, codepage);
 }
 
 static PyObject *
@@ -3363,7 +3495,14 @@ static PyMethodDef METHODS[] = {
   { "poll",           m_poll,           METH_VARARGS, "Whether Esc was pressed while a macro runs." },
   { "immediate",      m_immediate,      METH_VARARGS, "Debug.Print's text from an event, for the Immediate window." },
   { "choose_file",    m_choose_file,    METH_VARARGS, "A file chooser; the paths chosen, or None." },
+  { "form_open",      m_form_open,      METH_VARARGS, "A UserForm's window, not yet shown." },
+  { "form_add",       m_form_add,       METH_VARARGS, "A control on a UserForm." },
+  { "form_set",       m_form_set,       METH_VARARGS, "A property of a form's control, as text." },
+  { "form_show",      m_form_show,      METH_VARARGS, "Shows a UserForm; a modal one waits." },
+  { "form_hide",      m_form_hide,      METH_VARARGS, "Hides a UserForm." },
+  { "form_close",     m_form_close,     METH_VARARGS, "Closes a UserForm." },
   { "vba_modules",    m_vba_modules,    METH_NOARGS,  "The book's Visual Basic modules." },
+  { "vba_form_streams", m_vba_form_streams, METH_VARARGS, "A form's designer streams and code page." },
   { "vba_serial",     m_vba_serial,     METH_NOARGS,  "A number that moves when a module changes." },
   { NULL, NULL, 0, NULL }
 };
@@ -3701,6 +3840,52 @@ o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet, const O42Ran
 }
 
 gboolean
+o42_python_form_event (O42Book *book, int form, int control, const char *event,
+                       const char *value, char **output)
+{
+  O42Sheet *saved_sheet = current_sheet;
+  O42Book *saved_book = current_book;
+  gboolean saved_touched = book_touched, saved_sheets = sheets_touched;
+  gboolean cancelled = FALSE, own = current_book != book;
+  PyObject *result;
+
+  if (output != NULL)
+    *output = NULL;
+  if (book == NULL || vba_module == NULL)
+    return FALSE;
+  if (own)
+    {
+      current_book = book;
+      current_sheet = o42_book_sheet (book, 0);
+      book_touched = sheets_touched = FALSE;
+    }
+  result = PyObject_CallMethod (vba_module, "form_event", "iiss", form, control,
+                                event != NULL ? event : "", value != NULL ? value : "");
+  if (result != NULL && PyTuple_Check (result) && PyTuple_Size (result) == 2)
+    {
+      PyObject *said = PyTuple_GetItem (result, 1);
+      cancelled = PyObject_IsTrue (PyTuple_GetItem (result, 0)) == 1;
+      if (output != NULL && PyUnicode_Check (said) && PyUnicode_GetLength (said) > 0)
+        *output = g_strdup (PyUnicode_AsUTF8 (said));
+    }
+  else if (result == NULL)
+    PyErr_Print ();
+  Py_XDECREF (result);
+  if (own)
+    {
+      if (sheets_touched)
+        o42_book_changed (book, "sheets");
+      else if (book_touched)
+        o42_book_changed (book, "cells");
+      current_sheet = saved_sheet;
+      current_book = saved_book;
+      book_touched = saved_touched;
+      sheets_touched = saved_sheets;
+    }
+  return cancelled;
+}
+
+gboolean
 o42_python_run_file (O42Book *book, O42Sheet *sheet, GFile *file, char **output)
 {
   char *code = NULL;
@@ -3782,6 +3967,9 @@ ensure_vba (void)
   if (lang == NULL)
     return NULL;
   Py_DECREF (lang);
+  forms_module = load_module ("o42forms", O42FORMS_PY, "vbaforms.py");
+  if (forms_module == NULL)
+    return NULL;
   vba_module = load_module ("o42excel", O42EXCEL_PY, "vbaexcel.py");
   return vba_module;
 }
