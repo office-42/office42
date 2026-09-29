@@ -104,33 +104,55 @@ read_chain (const guchar *base, gsize base_len, gsize sector_size,
   return g_byte_array_free_to_bytes (out);
 }
 
-GBytes *
-o42_ole2_read_stream (GBytes *file, const char *name, GError **error)
+/* A compound file opened for reading: its FATs, directory and mini
+ * stream, found once and asked of for as many streams as are wanted. */
+typedef struct {
+  const guchar *buf;
+  gsize         size;
+  gsize         sector_size, mini_size;
+  GArray       *fat;          /* guint32 */
+  GArray       *minifat;      /* guint32, or NULL */
+  GBytes       *dir;
+  GBytes       *mini_stream;  /* or NULL */
+  const guchar *d;            /* the directory's bytes */
+  gsize         n_entries;
+} Ole2;
+
+static void
+ole2_close (Ole2 *o)
+{
+  g_clear_pointer (&o->minifat, g_array_unref);
+  g_clear_pointer (&o->mini_stream, g_bytes_unref);
+  g_clear_pointer (&o->dir, g_bytes_unref);
+  g_clear_pointer (&o->fat, g_array_unref);
+}
+
+static gboolean
+ole2_open (Ole2 *o, GBytes *file, GError **error)
 {
   gsize size;
   const guchar *buf = g_bytes_get_data (file, &size);
   guint sector_shift, mini_shift;
-  gsize sector_size, mini_size;
+  gsize sector_size, dir_len;
   guint32 n_fat_sectors, first_dir, first_minifat, n_minifat, first_difat, n_difat;
-  GArray *fat, *minifat = NULL;
-  GBytes *dir, *mini_stream = NULL, *result = NULL;
-  gsize dir_len;
-  const guchar *d;
 
+  memset (o, 0, sizeof *o);
   if (!o42_ole2_is_compound (file))
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Not an OLE2 compound file");
-      return NULL;
+      return FALSE;
     }
   sector_shift = rd16 (buf + 0x1E);
   mini_shift = rd16 (buf + 0x20);
   if (sector_shift < 7 || sector_shift > 12 || mini_shift > sector_shift)
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "Bad compound file header");
-      return NULL;
+      return FALSE;
     }
-  sector_size = (gsize) 1 << sector_shift;
-  mini_size = (gsize) 1 << mini_shift;
+  o->buf = buf;
+  o->size = size;
+  o->sector_size = sector_size = (gsize) 1 << sector_shift;
+  o->mini_size = (gsize) 1 << mini_shift;
   n_fat_sectors = rd32 (buf + 0x2C);
   first_dir = rd32 (buf + 0x30);
   first_minifat = rd32 (buf + 0x3C);
@@ -170,7 +192,7 @@ o42_ole2_read_stream (GBytes *file, const char *name, GError **error)
         ds = rd32 (buf + at + (per_sector - 1) * 4);
       }
 
-    fat = g_array_new (FALSE, FALSE, sizeof (guint32));
+    o->fat = g_array_new (FALSE, FALSE, sizeof (guint32));
     for (guint i = 0; i < fat_sectors->len; i++)
       {
         gsize at;
@@ -180,76 +202,240 @@ o42_ole2_read_stream (GBytes *file, const char *name, GError **error)
         for (guint j = 0; j < per_sector; j++)
           {
             guint32 e = rd32 (buf + at + j * 4);
-            g_array_append_val (fat, e);
+            g_array_append_val (o->fat, e);
           }
       }
     g_array_unref (fat_sectors);
   }
 
-  dir = read_chain (buf, size, sector_size, 512, (const guint32 *) fat->data, fat->len,
-                    first_dir, G_MAXSIZE / 2);
-  d = g_bytes_get_data (dir, &dir_len);
+  o->dir = read_chain (buf, size, sector_size, 512, (const guint32 *) o->fat->data, o->fat->len,
+                       first_dir, G_MAXSIZE / 2);
+  o->d = g_bytes_get_data (o->dir, &dir_len);
+  o->n_entries = dir_len / 128;
 
   /* The root entry's stream holds the mini sectors. */
-  if (dir_len >= 128 && n_minifat > 0)
+  if (o->n_entries > 0 && n_minifat > 0)
     {
-      guint32 root_start = rd32 (d + 116);
-      gsize root_size = rd32 (d + 120);
-      mini_stream = read_chain (buf, size, sector_size, 512, (const guint32 *) fat->data, fat->len,
-                                root_start, root_size);
-      {
-        GBytes *mf = read_chain (buf, size, sector_size, 512, (const guint32 *) fat->data, fat->len,
-                                 first_minifat, (gsize) n_minifat * sector_size);
-        gsize mf_len;
-        const guchar *m = g_bytes_get_data (mf, &mf_len);
-        minifat = g_array_new (FALSE, FALSE, sizeof (guint32));
-        for (gsize i = 0; i + 4 <= mf_len; i += 4)
-          {
-            guint32 e = rd32 (m + i);
-            g_array_append_val (minifat, e);
-          }
-        g_bytes_unref (mf);
-      }
-    }
+      guint32 root_start = rd32 (o->d + 116);
+      gsize root_size = rd32 (o->d + 120);
+      GBytes *mf;
+      gsize mf_len;
+      const guchar *m;
 
-  for (gsize at = 0; at + 128 <= dir_len; at += 128)
+      o->mini_stream = read_chain (buf, size, sector_size, 512, (const guint32 *) o->fat->data,
+                                   o->fat->len, root_start, root_size);
+      mf = read_chain (buf, size, sector_size, 512, (const guint32 *) o->fat->data, o->fat->len,
+                       first_minifat, (gsize) n_minifat * sector_size);
+      m = g_bytes_get_data (mf, &mf_len);
+      o->minifat = g_array_new (FALSE, FALSE, sizeof (guint32));
+      for (gsize i = 0; i + 4 <= mf_len; i += 4)
+        {
+          guint32 e = rd32 (m + i);
+          g_array_append_val (o->minifat, e);
+        }
+      g_bytes_unref (mf);
+    }
+  return TRUE;
+}
+
+/* The name of directory entry `i`, as UTF-8 (caller frees), or NULL. */
+static char *
+ole2_entry_name (const Ole2 *o, guint32 i)
+{
+  const guchar *e;
+  guint name_len;
+  gunichar2 units[32];
+
+  if (i >= o->n_entries)
+    return NULL;
+  e = o->d + (gsize) i * 128;
+  name_len = rd16 (e + 64);
+  if (name_len < 2 || name_len > 64)
+    return NULL;
+  /* Read unit by unit: the directory's bytes need not be aligned for
+   * gunichar2, and the file is little-endian whatever the host is. */
+  for (guint k = 0; k < name_len / 2 - 1; k++)
+    units[k] = rd16 (e + k * 2);
+  return g_utf16_to_utf8 (units, name_len / 2 - 1, NULL, NULL, NULL);
+}
+
+static guint
+ole2_entry_type (const Ole2 *o, guint32 i)
+{
+  return i < o->n_entries ? o->d[(gsize) i * 128 + 66] : 0;
+}
+
+static GBytes *
+ole2_entry_data (const Ole2 *o, guint32 i)
+{
+  const guchar *e = o->d + (gsize) i * 128;
+  guint32 start = rd32 (e + 116);
+  gsize stream_size = rd32 (e + 120);
+
+  if (stream_size < MINI_CUTOFF && o->mini_stream != NULL && o->minifat != NULL)
+    return read_chain (g_bytes_get_data (o->mini_stream, NULL), g_bytes_get_size (o->mini_stream),
+                       o->mini_size, 0, (const guint32 *) o->minifat->data, o->minifat->len,
+                       start, stream_size);
+  return read_chain (o->buf, o->size, o->sector_size, 512, (const guint32 *) o->fat->data,
+                     o->fat->len, start, stream_size);
+}
+
+/* The entries that are children of storage `parent`, found by walking
+ * the tree its child pointer roots; each entry is taken once, so that a
+ * directory whose pointers go round in a circle still ends. */
+static void
+ole2_collect (const Ole2 *o, guint32 node, guchar *seen, GArray *out, int depth)
+{
+  const guchar *e;
+
+  if (node >= o->n_entries || seen[node] || depth > 4096)
+    return;
+  seen[node] = 1;
+  e = o->d + (gsize) node * 128;
+  ole2_collect (o, rd32 (e + 68), seen, out, depth + 1);
+  g_array_append_val (out, node);
+  ole2_collect (o, rd32 (e + 72), seen, out, depth + 1);
+}
+
+static GArray *
+ole2_children (const Ole2 *o, guint32 parent, guchar *seen)
+{
+  GArray *out = g_array_new (FALSE, FALSE, sizeof (guint32));
+
+  if (parent < o->n_entries)
+    ole2_collect (o, rd32 (o->d + (gsize) parent * 128 + 76), seen, out, 0);
+  return out;
+}
+
+GBytes *
+o42_ole2_read_stream (GBytes *file, const char *name, GError **error)
+{
+  Ole2 o;
+  GBytes *result = NULL;
+
+  if (!ole2_open (&o, file, error))
+    return NULL;
+  for (guint32 i = 0; i < o.n_entries && result == NULL; i++)
     {
-      const guchar *e = d + at;
-      guint type = e[66];
-      guint name_len = rd16 (e + 64);
       char *ename;
-      gboolean match;
 
-      if (type != 2 || name_len < 2 || name_len > 64)
+      if (ole2_entry_type (&o, i) != 2)
         continue;
-      ename = g_utf16_to_utf8 ((const gunichar2 *) e, name_len / 2 - 1, NULL, NULL, NULL);
-      match = ename != NULL && g_ascii_strcasecmp (ename, name) == 0;
+      ename = ole2_entry_name (&o, i);
+      if (ename != NULL && g_ascii_strcasecmp (ename, name) == 0)
+        result = ole2_entry_data (&o, i);
       g_free (ename);
-      if (!match)
-        continue;
-
-      {
-        guint32 start = rd32 (e + 116);
-        gsize stream_size = rd32 (e + 120);
-
-        if (stream_size < MINI_CUTOFF && mini_stream != NULL && minifat != NULL)
-          result = read_chain (g_bytes_get_data (mini_stream, NULL), g_bytes_get_size (mini_stream),
-                               mini_size, 0, (const guint32 *) minifat->data, minifat->len,
-                               start, stream_size);
-        else
-          result = read_chain (buf, size, sector_size, 512, (const guint32 *) fat->data, fat->len,
-                               start, stream_size);
-      }
-      break;
     }
-
   if (result == NULL)
     g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "No \"%s\" stream in the file", name);
-  g_clear_pointer (&minifat, g_array_unref);
-  g_clear_pointer (&mini_stream, g_bytes_unref);
-  g_bytes_unref (dir);
-  g_array_unref (fat);
+  ole2_close (&o);
   return result;
+}
+
+/* The entry of storage `parent` called `name`, of type `type` (1 a
+ * storage, 2 a stream), or NOSTREAM. */
+static guint32
+ole2_find_child (const Ole2 *o, guint32 parent, const char *name, guint type)
+{
+  guchar *seen = g_malloc0 (o->n_entries + 1);
+  GArray *kids = ole2_children (o, parent, seen);
+  guint32 found = NOSTREAM;
+  char *want = g_utf8_casefold (name, -1);
+
+  /* Names are compared as the format compares them, without regard to
+   * case: Excel writes "VBA" and "dir", and finds "vba" and "DIR". */
+  for (guint k = 0; k < kids->len && found == NOSTREAM; k++)
+    {
+      guint32 i = g_array_index (kids, guint32, k);
+      char *ename = ole2_entry_type (o, i) == type ? ole2_entry_name (o, i) : NULL;
+      char *have = ename != NULL ? g_utf8_casefold (ename, -1) : NULL;
+
+      if (have != NULL && strcmp (have, want) == 0)
+        found = i;
+      g_free (have);
+      g_free (ename);
+    }
+  g_free (want);
+  g_array_unref (kids);
+  g_free (seen);
+  return found;
+}
+
+GBytes *
+o42_ole2_read_path (GBytes *file, const char *path, GError **error)
+{
+  Ole2 o;
+  char **parts;
+  guint32 at = 0;
+  GBytes *result = NULL;
+
+  if (!ole2_open (&o, file, error))
+    return NULL;
+  parts = g_strsplit (path, "/", -1);
+  for (int k = 0; parts[k] != NULL && at != NOSTREAM; k++)
+    {
+      gboolean last = parts[k + 1] == NULL;
+      if (*parts[k] == '\0')
+        continue;
+      at = ole2_find_child (&o, at, parts[k], last ? 2 : 1);
+      if (last && at != NOSTREAM)
+        result = ole2_entry_data (&o, at);
+    }
+  if (result == NULL)
+    g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "No \"%s\" stream in the file", path);
+  g_strfreev (parts);
+  ole2_close (&o);
+  return result;
+}
+
+static void
+ole2_list_under (const Ole2 *o, guint32 storage, const char *prefix, guchar *seen, GPtrArray *out)
+{
+  GArray *kids = ole2_children (o, storage, seen);
+
+  for (guint k = 0; k < kids->len; k++)
+    {
+      guint32 i = g_array_index (kids, guint32, k);
+      char *ename = ole2_entry_name (o, i);
+      char *path;
+
+      if (ename == NULL)
+        continue;
+      path = *prefix != '\0' ? g_strconcat (prefix, "/", ename, NULL) : g_strdup (ename);
+      if (ole2_entry_type (o, i) == 2)
+        g_ptr_array_add (out, g_strdup (path));
+      else if (ole2_entry_type (o, i) == 1)
+        ole2_list_under (o, i, path, seen, out);
+      g_free (path);
+      g_free (ename);
+    }
+  g_array_unref (kids);
+}
+
+GPtrArray *
+o42_ole2_list (GBytes *file, const char *storage)
+{
+  Ole2 o;
+  GPtrArray *out = g_ptr_array_new_with_free_func (g_free);
+  guint32 at = 0;
+  guchar *seen;
+
+  if (!ole2_open (&o, file, NULL))
+    return out;
+  seen = g_malloc0 (o.n_entries + 1);
+  if (storage != NULL && *storage != '\0')
+    {
+      char **parts = g_strsplit (storage, "/", -1);
+      for (int k = 0; parts[k] != NULL && at != NOSTREAM; k++)
+        if (*parts[k] != '\0')
+          at = ole2_find_child (&o, at, parts[k], 1);
+      g_strfreev (parts);
+    }
+  if (at != NOSTREAM)
+    ole2_list_under (&o, at, "", seen, out);
+  g_free (seen);
+  ole2_close (&o);
+  return out;
 }
 
 /* ---- writing ---- */
@@ -312,6 +498,134 @@ put_dir_entry (GByteArray *a, const char *name, guint type, guint32 left, guint3
   put32 (a, 0);
 }
 
+/* A directory entry being laid out: the root, a storage or a stream. */
+typedef struct {
+  char      *name;
+  guint      type;        /* 5 the root, 1 a storage, 2 a stream */
+  int        stream;      /* which of the streams, for a stream */
+  GPtrArray *children;    /* DirNode *, for the root and a storage */
+  guint32    id, left, right, child;
+} DirNode;
+
+static DirNode *
+dir_node_new (const char *name, guint type, int stream)
+{
+  DirNode *node = g_new0 (DirNode, 1);
+
+  node->name = g_strdup (name);
+  node->type = type;
+  node->stream = stream;
+  node->children = g_ptr_array_new ();
+  node->left = node->right = node->child = NOSTREAM;
+  return node;
+}
+
+static void
+dir_node_free (DirNode *node)
+{
+  for (guint i = 0; i < node->children->len; i++)
+    dir_node_free (g_ptr_array_index (node->children, i));
+  g_ptr_array_unref (node->children);
+  g_free (node->name);
+  g_free (node);
+}
+
+static DirNode *
+dir_node_storage (DirNode *parent, const char *name)
+{
+  for (guint i = 0; i < parent->children->len; i++)
+    {
+      DirNode *child = g_ptr_array_index (parent->children, i);
+      if (child->type == 1 && strcmp (child->name, name) == 0)
+        return child;
+    }
+  g_ptr_array_add (parent->children, dir_node_new (name, 1, -1));
+  return g_ptr_array_index (parent->children, parent->children->len - 1);
+}
+
+/* How many storages the paths name, each counted once. */
+static guint
+count_storages (const char **names, int n)
+{
+  GHashTable *seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  guint count;
+
+  for (int i = 0; i < n; i++)
+    {
+      const char *slash = names[i];
+      while ((slash = strchr (slash, '/')) != NULL)
+        {
+          g_hash_table_add (seen, g_strndup (names[i], slash - names[i]));
+          slash++;
+        }
+    }
+  count = g_hash_table_size (seen);
+  g_hash_table_unref (seen);
+  return count;
+}
+
+/* The order the format keeps siblings in: a shorter name first, and
+ * names of one length by their letters upper-cased. */
+static int
+dir_node_compare (gconstpointer pa, gconstpointer pb)
+{
+  const DirNode *a = *(DirNode * const *) pa, *b = *(DirNode * const *) pb;
+  glong la = 0, lb = 0;
+  gunichar2 *ua = g_utf8_to_utf16 (a->name, -1, NULL, &la, NULL);
+  gunichar2 *ub = g_utf8_to_utf16 (b->name, -1, NULL, &lb, NULL);
+  int result = la < lb ? -1 : la > lb ? 1 : 0;
+
+  for (glong i = 0; result == 0 && i < la; i++)
+    {
+      gunichar ca = g_unichar_toupper (ua[i]), cb = g_unichar_toupper (ub[i]);
+      result = ca < cb ? -1 : ca > cb ? 1 : 0;
+    }
+  g_free (ua);
+  g_free (ub);
+  return result;
+}
+
+static void
+dir_node_number (DirNode *node, guint32 *next, GPtrArray *order)
+{
+  node->id = (*next)++;
+  g_ptr_array_add (order, node);
+  for (guint i = 0; i < node->children->len; i++)
+    dir_node_number (g_ptr_array_index (node->children, i), next, order);
+}
+
+/* Siblings from `lo` to `hi` as a balanced binary tree; its root. */
+static guint32
+dir_node_tree (GPtrArray *sorted, int lo, int hi)
+{
+  int mid;
+  DirNode *node;
+
+  if (lo > hi)
+    return NOSTREAM;
+  mid = (lo + hi) / 2;
+  node = g_ptr_array_index (sorted, mid);
+  node->left = dir_node_tree (sorted, lo, mid - 1);
+  node->right = dir_node_tree (sorted, mid + 1, hi);
+  return node->id;
+}
+
+static void
+dir_node_link (DirNode *node)
+{
+  if (node->children->len == 0)
+    return;
+  {
+    GPtrArray *sorted = g_ptr_array_copy (node->children, NULL, NULL);
+
+    g_ptr_array_sort (sorted, dir_node_compare);
+    node->child = dir_node_tree (sorted, 0, (int) sorted->len - 1);
+    g_ptr_array_unref (sorted);
+  }
+  for (guint i = 0; i < node->children->len; i++)
+    dir_node_link (g_ptr_array_index (node->children, i));
+}
+
 GBytes *
 o42_ole2_build (const char **names, GBytes **contents, int n)
 {
@@ -324,7 +638,7 @@ o42_ole2_build (const char **names, GBytes **contents, int n)
   gsize *stream_size = g_new0 (gsize, n);
   GByteArray *dir = g_byte_array_new ();
   GByteArray *file;
-  guint n_dir_entries = n + 1, n_dir_sectors, n_data_sectors, n_fat_sectors, n_mini_sectors, n_minifat_sectors;
+  guint n_dir_entries = 1 + n + count_storages (names, n), n_dir_sectors, n_data_sectors, n_fat_sectors, n_mini_sectors, n_minifat_sectors;
   guint32 mini_start, minifat_start, dir_start, data_start;
 
   /* Small streams go to the mini stream, large ones to the big data
@@ -396,12 +710,44 @@ o42_ole2_build (const char **names, GBytes **contents, int n)
       { v = FREESECT; g_array_append_val (fat, v); }
   }
 
-  /* The directory: root, then the streams as a chain of siblings. */
-  put_dir_entry (dir, "Root Entry", 5, NOSTREAM, NOSTREAM, n > 0 ? 1 : NOSTREAM,
-                 n_mini_sectors > 0 ? mini_start : ENDOFCHAIN, mini->len);
-  for (int i = 0; i < n; i++)
-    put_dir_entry (dir, names[i], 2, NOSTREAM, i + 1 < n ? (guint32) (i + 2) : NOSTREAM, NOSTREAM,
-                   stream_start[i], stream_size[i]);
+  /* The directory: the root, the storages the names' paths ask for,
+   * and the streams, each storage's children a binary tree in the
+   * order the format sorts names in. */
+  {
+    DirNode *root = dir_node_new ("Root Entry", 5, -1);
+    GPtrArray *order = g_ptr_array_new ();
+    guint32 next = 0;
+
+    for (int i = 0; i < n; i++)
+      {
+        char **parts = g_strsplit (names[i], "/", -1);
+        DirNode *at = root;
+        int k;
+
+        for (k = 0; parts[k] != NULL && parts[k + 1] != NULL; k++)
+          if (*parts[k] != '\0')
+            at = dir_node_storage (at, parts[k]);
+        g_ptr_array_add (at->children, dir_node_new (parts[k] != NULL ? parts[k] : "", 2, i));
+        g_strfreev (parts);
+      }
+    dir_node_number (root, &next, order);
+    dir_node_link (root);
+    for (guint i = 0; i < order->len; i++)
+      {
+        DirNode *node = g_ptr_array_index (order, i);
+
+        if (node->type == 5)
+          put_dir_entry (dir, node->name, 5, NOSTREAM, NOSTREAM, node->child,
+                         n_mini_sectors > 0 ? mini_start : ENDOFCHAIN, mini->len);
+        else if (node->type == 1)
+          put_dir_entry (dir, node->name, 1, node->left, node->right, node->child, 0, 0);
+        else
+          put_dir_entry (dir, node->name, 2, node->left, node->right, NOSTREAM,
+                         stream_start[node->stream], stream_size[node->stream]);
+      }
+    g_ptr_array_unref (order);
+    dir_node_free (root);
+  }
   while (dir->len < n_dir_sectors * S)
     put_dir_entry (dir, "", 0, NOSTREAM, NOSTREAM, NOSTREAM, 0, 0);
 

@@ -65,11 +65,21 @@
 #include "o42-pdf.h"
 #include "o42-sql.h"
 #include "o42-python.h"
+#include "o42-vba.h"
 
 #include <glib/gstdio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+static int
+count_lines (const char *text)
+{
+  int n = 0;
+  for (const char *p = text; *p != '\0'; p++)
+    n += *p == '\n';
+  return n;
+}
 
 static void
 dump (O42Sheet *sheet)
@@ -3618,6 +3628,99 @@ main (int argc, char *argv[])
         {
           if (!o42_book_remove_script (book, text + 10))
             fprintf (stderr, "no such script\n");
+          continue;
+        }
+
+      /* vba lists the book's Visual Basic modules and its macros;
+       * vbacode MODULE prints a module's text. */
+      if (strcmp (text, "vba") == 0)
+        {
+          GPtrArray *macros = o42_vba_macros (book);
+          static const char *const KINDS[] = { "module", "class", "document", "form" };
+
+          if (o42_book_has_vba (book))
+            {
+              printf ("book %s", o42_book_codename (book));
+              for (int i = 0; i < o42_book_n_sheets (book); i++)
+                if (o42_sheet_codename (o42_book_sheet (book, i)) != NULL)
+                  printf (", %s %s", o42_sheet_get_name (o42_book_sheet (book, i)),
+                          o42_sheet_codename (o42_book_sheet (book, i)));
+              printf ("%s\n", o42_book_vba_edited (book) ? " (edited)" : "");
+            }
+          for (int i = 0; i < o42_book_n_vba_modules (book); i++)
+            printf ("%s %s, %d lines\n", KINDS[o42_book_vba_module_kind (book, i)],
+                    o42_book_vba_module_name (book, i),
+                    count_lines (o42_book_vba_module_code (book, i)));
+          for (guint i = 0; i < macros->len; i++)
+            {
+              O42VbaMacro *m = g_ptr_array_index (macros, i);
+              printf ("macro %s.%s", m->module, m->name);
+              if (m->shortcut != 0)
+                printf (" Ctrl+%s%c", g_ascii_isupper (m->shortcut) ? "Shift+" : "", g_ascii_toupper (m->shortcut));
+              if (*m->description != '\0')
+                printf (" -- %s", m->description);
+              printf ("\n");
+            }
+          g_ptr_array_unref (macros);
+          continue;
+        }
+      /* vbaimport PATH reads a module exported as .bas or .cls into the
+       * book; vbaexport MODULE PATH writes one out; vbadel MODULE. */
+      if (g_str_has_prefix (text, "vbaimport "))
+        {
+          char *contents = NULL, *name = NULL, *code = NULL;
+          gsize length = 0;
+          O42VbaKind kind;
+
+          if (!g_file_get_contents (text + 10, &contents, &length, NULL))
+            fprintf (stderr, "%s: cannot read it\n", text + 10);
+          else if (!o42_vba_import (contents, length, text + 10, &name, &kind, &code))
+            fprintf (stderr, "%s: a form cannot be imported\n", text + 10);
+          else
+            {
+              if (o42_book_n_vba_modules (book) == 0)
+                o42_vba_ensure_documents (book);
+              o42_book_set_vba_module (book, name, kind, code);
+              printf ("imported %s\n", name);
+            }
+          g_free (contents);
+          g_free (name);
+          g_free (code);
+          continue;
+        }
+      if (g_str_has_prefix (text, "vbaexport "))
+        {
+          char **words = g_strsplit (text + 10, " ", 2);
+          int at = words[0] != NULL ? o42_book_vba_module_find (book, words[0]) : -1;
+
+          if (at < 0 || words[1] == NULL)
+            fprintf (stderr, "usage: vbaexport MODULE PATH\n");
+          else
+            {
+              gsize length = 0;
+              char *data = o42_vba_export (o42_book_vba_module_name (book, at),
+                                           o42_book_vba_module_kind (book, at),
+                                           o42_book_vba_module_code (book, at), &length);
+              if (!g_file_set_contents (words[1], data, (gssize) length, NULL))
+                fprintf (stderr, "%s: cannot write it\n", words[1]);
+              g_free (data);
+            }
+          g_strfreev (words);
+          continue;
+        }
+      if (g_str_has_prefix (text, "vbadel "))
+        {
+          if (!o42_book_remove_vba_module (book, text + 7))
+            fprintf (stderr, "no such module\n");
+          continue;
+        }
+      if (g_str_has_prefix (text, "vbacode "))
+        {
+          int at = o42_book_vba_module_find (book, text + 8);
+          if (at >= 0)
+            fputs (o42_book_vba_module_code (book, at), stdout);
+          else
+            fprintf (stderr, "no such module\n");
           continue;
         }
 

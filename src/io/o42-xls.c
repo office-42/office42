@@ -70,6 +70,7 @@ xls_fls_code (O42Pattern pattern)
 #include <math.h>
 
 #include "o42-ole2.h"
+#include "o42-vba.h"
 #include "o42-escher.h"
 #include "o42-entry.h"
 #include "o42-image.h"
@@ -93,6 +94,7 @@ enum {
   R_BOOLERR = 0x0205, R_STRING = 0x0207, R_ROW = 0x0208, R_DEFAULTROWHEIGHT = 0x0225,
   R_WINDOW2 = 0x023E, R_RK = 0x027E, R_STYLE = 0x0293, R_FORMAT = 0x041E,
   R_SHRFMLA = 0x04BC, R_ARRAY = 0x0221, R_SUPBOOK = 0x01AE, R_BOF = 0x0809,
+  R_CODENAME = 0x01BA, R_OBJPROJ = 0x00D3,
   R_BOF5 = 0x0409, R_INTERFACEHDR = 0x00E1, R_INTERFACEEND = 0x00E2,
   R_FORMAT5 = 0x001E, R_NOTE = 0x001C, R_OBJ = 0x005D, R_TXO = 0x01B6,
   R_CONDFMT = 0x01B0, R_CF = 0x01B1, R_DVAL = 0x01B2, R_DV = 0x01BE,
@@ -3598,6 +3600,19 @@ read_workbook (Reader *r, GError **error)
           g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
                        "This file is encrypted with a password, which office42 cannot open.");
           return FALSE;
+        case R_CODENAME:
+          /* The name Visual Basic knows the book, or this sheet, by. */
+          if (len >= 3 && r->embedded == 0)
+            {
+              const guchar *q = body;
+              char *codename = read_str (r, &q, body + len, TRUE);
+              if (in_globals)
+                o42_book_set_codename (r->book, codename);
+              else if (r->sheet != NULL)
+                o42_sheet_set_codename (r->sheet, codename);
+              g_free (codename);
+            }
+          break;
         case R_DATEMODE:
           if (in_globals && len >= 2)
             r->dates_1904 = rd16 (body) == 1;
@@ -3922,10 +3937,34 @@ read_summary_information (O42Book *book, GBytes *stream, gboolean document)
     }
 }
 
+/* The _VBA_PROJECT_CUR storage of an .xls as a compound file of its
+ * own: an .xlsm's vbaProject.bin, which has the same streams at its
+ * top.  NULL when the file has no macros. */
+static GBytes *
+xls_vba_project (GBytes *whole)
+{
+  GPtrArray *paths = o42_ole2_list (whole, "_VBA_PROJECT_CUR");
+  GPtrArray *contents = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
+  GBytes *project = NULL;
+
+  for (guint i = 0; i < paths->len; i++)
+    {
+      char *path = g_strconcat ("_VBA_PROJECT_CUR/", (char *) g_ptr_array_index (paths, i), NULL);
+      GBytes *data = o42_ole2_read_path (whole, path, NULL);
+      g_ptr_array_add (contents, data != NULL ? data : g_bytes_new (NULL, 0));
+      g_free (path);
+    }
+  if (paths->len > 0)
+    project = o42_ole2_build ((const char **) paths->pdata, (GBytes **) contents->pdata, (int) paths->len);
+  g_ptr_array_unref (contents);
+  g_ptr_array_unref (paths);
+  return project;
+}
+
 gboolean
 o42_xls_load (O42Book *book, GFile *file, GError **error)
 {
-  GBytes *whole, *stream, *summary = NULL, *doc_summary = NULL;
+  GBytes *whole, *stream, *summary = NULL, *doc_summary = NULL, *vba;
   Reader r;
   gboolean ok;
 
@@ -3950,6 +3989,7 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
    * the book is cleared for loading, below. */
   summary = o42_ole2_read_stream (whole, "\005SummaryInformation", NULL);
   doc_summary = o42_ole2_read_stream (whole, "\005DocumentSummaryInformation", NULL);
+  vba = xls_vba_project (whole);
   g_bytes_unref (whole);
 
   memset (&r, 0, sizeof r);
@@ -3988,6 +4028,17 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   r.objs = g_array_new (FALSE, FALSE, sizeof (ObjInfo));
 
   o42_book_clear (book);
+  /* The macros, kept as an .xlsm keeps them: what saving as .xlsm
+   * hands Excel, and what the modules are read from below. */
+  {
+    static const char *const xlsm_parts[] = {
+      "xl/vbaData.xml", "xl/_rels/vbaProject.bin.rels",
+      "xl/vbaProjectSignature.bin", "xl/_rels/vbaProjectSignature.bin.rels", NULL
+    };
+    for (int i = 0; xlsm_parts[i] != NULL; i++)
+      o42_book_keep_part (book, xlsm_parts[i], NULL);
+    o42_book_keep_part (book, "xl/vbaProject.bin", vba);
+  }
   read_summary_information (book, summary, FALSE);
   read_summary_information (book, doc_summary, TRUE);
   g_clear_pointer (&summary, g_bytes_unref);
@@ -4145,6 +4196,9 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
     obj_info_clear (&g_array_index (r.objs, ObjInfo, k));
   g_array_unref (r.objs);
   g_bytes_unref (stream);
+  if (ok && vba != NULL)
+    o42_vba_read (book, vba, "", NULL);
+  g_clear_pointer (&vba, g_bytes_unref);
   return ok;
 }
 
@@ -6281,6 +6335,12 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
       }
   }
 
+  if (o42_sheet_codename (sheet) != NULL && o42_book_has_vba (o42_sheet_get_book (sheet)))
+    {
+      begin_record (w, R_CODENAME);
+      put_ustr16 (w->out, o42_sheet_codename (sheet));
+      end_record (w);
+    }
   begin_record (w, R_EOF);
   end_record (w);
 }
@@ -6442,6 +6502,13 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
   begin_record (&w, R_INTERFACEHDR); put16 (w.out, 0x04B0); end_record (&w);
   begin_record (&w, R_INTERFACEEND); end_record (&w);
   begin_record (&w, R_CODEPAGE); put16 (w.out, 0x04B0); end_record (&w);
+  /* A book with macros says so, and the name its module goes by;
+   * each sheet says its own below. */
+  if (o42_book_has_vba (book))
+    {
+      begin_record (&w, R_OBJPROJ); end_record (&w);
+      begin_record (&w, R_CODENAME); put_ustr16 (w.out, o42_book_codename (book)); end_record (&w);
+    }
   /* A 1904 book's serials are 1904's; the record says so, and a reader
    * that converts them (as ours does) starts from the right day. */
   if (o42_book_date_1904 (book))
@@ -6829,12 +6896,39 @@ o42_xls_save (O42Book *book, GFile *file, GError **error)
 
   stream = g_byte_array_free_to_bytes (w.out);
   {
-    const char *names[3] = { "Workbook", "\005SummaryInformation", "\005DocumentSummaryInformation" };
-    GBytes *contents[3] = { stream, write_summary_information (book, FALSE),
-                            write_summary_information (book, TRUE) };
-    whole = o42_ole2_build (names, contents, 3);
-    g_bytes_unref (contents[1]);
-    g_bytes_unref (contents[2]);
+    GPtrArray *names = g_ptr_array_new_with_free_func (g_free);
+    GPtrArray *contents = g_ptr_array_new_with_free_func ((GDestroyNotify) g_bytes_unref);
+    GBytes *project = o42_book_kept_part (book, "xl/vbaProject.bin");
+
+    g_ptr_array_add (names, g_strdup ("Workbook"));
+    g_ptr_array_add (contents, g_bytes_ref (stream));
+    g_ptr_array_add (names, g_strdup ("\005SummaryInformation"));
+    g_ptr_array_add (contents, write_summary_information (book, FALSE));
+    g_ptr_array_add (names, g_strdup ("\005DocumentSummaryInformation"));
+    g_ptr_array_add (contents, write_summary_information (book, TRUE));
+    /* The macros in the storage Excel 97 keeps them in: the project as
+     * it came, while nobody has edited it, or one built anew. */
+    if (o42_book_has_vba (book))
+      {
+        if (project != NULL && !o42_book_vba_edited (book))
+          {
+            GPtrArray *paths = o42_ole2_list (project, NULL);
+            for (guint i = 0; i < paths->len; i++)
+              {
+                GBytes *data = o42_ole2_read_path (project, g_ptr_array_index (paths, i), NULL);
+                if (data == NULL)
+                  continue;
+                g_ptr_array_add (names, g_strconcat ("_VBA_PROJECT_CUR/", (char *) g_ptr_array_index (paths, i), NULL));
+                g_ptr_array_add (contents, data);
+              }
+            g_ptr_array_unref (paths);
+          }
+        else
+          o42_vba_build_streams (book, project, "_VBA_PROJECT_CUR", names, contents);
+      }
+    whole = o42_ole2_build ((const char **) names->pdata, (GBytes **) contents->pdata, (int) names->len);
+    g_ptr_array_unref (names);
+    g_ptr_array_unref (contents);
   }
   ok = g_file_replace_contents (file, g_bytes_get_data (whole, NULL), g_bytes_get_size (whole),
                                 NULL, FALSE, G_FILE_CREATE_NONE, NULL, NULL, error);

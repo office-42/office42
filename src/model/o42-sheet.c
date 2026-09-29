@@ -120,6 +120,7 @@ struct _O42Sheet {
                             * precedents touch that band of 64 rows on
                             * that sheet ("" for this one) */
   guint32      tab_colour;    /* O42_TAB_NO_COLOUR for a plain tab */
+  char        *codename;      /* the name Visual Basic knows it by, or NULL */
   GBytes      *background;    /* Format > Sheet > Background, or NULL */
   char        *background_format;
   gboolean     hidden;        /* Format > Sheet > Hide */
@@ -2274,6 +2275,7 @@ o42_sheet_free (O42Sheet *sheet)
   g_hash_table_destroy (sheet->formulas);
   g_hash_table_destroy (sheet->volatiles);
   g_hash_table_destroy (sheet->dependents);
+  g_free (sheet->codename);
   g_hash_table_destroy (sheet->cells);
   g_clear_pointer (&sheet->row_stops, g_array_unref);
   g_clear_pointer (&sheet->col_stops, g_array_unref);
@@ -12680,6 +12682,21 @@ o42_sheet_set_tab_colour (O42Sheet *sheet, guint32 colour)
   g_return_if_fail (sheet != NULL);
   sheet->tab_colour = colour;
   sheet->modified = TRUE;
+}
+
+const char *
+o42_sheet_codename (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  return sheet->codename;
+}
+
+void
+o42_sheet_set_codename (O42Sheet *sheet, const char *codename)
+{
+  g_return_if_fail (sheet != NULL);
+  g_free (sheet->codename);
+  sheet->codename = codename != NULL && *codename != '\0' ? g_strdup (codename) : NULL;
 }
 
 guint32

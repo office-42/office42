@@ -29,6 +29,7 @@ o42_core_sources = files(
   'io/o42-ods.c',
   'io/o42-html.c',
   'io/o42-ole2.c',
+  'io/o42-vba.c',
   'io/o42-xls.c',
   'io/o42-escher.c',
   'model/o42-value.c',

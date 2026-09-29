@@ -67,6 +67,10 @@ struct _O42Book {
                                   * run: a new book's may, a file's may not
                                   * until they run its scripts */
   GHashTable   *kept_parts;   /* name -> GBytes: an .xlsm's VBA, for Excel */
+  GPtrArray    *vba;          /* VbaModule, in the project's order */
+  guint         vba_serial;   /* moves with every change to a module */
+  gboolean      vba_edited;   /* the modules differ from the kept project */
+  char         *codename;     /* ThisWorkbook, or NULL for that */
   char         *props[O42_N_PROPS];   /* File > Properties; NULL for none */
   gboolean      protected;    /* Tools > Protection > Protect Workbook */
   gboolean      autocorrect[O42_N_AUTOCORRECT_OPTIONS];
@@ -85,6 +89,21 @@ typedef struct {
   char *from;
   char *to;
 } Correction;
+
+typedef struct {
+  char       *name;
+  O42VbaKind  kind;
+  char       *code;
+} VbaModule;
+
+static void
+vba_module_free (gpointer data)
+{
+  VbaModule *m = data;
+  g_free (m->name);
+  g_free (m->code);
+  g_free (m);
+}
 
 static void
 correction_free (gpointer data)
@@ -334,6 +353,7 @@ o42_book_new (void)
   book->scripts_trusted = TRUE;
   book->watchers = g_array_new (FALSE, FALSE, sizeof (Watcher));
   book->scripts = g_ptr_array_new_with_free_func (script_free);
+  book->vba = g_ptr_array_new_with_free_func (vba_module_free);
   book->styles = g_array_new (FALSE, FALSE, sizeof (Style));
   add_builtin_styles (book);
   o42_book_add_sheet (book, "Sheet1", -1);
@@ -354,6 +374,8 @@ o42_book_free (O42Book *book)
   g_hash_table_destroy (book->names);
   g_array_free (book->watchers, TRUE);
   g_ptr_array_free (book->scripts, TRUE);
+  g_ptr_array_free (book->vba, TRUE);
+  g_free (book->codename);
   if (book->views != NULL)
     g_ptr_array_unref (book->views);
   if (book->watches != NULL)
@@ -1426,7 +1448,139 @@ o42_book_kept_parts (O42Book *book)
 gboolean
 o42_book_has_vba (O42Book *book)
 {
-  return o42_book_kept_part (book, "xl/vbaProject.bin") != NULL;
+  return book->vba->len > 0 || o42_book_kept_part (book, "xl/vbaProject.bin") != NULL;
+}
+
+int
+o42_book_n_vba_modules (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, 0);
+  return (int) book->vba->len;
+}
+
+static VbaModule *
+vba_module_at (O42Book *book, int index)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  if (index < 0 || (guint) index >= book->vba->len)
+    return NULL;
+  return g_ptr_array_index (book->vba, index);
+}
+
+const char *
+o42_book_vba_module_name (O42Book *book, int index)
+{
+  VbaModule *m = vba_module_at (book, index);
+  return m != NULL ? m->name : NULL;
+}
+
+O42VbaKind
+o42_book_vba_module_kind (O42Book *book, int index)
+{
+  VbaModule *m = vba_module_at (book, index);
+  return m != NULL ? m->kind : O42_VBA_STANDARD;
+}
+
+const char *
+o42_book_vba_module_code (O42Book *book, int index)
+{
+  VbaModule *m = vba_module_at (book, index);
+  return m != NULL ? m->code : NULL;
+}
+
+int
+o42_book_vba_module_find (O42Book *book, const char *name)
+{
+  g_return_val_if_fail (book != NULL, -1);
+  /* Visual Basic's names are the same name in any case. */
+  for (guint i = 0; name != NULL && i < book->vba->len; i++)
+    if (g_ascii_strcasecmp (((VbaModule *) g_ptr_array_index (book->vba, i))->name, name) == 0)
+      return (int) i;
+  return -1;
+}
+
+static void
+vba_touched (O42Book *book)
+{
+  book->vba_serial++;
+  book->vba_edited = TRUE;
+  book->scripts_modified = TRUE;
+  o42_book_changed (book, "scripts");
+}
+
+void
+o42_book_set_vba_module (O42Book *book, const char *name, O42VbaKind kind, const char *code)
+{
+  int at;
+  VbaModule *m;
+
+  g_return_if_fail (book != NULL && name != NULL && code != NULL);
+  at = o42_book_vba_module_find (book, name);
+  if (at >= 0)
+    {
+      m = g_ptr_array_index (book->vba, at);
+      if (m->kind == kind && strcmp (m->code, code) == 0 && strcmp (m->name, name) == 0)
+        return;
+      g_free (m->code);
+      g_free (m->name);
+    }
+  else
+    {
+      m = g_new0 (VbaModule, 1);
+      g_ptr_array_add (book->vba, m);
+    }
+  m->name = g_strdup (name);
+  m->kind = kind;
+  m->code = g_strdup (code);
+  vba_touched (book);
+}
+
+gboolean
+o42_book_remove_vba_module (O42Book *book, const char *name)
+{
+  int at = o42_book_vba_module_find (book, name);
+
+  if (at < 0)
+    return FALSE;
+  g_ptr_array_remove_index (book->vba, at);
+  vba_touched (book);
+  return TRUE;
+}
+
+guint
+o42_book_vba_serial (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, 0);
+  return book->vba_serial;
+}
+
+gboolean
+o42_book_vba_edited (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  return book->vba_edited;
+}
+
+void
+o42_book_set_vba_edited (O42Book *book, gboolean edited)
+{
+  g_return_if_fail (book != NULL);
+  book->vba_edited = edited;
+}
+
+const char *
+o42_book_codename (O42Book *book)
+{
+  g_return_val_if_fail (book != NULL, NULL);
+  return book->codename != NULL ? book->codename : "ThisWorkbook";
+}
+
+void
+o42_book_set_codename (O42Book *book, const char *codename)
+{
+  g_return_if_fail (book != NULL);
+  g_free (book->codename);
+  book->codename = codename != NULL && *codename != '\0' ? g_strdup (codename) : NULL;
 }
 
 gboolean
@@ -1863,6 +2017,11 @@ o42_book_clear (O42Book *book)
   while (o42_book_n_sheets (book) > 1)
     o42_book_remove_sheet (book, o42_book_n_sheets (book) - 1);
   g_ptr_array_set_size (book->scripts, 0);
+  /* A project belongs to the file it came in. */
+  g_ptr_array_set_size (book->vba, 0);
+  book->vba_serial++;
+  book->vba_edited = FALSE;
+  g_clear_pointer (&book->codename, g_free);
   for (guint i = 0; i < book->styles->len; i++)
     g_free (g_array_index (book->styles, Style, i).name);
   g_array_set_size (book->styles, 0);

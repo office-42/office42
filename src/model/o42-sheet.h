@@ -852,6 +852,12 @@ GBytes *o42_sheet_background     (O42Sheet *sheet, const char **format);   /* NU
 void    o42_sheet_set_tab_colour (O42Sheet *sheet, guint32 colour);
 guint32 o42_sheet_tab_colour     (O42Sheet *sheet);
 
+/* The name Visual Basic knows the sheet by -- Sheet1, whatever its tab
+ * says -- and its module goes by: what Excel calls the code name.  NULL
+ * for a sheet that has none; a copy of a sheet does not take it. */
+const char *o42_sheet_codename     (O42Sheet *sheet);
+void        o42_sheet_set_codename (O42Sheet *sheet, const char *codename);
+
 /* Format > Sheet > Hide: the sheet keeps everything, formulas still
  * reach it, but it has no tab.  Every file format carries it. */
 void     o42_sheet_set_hidden (O42Sheet *sheet, gboolean hidden);

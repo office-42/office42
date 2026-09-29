@@ -1366,6 +1366,12 @@ write_sheet (GString *out, O42Sheet *sheet)
         g_free (encoded);
       }
   }
+  if (o42_sheet_codename (sheet) != NULL)
+    {
+      char *escaped = g_markup_escape_text (o42_sheet_codename (sheet), -1);
+      g_string_append_printf (w.out, "      <gnm:o42-CodeName Name=\"%s\"/>\n", escaped);
+      g_free (escaped);
+    }
   g_string_append (w.out, "    </gnm:Sheet>\n");
 
   g_array_free (w.keys, TRUE);
@@ -1675,6 +1681,36 @@ o42_gnumeric_save (O42Book *book, GFile *file, GError **error)
       g_string_append (out, "  </gnm:o42-Scripts>\n");
     }
 
+  /* The Visual Basic project: its modules' text, and the project the
+   * book came with, which saving as .xlsm builds on. */
+  if (o42_book_has_vba (book))
+    {
+      GBytes *kept = o42_book_kept_part (book, "xl/vbaProject.bin");
+      char *ecode = g_markup_escape_text (o42_book_codename (book), -1);
+      static const char *const KINDS[] = { "standard", "class", "document", "form" };
+
+      g_string_append_printf (out, "  <gnm:o42-VBA CodeName=\"%s\" Edited=\"%d\">\n", ecode,
+                              o42_book_vba_edited (book) ? 1 : 0);
+      g_free (ecode);
+      for (int i = 0; i < o42_book_n_vba_modules (book); i++)
+        {
+          char *ename = g_markup_escape_text (o42_book_vba_module_name (book, i), -1);
+          char *etext = g_markup_escape_text (o42_book_vba_module_code (book, i), -1);
+
+          g_string_append_printf (out, "    <gnm:o42-Module Name=\"%s\" Kind=\"%s\">%s</gnm:o42-Module>\n",
+                                  ename, KINDS[o42_book_vba_module_kind (book, i)], etext);
+          g_free (ename);
+          g_free (etext);
+        }
+      if (kept != NULL)
+        {
+          char *base64 = g_base64_encode (g_bytes_get_data (kept, NULL), g_bytes_get_size (kept));
+          g_string_append_printf (out, "    <gnm:o42-VBAProject>%s</gnm:o42-VBAProject>\n", base64);
+          g_free (base64);
+        }
+      g_string_append (out, "  </gnm:o42-VBA>\n");
+    }
+
   {
     int active_tab = 0;
     for (int i = 0; i < o42_book_n_sheets (book); i++)
@@ -1741,6 +1777,9 @@ typedef struct {
   gboolean    query_headings;
   char       *script_name;
   GString    *script_code;
+  int         vba_part;         /* 1 in a gnm:o42-Module, 2 in gnm:o42-VBAProject */
+  int         vba_kind;
+  gboolean    vba_edited;
 
   /* A gnm:Validation inside a style, with its expressions. */
   O42Validation validation;
@@ -2279,6 +2318,33 @@ start_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (strcmp (name, "o42-CodeName") == 0 && r->sheet != NULL)
+    {
+      o42_sheet_set_codename (r->sheet, attr (names, values, "Name"));
+      return;
+    }
+  if (strcmp (name, "o42-VBA") == 0)
+    {
+      o42_book_set_codename (r->book, attr (names, values, "CodeName"));
+      r->vba_edited = g_strcmp0 (attr (names, values, "Edited"), "1") == 0;
+      return;
+    }
+  if (strcmp (name, "o42-Module") == 0 || strcmp (name, "o42-VBAProject") == 0)
+    {
+      static const char *const KINDS[] = { "standard", "class", "document", "form" };
+      const char *kind = attr (names, values, "Kind");
+
+      r->vba_part = name[4] == 'M' ? 1 : 2;
+      r->vba_kind = O42_VBA_STANDARD;
+      for (guint k = 0; kind != NULL && k < G_N_ELEMENTS (KINDS); k++)
+        if (strcmp (kind, KINDS[k]) == 0)
+          r->vba_kind = (int) k;
+      g_free (r->script_name);
+      r->script_name = g_strdup (attr (names, values, "Name") != NULL ? attr (names, values, "Name") : "Module1");
+      if (r->script_code == NULL) r->script_code = g_string_new (NULL);
+      g_string_truncate (r->script_code, 0);
+      return;
+    }
   if (strcmp (name, "o42-Script") == 0)
     {
       const char *sname = NULL, *shortcut = NULL, *about = NULL;
@@ -3439,6 +3505,28 @@ end_element (GMarkupParseContext *context, const char *element,
       return;
     }
 
+  if (r->vba_part == 1 && strcmp (name, "o42-Module") == 0)
+    {
+      o42_book_set_vba_module (r->book, r->script_name, (O42VbaKind) r->vba_kind, r->script_code->str);
+      r->vba_part = 0;
+      return;
+    }
+  if (r->vba_part == 2 && strcmp (name, "o42-VBAProject") == 0)
+    {
+      gsize n = 0;
+      guchar *data = g_base64_decode (r->script_code->str, &n);
+      GBytes *project = g_bytes_new_take (data, n);
+
+      o42_book_keep_part (r->book, "xl/vbaProject.bin", project);
+      g_bytes_unref (project);
+      r->vba_part = 0;
+      return;
+    }
+  if (strcmp (name, "o42-VBA") == 0)
+    {
+      o42_book_set_vba_edited (r->book, r->vba_edited);
+      return;
+    }
   if (r->in_script && strcmp (name, "o42-Script") == 0)
     {
       o42_book_set_script (r->book, r->script_name, r->script_code->str);
@@ -3910,7 +3998,7 @@ text_handler (GMarkupParseContext *context, const char *text, gsize length,
     { g_string_append_len (r->shape_text, text, (gssize) length); return; }
   if (r->print_text != 0)
     { g_string_append_len (r->text, text, (gssize) length); return; }
-  if (r->in_script)
+  if (r->in_script || r->vba_part != 0)
     { g_string_append_len (r->script_code, text, (gssize) length); return; }
   if (r->in_database)
     { g_string_append_len (r->database, text, (gssize) length); return; }

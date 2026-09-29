@@ -295,7 +295,9 @@ int         o42_book_n_scripts     (O42Book *book);
 void        o42_book_keep_part     (O42Book *book, const char *name, GBytes *bytes);   /* NULL forgets */
 GBytes     *o42_book_kept_part     (O42Book *book, const char *name);
 GList      *o42_book_kept_parts    (O42Book *book);    /* the names; free the list, not them */
-gboolean    o42_book_has_vba       (O42Book *book);    /* an xl/vbaProject.bin is kept */
+/* The book has a Visual Basic project: modules, or an
+ * xl/vbaProject.bin kept from the file. */
+gboolean    o42_book_has_vba       (O42Book *book);
 
 /* Whether the book's Python may run: a script in it, or =PY() in a
  * cell.  A new book's may; a book read from a file may not until the
@@ -317,6 +319,46 @@ char        o42_book_script_shortcut    (O42Book *book, const char *name);
 const char *o42_book_script_description (O42Book *book, const char *name);   /* "" if none */
 /* The script bound to Ctrl+Shift+letter, or NULL. */
 const char *o42_book_script_for_shortcut (O42Book *book, char shortcut);
+
+/* ---- Visual Basic ------------------------------------------------------ */
+
+/* The modules of the book's Visual Basic project, as Excel keeps them
+ * in an .xlsm or an .xls: each one's whole text, the Attribute lines at
+ * its head included, under its name.  Read from the file's project and
+ * written back into one; running them is the script layer's business,
+ * and never happens on opening. */
+typedef enum {
+  O42_VBA_STANDARD,   /* Module1: macros, and functions for cells */
+  O42_VBA_CLASS,      /* Class1: a kind of object */
+  O42_VBA_DOCUMENT,   /* ThisWorkbook, Sheet1: the book's or a sheet's own,
+                       * where its events go */
+  O42_VBA_FORM        /* UserForm1: a form's code; the form is kept */
+} O42VbaKind;
+
+int         o42_book_n_vba_modules     (O42Book *book);
+const char *o42_book_vba_module_name   (O42Book *book, int index);
+O42VbaKind  o42_book_vba_module_kind   (O42Book *book, int index);
+const char *o42_book_vba_module_code   (O42Book *book, int index);
+/* The module of that name, in any case, or -1. */
+int         o42_book_vba_module_find   (O42Book *book, const char *name);
+/* Adds a module at the end, or gives the one of that name new text. */
+void        o42_book_set_vba_module    (O42Book *book, const char *name, O42VbaKind kind,
+                                        const char *code);
+gboolean    o42_book_remove_vba_module (O42Book *book, const char *name);
+/* A number that moves whenever a module changes: what a compiled
+ * project is checked against before it is run again. */
+guint       o42_book_vba_serial        (O42Book *book);
+/* Whether the modules are no longer what the project kept from the
+ * file says, so that saving has to build the project anew rather than
+ * hand back the one that came.  A reader clears it once it has read
+ * the modules in. */
+gboolean    o42_book_vba_edited        (O42Book *book);
+void        o42_book_set_vba_edited    (O42Book *book, gboolean edited);
+/* The name the book's own module goes by: ThisWorkbook, unless the
+ * file said otherwise.  Each sheet has one too; see
+ * o42_sheet_codename. */
+const char *o42_book_codename          (O42Book *book);
+void        o42_book_set_codename      (O42Book *book, const char *codename);
 
 /* ---- The book's database --------------------------------------------- */
 

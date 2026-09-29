@@ -33,6 +33,7 @@ append_border_side (GString *out, const char *side, O42BorderStyle style, guint3
 #include "o42-entry.h"
 #include "o42-zip.h"
 #include "o42-xlsx-draw.h"
+#include "o42-vba.h"
 #include "o42-formula.h"
 #include "o42-eval.h"
 
@@ -482,9 +483,21 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
     guint32 tab = o42_sheet_tab_colour (sheet);
     gboolean fit = ps->fit_wide > 0 || ps->fit_tall > 0;
 
-    if (fit || tab != O42_TAB_NO_COLOUR || o42_sheet_summary_above (sheet) || o42_sheet_summary_left (sheet))
+    const char *codename = o42_sheet_codename (sheet);
+
+    if (fit || tab != O42_TAB_NO_COLOUR || o42_sheet_summary_above (sheet) || o42_sheet_summary_left (sheet) ||
+        codename != NULL)
       {
-        g_string_append (out, "<sheetPr>");
+        /* The code name ties the sheet to its module in the book's
+         * Visual Basic project. */
+        if (codename != NULL)
+          {
+            char *escaped = g_markup_escape_text (codename, -1);
+            g_string_append_printf (out, "<sheetPr codeName=\"%s\">", escaped);
+            g_free (escaped);
+          }
+        else
+          g_string_append (out, "<sheetPr>");
         if (tab != O42_TAB_NO_COLOUR)
           g_string_append_printf (out, "<tabColor rgb=\"FF%06X\"/>", tab & 0xFFFFFF);
         if (o42_sheet_summary_above (sheet) || o42_sheet_summary_left (sheet))
@@ -2019,9 +2032,24 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
   if (macro_enabled)
     {
       /* The kept Visual Basic project, and what a package needs to say
-       * about it: its content type and the workbook's relationship. */
-      GList *names = o42_book_kept_parts (book);
+       * about it: its content type and the workbook's relationship.  A
+       * project whose modules were edited, or that the book never had
+       * from a file, is built from the modules; a signature no longer
+       * signs it, and goes. */
+      GList *names;
 
+      if (o42_book_vba_edited (book) || o42_book_kept_part (book, "xl/vbaProject.bin") == NULL)
+        {
+          GBytes *built = o42_vba_build (book, o42_book_kept_part (book, "xl/vbaProject.bin"));
+
+          o42_book_keep_part (book, "xl/vbaProject.bin", built);
+          o42_book_keep_part (book, "xl/vbaProjectSignature.bin", NULL);
+          o42_book_keep_part (book, "xl/_rels/vbaProjectSignature.bin.rels", NULL);
+          o42_book_keep_part (book, "xl/_rels/vbaProject.bin.rels", NULL);
+          o42_book_set_vba_edited (book, FALSE);
+          g_bytes_unref (built);
+        }
+      names = o42_book_kept_parts (book);
       for (GList *l = names; l != NULL; l = l->next)
         {
           GBytes *part = o42_book_kept_part (book, l->data);
@@ -2104,8 +2132,19 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
     "<workbook xmlns=\"" NS_MAIN "\" xmlns:r=\"" NS_REL "\">");
   /* workbookPr and workbookProtection come before the views, in the
    * order the schema has them and Excel insists on. */
-  if (o42_book_date_1904 (book))
-    g_string_append (s, "<workbookPr date1904=\"1\"/>");
+  if (o42_book_date_1904 (book) || macro_enabled)
+    {
+      g_string_append (s, "<workbookPr");
+      if (o42_book_date_1904 (book))
+        g_string_append (s, " date1904=\"1\"");
+      if (macro_enabled)
+        {
+          char *escaped = g_markup_escape_text (o42_book_codename (book), -1);
+          g_string_append_printf (s, " codeName=\"%s\"", escaped);
+          g_free (escaped);
+        }
+      g_string_append (s, "/>");
+    }
   if (o42_book_protected (book))
     {
       if (o42_book_password_hash (book) != 0)
@@ -2528,6 +2567,7 @@ typedef struct
   int         default_width, default_height;
   int         prop_which;   /* the property a docProps element is, or -1 */
   gboolean    book_protected; /* workbookProtection, applied once the book is cleared */
+  char       *book_codename;  /* workbookPr's codeName, the same */
   guint16     book_password;
   GString    *prop_text;
   char       *drawing_rid;  /* the sheet's <drawing r:id>, if any */
@@ -2598,6 +2638,8 @@ workbook_start (GMarkupParseContext *ctx, const char *name, const char **names,
     {
       const char *d = attr (names, values, "date1904");
       o42_book_set_date_1904 (r->book, d != NULL && (strcmp (d, "1") == 0 || strcmp (d, "true") == 0));
+      g_free (r->book_codename);
+      r->book_codename = g_strdup (attr (names, values, "codeName"));
     }
   else if (strcmp (n, "calcPr") == 0)
     {
@@ -3617,6 +3659,8 @@ sheet_start (GMarkupParseContext *ctx, const char *name, const char **names,
       return;
     }
 
+  if (strcmp (n, "sheetPr") == 0 && r->sheet != NULL)
+    o42_sheet_set_codename (r->sheet, attr (names, values, "codeName"));
   if (strcmp (n, "outlinePr") == 0 && r->sheet != NULL)
     o42_sheet_set_outline_settings (r->sheet, !attr_bool (names, values, "summaryBelow", TRUE),
                                     !attr_bool (names, values, "summaryRight", TRUE));
@@ -4620,9 +4664,9 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
       return FALSE;
     }
 
-  /* A Visual Basic project is not read -- office42 runs Python -- but
-   * it is kept, part by part, so that saving as .xlsm gives Excel its
-   * macros back untouched. */
+  /* A Visual Basic project is kept, part by part, so that saving as
+   * .xlsm gives Excel its macros back untouched while nobody edits
+   * them; its modules' text is read once the sheets are in. */
   {
     static const char *const vba_parts[] = {
       "xl/vbaProject.bin", "xl/vbaData.xml", "xl/_rels/vbaProject.bin.rels",
@@ -4687,6 +4731,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   if (ok)
     {
       o42_book_clear (book);
+      o42_book_set_codename (book, r.book_codename);
       o42_book_set_password_hash (book, r.book_password);
       o42_book_set_protected (book, r.book_protected);
       r.prop_which = -1;
@@ -5048,7 +5093,12 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
   g_free (r.array_ref);
   g_free (r.drawing_rid);
   g_free (r.picture_rid);
+  g_free (r.book_codename);
   g_hash_table_unref (r.shared);
+  /* The macros' text, for the Visual Basic Editor and for running;
+   * the project itself is kept as it came, for saving as .xlsm. */
+  if (ok && o42_book_kept_part (book, "xl/vbaProject.bin") != NULL)
+    o42_vba_read (book, o42_book_kept_part (book, "xl/vbaProject.bin"), "", NULL);
   if (ok)
     {
       static const GMarkupParser scripts_parser = { scripts_start, scripts_end, scripts_text, NULL, NULL };
