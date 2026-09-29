@@ -2862,6 +2862,23 @@ class ValueArg:
         return None
 
 
+class RefArg(ValueArg):
+    """An argument the host passes ByRef and reads back afterwards: the
+    Cancel of Workbook_BeforeSave."""
+
+    __slots__ = ("cell",)
+
+    def __init__(self, value, name=None):
+        ValueArg.__init__(self, value, name)
+        self.cell = Cell(value)
+
+    def getv(self, fr):
+        return self.cell.value
+
+    def getref(self, fr):
+        return self.cell
+
+
 class TypeDef:
     def __init__(self, project, name, fields):
         self.project = project
@@ -3546,7 +3563,7 @@ class Project:
         current = self
         _run_begin()
         try:
-            return self.invoke(proc, [ValueArg(v) for v in values], None,
+            return self.invoke(proc, [v if isinstance(v, ValueArg) else ValueArg(v) for v in values], None,
                                me if me is not None else self.me_for(proc))
         except EndSignal:
             self.reset()

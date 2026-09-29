@@ -4447,11 +4447,18 @@ def _call_event(st, module, proc_name, args, me):
     try:
         project.call(proc, args, me)
     except (VBAError, vba.StopSignal) as e:
-        sys.stdout.write(project.take_output())
+        _debug_printed(project.take_output())
         if isinstance(e, VBAError):
             print(error_text(e, project))
         return
-    sys.stdout.write(project.take_output())
+    _debug_printed(project.take_output())
+
+
+def _debug_printed(text):
+    """Debug.Print's lines from an event procedure go to the Immediate
+    window, not into a box; without a window they are printed."""
+    if text and not _c.immediate(text):
+        sys.stdout.write(text)
 
 
 def _book_module(st):
@@ -4480,9 +4487,20 @@ def _on_selection(sheet, rng):
 
 
 def _on_before_save(book):
+    """Workbook_BeforeSave(SaveAsUI, Cancel): True when it set Cancel."""
     st = state()
-    if st.host.events_enabled:
-        _call_event(st, _book_module(st), "workbook_beforesave", [False, False], st.host.document("ThisWorkbook"))
+    if not st.host.events_enabled:
+        return False
+    cancel = vba.RefArg(False)
+    _call_event(st, _book_module(st), "workbook_beforesave", [False, cancel], st.host.document("ThisWorkbook"))
+    return _cancelled(cancel)
+
+
+def _cancelled(cancel):
+    try:
+        return vba.to_bool(cancel.cell.value)
+    except VBAError:
+        return False
 
 
 def _on_open(book):
@@ -4496,9 +4514,15 @@ def _on_open(book):
 
 
 def _on_close(book):
+    """Workbook_BeforeClose(Cancel), then Auto_Close unless it set Cancel;
+    True when it did."""
     st = state()
     if st.host.events_enabled:
-        _call_event(st, _book_module(st), "workbook_beforeclose", [False], st.host.document("ThisWorkbook"))
+        cancel = vba.RefArg(False)
+        _call_event(st, _book_module(st), "workbook_beforeclose", [cancel], st.host.document("ThisWorkbook"))
+        if _cancelled(cancel):
+            return True
     proc = st.project.find_proc("Auto_Close", ("sub",))
     if proc is not None and proc.module.kind == "standard":
         _call_event(st, proc.module, "auto_close", [], None)
+    return False

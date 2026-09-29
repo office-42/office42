@@ -40,8 +40,10 @@ read.  The password is carried over for Excel.
   `Workbook_SheetSelectionChange` in ThisWorkbook; `Worksheet_Change`
   and `Worksheet_SelectionChange` in a sheet's module; `Auto_Open` and
   `Auto_Close` in a standard module.  `Application.EnableEvents = False`
-  silences them.  The `Cancel` of `BeforeSave` and `BeforeClose` is not
-  heard: the save or the close goes ahead.
+  silences them.  `Cancel = True` in `BeforeSave` leaves the book
+  unsaved, and in `BeforeClose` keeps it open.  What an event procedure
+  writes with `Debug.Print` goes to the Immediate window, and only a
+  run-time error in one puts up a box.
 
 A run-time error stops the macro with Excel's box -- `Run-time error
 '9': Subscript out of range` -- and the module, procedure and line it

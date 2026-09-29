@@ -702,15 +702,17 @@ o42_window_run_script (O42Window *self, const char *name, const char *code)
 
 /* An event a book's script may listen for: "change" of a range,
  * "selection", "before_save", "open", "close".  Costs nothing when no
- * handler is registered. */
-void
+ * handler is registered.  TRUE when a handler cancelled the save or
+ * the close. */
+gboolean
 o42_window_fire_event (O42Window *self, const char *event, const O42Range *range)
 {
   char *output = NULL;
+  gboolean cancelled;
 
   if (!o42_python_available () || self->book == NULL)
-    return;
-  o42_python_fire (self->book, event, range != NULL ? self->sheet : NULL, range, &output);
+    return FALSE;
+  cancelled = o42_python_fire (self->book, event, range != NULL ? self->sheet : NULL, range, &output);
   if (output != NULL)
     {
       o42_grid_refresh (self->grid);
@@ -718,6 +720,7 @@ o42_window_fire_event (O42Window *self, const char *event, const O42Range *range
       script_said (self, event, output, strstr (output, "Traceback") == NULL);
       g_free (output);
     }
+  return cancelled;
 }
 
 void

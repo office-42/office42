@@ -67,9 +67,9 @@ o42_python_personal_scripts (void)
 
 gboolean    o42_python_available (void) { return FALSE; }
 const char *o42_python_version   (void) { return NULL; }
-void        o42_python_fire      (O42Book *book, const char *event, O42Sheet *sheet,
+gboolean    o42_python_fire      (O42Book *book, const char *event, O42Sheet *sheet,
                                   const O42Range *range, char **output)
-{ (void) book; (void) event; (void) sheet; (void) range; if (output != NULL) *output = NULL; }
+{ (void) book; (void) event; (void) sheet; (void) range; if (output != NULL) *output = NULL; return FALSE; }
 void        o42_python_reset     (void) { }
 void        o42_python_forget_book (O42Book *book) { (void) book; }
 gboolean    o42_python_start     (void) { return FALSE; }
@@ -3126,6 +3126,21 @@ m_poll (PyObject *self, PyObject *args)
   return PyBool_FromLong (host.poll (host.user, current_book, seconds, draw));
 }
 
+/* immediate(text) -> whether the window took Debug.Print's text; see
+ * O42PythonHost.immediate. */
+static PyObject *
+m_immediate (PyObject *self, PyObject *args)
+{
+  const char *text;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &text))
+    return NULL;
+  if (host.immediate == NULL)
+    Py_RETURN_FALSE;
+  host.immediate (host.user, current_book, text);
+  Py_RETURN_TRUE;
+}
+
 /* ask(text, title, [button labels]) -> the index of the one pressed, -1
  * for none: a message box with a choice, as MsgBox with vbYesNo is. */
 static PyObject *
@@ -3302,6 +3317,7 @@ static PyMethodDef METHODS[] = {
   { "set_array_formula", m_set_array_formula, METH_VARARGS, "An array formula over a range." },
   { "ask",            m_ask,            METH_VARARGS, "A message box with buttons; the one pressed." },
   { "poll",           m_poll,           METH_VARARGS, "Whether Esc was pressed while a macro runs." },
+  { "immediate",      m_immediate,      METH_VARARGS, "Debug.Print's text from an event, for the Immediate window." },
   { "vba_modules",    m_vba_modules,    METH_NOARGS,  "The book's Visual Basic modules." },
   { "vba_serial",     m_vba_serial,     METH_NOARGS,  "A number that moves when a module changes." },
   { NULL, NULL, 0, NULL }
@@ -3590,20 +3606,21 @@ o42_python_debug (O42Book *book, O42Sheet *sheet, const char *code, const char *
   return ok;
 }
 
-void
+gboolean
 o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet, const O42Range *range, char **output)
 {
   O42Sheet *saved_sheet = current_sheet;
   O42Book *saved_book = current_book;
   gboolean saved_touched = book_touched, saved_sheets = sheets_touched;
-  PyObject *result;
+  gboolean cancelled = FALSE;
+  PyObject *result, *said = NULL;
   int index = -1;
 
   if (output != NULL)
     *output = NULL;
   if (book == NULL || event == NULL || handler_count == 0 || firing > 0 || module == NULL ||
       !o42_book_scripts_trusted (book))
-    return;
+    return FALSE;
   if (sheet != NULL)
     index = o42_book_sheet_index (book, sheet);
   firing++;
@@ -3613,14 +3630,18 @@ o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet, const O42Ran
   result = PyObject_CallMethod (module, "_fire", "siiiii", event, index,
                                 range != NULL ? range->row0 : -1, range != NULL ? range->col0 : -1,
                                 range != NULL ? range->row1 : -1, range != NULL ? range->col1 : -1);
-  if (result != NULL && PyUnicode_Check (result))
+  if (result != NULL && PyTuple_Check (result) && PyTuple_Size (result) == 2)
     {
-      const char *text = PyUnicode_AsUTF8 (result);
+      said = PyTuple_GetItem (result, 0);
+      cancelled = PyObject_IsTrue (PyTuple_GetItem (result, 1)) == 1;
+    }
+  if (said != NULL && PyUnicode_Check (said))
+    {
+      const char *text = PyUnicode_AsUTF8 (said);
       if (output != NULL && text != NULL && *text != '\0')
         *output = g_strdup (text);
     }
-  else
-    PyErr_Clear ();
+  PyErr_Clear ();
   Py_XDECREF (result);
   if (sheets_touched)
     o42_book_changed (book, "sheets");
@@ -3631,6 +3652,7 @@ o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet, const O42Ran
   book_touched = saved_touched;
   sheets_touched = saved_sheets;
   firing--;
+  return cancelled;
 }
 
 gboolean

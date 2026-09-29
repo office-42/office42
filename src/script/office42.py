@@ -1337,7 +1337,9 @@ def _bind():
 # the script that are taken as registered when it runs -- on_change,
 # on_selection_change, on_before_save, on_open, on_close.  A handler is
 # called with (sheet, range) for the first two and (book) for the rest.
-# A change a handler makes does not call the handlers again.
+# A change a handler makes does not call the handlers again.  A
+# before_save or close handler that returns True cancels the save or
+# the close, as Cancel = True does in Excel's.
 
 EVENTS = ("change", "selection", "before_save", "open", "close")
 _NAMED_HANDLERS = {"on_change": "change", "on_selection_change": "selection",
@@ -1390,24 +1392,26 @@ def _register_named_handlers():
 
 
 def _fire(event, sheet_index, r0, c0, r1, c1):
-    """Called from C when the event happens; errors are reported, not raised."""
+    """Called from C when the event happens: (what the handlers printed,
+    whether one cancelled).  Errors are reported, not raised."""
     _bind()
     fns = list(_handlers.get(_c.book_id(), {}).get(event, {}).values())
     if not fns:
-        return ""
+        return "", False
     out = io.StringIO()
+    cancel = False
     with redirect_stdout(out), redirect_stderr(out):
         for f in fns:
             try:
                 if event in ("change", "selection"):
                     sh = Sheet(sheet_index)
                     f(sh, Range(sh, r0, c0, r1, c1))
-                else:
-                    f(book)
+                elif f(book) is True and event in ("before_save", "close"):
+                    cancel = True
             except BaseException:
                 lines = traceback.format_exc().splitlines()
                 print("\n".join(l for l in lines if "office42.py" not in l))
-    return out.getvalue()
+    return out.getvalue(), cancel
 
 
 def _forget_handlers(owner):

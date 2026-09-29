@@ -5961,7 +5961,14 @@ window_save_to (O42Window *self, GFile *file, const O42CsvOptions *options)
   gboolean ok;
 
   o42_vbe_commit (self);
-  o42_window_fire_event (self, "before_save", NULL);
+  /* Workbook_BeforeSave may say no; the book stays as it is, unsaved,
+   * and nothing is said, as in Excel. */
+  self->save_cancelled = o42_window_fire_event (self, "before_save", NULL);
+  if (self->save_cancelled)
+    {
+      self->close_after_save = FALSE;
+      return FALSE;
+    }
 
   if (file_is_csv (file))
     {
@@ -6375,7 +6382,9 @@ o42_window_close_request (GtkWindow *window)
       const char *code = o42_book_script_code (self->book, "Auto_Close");
       if (code != NULL)
         o42_window_run_script (self, "Auto_Close", code);
-      o42_window_fire_event (self, "close", NULL);
+      /* Workbook_BeforeClose may say no, and the window stays. */
+      if (o42_window_fire_event (self, "close", NULL))
+        return GDK_EVENT_STOP;
     }
 
   if (!o42_book_is_modified (self->book))
@@ -7770,7 +7779,11 @@ host_save (gpointer user, O42Book *book, const char *path, char **message)
     }
   file = path != NULL ? g_file_new_for_path (path) : g_object_ref (self->file);
   ok = window_save_to (self, file, NULL);
-  if (!ok)
+  /* A save the book's own BeforeSave cancelled is no error: Excel's
+   * Workbook.Save just does nothing then. */
+  if (!ok && self->save_cancelled)
+    ok = TRUE;
+  else if (!ok)
     *message = g_strdup_printf ("the book could not be saved to %s", path != NULL ? path : "its file");
   g_object_unref (file);
   return ok;
@@ -7892,12 +7905,21 @@ host_ask (gpointer user, O42Book *book, const char *title, const char *text, con
 }
 
 static void
+host_immediate (gpointer user, O42Book *book, const char *text)
+{
+  O42Window *self = host_window (user, book);
+
+  if (self != NULL)
+    o42_vbe_show_output (self, text, TRUE);
+}
+
+static void
 window_install_python_host (O42Window *self)
 {
   static gboolean installed = FALSE;
   O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
                          host_input, host_status, host_path, host_save, host_open,
-                         host_close, host_debug_pause, host_ask, host_poll };
+                         host_close, host_debug_pause, host_ask, host_poll, host_immediate };
 
   if (installed)
     return;

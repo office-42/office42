@@ -5108,5 +5108,9 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
            parse_part (parts, "xl/o42/views.xml", &views_parser, &r, error);
     }
   g_hash_table_unref (parts);
+  /* As it came from the file, the macros and scripts read into it
+   * included, the book has nothing to save. */
+  if (ok)
+    o42_book_set_modified (book, FALSE);
   return ok;
 }

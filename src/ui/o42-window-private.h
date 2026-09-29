@@ -39,6 +39,7 @@ struct _O42Window {
   O42CsvOptions *csv;          /* how the text file it came from or went to
                                 * was written, for Save to write it the same */
   gboolean    close_after_save;
+  gboolean    save_cancelled;   /* the last save, by Workbook_BeforeSave */
   int         view_number;     /* 0 for the only window on the book, else 1, 2... */
   gboolean    telling;         /* inside o42_book_changed, to skip our own echo */
 
@@ -118,7 +119,7 @@ gboolean o42_window_scripts_allowed (O42Window *self);
 /* Shows the bar that says what code the book has and offers to run it,
  * if it has any. */
 void     o42_window_offer_scripts (O42Window *self);
-void     o42_window_fire_event (O42Window *self, const char *event, const O42Range *range);
+gboolean o42_window_fire_event (O42Window *self, const char *event, const O42Range *range);
 
 /* The Scripts dialog's half of the step debugger: shows the line and
  * the variables, waits for Step, Continue or Stop; 0, 1 or 2. */

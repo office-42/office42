@@ -365,7 +365,7 @@ static void
 calc_install_host (O42Book *book)
 {
   O42PythonHost host = { NULL, calc_get_selection, calc_set_selection, calc_message,
-                         calc_input, calc_status, NULL, NULL, NULL, NULL, NULL, calc_ask, NULL };
+                         calc_input, calc_status, NULL, NULL, NULL, NULL, NULL, calc_ask, NULL, NULL };
   calc_selection.sheet = o42_book_sheet (book, 0);
   calc_selection.range = o42_range_normalise (0, 0, 0, 0);
   o42_python_set_host (&host);
@@ -1539,9 +1539,11 @@ main (int argc, char *argv[])
                 { fprintf (stderr, "usage: fire EVENT [A1:B2]\n"); g_strfreev (words); continue; }
               if (words[1][at] != ':') { r.row1 = r.row0; r.col1 = r.col0; }
             }
-          o42_python_fire (book, words[0], ranged ? sheet : NULL, ranged ? &r : NULL, &said);
+          gboolean cancelled = o42_python_fire (book, words[0], ranged ? sheet : NULL, ranged ? &r : NULL, &said);
           if (said != NULL)
             fputs (said, stdout);
+          if (cancelled)
+            printf ("%s cancelled\n", words[0]);
           g_free (said);
           g_strfreev (words);
           continue;

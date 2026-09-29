@@ -178,7 +178,9 @@ office42.off("selection", moved)
 Handlers belong to the book whose script registered them, and they
 exist once the book's scripts have run (Run Scripts, or a script run
 by hand); nothing fires while none is registered.  What a handler
-prints goes where a script's output goes.
+prints goes where a script's output goes.  An `on_before_save` or
+`on_close` handler that returns `True` stops the save or the close,
+as `Cancel = True` does in Excel.
 
 ### Stepping through a script
 

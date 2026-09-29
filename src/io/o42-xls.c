@@ -4199,6 +4199,10 @@ o42_xls_load (O42Book *book, GFile *file, GError **error)
   if (ok && vba != NULL)
     o42_vba_read (book, vba, "", NULL);
   g_clear_pointer (&vba, g_bytes_unref);
+  /* As it came from the file, the macros read into it included, the
+   * book has nothing to save. */
+  if (ok)
+    o42_book_set_modified (book, FALSE);
   return ok;
 }
 

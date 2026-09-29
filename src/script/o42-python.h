@@ -72,9 +72,11 @@ gboolean o42_python_start (void);
  * up, the book's scripts are trusted and a handler is registered, so
  * the call costs nothing when no script listens; a handler's own
  * changes do not fire it again.  `output` (may be NULL) gets what the
- * handlers printed, tracebacks included; the caller frees it. */
-void o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet,
-                      const O42Range *range, char **output);
+ * handlers printed, tracebacks included; the caller frees it.  TRUE
+ * when a "before_save" or "close" handler cancelled what is about to
+ * happen, as Workbook_BeforeSave's Cancel does. */
+gboolean o42_python_fire (O42Book *book, const char *event, O42Sheet *sheet,
+                          const O42Range *range, char **output);
 
 /* ---- What the window does for a script ------------------------------- */
 
@@ -128,6 +130,10 @@ typedef struct {
    * Ctrl+Break, TRUE when one was pressed.  Called a few times a second
    * while the macro runs, and with `seconds` below 0 when it is over. */
   gboolean (*poll)          (gpointer user, O42Book *book, double seconds, gboolean draw);
+  /* What Debug.Print wrote in an event procedure: for the Immediate
+   * window, if the editor is open, and for nowhere otherwise, as in
+   * Excel.  NULL (office42-calc) has it printed with the rest. */
+  void     (*immediate)     (gpointer user, O42Book *book, const char *text);
 } O42PythonHost;
 
 void o42_python_set_host (const O42PythonHost *host);
