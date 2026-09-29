@@ -46,14 +46,20 @@ void     o42_vba_ensure_documents (O42Book *book);
 /* ---- A module's text ----------------------------------------------------- */
 
 /* The Attribute lines a module's text begins with -- its name, and for
- * a class whether it can be made -- are the program's to keep; an
- * editor shows what follows them.  The caller frees both. */
+ * a class whether it can be made -- are the program's to keep, as are
+ * those under a procedure that give its description and shortcut key;
+ * an editor shows the rest.  The caller frees both. */
 char    *o42_vba_code_body (const char *code);
 /* The whole text again: `body` under the head `code` had (NULL for
- * none), its name made `name`; or under a new head for a module of
- * `kind`. */
+ * none), its name made `name`, and its procedures' Attribute lines put
+ * back under them; or under a new head for a module of `kind`. */
 char    *o42_vba_code_join (O42Book *book, const char *name, O42VbaKind kind,
                             const char *code, const char *body);
+
+/* A line of the text (from 1) as a line of what o42_vba_code_body shows,
+ * a hidden one as the line before it; and back. */
+int      o42_vba_view_line (const char *code, int line);
+int      o42_vba_text_line (const char *code, int view_line);
 
 /* A module from the text of an exported file (.bas, .cls): its name,
  * from its VB_Name or else from the file's, its kind and its text as a

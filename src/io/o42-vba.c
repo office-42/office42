@@ -929,8 +929,10 @@ is_head_line (const char *line)
   return g_ascii_strncasecmp (line, "Attribute VB_", 13) == 0;
 }
 
-char *
-o42_vba_code_body (const char *code)
+/* Where a module's head ends: the first line after its Attribute VB_
+ * lines. */
+static const char *
+head_end (const char *code)
 {
   const char *p = code;
 
@@ -945,7 +947,151 @@ o42_vba_code_body (const char *code)
         break;
       p = end != NULL ? end + 1 : p + strlen (p);
     }
-  return g_strdup (p);
+  return p;
+}
+
+static char *
+next_word (const char **p)
+{
+  const char *start;
+
+  while (**p == ' ' || **p == '\t')
+    (*p)++;
+  start = *p;
+  while (g_ascii_isalnum (**p) || **p == '_')
+    (*p)++;
+  return *p > start ? g_strndup (start, *p - start) : NULL;
+}
+
+/* "Attribute Name.VB_Description = ..." and its kin: what Excel keeps
+ * of a procedure's or a variable's description, shortcut key or being
+ * the default member, under the line that declares it.  Its editor
+ * does not show them; `member` gets the name. */
+static gboolean
+member_attribute (const char *line, char **member)
+{
+  const char *p = line;
+  char *word;
+
+  while (*p == ' ' || *p == '\t')
+    p++;
+  if (g_ascii_strncasecmp (p, "Attribute ", 10) != 0)
+    return FALSE;
+  p += 10;
+  word = next_word (&p);
+  if (word == NULL || *p != '.')
+    {
+      g_free (word);
+      return FALSE;
+    }
+  if (member != NULL)
+    *member = word;
+  else
+    g_free (word);
+  return TRUE;
+}
+
+/* The procedure or module-level variable a line declares, or NULL. */
+static char *
+declared_name (const char *line)
+{
+  static const char *const modifiers[] = { "Public", "Private", "Friend", "Static", "Global", "Dim", NULL };
+  static const char *const others[] = { "Declare", "Enum", "Type", "Event", "Const", "Implements", NULL };
+  const char *p = line;
+  gboolean modified = FALSE;
+  char *word;
+
+  for (;;)
+    {
+      gboolean modifier = FALSE;
+
+      word = next_word (&p);
+      if (word == NULL)
+        return NULL;
+      for (int i = 0; modifiers[i] != NULL; i++)
+        modifier |= g_ascii_strcasecmp (word, modifiers[i]) == 0;
+      if (!modifier)
+        break;
+      modified = TRUE;
+      g_free (word);
+    }
+  if (g_ascii_strcasecmp (word, "Sub") == 0 || g_ascii_strcasecmp (word, "Function") == 0
+      || (modified && g_ascii_strcasecmp (word, "WithEvents") == 0))
+    {
+      g_free (word);
+      return next_word (&p);
+    }
+  if (g_ascii_strcasecmp (word, "Property") == 0)
+    {
+      g_free (word);
+      g_free (next_word (&p));   /* Get, Let or Set */
+      return next_word (&p);
+    }
+  for (int i = 0; others[i] != NULL; i++)
+    modified &= g_ascii_strcasecmp (word, others[i]) != 0;
+  if (modified)
+    return word;
+  g_free (word);
+  return NULL;
+}
+
+/* Whether the view shows a line of the module's text: not the head,
+ * nor a member's Attribute line.  `in_head` is TRUE for the first line
+ * and kept up to date. */
+static gboolean
+line_shown (const char *line, gboolean *in_head)
+{
+  if (*in_head && is_head_line (line))
+    return FALSE;
+  *in_head = FALSE;
+  return !member_attribute (line, NULL);
+}
+
+char *
+o42_vba_code_body (const char *code)
+{
+  char **lines = g_strsplit (code, "\n", -1);
+  GString *out = g_string_new (NULL);
+  gboolean in_head = TRUE, any = FALSE;
+
+  for (int i = 0; lines[i] != NULL; i++)
+    {
+      if (!line_shown (lines[i], &in_head))
+        continue;
+      if (any)
+        g_string_append_c (out, '\n');
+      g_string_append (out, lines[i]);
+      any = TRUE;
+    }
+  g_strfreev (lines);
+  return g_string_free (out, FALSE);
+}
+
+int
+o42_vba_view_line (const char *code, int line)
+{
+  char **lines = g_strsplit (code, "\n", -1);
+  gboolean in_head = TRUE;
+  int view = 0;
+
+  for (int i = 0; lines[i] != NULL && i < line; i++)
+    view += line_shown (lines[i], &in_head);
+  g_strfreev (lines);
+  return MAX (view, 1);
+}
+
+int
+o42_vba_text_line (const char *code, int view_line)
+{
+  char **lines = g_strsplit (code, "\n", -1);
+  gboolean in_head = TRUE;
+  int view = 0, i;
+
+  for (i = 0; lines[i] != NULL; i++)
+    if (line_shown (lines[i], &in_head) && ++view == view_line)
+      break;
+  g_strfreev (lines);
+  return i + 1;
 }
 
 static const char *
@@ -965,6 +1111,79 @@ default_head (O42Book *book, const char *name, O42VbaKind kind)
              "Attribute VB_PredeclaredId = True\nAttribute VB_Exposed = True\n"
              "Attribute VB_TemplateDerived = False\nAttribute VB_Customizable = True\n";
   return "";
+}
+
+/* `body` with the members' Attribute lines `code` had put back under
+ * the lines that declare them, where Excel wants them; those of a
+ * procedure that has gone, or been renamed, go too. */
+static void
+append_body (GString *out, const char *code, const char *body)
+{
+  GHashTable *attributes = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_ptr_array_unref);
+  char **lines = g_strsplit (code != NULL ? code : "", "\n", -1);
+  char **view = g_strsplit (body, "\n", -1);
+  char *pending = NULL;
+
+  for (int i = 0; lines[i] != NULL; i++)
+    {
+      char *member = NULL, *key;
+      GPtrArray *list;
+
+      if (!member_attribute (lines[i], &member))
+        continue;
+      key = g_ascii_strdown (member, -1);
+      g_free (member);
+      list = g_hash_table_lookup (attributes, key);
+      if (list == NULL)
+        {
+          list = g_ptr_array_new_with_free_func (g_free);
+          g_hash_table_insert (attributes, g_strdup (key), list);
+        }
+      g_ptr_array_add (list, g_strdup (lines[i]));
+      g_free (key);
+    }
+
+  for (int i = 0; view[i] != NULL; i++)
+    {
+      gsize n = strlen (view[i]);
+      const char *tail = view[i] + n;
+
+      g_string_append (out, view[i]);
+      if (view[i + 1] != NULL)
+        g_string_append_c (out, '\n');
+      if (g_hash_table_size (attributes) == 0)
+        continue;
+      if (pending == NULL)
+        {
+          char *name = declared_name (view[i]);
+          if (name != NULL)
+            {
+              pending = g_ascii_strdown (name, -1);
+              g_free (name);
+            }
+        }
+      /* A declaration that goes on to the next line with " _" gets them
+       * after its last line. */
+      while (tail > view[i] && (tail[-1] == ' ' || tail[-1] == '\t' || tail[-1] == '\r'))
+        tail--;
+      if (pending != NULL && !(tail > view[i] + 1 && tail[-1] == '_' && (tail[-2] == ' ' || tail[-2] == '\t')))
+        {
+          GPtrArray *list = g_hash_table_lookup (attributes, pending);
+          if (list != NULL)
+            {
+              if (view[i + 1] == NULL)
+                g_string_append_c (out, '\n');
+              for (guint k = 0; k < list->len; k++)
+                g_string_append_printf (out, "%s\n", (char *) g_ptr_array_index (list, k));
+              g_hash_table_remove (attributes, pending);
+            }
+          g_clear_pointer (&pending, g_free);
+        }
+    }
+  g_free (pending);
+  g_strfreev (view);
+  g_strfreev (lines);
+  g_hash_table_unref (attributes);
 }
 
 char *
@@ -1003,7 +1222,7 @@ o42_vba_code_join (O42Book *book, const char *name, O42VbaKind kind, const char 
     }
   if (!any)
     g_string_append (out, default_head (book, name, kind));
-  g_string_append (out, body);
+  append_body (out, code, body);
   if (out->len > 0 && out->str[out->len - 1] != '\n')
     g_string_append_c (out, '\n');
   return g_string_free (out, FALSE);
@@ -1136,8 +1355,8 @@ o42_vba_import (const char *text, gsize length, const char *filename,
         *kind = O42_VBA_CLASS;
     }
   {
-    char *body = o42_vba_code_body (out->str);
-    char *head = g_strndup (out->str, out->len - strlen (body));
+    const char *body = head_end (out->str);
+    char *head = g_strndup (out->str, body - out->str);
     GString *whole = g_string_new (head);
 
     if (strstr (head, "VB_Name") == NULL)
@@ -1149,7 +1368,6 @@ o42_vba_import (const char *text, gsize length, const char *filename,
     g_string_append (whole, body);
     *code = g_string_free (whole, FALSE);
     g_free (head);
-    g_free (body);
   }
   g_string_free (out, TRUE);
   return TRUE;

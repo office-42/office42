@@ -241,20 +241,6 @@ mark_lines (Vbe *vbe, int current, int error)
 
 /* ---- The modules ----------------------------------------------------------- */
 
-/* How many lines of a module's text are its head, which the view leaves
- * out: what a line number in the view is off by from one in the text. */
-static int
-head_lines (const char *code)
-{
-  char *body = o42_vba_code_body (code);
-  int n = 0;
-
-  for (const char *p = code; p < code + (strlen (code) - strlen (body)); p++)
-    n += *p == '\n';
-  g_free (body);
-  return n;
-}
-
 /* The view's text back into the book's module, if it has changed. */
 static void
 commit (Vbe *vbe)
@@ -447,7 +433,7 @@ go_to (Vbe *vbe, const char *module, int text_line)
     }
   if (text_line > 0)
     {
-      int line = text_line - head_lines (o42_book_vba_module_code (book, at));
+      int line = o42_vba_view_line (o42_book_vba_module_code (book, at), text_line);
       mark_lines (vbe, 0, line);
     }
 }
@@ -637,7 +623,7 @@ run_at_caret (Vbe *vbe, gboolean stepping)
       O42Book *book = vbe_book (vbe);
 
       /* The breakpoints are lines of the view; the interpreter counts
-       * the module's head too. */
+       * the lines it hides too. */
       g_hash_table_iter_init (&it, vbe->breakpoints);
       while (g_hash_table_iter_next (&it, &key, NULL))
         {
@@ -646,7 +632,8 @@ run_at_caret (Vbe *vbe, gboolean stepping)
           int at = o42_book_vba_module_find (book, module);
           if (at >= 0)
             g_ptr_array_add (stops, g_strdup_printf ("%s:%d", module,
-                                                     atoi (colon + 1) + head_lines (o42_book_vba_module_code (book, at))));
+                                                     o42_vba_text_line (o42_book_vba_module_code (book, at),
+                                                                        atoi (colon + 1))));
           g_free (module);
         }
       g_ptr_array_add (stops, NULL);
@@ -704,7 +691,7 @@ o42_vbe_debug_pause (O42Window *self, const char *module, int line, const char *
             if (vbe->module == NULL || g_ascii_strcasecmp (vbe->module, module) != 0)
               show_module (vbe, module);
           }
-        mark_lines (vbe, line - head_lines (o42_book_vba_module_code (book, at)), 0);
+        mark_lines (vbe, o42_vba_view_line (o42_book_vba_module_code (book, at), line), 0);
       }
   }
   gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (vbe->variables)),
@@ -1317,6 +1304,7 @@ o42_window_vbe (O42Window *self, const char *module, const char *proc)
         {
           GtkWidget *s = scrolled (vbe->immediate);
           gtk_widget_set_vexpand (s, TRUE);
+          gtk_widget_set_size_request (s, -1, 110);
           gtk_box_append (GTK_BOX (lower), s);
         }
         vbe->entry = gtk_entry_new ();
@@ -1330,7 +1318,8 @@ o42_window_vbe (O42Window *self, const char *module, const char *proc)
       gtk_paned_set_start_child (GTK_PANED (panes), code_panes);
       gtk_paned_set_end_child (GTK_PANED (panes), lower);
       gtk_paned_set_resize_end_child (GTK_PANED (panes), FALSE);
-      gtk_paned_set_position (GTK_PANED (panes), 400);
+      gtk_paned_set_position (GTK_PANED (panes), 360);
+      gtk_paned_set_shrink_end_child (GTK_PANED (panes), FALSE);
       gtk_widget_set_vexpand (panes, TRUE);
       gtk_box_append (GTK_BOX (right), panes);
       {
