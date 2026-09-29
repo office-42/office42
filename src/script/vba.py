@@ -4364,6 +4364,12 @@ class Compiler:
     def lib_call(self, fn, argcs):
         if not argcs:
             return lambda fr: fn()
+        if fn not in _TAKES_OBJECTS:
+            # The library's arguments are Variants: an object given to
+            # one is its default value, so IsEmpty(ActiveCell) asks of
+            # the cell's value.
+            argcs = [ArgC(a.name, a.missing, _valued(a.getv), None, a.paren) if not a.missing else a
+                     for a in argcs]
         if all(a.name is None and not a.missing for a in argcs):
             getters = [a.getv for a in argcs]
             if len(getters) == 1:
@@ -5218,6 +5224,21 @@ def _fast_local_store(s, typ):
                 fr.v[s] = coerce(plain_value(value), "variant")
         return let_variant
     return None
+
+
+def _valued(getv):
+    def get(fr):
+        v = getv(fr)
+        t = type(v)
+        if t is int or t is float or t is str or t is bool or v is EMPTY:
+            return v
+        if is_object(v) and v is not None and getattr(v, "_vba_default_get", None) is not None:
+            try:
+                return default_member(v)
+            except VBAError:
+                return v
+        return v
+    return get
 
 
 def check_object(value):
@@ -7188,6 +7209,10 @@ class MatchCollection:
     def _vba_iter(self):
         return list(self._items)
 
+
+# The functions that take an object as it is, rather than its value.
+_TAKES_OBJECTS = {f_isobject, f_typename, f_iif, f_array, f_choose, f_switch, f_callbyname,
+                  f_objptr, f_ismissing, f_vartype, f_isarray, f_createobject, f_getobject}
 
 LIBRARY = {}
 for _name, _fn in list(globals().items()):
