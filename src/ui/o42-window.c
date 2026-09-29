@@ -7904,6 +7904,124 @@ host_ask (gpointer user, O42Book *book, const char *title, const char *text, con
   return ask.answer;
 }
 
+typedef struct {
+  GMainLoop *loop;
+  int        mode;
+  gboolean   multiple;
+  char     **paths;
+} HostChoose;
+
+static void
+on_host_chosen (GObject *source, GAsyncResult *result, gpointer data)
+{
+  HostChoose *choose = data;
+  GtkFileDialog *dialog = GTK_FILE_DIALOG (source);
+  GPtrArray *paths = g_ptr_array_new ();
+  GError *error = NULL;
+
+  if (choose->mode == 0 && choose->multiple)
+    {
+      GListModel *files = gtk_file_dialog_open_multiple_finish (dialog, result, &error);
+      for (guint i = 0; files != NULL && i < g_list_model_get_n_items (files); i++)
+        {
+          GFile *file = g_list_model_get_item (files, i);
+          char *path = g_file_get_path (file);
+          if (path != NULL)
+            g_ptr_array_add (paths, path);
+          g_object_unref (file);
+        }
+      g_clear_object (&files);
+    }
+  else
+    {
+      GFile *file = choose->mode == 0 ? gtk_file_dialog_open_finish (dialog, result, &error)
+                  : choose->mode == 1 ? gtk_file_dialog_save_finish (dialog, result, &error)
+                  : gtk_file_dialog_select_folder_finish (dialog, result, &error);
+      char *path = file != NULL ? g_file_get_path (file) : NULL;
+      if (path != NULL)
+        g_ptr_array_add (paths, path);
+      g_clear_object (&file);
+    }
+  g_clear_error (&error);
+  if (paths->len > 0)
+    {
+      g_ptr_array_add (paths, NULL);
+      choose->paths = (char **) g_ptr_array_free (paths, FALSE);
+    }
+  else
+    g_ptr_array_free (paths, TRUE);
+  g_main_loop_quit (choose->loop);
+}
+
+/* Application.FileDialog, GetOpenFilename and GetSaveAsFilename. */
+static char **
+host_choose_file (gpointer user, O42Book *book, int mode, const char *title,
+                  const char *initial, const char *const *filters, gboolean multiple)
+{
+  O42Window *self = host_window (user, book);
+  GtkFileDialog *dialog = gtk_file_dialog_new ();
+  HostChoose choose = { g_main_loop_new (NULL, FALSE), mode, multiple, NULL };
+
+  if (title != NULL && *title != '\0')
+    gtk_file_dialog_set_title (dialog, title);
+  gtk_file_dialog_set_modal (dialog, TRUE);
+  if (filters != NULL && filters[0] != NULL && mode != 2)
+    {
+      GListStore *store = g_list_store_new (GTK_TYPE_FILE_FILTER);
+      for (int i = 0; filters[i] != NULL && filters[i + 1] != NULL; i += 2)
+        {
+          GtkFileFilter *filter = gtk_file_filter_new ();
+          char **patterns = g_strsplit_set (filters[i + 1], ";,", -1);
+          gtk_file_filter_set_name (filter, filters[i]);
+          for (int k = 0; patterns[k] != NULL; k++)
+            if (*g_strstrip (patterns[k]) != '\0')
+              gtk_file_filter_add_pattern (filter, patterns[k]);
+          g_strfreev (patterns);
+          if (i == 0)
+            gtk_file_dialog_set_default_filter (dialog, filter);
+          g_list_store_append (store, filter);
+          g_object_unref (filter);
+        }
+      gtk_file_dialog_set_filters (dialog, G_LIST_MODEL (store));
+      g_object_unref (store);
+    }
+  /* A folder to start in, and for Save a name to start with. */
+  if (initial != NULL && *initial != '\0')
+    {
+      GFile *file = g_file_new_for_path (initial);
+      if (g_file_test (initial, G_FILE_TEST_IS_DIR))
+        gtk_file_dialog_set_initial_folder (dialog, file);
+      else
+        {
+          GFile *parent = g_file_get_parent (file);
+          if (parent != NULL && g_file_query_exists (parent, NULL))
+            gtk_file_dialog_set_initial_folder (dialog, parent);
+          g_clear_object (&parent);
+          if (mode == 1)
+            {
+              char *name = g_file_get_basename (file);
+              gtk_file_dialog_set_initial_name (dialog, name);
+              g_free (name);
+            }
+        }
+      g_object_unref (file);
+    }
+  running_wait (FALSE);
+  if (mode == 0 && multiple)
+    gtk_file_dialog_open_multiple (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL, on_host_chosen, &choose);
+  else if (mode == 0)
+    gtk_file_dialog_open (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL, on_host_chosen, &choose);
+  else if (mode == 1)
+    gtk_file_dialog_save (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL, on_host_chosen, &choose);
+  else
+    gtk_file_dialog_select_folder (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL, on_host_chosen, &choose);
+  g_main_loop_run (choose.loop);
+  running_wait (TRUE);
+  g_main_loop_unref (choose.loop);
+  g_object_unref (dialog);
+  return choose.paths;
+}
+
 static void
 host_immediate (gpointer user, O42Book *book, const char *text)
 {
@@ -7919,7 +8037,8 @@ window_install_python_host (O42Window *self)
   static gboolean installed = FALSE;
   O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
                          host_input, host_status, host_path, host_save, host_open,
-                         host_close, host_debug_pause, host_ask, host_poll, host_immediate };
+                         host_close, host_debug_pause, host_ask, host_poll, host_immediate,
+                         host_choose_file };
 
   if (installed)
     return;

@@ -1564,6 +1564,10 @@ _RESERVED = {
 
 
 # A block the procedure ended inside, by the last word that would close it.
+# The type libraries a macro may name before their members, as it names
+# VBA before its own: Excel.Range, Office.MsoTriState, MSForms.TextBox.
+_LIBRARIES = {"excel", "office", "msforms", "scripting", "stdole", "vbide", "vbscript_regexp_55"}
+
 _UNCLOSED = {("end", "if"): "Block If without End If", ("endif",): "Block If without End If",
              ("end", "with"): "With without End With", ("next",): "For without Next",
              ("loop",): "Do without Loop", ("end", "while"): "While without Wend",
@@ -4404,6 +4408,9 @@ class Compiler:
                 self.error("Invalid or unqualified reference")
             return lambda fr: fr.w[-1]
         if t is MemberE:
+            u = self.unqualified(e)
+            if u is not e:
+                return self.expr(u)
             return self.member_get(e, [])
         if t is CallE:
             return self.call_get(e)
@@ -4484,6 +4491,7 @@ class Compiler:
 
     def ref(self, e):
         """Where a variable passed ByRef lives, or None for a value."""
+        e = self.unqualified(e)
         if isinstance(e, NameE):
             b = self.resolve(e.name.lower())
             if b is None:
@@ -4545,6 +4553,15 @@ class Compiler:
         if me is None:
             self.error("Invalid use of a class's procedure without its object")
         return lambda fr: project.invoke(proc, argcs, fr, me(fr))
+
+    def unqualified(self, e):
+        """Excel.Range, Excel.xlUp, MSForms.ReturnBoolean: a type library's
+        name before one of its members is the member, unless the project
+        has something of that name itself."""
+        while isinstance(e, MemberE) and isinstance(e.obj, NameE) and \
+                e.obj.name.lower() in _LIBRARIES and self.resolve(e.obj.name.lower()) is None:
+            e = NameE(e.name, "", e.obj.line)
+        return e
 
     def member_target(self, e):
         """For obj.Name: whether obj is a module, an enum or VBA, which
@@ -4633,8 +4650,10 @@ class Compiler:
     def call_get(self, e):
         """name(args) or obj.Name(args) as a value."""
         project = self.project
+        target = self.unqualified(e.target)
+        if target is not e.target:
+            return self.call_get(CallE(target, e.args))
         argcs = self.args(e.args)
-        target = e.target
         if isinstance(target, NameE):
             lname = target.name.lower()
             b = self.resolve(lname)
@@ -4691,6 +4710,7 @@ class Compiler:
     def store(self, e, is_set, line):
         """What sets a target: a closure (frame, value)."""
         project = self.project
+        e = self.unqualified(e)
         if isinstance(e, NameE):
             lname = e.name.lower()
             b = self.resolve(lname)
@@ -4749,7 +4769,7 @@ class Compiler:
             return lambda fr, value: project.member_let(of(fr), lname, [], value, is_set, fr)
         if isinstance(e, CallE):
             argcs = self.args(e.args)
-            target = e.target
+            target = self.unqualified(e.target)
             if isinstance(target, NameE):
                 lname = target.name.lower()
                 b = self.resolve(lname)
@@ -5501,6 +5521,7 @@ def check_object(value):
 def type_of(project, value, typename):
     if value is None:
         return False
+    typename = typename.rpartition(".")[2]      # Excel.Range, MSForms.TextBox
     if isinstance(value, VBObject):
         return value.cls.lname == typename or typename == "object" or typename in value.cls.implements
     if typename == "object":

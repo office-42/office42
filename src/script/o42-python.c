@@ -3126,6 +3126,50 @@ m_poll (PyObject *self, PyObject *args)
   return PyBool_FromLong (host.poll (host.user, current_book, seconds, draw));
 }
 
+/* choose_file(mode, title, initial, [name, patterns, ...], multiple) ->
+ * the paths chosen, or None when cancelled; see O42PythonHost.choose_file.
+ * An error without a window, which the caller answers by asking for a
+ * line instead. */
+static PyObject *
+m_choose_file (PyObject *self, PyObject *args)
+{
+  int mode, multiple = 0;
+  const char *title, *initial;
+  PyObject *list, *result;
+  GPtrArray *filters;
+  char **paths;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "issO!|p", &mode, &title, &initial, &PyList_Type, &list, &multiple))
+    return NULL;
+  if (host.choose_file == NULL)
+    return no_window ("choose a file in");
+  filters = g_ptr_array_new ();
+  for (Py_ssize_t i = 0; i < PyList_Size (list); i++)
+    {
+      const char *text = PyUnicode_AsUTF8 (PyList_GetItem (list, i));
+      g_ptr_array_add (filters, (gpointer) (text != NULL ? text : ""));
+    }
+  g_ptr_array_add (filters, NULL);
+  PyErr_Clear ();
+  paths = host.choose_file (host.user, current_book, mode, title, initial,
+                            (const char *const *) filters->pdata, multiple);
+  g_ptr_array_unref (filters);
+  if (paths == NULL)
+    Py_RETURN_NONE;
+  result = PyList_New (0);
+  for (int i = 0; paths[i] != NULL; i++)
+    {
+      PyObject *path = PyUnicode_DecodeFSDefault (paths[i]);
+      if (path != NULL)
+        {
+          PyList_Append (result, path);
+          Py_DECREF (path);
+        }
+    }
+  g_strfreev (paths);
+  return result;
+}
+
 /* immediate(text) -> whether the window took Debug.Print's text; see
  * O42PythonHost.immediate. */
 static PyObject *
@@ -3318,6 +3362,7 @@ static PyMethodDef METHODS[] = {
   { "ask",            m_ask,            METH_VARARGS, "A message box with buttons; the one pressed." },
   { "poll",           m_poll,           METH_VARARGS, "Whether Esc was pressed while a macro runs." },
   { "immediate",      m_immediate,      METH_VARARGS, "Debug.Print's text from an event, for the Immediate window." },
+  { "choose_file",    m_choose_file,    METH_VARARGS, "A file chooser; the paths chosen, or None." },
   { "vba_modules",    m_vba_modules,    METH_NOARGS,  "The book's Visual Basic modules." },
   { "vba_serial",     m_vba_serial,     METH_NOARGS,  "A number that moves when a module changes." },
   { NULL, NULL, 0, NULL }

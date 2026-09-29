@@ -134,6 +134,14 @@ typedef struct {
    * window, if the editor is open, and for nowhere otherwise, as in
    * Excel.  NULL (office42-calc) has it printed with the rest. */
   void     (*immediate)     (gpointer user, O42Book *book, const char *text);
+  /* A file chooser, as Application.FileDialog and GetOpenFilename put
+   * up: `mode` 0 to open (several files when `multiple`), 1 to save, 2
+   * for a folder.  `filters` is a NULL-ended list of a name and its
+   * patterns ("*.xlsx;*.xlsm") in turn, the first shown first; `initial`
+   * a file or folder to start at, or "".  The paths chosen, NULL-ended
+   * (g_strfreev), or NULL when the user cancelled. */
+  char   **(*choose_file)   (gpointer user, O42Book *book, int mode, const char *title,
+                             const char *initial, const char *const *filters, gboolean multiple);
 } O42PythonHost;
 
 void o42_python_set_host (const O42PythonHost *host);

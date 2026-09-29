@@ -110,6 +110,84 @@ XL = {
     "xlmsgbox": 0,
 }
 
+# Office's own constants, which macros reach for beside Excel's: the
+# file dialog, the tri-state, shapes, text and the command bars (which
+# are not here, but a module that names them should still compile).
+XL.update({
+    "msotristatetoggle": -3, "msotristatemixed": -2,
+    "msofiledialogopen": 1, "msofiledialogsaveas": 2, "msofiledialogfilepicker": 3,
+    "msofiledialogfolderpicker": 4,
+    "msofiledialogviewlist": 1, "msofiledialogviewdetails": 2, "msofiledialogviewproperties": 3,
+    "msofiledialogviewpreview": 4, "msofiledialogviewthumbnail": 5, "msofiledialogviewlargeicons": 6,
+    "msofiledialogviewsmallicons": 7, "msofiledialogviewwebview": 8, "msofiledialogviewtiles": 9,
+    "msoautomationsecuritylow": 1, "msoautomationsecuritybyui": 2,
+    "msoautomationsecurityforcedisable": 3,
+    "msoautoshape": 1, "msocallout": 2, "msochart": 3, "msocomment": 4, "msofreeform": 5,
+    "msogroup": 6, "msoembeddedoleobject": 7, "msoformcontrol": 8, "msoline": 9,
+    "msolinkedoleobject": 10, "msolinkedpicture": 11, "msoolecontrolobject": 12, "msopicture": 13,
+    "msoplaceholder": 14, "msotexteffect": 15, "msomedia": 16, "msotextbox": 17,
+    "msoshaperectangle": 1, "msoshapeparallelogram": 2, "msoshapetrapezoid": 3, "msoshapediamond": 4,
+    "msoshaperoundedrectangle": 5, "msoshapeoctagon": 6, "msoshapeisoscelestriangle": 7,
+    "msoshaperighttriangle": 8, "msoshapeoval": 9, "msoshapehexagon": 10, "msoshapecross": 11,
+    "msoshaperegularpentagon": 12, "msoshaperightarrow": 33, "msoshapeleftarrow": 34,
+    "msoshapeuparrow": 35, "msoshapedownarrow": 36, "msoshapeleftrightarrow": 37,
+    "msoshapeflowchartprocess": 61, "msoshapeflowchartdecision": 63,
+    "msoshapeflowchartterminator": 69, "msoshape4pointstar": 91, "msoshape5pointstar": 92,
+    "msoshape8pointstar": 93, "msoshaperectangularcallout": 105, "msoshapeovalcallout": 107,
+    "msotextorientationhorizontal": 1, "msotextorientationupward": 2,
+    "msotextorientationdownward": 3, "msotextorientationverticalfareast": 4,
+    "msotextorientationvertical": 5,
+    "msoalignleft": 1, "msoaligncenter": 2, "msoalignright": 3, "msoalignjustify": 4,
+    "msoanchortop": 1, "msoanchormiddle": 3, "msoanchorbottom": 4,
+    "msolinesolid": 1, "msolinesquaredot": 2, "msolinerounddot": 3, "msolinedash": 4,
+    "msofillsolid": 1, "msoscalefromtopleft": 0, "msoscalefrommiddle": 1,
+    "msoscalefrombottomright": 2,
+    "msocontrolbutton": 1, "msocontroledit": 2, "msocontroldropdown": 3, "msocontrolcombobox": 4,
+    "msocontrolpopup": 10,
+    "msobarleft": 0, "msobartop": 1, "msobarright": 2, "msobarbottom": 3, "msobarfloating": 4,
+    "msobarpopup": 5, "msobarmenubar": 6, "msobarnoprotection": 0, "msobarnocustomize": 1,
+    "msobarnoresize": 2, "msobarnomove": 4, "msobarnochangevisible": 8, "msobarnochangedock": 16,
+    "msobarnoverticaldock": 32, "msobarnohorizontaldock": 64, "msobartypenormal": 0,
+    "msobartypemenubar": 1, "msobartypepopup": 2, "msobuttonautomatic": 0, "msobuttonicon": 1, "msobuttoncaption": 2,
+    "msobuttoniconandcaption": 3,
+    "msolanguageidinstall": 1, "msolanguageidui": 2, "msolanguageidhelp": 3,
+})
+
+# Charts: their types, axes, legends and where they go.
+XL.update({
+    "xlarea": 1, "xlline": 4, "xlpie": 5, "xlbubble": 15, "xlcolumnclustered": 51,
+    "xlcolumnstacked": 52, "xlcolumnstacked100": 53, "xl3dcolumnclustered": 54,
+    "xl3dcolumnstacked": 55, "xl3dcolumnstacked100": 56, "xlbarclustered": 57, "xlbarstacked": 58,
+    "xlbarstacked100": 59, "xl3dbarclustered": 60, "xl3dbarstacked": 61, "xl3dbarstacked100": 62,
+    "xllinestacked": 63, "xllinestacked100": 64, "xllinemarkers": 65, "xllinemarkersstacked": 66,
+    "xllinemarkersstacked100": 67, "xlpieofpie": 68, "xlpieexploded": 69, "xl3dpieexploded": 70,
+    "xlbarofpie": 71, "xlxyscattersmooth": 72, "xlxyscattersmoothnomarkers": 73,
+    "xlxyscatterlines": 74, "xlxyscatterlinesnomarkers": 75, "xlareastacked": 76,
+    "xlareastacked100": 77, "xl3dareastacked": 78, "xl3dareastacked100": 79,
+    "xldoughnutexploded": 80, "xlradarmarkers": 81, "xlradarfilled": 82, "xlsurface": 83,
+    "xlstockhlc": 88, "xlstockohlc": 89, "xlstockvhlc": 90, "xlstockvohlc": 91,
+    "xl3darea": -4098, "xl3dcolumn": -4100, "xl3dline": -4101, "xl3dpie": -4102,
+    "xldoughnut": -4120, "xlradar": -4151, "xlxyscatter": -4169,
+    "xlcategory": 1, "xlvalue": 2, "xlseriesaxis": 3, "xlprimary": 1, "xlsecondary": 2,
+    "xllegendpositionbottom": -4107, "xllegendpositioncorner": 2, "xllegendpositionleft": -4131,
+    "xllegendpositionright": -4152, "xllegendpositiontop": -4160, "xllegendpositioncustom": -4161,
+    "xllocationasnewsheet": 1, "xllocationasobject": 2, "xllocationautomatic": 3,
+    "xlmarkerstylenone": -4142, "xlmarkerstyleautomatic": -4105, "xlmarkerstylesquare": 1,
+    "xlmarkerstylediamond": 2, "xlmarkerstyletriangle": 3, "xlmarkerstylecircle": 8,
+    "xldatalabelsshowvalue": 2, "xldatalabelsshowlabel": 4, "xldatalabelsshowpercent": 3,
+    "xldatalabelsshownone": -4142, "xlscalelinear": -4132, "xlscalelogarithmic": -4133,
+    "xltickLabelpositionnone": -4142, "xlticklabelpositionlow": -4134,
+    "xlticklabelpositionhigh": -4127, "xlticklabelpositionnexttoaxis": 4,
+})
+XL = {k.lower(): v for k, v in XL.items()}
+
+# MsoAutoShapeType, as the outlines office42 draws.
+AUTOSHAPES = {1: "rect", 4: "diamond", 5: "roundrect", 6: "octagon", 7: "triangle",
+              8: "rttriangle", 9: "oval", 10: "hexagon", 11: "plus", 12: "pentagon",
+              33: "rightarrow", 34: "leftarrow", 35: "uparrow", 36: "downarrow",
+              37: "leftrightarrow", 61: "flowprocess", 63: "flowdecision", 69: "flowterminator",
+              91: "star4", 92: "star5", 93: "star8", 105: "rectcallout", 107: "ellipsecallout"}
+
 # Excel's 56 colours, in ColorIndex order, as RGB.
 PALETTE = [
     0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00, 0xFF00FF, 0x00FFFF,
@@ -2672,7 +2750,7 @@ class Shapes(_XlObject):
     def AddShape(self, Type, Left, Top, Width, Height):
         ws = self._host.worksheet_by_id(self._id)
         at = ws._cell_at(to_double(Left), to_double(Top))
-        oid = _c.add_shape(_index_of(self._id), "rectangle" if to_long(Type) != 9 else "oval", at[0], at[1])
+        oid = _c.add_shape(_index_of(self._id), AUTOSHAPES.get(to_long(Type), "rect"), at[0], at[1])
         s = Shape(self._host, self._id, "shape", oid, 0)
         s._set(width=to_double(Width) / 0.75, height=to_double(Height) / 0.75)
         return s
@@ -3391,6 +3469,145 @@ class Workbooks(_XlObject):
         self._host.workbook.Close()
 
 
+def _file_filters(spec, index=MISSING):
+    """GetOpenFilename's "Excel Files (*.xls*),*.xls*,All Files (*.*),*.*"
+    as (name, patterns) pairs, the one FilterIndex names first."""
+    if spec is MISSING or not to_str(spec):
+        return [("All Files (*.*)", "*.*")]
+    parts = [p.strip() for p in to_str(spec).split(",")]
+    pairs = [(parts[i], parts[i + 1]) for i in range(0, len(parts) - 1, 2)]
+    if index is not MISSING and 1 < to_long(index) <= len(pairs):
+        pairs.insert(0, pairs.pop(to_long(index) - 1))
+    return pairs
+
+
+class FileDialogFilter(_XlObject):
+    _vba_typename = "FileDialogFilter"
+
+    def __init__(self, host, description, extensions):
+        self._host = host
+        self.Description = description
+        self.Extensions = extensions
+
+
+class FileDialogFilters(_XlObject):
+    _vba_typename = "FileDialogFilters"
+
+    def __init__(self, host):
+        self._host = host
+        self._items = []
+
+    @property
+    def Count(self):
+        return len(self._items)
+
+    def Add(self, Description, Extensions, Position=MISSING):
+        f = FileDialogFilter(self._host, to_str(Description), to_str(Extensions))
+        at = len(self._items) if Position is MISSING else max(0, min(len(self._items), to_long(Position) - 1))
+        self._items.insert(at, f)
+        return f
+
+    def Clear(self):
+        del self._items[:]
+
+    def Delete(self, filter=MISSING):
+        if filter is MISSING:
+            self.Clear()
+        else:
+            del self._items[to_long(filter) - 1]
+
+    def Item(self, Index):
+        i = to_long(Index)
+        if not 1 <= i <= len(self._items):
+            raise VBAError(5)
+        return self._items[i - 1]
+
+    def _vba_default_get(self, *args):
+        return self.Item(*args)
+
+    def _vba_iter(self):
+        return iter(list(self._items))
+
+
+class FileDialogSelectedItems(_XlObject):
+    _vba_typename = "FileDialogSelectedItems"
+
+    def __init__(self, host, paths):
+        self._host = host
+        self._paths = list(paths)
+
+    @property
+    def Count(self):
+        return len(self._paths)
+
+    def Item(self, Index):
+        i = to_long(Index)
+        if not 1 <= i <= len(self._paths):
+            raise VBAError(5)
+        return self._paths[i - 1]
+
+    def _vba_default_get(self, *args):
+        return self.Item(*args)
+
+    def _vba_iter(self):
+        return iter(list(self._paths))
+
+
+class FileDialog(_XlObject):
+    """Application.FileDialog(msoFileDialogFilePicker) and its kin: Show
+    puts up the window's file chooser and says -1 when something was
+    chosen, 0 when the user cancelled; SelectedItems has the paths."""
+
+    _vba_typename = "FileDialog"
+    _TITLES = {1: "Open", 2: "Save As", 3: "Browse", 4: "Browse"}
+
+    def __init__(self, host, kind):
+        if kind not in self._TITLES:
+            raise VBAError(5)
+        self._host = host
+        self._kind = kind
+        self.Title = self._TITLES[kind]
+        self.AllowMultiSelect = kind in (1, 3)
+        self.InitialFileName = ""
+        self.ButtonName = ""
+        self.FilterIndex = 1
+        self.InitialView = 1
+        self._filters = FileDialogFilters(host)
+        if kind in (1, 3):
+            self._filters.Add("All Files", "*.*")
+        self._selected = FileDialogSelectedItems(host, [])
+
+    @property
+    def DialogType(self):
+        return self._kind
+
+    @property
+    def Filters(self):
+        return self._filters
+
+    @property
+    def SelectedItems(self):
+        return self._selected
+
+    def Show(self):
+        mode = {1: 0, 3: 0, 2: 1, 4: 2}[self._kind]
+        pairs = [(f.Description, f.Extensions) for f in self._filters._items]
+        index = to_long(self.FilterIndex)
+        if 1 < index <= len(pairs):
+            pairs.insert(0, pairs.pop(index - 1))
+        paths = self._host.choose_file(mode, to_str(self.Title), to_str(self.InitialFileName), pairs,
+                                       mode == 0 and to_bool(self.AllowMultiSelect))
+        if not paths:
+            return 0
+        self._selected = FileDialogSelectedItems(self._host, paths)
+        return -1
+
+    def Execute(self):
+        # Excel opens or saves what was chosen; here the macro does that
+        # itself with the path.
+        return None
+
+
 class Window(_XlObject):
     _vba_typename = "Window"
 
@@ -3682,9 +3899,8 @@ class Application(_XlObject):
     def VBE(self):
         raise VBAError(1004, "The Visual Basic Editor's object model is not available")
 
-    @property
-    def FileDialog(self):
-        raise VBAError(1004, "FileDialog is not available to macros in office42")
+    def FileDialog(self, fileDialogType):
+        return FileDialog(self._host, to_long(fileDialogType))
 
     @property
     def ActivePrinter(self):
@@ -3810,14 +4026,22 @@ class Application(_XlObject):
 
     def GetOpenFilename(self, FileFilter=MISSING, FilterIndex=MISSING, Title=MISSING, ButtonText=MISSING,
                         MultiSelect=False):
-        answer = self._host.inputbox("File to open:", "Open" if Title is MISSING else to_str(Title), "")
-        return False if not answer else answer
+        """The path chosen, or False; with MultiSelect an array of them."""
+        multi = to_bool(MultiSelect)
+        paths = self._host.choose_file(0, "Open" if Title is MISSING else to_str(Title), "",
+                                       _file_filters(FileFilter, FilterIndex), multi)
+        if not paths:
+            return False
+        if multi:
+            return vba.VBArray([(1, len(paths))], data=list(paths))
+        return paths[0]
 
     def GetSaveAsFilename(self, InitialFileName=MISSING, FileFilter=MISSING, FilterIndex=MISSING,
                           Title=MISSING, ButtonText=MISSING):
-        answer = self._host.inputbox("Save as:", "Save As" if Title is MISSING else to_str(Title),
-                                     "" if InitialFileName is MISSING else to_str(InitialFileName))
-        return False if not answer else answer
+        paths = self._host.choose_file(1, "Save As" if Title is MISSING else to_str(Title),
+                                       "" if InitialFileName is MISSING else to_str(InitialFileName),
+                                       _file_filters(FileFilter, FilterIndex), False)
+        return paths[0] if paths else False
 
     def ConvertFormula(self, Formula, FromReferenceStyle, ToReferenceStyle=MISSING, ToAbsolute=MISSING,
                        RelativeTo=MISSING):
@@ -3986,6 +4210,17 @@ class ExcelHost(vba.Host):
             return _c.input(prompt, default)
         except RuntimeError:
             return None
+
+    def choose_file(self, mode, title, initial, filters, multiple):
+        """The window's file chooser: the paths chosen, or None.  Without
+        a window the path is asked for as a line."""
+        flat = [x for pair in filters for x in pair]
+        try:
+            return _c.choose_file(mode, title, initial or "", flat, bool(multiple))
+        except RuntimeError:
+            prompt = {0: "File to open:", 1: "Save as:", 2: "Folder:"}[mode]
+            answer = self.inputbox(prompt, title, initial or "")
+            return [answer] if answer else None
 
     def format_number(self, code, n):
         if re.search(r"[nN]", re.sub(r'"[^"]*"|\\.', "", code)) and not re.search(r"[0#]", code):
