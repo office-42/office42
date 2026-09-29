@@ -566,11 +566,20 @@ def to_str(v):
         raise VBAError(94)
     if isinstance(v, ErrValue):
         return "Error %d" % v.code
+    if isinstance(v, VBArray) and v.typ == "byte" and len(v.dims) == 1:
+        # A String is its UTF-16 bytes, two to a character, and a Byte
+        # array made a String is read that way.
+        return bytes(v.data).decode("utf-16-le", "replace")
     if isinstance(v, VBArray) or isinstance(v, UDTValue):
         raise VBAError(13)
     if v is None:
         raise VBAError(91)
     return to_str(default_member(v))
+
+
+def byte_array(data):
+    """A Byte array from 0 of these bytes."""
+    return VBArray([(0, len(data) - 1)], "byte", data=list(data))
 
 
 def to_bool(v):
@@ -1566,7 +1575,13 @@ _RESERVED = {
 # A block the procedure ended inside, by the last word that would close it.
 # The type libraries a macro may name before their members, as it names
 # VBA before its own: Excel.Range, Office.MsoTriState, MSForms.TextBox.
-_LIBRARIES = {"excel", "office", "msforms", "scripting", "stdole", "vbide", "vbscript_regexp_55"}
+_LIBRARIES = {"excel", "office", "msforms", "scripting", "stdole", "vbide", "vbscript_regexp_55",
+              "msxml2", "winhttp"}
+
+# The classes of the other libraries a macro may reference -- Microsoft
+# XML's, which o42xml puts here when it loads -- by ProgID for
+# CreateObject and by class name for New: a factory for each.
+LIBRARY_CLASSES = {}
 
 _UNCLOSED = {("end", "if"): "Block If without End If", ("endif",): "Block If without End If",
              ("end", "with"): "With without End With", ("next",): "For without Next",
@@ -3535,6 +3550,9 @@ class Project:
             return FileSystemObject()
         if short == "regexp":
             return RegExp()
+        make = LIBRARY_CLASSES.get(lname) or LIBRARY_CLASSES.get(short)
+        if make is not None:
+            return make()
         obj = self.host.new_object(lname)
         if obj is None:
             raise VBAError(429, "User-defined type not defined: %s" % typename)
@@ -4888,6 +4906,8 @@ class Compiler:
         typ = local.typ
         if local.is_array and not is_set:
             def set_array(fr, value, store=None):
+                if typ == "byte" and isinstance(value, str):
+                    value = byte_array(value.encode("utf-16-le"))
                 if not isinstance(value, VBArray):
                     raise VBAError(13)
                 value = value.copy()
@@ -5940,8 +5960,18 @@ def f_strcomp(string1, string2, compare=MISSING):
 
 
 def f_strconv(string, conversion, lcid=MISSING):
-    s = to_str(string)
     c = to_long(conversion)
+    # vbUnicode reads bytes in the ANSI code page; vbFromUnicode writes
+    # them, and gives the Byte array a macro assigns the result to.
+    if c & 64:
+        if isinstance(string, VBArray):
+            data = bytes(to_long(b) & 0xFF for b in string.data)
+        else:
+            data = to_str(string).encode("utf-16-le")
+        return data.decode("cp1252", "replace")
+    if c & 128:
+        return byte_array(to_str(string).encode("cp1252", "replace"))
+    s = to_str(string)
     if c & 1 and not c & 2:
         return s.upper()
     if c & 2 and not c & 1:
@@ -7016,6 +7046,8 @@ def f_createobject(classname, servername=MISSING):
         return RegExp()
     if progid in ("collection", "vba.collection"):
         return Collection()
+    if progid in LIBRARY_CLASSES:
+        return LIBRARY_CLASSES[progid]()
     obj = current.host.create_object(progid) if current is not None else None
     if obj is None:
         raise VBAError(429, "ActiveX component can't create object: %s" % classname)

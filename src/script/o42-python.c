@@ -167,6 +167,7 @@ o42_vba_check (O42Book *book, char **where, int *line)
 #include "office42-py.h"   /* generated from office42.py: OFFICE42_PY */
 #include "o42vba-py.h"     /* from vba.py: O42VBA_PY, the language */
 #include "o42forms-py.h"   /* from vbaforms.py: O42FORMS_PY, the UserForms */
+#include "o42xml-py.h"     /* from vbaxml.py: O42XML_PY, Microsoft XML */
 #include "o42excel-py.h"   /* from vbaexcel.py: O42EXCEL_PY, Excel's objects */
 
 static O42Book  *current_book  = NULL;
@@ -4005,6 +4006,10 @@ ensure_vba (void)
   forms_module = load_module ("o42forms", O42FORMS_PY, "vbaforms.py");
   if (forms_module == NULL)
     return NULL;
+  lang = load_module ("o42xml", O42XML_PY, "vbaxml.py");
+  if (lang == NULL)
+    return NULL;
+  Py_DECREF (lang);
   vba_module = load_module ("o42excel", O42EXCEL_PY, "vbaexcel.py");
   return vba_module;
 }

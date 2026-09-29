@@ -91,6 +91,11 @@ o42forms_py_h = custom_target('o42forms-py.h',
   output: 'o42forms-py.h',
   command: [python_prog, files('script/embed.py'), '@INPUT@', '@OUTPUT@', 'O42FORMS_PY'],
 )
+o42xml_py_h = custom_target('o42xml-py.h',
+  input: 'script/vbaxml.py',
+  output: 'o42xml-py.h',
+  command: [python_prog, files('script/embed.py'), '@INPUT@', '@OUTPUT@', 'O42XML_PY'],
+)
 o42excel_py_h = custom_target('o42excel-py.h',
   input: 'script/vbaexcel.py',
   output: 'o42excel-py.h',
@@ -98,7 +103,7 @@ o42excel_py_h = custom_target('o42excel-py.h',
 )
 
 o42_script = static_library('o42script',
-  ['script/o42-python.c', office42_py_h, o42vba_py_h, o42forms_py_h, o42excel_py_h],
+  ['script/o42-python.c', office42_py_h, o42vba_py_h, o42forms_py_h, o42xml_py_h, o42excel_py_h],
   dependencies: python_dep.found() ? [o42_core_dep, python_dep] : [o42_core_dep],
   include_directories: o42_inc,
   install: false,
