@@ -1563,6 +1563,19 @@ _RESERVED = {
 }
 
 
+# A block the procedure ended inside, by the last word that would close it.
+_UNCLOSED = {("end", "if"): "Block If without End If", ("endif",): "Block If without End If",
+             ("end", "with"): "With without End With", ("next",): "For without Next",
+             ("loop",): "Do without Loop", ("end", "while"): "While without Wend",
+             ("end", "select"): "Select Case without End Select"}
+
+
+_STRAY = ((("end", "if"), "End If without block If"), (("endif",), "End If without block If"),
+          (("end", "with"), "End With without With"), (("next",), "Next without For"),
+          (("loop",), "Loop without Do"), (("wend",), "Wend without While"),
+          (("end", "select"), "End Select without Select Case"))
+
+
 class Parser:
     def __init__(self, tokens, module=""):
         self.t = tokens
@@ -1892,11 +1905,18 @@ class Parser:
         while True:
             self.skip_newlines()
             tok = self.peek()
-            if tok.kind == "eof":
-                self.error("Expected: %s" % " ".join(enders[0]).title())
             for words in enders:
                 if all(self.is_kw(w, k) for k, w in enumerate(words)):
                     return body, words
+            # The procedure ends with the block still open: what Visual
+            # Basic says of it.
+            if tok.kind == "eof" or (self.is_kw("end") and any(self.is_kw(w, 1) for w in
+                                                              ("sub", "function", "property"))):
+                self.error(_UNCLOSED.get(enders[-1], "Expected: %s" % " ".join(enders[0]).title()))
+            # Another block's end, with this one still open.
+            for words, message in _STRAY:
+                if all(self.is_kw(w, k) for k, w in enumerate(words)):
+                    self.error(message)
             body.extend(self.parse_statement())
 
     def parse_statement(self, inline=False):
@@ -2668,6 +2688,30 @@ class Parser:
         return p
 
 
+_PROC_HEAD = re.compile(r"^\s*(?:(public|private|friend|global)\s+)?(?:static\s+)?"
+                        r"(sub|function|property\s+(?:get|let|set))\s+([a-z_][a-z0-9_]*)", re.I)
+
+
+def salvage_module(text):
+    """What can be told of a module that does not parse: the names of its
+    procedures, so that calls to them compile elsewhere and fail, when
+    made, with the module's error."""
+    m = ModuleAST()
+    seen = set()
+    for i, line in enumerate(text.split("\n"), 1):
+        head = _PROC_HEAD.match(line)
+        if head is None:
+            continue
+        kind = head.group(2).lower().split()[-1]
+        key = (head.group(3).lower(), kind)
+        if key in seen:
+            continue
+        seen.add(key)
+        m.procs.append(ProcDef(kind, head.group(3), [], "variant", [],
+                               (head.group(1) or "").lower() == "private", False, i, i))
+    return m
+
+
 def parse_module(text, name=""):
     lines = preprocess(Lexer(text, name).lines(), name)
     tokens = []
@@ -3209,6 +3253,7 @@ class ModuleRT:
         self.with_events = []
         self.instances = weakref.WeakSet()
         self.implements = []
+        self.error = None           # VBASyntaxError when the module does not compile
 
     def __repr__(self):
         return "<Module %s>" % self.name
@@ -3232,6 +3277,7 @@ class Project:
         self.modules = {}           # lname -> ModuleRT
         self.order = []
         self.event_holders = []
+        self.errors = []            # the modules' compile errors, in order
         self.generation = 0         # one more at every End: see VBObject.__del__
         self.err = ErrObject()
         self.debug = DebugObject(self)
@@ -3259,21 +3305,45 @@ class Project:
         return self.modules.get(name.lower())
 
     def compile(self):
-        """Reads and compiles every module; VBASyntaxError if one will not."""
+        """Reads and compiles every module.  One that will not compile
+        keeps its error in .error, and `errors` has them all in order:
+        the rest of the project runs, and calling into that module
+        raises the error -- Excel's Compile On Demand, which lets a book
+        with one broken module still run the macros in the others."""
+        self.errors = []
         for m in self.order:
-            m.ast = parse_module(m.text, m.name)
-            self.declare(m)
+            m.error = None
+            try:
+                m.ast = parse_module(m.text, m.name)
+            except VBASyntaxError as e:
+                self.broken(m, e)
+                m.ast = salvage_module(m.text)
+            self.guarded(m, self.declare, m)
         for m in self.order:
-            self.declare_consts(m)
+            self.guarded(m, self.declare_consts, m)
         for m in self.order:
             m.with_events = []
-            self.declare_vars(m)
+            self.guarded(m, self.declare_vars, m)
         self.event_holders = [m for m in self.order if m.with_events]
         for m in self.order:
+            if m.error is not None:
+                continue
             for group in m.procs.values():
                 for p in group.values():
-                    self.compile_proc(p)
+                    if m.error is None:
+                        self.guarded(m, self.compile_proc, p)
         self.compiled = True
+
+    def broken(self, m, e):
+        if m.error is None:
+            m.error = e
+            self.errors.append(e)
+
+    def guarded(self, m, fn, arg):
+        try:
+            fn(arg)
+        except VBASyntaxError as e:
+            self.broken(m, e)
 
     def declare(self, m):
         a = m.ast
@@ -3579,6 +3649,8 @@ class Project:
 
     def invoke(self, proc, args, caller, me, let_value=None, has_let=False):
         """Runs a procedure with compiled (or value) arguments."""
+        if proc.module.error is not None:
+            raise proc.module.error
         if not proc.compiled:
             self.compile_proc(proc)
         fr = Frame(proc, me)
@@ -4039,6 +4111,8 @@ RESUME_RETRY = "\x00retry"
 def _on_error(fr, ex, line):
     """An error reached a statement of a procedure: go on past it,
     run the procedure's handler, or let it go to the caller."""
+    if isinstance(ex, VBASyntaxError):
+        raise ex                    # a module that did not compile: no handler hears of it
     e = error_from_python(ex)
     if e.where is None:
         e.where = (fr.proc.module.name, fr.proc.name, line)

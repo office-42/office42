@@ -4277,10 +4277,14 @@ def immediate(line):
 
 
 def check():
-    """Debug > Compile VBAProject: (True, "") or (False, "module\\tline\\tmessage")."""
+    """Debug > Compile VBAProject: (True, "") or (False, "module\\tline\\tmessage")
+    for the first module that does not compile."""
     try:
-        state()
+        errors = state().project.errors
     except vba.VBASyntaxError as e:
+        errors = [e]
+    if errors:
+        e = errors[0]
         return False, "%s\t%d\t%s" % (e.module or "", e.line, e.message)
     return True, ""
 
@@ -4446,9 +4450,9 @@ def _call_event(st, module, proc_name, args, me):
     project = st.project
     try:
         project.call(proc, args, me)
-    except (VBAError, vba.StopSignal) as e:
+    except (VBAError, vba.VBASyntaxError, vba.StopSignal) as e:
         _debug_printed(project.take_output())
-        if isinstance(e, VBAError):
+        if not isinstance(e, vba.StopSignal):
             print(error_text(e, project))
         return
     _debug_printed(project.take_output())
