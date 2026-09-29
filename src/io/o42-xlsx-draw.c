@@ -569,6 +569,16 @@ append_text_body (GString *dr, const O42Shape *sh)
   g_free (family);
 }
 
+/* A cNvPr name: the object's own, escaped, or what Excel would have
+ * called it. */
+static char *
+object_name (const char *name, const char *kind, guint n)
+{
+  if (name != NULL && *name != '\0')
+    return g_markup_escape_text (name, -1);
+  return g_strdup_printf ("%s %u", kind, n);
+}
+
 static const char *
 xfrm_attrs (double rotation, gboolean flip_h, gboolean flip_v)
 {
@@ -650,6 +660,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             guint i = n_pic++;
             const char *ext = pic->format ? pic->format : "png";
             char *part = g_strdup_printf ("xl/media/image%d_%u.%s", index, i + 1, ext);
+            char *name = object_name (pic->name, "Picture", i + 1);
 
             o42_zip_writer_add (zip, part, g_bytes_get_data (pic->data, NULL), g_bytes_get_size (pic->data));
             if (!g_hash_table_contains (extensions_seen, ext))
@@ -663,15 +674,16 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
 
             append_anchor (dr, sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, pic->anchor);
             g_string_append_printf (dr,
-              "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"Picture %u\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"%d\"/></xdr:cNvPicPr></xdr:nvPicPr>"
+              "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"%d\" name=\"%s\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"%d\"/></xdr:cNvPicPr></xdr:nvPicPr>"
               "<xdr:blipFill><a:blip r:embed=\"rId%d\">%s</a:blip>%s<a:stretch><a:fillRect/></a:stretch></xdr:blipFill>"
               "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>"
               "<xdr:clientData/></xdr:twoCellAnchor>",
-              shape, i + 1, pic->lock_aspect ? 1 : 0, rid, lum_xml (pic), src_rect (pic),
+              shape, name, pic->lock_aspect ? 1 : 0, rid, lum_xml (pic), src_rect (pic),
               xfrm_attrs (pic->rotation, pic->flip_h, pic->flip_v),
               pic->width * EMU_PER_PX, pic->height * EMU_PER_PX);
             rid++;
             shape++;
+            g_free (name);
             g_free (part);
           }
 
@@ -681,6 +693,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             guint i = n_chart++;
             char *part = g_strdup_printf ("xl/charts/chart%d_%u.xml", index, i + 1);
             char *xml = chart_xml (sheet, chart);
+            char *name = object_name (chart->name, "Chart", i + 1);
 
             o42_zip_writer_add (zip, part, xml, strlen (xml));
             g_string_append_printf (content_types,
@@ -699,14 +712,15 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
               append_anchor (dr, sheet, chart->row, chart->col, chart->dx, chart->dy,
                              chart->width, chart->height, chart->anchor);
             g_string_append_printf (dr,
-              "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"%d\" name=\"Chart %u\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>"
+              "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr><xdr:cNvPr id=\"%d\" name=\"%s\"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>"
               "<xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
               "<a:graphic><a:graphicData uri=\"" NS_C "\"><c:chart xmlns:c=\"" NS_C "\" r:id=\"rId%d\"/></a:graphicData></a:graphic>"
               "</xdr:graphicFrame><xdr:clientData/>%s",
-              shape, i + 1, rid,
+              shape, name, rid,
               o42_sheet_is_chart_sheet (sheet) ? "</xdr:absoluteAnchor>" : "</xdr:twoCellAnchor>");
             rid++;
             shape++;
+            g_free (name);
             g_free (xml);
             g_free (part);
           }
@@ -718,6 +732,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             const O42Shape *sh = ref->object;
             guint i = n_shape++;
             gboolean stroke = sh->kind == O42_SHAPE_LINE || sh->kind == O42_SHAPE_ARROW;
+            char *name;
 
             /* A form control is not a drawing: it goes into the sheet's
              * legacy drawing, with an x:ClientData that says what it does.
@@ -726,11 +741,13 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
               continue;
 
             append_anchor (dr, sheet, sh->row, sh->col, sh->dx, sh->dy, sh->width, sh->height, sh->anchor);
+            name = object_name (sh->name, sh->kind == O42_SHAPE_TEXT ? "TextBox" : sh->kind == O42_SHAPE_FREEFORM ? "Freeform" : "Shape",
+                                i + 1);
             g_string_append_printf (dr,
-              "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s %u\"/>"
+              "<xdr:sp macro=\"\" textlink=\"\"><xdr:nvSpPr><xdr:cNvPr id=\"%d\" name=\"%s\"/>"
               "<xdr:cNvSpPr%s/></xdr:nvSpPr>"
               "<xdr:spPr><a:xfrm%s><a:off x=\"0\" y=\"0\"/><a:ext cx=\"%.0f\" cy=\"%.0f\"/></a:xfrm>",
-              shape, sh->kind == O42_SHAPE_TEXT ? "TextBox" : sh->kind == O42_SHAPE_FREEFORM ? "Freeform" : "Shape", i + 1,
+              shape, name,
               sh->kind == O42_SHAPE_TEXT ? " txBox=\"1\"" : "",
               xfrm_attrs (sh->rotation, sh->flip_h, sh->flip_v),
               sh->width * EMU_PER_PX, sh->height * EMU_PER_PX);
@@ -784,6 +801,7 @@ o42_xlsx_draw_write (O42ZipWriter *zip, O42Sheet *sheet, int index,
             append_text_body (dr, sh);
             g_string_append (dr, "</xdr:sp><xdr:clientData/></xdr:twoCellAnchor>");
             shape++;
+            g_free (name);
           }
       }
     g_array_free (objects, TRUE);
@@ -1183,7 +1201,7 @@ chart_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user
 static void
 add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
                      int row, int col, double dx, double dy, double width, double height,
-                     O42AnchorMode anchor)
+                     O42AnchorMode anchor, const char *name)
 {
   static const GMarkupParser parser = { chart_start, chart_end, chart_text, NULL, NULL };
   ChartReader c;
@@ -1200,6 +1218,7 @@ add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
       if (chart != NULL)
         {
           chart->anchor = anchor;
+          chart->name = g_strdup (name);
           chart->first_row_labels = c.have_tx;
           chart->first_col_labels = c.have_cat || c.kind == O42_CHART_SCATTER;
           g_free (chart->title);
@@ -1266,9 +1285,11 @@ typedef struct
   const char *field;       /* col, row, colOff, rowOff being read */
   GString    *text;
   char       *blip, *chart;
+  char       *name;        /* the first cNvPr's: the object's own, before a group's children */
 
   O42AnchorMode anchor_mode;
   gboolean    is_shape;    /* an xdr:sp: a shape the file describes */
+  gboolean    legacy;      /* a form control's stand-in: the control is in the VML */
   gboolean    in_line;     /* inside a:ln, so a colour is the outline's */
   gboolean    in_body;     /* inside xdr:txBody, so a:t is the shape's text */
   char        geom[24];    /* the a:prstGeom preset */
@@ -1361,7 +1382,7 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
         o42_anchor_mode_parse (attr (names, values, "editAs"), &d->anchor_mode);
       d->have_to = d->have_ext = FALSE;
       d->abs_x = d->abs_y = 0;
-      d->is_shape = d->in_line = d->in_body = d->arrow = d->text_box = FALSE;
+      d->is_shape = d->in_line = d->in_body = d->arrow = d->text_box = d->legacy = FALSE;
       d->geom[0] = '\0';
       d->fill = O42_FILL_NONE;
       d->line = 0x000000u;
@@ -1399,6 +1420,7 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
       g_string_truncate (d->body, 0);
       g_clear_pointer (&d->blip, g_free);
       g_clear_pointer (&d->chart, g_free);
+      g_clear_pointer (&d->name, g_free);
     }
   else if (!d->in_anchor)
     return;
@@ -1460,6 +1482,18 @@ draw_start (GMarkupParseContext *ctx, const char *name, const char **names,
     }
   else if (strcmp (n, "sp") == 0)
     d->is_shape = TRUE;
+  /* Excel 2010 draws a stand-in for each form control, hidden and of no
+   * size, which says where the real one is (a14:compatExt): that one,
+   * in the legacy drawing, is read with the notes. */
+  else if (strcmp (n, "compatExt") == 0)
+    d->legacy = TRUE;
+  /* The name a macro knows it by: Shapes("Logo"). */
+  else if (strcmp (n, "cNvPr") == 0 && d->name == NULL)
+    {
+      const char *called = attr (names, values, "name");
+      if (called != NULL && *called != '\0')
+        d->name = g_strdup (called);
+    }
   else if (strcmp (n, "cNvSpPr") == 0)
     {
       const char *box = attr (names, values, "txBox");
@@ -1750,6 +1784,7 @@ finish_anchor (DrawReader *d)
               pic->anchor = d->anchor_mode;
               pic->brightness = d->bright;
               pic->contrast = d->contrast;
+              pic->name = g_strdup (d->name);
             }
         }
       g_free (part);
@@ -1788,6 +1823,7 @@ finish_anchor (DrawReader *d)
           sh->width = width;
           sh->height = height;
           sh->anchor = d->anchor_mode;
+          sh->name = g_strdup (d->name);
           sh->fill = d->fill;
           sh->fill_kind = d->fill_kind;
           sh->fill2 = d->fill2;
@@ -1835,7 +1871,7 @@ finish_anchor (DrawReader *d)
       const char *target = g_hash_table_lookup (d->rels, d->chart);
       char *part = target ? resolve (d->dir, target) : NULL;
       if (part != NULL)
-        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height, d->anchor_mode);
+        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height, d->anchor_mode, d->name);
       g_free (part);
     }
 }
@@ -1849,7 +1885,7 @@ draw_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **er
 
   if (strcmp (n, "oneCellAnchor") == 0 || strcmp (n, "twoCellAnchor") == 0 || strcmp (n, "absoluteAnchor") == 0)
     {
-      if (d->in_anchor)
+      if (d->in_anchor && !d->legacy)
         finish_anchor (d);
       d->in_anchor = FALSE;
     }
@@ -1929,6 +1965,7 @@ o42_xlsx_draw_read (GHashTable *parts, const char *sheet_part, const char *rid, 
   if (d.path != NULL) g_array_unref (d.path);
   g_free (d.blip);
   g_free (d.chart);
+  g_free (d.name);
   g_free (d.dir);
   g_hash_table_unref (d.rels);
   g_free (drawing_part);

@@ -2237,6 +2237,8 @@ main (int argc, char *argv[])
                     printf (" free");
                   if (pic->brightness != 0 || pic->contrast != 0)
                     printf (" brightness %g contrast %g", pic->brightness, pic->contrast);
+                  if (pic->name != NULL)
+                    printf (" name \"%s\"", pic->name);
                   printf ("\n");
                   g_free (at);
                 }
@@ -2343,6 +2345,8 @@ main (int argc, char *argv[])
                       if (o42_sheet_control_value (sheet, sh, &v))
                         printf (" reads %g", v);
                     }
+                  if (sh->name != NULL)
+                    printf (" name \"%s\"", sh->name);
                   printf ("\n");
                   g_free (at);
                 }
@@ -3430,13 +3434,16 @@ main (int argc, char *argv[])
               const O42Chart *c = g_ptr_array_index (charts, i);
               char *a = o42_ref_name (c->data.row0, c->data.col0);
               char *b = o42_ref_name (c->data.row1, c->data.col1);
-              printf ("chart %u: %s of %s%s%s:%s, series in %s, labels row %d col %d, \"%s\", at %d,%d %gx%g\n",
+              printf ("chart %u: %s of %s%s%s:%s, series in %s, labels row %d col %d, \"%s\", at %d,%d %gx%g",
                       c->id, o42_chart_kind_name (c->kind),
                       c->data_sheet != NULL && *c->data_sheet != '\0' ? c->data_sheet : "",
                       c->data_sheet != NULL && *c->data_sheet != '\0' ? "!" : "", a, b,
                       c->series_in_rows ? "rows" : "columns",
                       c->first_row_labels, c->first_col_labels,
                       c->title ? c->title : "", c->row, c->col, c->width, c->height);
+              if (c->name != NULL)
+                printf (" name \"%s\"", c->name);
+              printf ("\n");
               g_free (a);
               g_free (b);
             }

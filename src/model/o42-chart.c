@@ -99,6 +99,7 @@ o42_chart_free (O42Chart *chart)
   g_free (chart->font_family);
   g_free (chart->data_sheet);
   g_free (chart->y_format);
+  g_free (chart->name);
   g_free (chart);
 }
 

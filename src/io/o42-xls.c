@@ -2693,6 +2693,19 @@ read_drawing (Reader *r)
                   shape->step = info->step;
                   shape->page = info->page;
                 }
+              shape->name = g_strdup (f->name);
+              /* One that drives no cell shows what its OBJ says. */
+              if (shape->link == NULL && shape->kind == O42_SHAPE_CHECKBOX)
+                {
+                  shape->state = info->checked ? 1 : 0;
+                  shape->has_state = TRUE;
+                }
+              else if (shape->link == NULL && info->have_bounds &&
+                       (shape->kind == O42_SHAPE_SPINNER || shape->kind == O42_SHAPE_SCROLLBAR))
+                {
+                  shape->state = info->value;
+                  shape->has_state = TRUE;
+                }
             }
           continue;
         }
@@ -2725,6 +2738,7 @@ read_drawing (Reader *r)
                       chart->dy = f->dy1 * o42_sheet_row_height (r->sheet, f->row1);
                       chart->width = MAX (cx1 - cx0, 40);
                       chart->height = MAX (cy1 - cy0, 30);
+                      chart->name = g_strdup (f->name);
                       if (def->data_sheet != NULL)
                         {
                           g_free (chart->data_sheet);
@@ -2742,6 +2756,9 @@ read_drawing (Reader *r)
           (info == NULL || info->ot != 0x19))
         {
           O42Shape *shape = o42_sheet_add_shape (r->sheet, O42_SHAPE_RECT, f->row1, f->col1);
+
+          if (shape != NULL)
+            shape->name = g_strdup (f->name);
 
           /* A freeform -- and LibreOffice writes every AutoShape as one,
            * type 4095 -- comes in with its outline; an outline office42
@@ -2858,13 +2875,17 @@ read_drawing (Reader *r)
           pic->height = MAX (y1 - y0, 8);
           pic->rotation = f->rotation;
           pic->anchor = f->anchor_mode;
+          pic->name = g_strdup (f->name);
           pic->flip_h = f->flip_h;
           pic->flip_v = f->flip_v;
         }
     }
   for (guint i = 0; i < found->len; i++)
-    if (g_array_index (found, O42EscherFound, i).path != NULL)
-      g_array_unref (g_array_index (found, O42EscherFound, i).path);
+    {
+      if (g_array_index (found, O42EscherFound, i).path != NULL)
+        g_array_unref (g_array_index (found, O42EscherFound, i).path);
+      g_free (g_array_index (found, O42EscherFound, i).name);
+    }
   g_array_unref (found);
 }
 
@@ -5724,6 +5745,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               s.flip_v = pic->flip_v;
               anchor_object (sheet, pic->row, pic->col, pic->dx, pic->dy, pic->width, pic->height, &s);
               s.anchor_mode = pic->anchor;
+              s.name = pic->name;
               g_ptr_array_add (controls, NULL);
             }
           else if (ref->type == O42_OBJECT_CHART)
@@ -5738,6 +5760,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
               s.blip = (int) i;   /* which chart, for the substream */
               anchor_object (sheet, chart->row, chart->col, chart->dx, chart->dy, chart->width, chart->height, &s);
               s.anchor_mode = chart->anchor;
+              s.name = chart->name;
               g_ptr_array_add (controls, NULL);
             }
           else
@@ -5752,6 +5775,7 @@ write_sheet (Writer *w, O42Sheet *sheet, int index, GArray *cells)
                 s.drawing = shape;
               anchor_object (sheet, shape->row, shape->col, shape->dx, shape->dy, shape->width, shape->height, &s);
               s.anchor_mode = shape->anchor;
+              s.name = shape->name;
               g_ptr_array_add (controls, s.is_control ? (gpointer) shape : NULL);
             }
           g_array_append_val (shapes, s);

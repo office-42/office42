@@ -8305,6 +8305,10 @@ picture_copy (const O42Picture *pic)
   copy->crop_l = pic->crop_l; copy->crop_r = pic->crop_r;
   copy->crop_t = pic->crop_t; copy->crop_b = pic->crop_b;
   copy->lock_aspect = pic->lock_aspect;
+  copy->anchor = pic->anchor;
+  copy->brightness = pic->brightness;
+  copy->contrast = pic->contrast;
+  copy->name = g_strdup (pic->name);
   return copy;
 }
 
@@ -8355,6 +8359,7 @@ chart_copy (const O42Chart *chart)
   copy->row = chart->row; copy->col = chart->col;
   copy->dx = chart->dx; copy->dy = chart->dy;
   copy->width = chart->width; copy->height = chart->height;
+  copy->name = g_strdup (chart->name);
   return copy;
 }
 
@@ -13250,7 +13255,11 @@ o42_sheet_control_value (O42Sheet *sheet, const O42Shape *shape, double *value)
 
   g_return_val_if_fail (sheet != NULL && shape != NULL, FALSE);
   if (!control_cell (sheet, shape, &row, &col))
-    return FALSE;
+    {
+      if (shape->has_state)
+        *value = shape->state;
+      return shape->has_state;
+    }
 
   o42_sheet_get_value (sheet, row, col, &v);
   switch (v.type)
@@ -13310,14 +13319,19 @@ o42_sheet_control_items (O42Sheet *sheet, const O42Shape *shape)
 }
 
 void
-o42_sheet_control_set (O42Sheet *sheet, const O42Shape *shape, double value)
+o42_sheet_control_set (O42Sheet *sheet, O42Shape *shape, double value)
 {
   int row, col;
   char text[G_ASCII_DTOSTR_BUF_SIZE];
 
   g_return_if_fail (sheet != NULL && shape != NULL);
   if (!control_cell (sheet, shape, &row, &col))
-    return;
+    {
+      shape->state = value;
+      shape->has_state = TRUE;
+      o42_sheet_set_modified (sheet, TRUE);
+      return;
+    }
 
   /* A check box writes what Excel writes: TRUE or FALSE. */
   if (shape->kind == O42_SHAPE_CHECKBOX)
@@ -13330,7 +13344,7 @@ o42_sheet_control_set (O42Sheet *sheet, const O42Shape *shape, double value)
 }
 
 gboolean
-o42_sheet_control_click (O42Sheet *sheet, const O42Shape *shape,
+o42_sheet_control_click (O42Sheet *sheet, O42Shape *shape,
                          double x, double y, double width, double height)
 {
   double value = 0, span;

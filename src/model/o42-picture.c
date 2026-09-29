@@ -40,6 +40,7 @@ o42_picture_free (O42Picture *picture)
   g_clear_pointer (&picture->data, g_bytes_unref);
   g_clear_pointer (&picture->surface, cairo_surface_destroy);
   g_clear_pointer (&picture->adjusted, cairo_surface_destroy);
+  g_free (picture->name);
   g_free (picture);
 }
 

@@ -447,6 +447,7 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
   int c0, r0, c1, r1;
   double fx0, fy0, fx1, fy1;
   char *a, *b, *encoded;
+  char *pname = pic->name != NULL ? g_markup_printf_escaped (" o42-name=\"%s\"", pic->name) : g_strdup ("");
   char fx0s[32], fy0s[32], fx1s[32], fy1s[32];
   char ct[32], cb[32], cl[32], cr[32];
 
@@ -472,10 +473,10 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
     "ObjectAnchorType=\"16 16 16 16\" Direction=\"17\" "
     "crop-top=\"%s\" crop-bottom=\"%s\" crop-left=\"%s\" crop-right=\"%s\" "
     "o42-z=\"%u\" o42-group=\"%u\" o42-rotation=\"%g\" o42-flip-h=\"%d\" o42-flip-v=\"%d\" "
-    "o42-lock-aspect=\"%d\" o42-anchor=\"%s\" o42-brightness=\"%g\" o42-contrast=\"%g\">\n",
+    "o42-lock-aspect=\"%d\" o42-anchor=\"%s\" o42-brightness=\"%g\" o42-contrast=\"%g\"%s>\n",
     a, b, fx0s, fy0s, fx1s, fy1s, ct, cb, cl, cr, pic->z, pic->group, pic->rotation,
     pic->flip_h ? 1 : 0, pic->flip_v ? 1 : 0, pic->lock_aspect ? 1 : 0, o42_anchor_mode_name (pic->anchor),
-    pic->brightness, pic->contrast);
+    pic->brightness, pic->contrast, pname);
 
   encoded = g_base64_encode (g_bytes_get_data (pic->data, NULL),
                              g_bytes_get_size (pic->data));
@@ -485,6 +486,7 @@ write_picture (GString *out, O42Sheet *sheet, const O42Picture *pic)
   g_string_append (out, "      </gnm:SheetObjectImage>\n");
 
   g_free (encoded);
+  g_free (pname);
   g_free (a);
   g_free (b);
 }
@@ -531,6 +533,12 @@ write_chart (GString *out, O42Sheet *sheet, const O42Chart *chart)
     char num[G_ASCII_DTOSTR_BUF_SIZE];
     if (chart->has_min) g_string_append_printf (bs, " o42-min=\"%s\"", g_ascii_dtostr (num, sizeof num, chart->min));
     if (chart->has_max) g_string_append_printf (bs, " o42-max=\"%s\"", g_ascii_dtostr (num, sizeof num, chart->max));
+    if (chart->name != NULL)
+      {
+        char *e = g_markup_escape_text (chart->name, -1);
+        g_string_append_printf (bs, " o42-name=\"%s\"", e);
+        g_free (e);
+      }
     bounds = g_string_free (bs, FALSE);
   }
 
@@ -1150,6 +1158,15 @@ write_sheet (GString *out, O42Sheet *sheet)
             g_string_append_printf (ta, " Shadow=\"%u\" ShadowDx=\"%g\" ShadowDy=\"%g\"", (guint) sh->shadow_colour, sh->shadow_dx, sh->shadow_dy);
           if (sh->anchor != O42_ANCHOR_TWO_CELL)
             g_string_append_printf (ta, " Anchor=\"%s\"", o42_anchor_mode_name (sh->anchor));
+          /* Its name, and what an unlinked control shows: office42's own. */
+          if (sh->name != NULL)
+            {
+              char *e = g_markup_escape_text (sh->name, -1);
+              g_string_append_printf (ta, " Name=\"%s\"", e);
+              g_free (e);
+            }
+          if (sh->has_state)
+            g_string_append_printf (ta, " State=\"%g\"", sh->state);
           text_attrs = g_string_free (ta, FALSE);
         }
         g_string_append_printf (w.out,
@@ -1832,6 +1849,7 @@ typedef struct {
   int         graph_of_pie, graph_of_pie_count;
   guint       graph_group;
   guint       graph_z;
+  char       *graph_name, *object_name;   /* o42-name: what a macro calls it */
   guint       object_z;         /* an image's z and group, from its start tag */
   guint       object_group;
   double      object_rotation;
@@ -2818,6 +2836,13 @@ start_element (GMarkupParseContext *context, const char *element,
                 o42_pattern_parse (attr (names, values, "Pattern"), &r->shape->pattern);
               }
             o42_anchor_mode_parse (attr (names, values, "Anchor"), &r->shape->anchor);
+            if (attr (names, values, "Name") != NULL)
+              r->shape->name = g_strdup (attr (names, values, "Name"));
+            if (attr (names, values, "State") != NULL)
+              {
+                r->shape->state = attr_double (names, values, "State", 0);
+                r->shape->has_state = TRUE;
+              }
             if (attr (names, values, "Shadow") != NULL)
               {
                 r->shape->shadow = TRUE;
@@ -3042,6 +3067,8 @@ start_element (GMarkupParseContext *context, const char *element,
           r->graph_marker_size = attr_double (names, values, "o42-marker-size", 0);
           r->graph_marker_picture = (guint) attr_int (names, values, "o42-marker-picture", 0);
           r->graph_group = (guint) attr_int (names, values, "o42-group", 0);
+          g_free (r->graph_name);
+          r->graph_name = g_strdup (attr (names, values, "o42-name"));
           r->graph_z = (guint) attr_int (names, values, "o42-z", 0);
           r->graph_anchor = O42_ANCHOR_TWO_CELL;
           o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->graph_anchor);
@@ -3147,6 +3174,8 @@ start_element (GMarkupParseContext *context, const char *element,
       o42_anchor_mode_parse (attr (names, values, "o42-anchor"), &r->object_anchor);
       r->object_brightness = attr_double (names, values, "o42-brightness", 0);
       r->object_contrast = attr_double (names, values, "o42-contrast", 0);
+      g_free (r->object_name);
+      r->object_name = g_strdup (attr (names, values, "o42-name"));
       r->object_flip_h = attr_int (names, values, "o42-flip-h", 0) != 0;
       r->object_flip_v = attr_int (names, values, "o42-flip-v", 0) != 0;
 
@@ -3382,6 +3411,7 @@ finish_picture (Reader *r)
   pic->anchor = r->object_anchor;
   pic->brightness = r->object_brightness;
   pic->contrast = r->object_contrast;
+  pic->name = g_strdup (r->object_name);
 
   x0 = offset_px (r->sheet, TRUE, r->object_bound.col0) +
        r->object_offset[0] * o42_sheet_col_width (r->sheet, r->object_bound.col0);
@@ -3947,6 +3977,7 @@ end_element (GMarkupParseContext *context, const char *element,
           chart->of_pie = r->graph_of_pie;
           chart->of_pie_count = r->graph_of_pie_count;
           chart->group = r->graph_group;
+          chart->name = g_strdup (r->graph_name);
           if (r->graph_z > 0)
             chart->z = r->graph_z;
           chart->anchor = r->graph_anchor;
@@ -4163,6 +4194,8 @@ o42_gnumeric_load (O42Book *book, GFile *file, GError **error)
   g_free (r.scenario_name);
   g_free (r.scenario_comment);
   g_free (r.graph_yformat);
+  g_free (r.graph_name);
+  g_free (r.object_name);
   if (r.script_code != NULL) g_string_free (r.script_code, TRUE);
 
   g_string_free (r.font_name, TRUE);

@@ -1196,25 +1196,27 @@ GPtrArray  *o42_sheet_shapes       (O42Sheet *sheet);   /* owned by the sheet */
 /* ---- Form controls ----------------------------------------------------- */
 
 /* A form control -- a button, a check box, a spinner and the rest -- is
- * a shape with a linked cell.  It keeps no state of its own: what it
- * shows is what the cell says, and clicking it writes the cell. */
+ * a shape with, usually, a linked cell: what it shows is what the cell
+ * says, and clicking it writes the cell.  One without a cell keeps its
+ * value itself (O42Shape.state). */
 
-/* What the linked cell says, as a number (TRUE counts as one).  FALSE
- * if there is no link or the cell holds no number. */
+/* What the linked cell says, as a number (TRUE counts as one), or the
+ * control's own value if it has no cell.  FALSE if there is none. */
 gboolean o42_sheet_control_value (O42Sheet *sheet, const O42Shape *shape, double *value);
 
 /* The items of a list box or a combo box, read out of its source
  * range.  NULL if it has none; free with g_strfreev. */
 char   **o42_sheet_control_items (O42Sheet *sheet, const O42Shape *shape);
 
-/* Writes the linked cell, as one undoable step. */
-void     o42_sheet_control_set   (O42Sheet *sheet, const O42Shape *shape, double value);
+/* Writes the linked cell, as one undoable step; or, without one, the
+ * control's own value. */
+void     o42_sheet_control_set   (O42Sheet *sheet, O42Shape *shape, double value);
 
 /* Works the control at a point inside its box: toggles a check box,
  * chooses an option or a list row, steps a spinner or a scroll bar.
  * TRUE if the sheet changed.  A button changes nothing -- the window
  * runs its script. */
-gboolean o42_sheet_control_click (O42Sheet *sheet, const O42Shape *shape,
+gboolean o42_sheet_control_click (O42Sheet *sheet, O42Shape *shape,
                                   double x, double y, double width, double height);
 
 /* Draws any shape, a control included, with what its cell says. */

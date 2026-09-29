@@ -37,6 +37,7 @@ typedef struct {
   O42AnchorMode anchor_mode;       /* how a drawing, picture or chart follows the cells */
   char    *note;                   /* notes: the text */
   int      note_row, note_col;     /* notes: the cell they belong to */
+  const char *name;                /* the object's own name, or NULL */
 } O42EscherShape;
 
 /* The MSODRAWINGGROUP body: a store of the images, and the shape
@@ -84,6 +85,7 @@ typedef struct {
   GArray  *path;                   /* O42PathPoint: a freeform's outline, or NULL; the caller frees */
   gboolean closed;
   gboolean path_raw;               /* the path's numbers are EMU of the shape's box, not fractions */
+  char    *name;                   /* wzName, "Check Box 3" or a macro's own; the caller frees */
 } O42EscherFound;
 
 /* The images in a group container, in store order: GBytes with the

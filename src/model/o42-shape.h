@@ -145,6 +145,8 @@ typedef struct {
   gboolean      flip_h;     /* mirrored left to right, before turning */
   gboolean      flip_v;
   char         *text;       /* owned; may be empty */
+  char         *name;       /* what the book calls it, "ded_er" or "Button 3": owned;
+                             * NULL for none, when a macro sees the kind's and a number */
   GArray       *path;       /* O42PathPoint, a freeform's outline; NULL otherwise */
   gboolean      closed;     /* the freeform's last point joins its first */
 
@@ -184,6 +186,11 @@ typedef struct {
   double        max;
   double        step;       /* one click of an arrow */
   double        page;       /* one click beside a scroll bar's thumb */
+  /* What a control that drives no cell shows: a check box's 1 or 0, a
+   * list's chosen row from 1, a spinner's number.  A macro may tick a
+   * check box nobody linked. */
+  double        state;
+  gboolean      has_state;
 } O42Shape;
 
 O42Shape   *o42_shape_new  (O42ShapeKind kind);

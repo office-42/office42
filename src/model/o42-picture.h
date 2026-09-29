@@ -22,6 +22,7 @@ typedef struct {
   guint            group;      /* objects grouped together share one; 0 for none */
   guint            z;          /* the painting order: higher is nearer the front */
   GBytes          *data;       /* the file's bytes, as loaded */
+  char            *name;       /* what the book calls it, "Logo": owned; NULL for none */
   const char      *format;     /* interned: "png", "jpeg", ... */
   int              pixel_w;
   int              pixel_h;

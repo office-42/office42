@@ -1335,8 +1335,16 @@ write_control_vml (GString *vml, O42Sheet *sheet, const O42Shape *shape, int sha
   top = (top + shape->dy) * 0.75;
   has_value = o42_sheet_control_value (sheet, shape, &value);
 
+  /* Excel's own files name a control by the shape's id, and number it
+   * by o:spid; a control without a name of its own goes by the number. */
+  {
+    char *id = shape->name != NULL ? g_markup_escape_text (shape->name, -1)
+                                   : g_strdup_printf ("_x0000_s%d", shape_id);
+    g_string_append_printf (vml, "<v:shape id=\"%s\" o:spid=\"_x0000_s%d\"", id, shape_id);
+    g_free (id);
+  }
   g_string_append_printf (vml,
-    "<v:shape id=\"_x0000_s%d\" type=\"#_x0000_t201\" style=\"position:absolute;"
+    " type=\"#_x0000_t201\" style=\"position:absolute;"
     "margin-left:%gpt;margin-top:%gpt;width:%gpt;height:%gpt;z-index:%d\" o:button=\"t\" "
     "fillcolor=\"buttonFace [67]\" strokecolor=\"windowText [64]\">"
     "<v:textbox style=\"mso-direction-alt:auto\"><div style=\"text-align:center\">"
@@ -1345,7 +1353,7 @@ write_control_vml (GString *vml, O42Sheet *sheet, const O42Shape *shape, int sha
     "<x:MoveWithCells/><x:SizeWithCells/>"
     "<x:Anchor>%d, 0, %d, 0, %d, 0, %d, 0</x:Anchor>"
     "<x:AutoFill>False</x:AutoFill>",
-    shape_id, left, top, shape->width * 0.75, shape->height * 0.75, shape_id - 1024,
+    left, top, shape->width * 0.75, shape->height * 0.75, shape_id - 1024,
     caption, type,
     shape->col, shape->row, shape->col + 2, shape->row + 2);
 
@@ -1574,6 +1582,9 @@ typedef struct {
   gboolean    in_shape;
   gboolean    in_client;
   char       *style;         /* the shape's own style attribute */
+  char       *id;            /* its id: the control's name, unless Excel numbered it */
+  char       *spid;          /* o:spid, the number the drawing's stand-in names it by */
+  GHashTable *stand_ins;     /* spid -> the name on the drawing's stand-in; may be NULL */
   char       *object_type;   /* Checkbox, Spin, Scroll, Drop, List, ... */
   char       *field;         /* the ClientData child being read */
   GString    *text;          /* its text */
@@ -1632,6 +1643,8 @@ vml_start (GMarkupParseContext *ctx, const char *element, const char **names,
     {
       r->in_shape = TRUE;
       g_clear_pointer (&r->style, g_free);
+      g_clear_pointer (&r->id, g_free);
+      g_clear_pointer (&r->spid, g_free);
       g_clear_pointer (&r->object_type, g_free);
       g_clear_pointer (&r->link, g_free);
       g_clear_pointer (&r->range, g_free);
@@ -1648,6 +1661,13 @@ vml_start (GMarkupParseContext *ctx, const char *element, const char **names,
       for (int i = 0; names[i] != NULL; i++)
         if (strcmp (names[i], "style") == 0)
           r->style = g_strdup (values[i]);
+        else if (strcmp (names[i], "id") == 0 && !g_str_has_prefix (values[i], "_x0000_"))
+          r->id = g_strdup (values[i]);
+        else if (strcmp (names[i], "o:spid") == 0 || (strcmp (names[i], "id") == 0 && r->spid == NULL))
+          {
+            g_free (r->spid);
+            r->spid = g_strdup (values[i]);
+          }
       return;
     }
   if (strcmp (n, "textbox") == 0)
@@ -1749,6 +1769,9 @@ vml_end (GMarkupParseContext *ctx, const char *element, gpointer user, GError **
             {
               shape->width = vml_style_px (r->style, "width", shape->width);
               shape->height = vml_style_px (r->style, "height", shape->height);
+              shape->name = g_strdup (r->id != NULL ? r->id
+                                      : r->stand_ins != NULL && r->spid != NULL
+                                        ? g_hash_table_lookup (r->stand_ins, r->spid) : NULL);
               shape->min = r->min;
               shape->max = r->max;
               shape->step = r->step > 0 ? r->step : 1;
@@ -1790,6 +1813,16 @@ vml_end (GMarkupParseContext *ctx, const char *element, gpointer user, GError **
                 }
               if (kind == O42_SHAPE_OPTION)
                 shape->value = 1;
+              /* A control that drives no cell keeps what the file says it
+               * shows: ticked, the row chosen, the spinner's number. */
+              if (shape->link == NULL)
+                {
+                  if (kind == O42_SHAPE_CHECKBOX)
+                    shape->state = r->checked ? 1 : 0, shape->has_state = TRUE;
+                  else if (kind == O42_SHAPE_LISTBOX || kind == O42_SHAPE_COMBO ||
+                           kind == O42_SHAPE_SPINNER || kind == O42_SHAPE_SCROLLBAR)
+                    shape->state = r->value, shape->has_state = r->value != 0;
+                }
             }
         }
       g_clear_pointer (&r->object_type, g_free);
@@ -1797,6 +1830,69 @@ vml_end (GMarkupParseContext *ctx, const char *element, gpointer user, GError **
 }
 
 static const GMarkupParser vml_parser = { vml_start, vml_end, vml_text, NULL, NULL };
+
+static gboolean parse_part (GHashTable *parts, const char *path, const GMarkupParser *parser,
+            gpointer r, GError **error);
+
+/* Excel 2010 and later give a form control a stand-in in the sheet's
+ * drawing, hidden, whose name is the control's -- "Button 1", "Check
+ * Box 3" -- where the VML shape's id is only a number.  Its compatExt
+ * says which VML shape it stands for. */
+typedef struct {
+  GHashTable *names;        /* spid -> name */
+  char       *name;         /* the xdr:cNvPr being read */
+} StandIns;
+
+static void
+stand_in_start (GMarkupParseContext *ctx, const char *element, const char **names,
+                const char **values, gpointer user, GError **error)
+{
+  StandIns *st = user;
+  const char *n = strchr (element, ':') ? strchr (element, ':') + 1 : element;
+
+  (void) ctx; (void) error;
+  for (int i = 0; names[i] != NULL; i++)
+    if (strcmp (n, "cNvPr") == 0 && strcmp (names[i], "name") == 0)
+      {
+        g_free (st->name);
+        st->name = g_strdup (values[i]);
+      }
+    else if (strcmp (n, "compatExt") == 0 && strcmp (names[i], "spid") == 0 && st->name != NULL)
+      g_hash_table_replace (st->names, g_strdup (values[i]), g_strdup (st->name));
+}
+
+static const GMarkupParser stand_in_parser = { stand_in_start, NULL, NULL, NULL, NULL };
+
+/* The stand-ins' names in the drawing among `rels`, or NULL. */
+static GHashTable *
+read_stand_ins (GHashTable *parts, const char *part, GHashTable *rels)
+{
+  StandIns st = { NULL, NULL };
+  GHashTableIter it;
+  gpointer k, v;
+
+  g_hash_table_iter_init (&it, rels);
+  while (g_hash_table_iter_next (&it, &k, &v))
+    {
+      char *type_key, *dpart;
+      const char *type;
+
+      if (g_str_has_prefix (k, "type:"))
+        continue;
+      type_key = g_strconcat ("type:", (const char *) k, NULL);
+      type = g_hash_table_lookup (rels, type_key);
+      g_free (type_key);
+      if (type == NULL || !g_str_has_suffix (type, "/drawing"))
+        continue;
+      if (st.names == NULL)
+        st.names = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+      dpart = o42_xlsx_resolve (part, v);
+      parse_part (parts, dpart, &stand_in_parser, &st, NULL);
+      g_free (dpart);
+    }
+  g_free (st.name);
+  return st.names;
+}
 
 gboolean
 o42_xlsx_save (O42Book *book, GFile *file, GError **error)
@@ -4850,8 +4946,12 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
                         vr.sheet = r.sheet;
                         vr.max = 100;
                         vr.step = 1;
+                        vr.stand_ins = read_stand_ins (parts, part, rels);
                         parse_part (parts, vpart, &vml_parser, &vr, NULL);
+                        g_clear_pointer (&vr.stand_ins, g_hash_table_unref);
                         g_clear_pointer (&vr.style, g_free);
+                        g_clear_pointer (&vr.id, g_free);
+                        g_clear_pointer (&vr.spid, g_free);
                         g_clear_pointer (&vr.object_type, g_free);
                         g_clear_pointer (&vr.field, g_free);
                         g_clear_pointer (&vr.link, g_free);

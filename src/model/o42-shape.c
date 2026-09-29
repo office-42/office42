@@ -62,6 +62,7 @@ o42_shape_free (O42Shape *shape)
   if (shape == NULL)
     return;
   g_free (shape->text);
+  g_free (shape->name);
   g_free (shape->link);
   g_free (shape->source);
   g_free (shape->script);
@@ -102,6 +103,7 @@ o42_shape_copy (const O42Shape *shape)
   copy->id = 0;
   copy->group = 0;
   copy->text = g_strdup (shape->text != NULL ? shape->text : "");
+  copy->name = g_strdup (shape->name);
   copy->link = g_strdup (shape->link);
   copy->source = g_strdup (shape->source);
   copy->script = g_strdup (shape->script);

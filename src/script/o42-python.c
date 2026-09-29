@@ -2077,6 +2077,7 @@ m_object_get (PyObject *self, PyObject *args)
       O42Chart *c = o42_sheet_find_chart (sheet, id);
       if (c == NULL) { Py_DECREF (d); return PyErr_Format (PyExc_KeyError, "no chart %u", id); }
       dict_set (d, "kind", PyUnicode_FromString (o42_chart_kind_name (c->kind)));
+      dict_set (d, "name", c->name != NULL ? PyUnicode_FromString (c->name) : Py_NewRef (Py_None));
       dict_set (d, "title", PyUnicode_FromString (c->title != NULL ? c->title : ""));
       dict_set (d, "x_title", PyUnicode_FromString (c->x_title != NULL ? c->x_title : ""));
       dict_set (d, "y_title", PyUnicode_FromString (c->y_title != NULL ? c->y_title : ""));
@@ -2118,6 +2119,28 @@ m_object_get (PyObject *self, PyObject *args)
       dict_set (d, "link", s->link != NULL ? PyUnicode_FromString (s->link) : Py_NewRef (Py_None));
       dict_set (d, "source", s->source != NULL ? PyUnicode_FromString (s->source) : Py_NewRef (Py_None));
       dict_set (d, "script", s->script != NULL ? PyUnicode_FromString (s->script) : Py_NewRef (Py_None));
+      dict_set (d, "name", s->name != NULL ? PyUnicode_FromString (s->name) : Py_NewRef (Py_None));
+      if (o42_shape_is_control (s->kind))
+        {
+          double v = 0;
+          char **items = o42_sheet_control_items (sheet, s);
+          PyObject *list = PyList_New (0);
+          /* "state" is what the control shows now -- its cell's number,
+           * or its own when it has no cell -- and None when neither
+           * says anything. */
+          dict_set (d, "state", o42_sheet_control_value (sheet, s, &v) ? PyFloat_FromDouble (v) : Py_NewRef (Py_None));
+          dict_set (d, "value", PyFloat_FromDouble (s->value));
+          dict_set (d, "min", PyFloat_FromDouble (s->min)); dict_set (d, "max", PyFloat_FromDouble (s->max));
+          dict_set (d, "step", PyFloat_FromDouble (s->step)); dict_set (d, "page", PyFloat_FromDouble (s->page));
+          for (char **i = items; i != NULL && *i != NULL; i++)
+            {
+              PyObject *t = PyUnicode_FromString (*i);
+              PyList_Append (list, t);
+              Py_DECREF (t);
+            }
+          dict_set (d, "items", list);
+          g_strfreev (items);
+        }
       dict_set (d, "row", PyLong_FromLong (s->row)); dict_set (d, "col", PyLong_FromLong (s->col));
       dict_set (d, "dx", PyFloat_FromDouble (s->dx)); dict_set (d, "dy", PyFloat_FromDouble (s->dy));
       dict_set (d, "width", PyFloat_FromDouble (s->width)); dict_set (d, "height", PyFloat_FromDouble (s->height));
@@ -2128,6 +2151,7 @@ m_object_get (PyObject *self, PyObject *args)
       O42Picture *p = o42_sheet_find_picture (sheet, id);
       if (p == NULL) { Py_DECREF (d); return PyErr_Format (PyExc_KeyError, "no picture %u", id); }
       dict_set (d, "format", PyUnicode_FromString (p->format != NULL ? p->format : ""));
+      dict_set (d, "name", p->name != NULL ? PyUnicode_FromString (p->name) : Py_NewRef (Py_None));
       dict_set (d, "pixel_w", PyLong_FromLong (p->pixel_w)); dict_set (d, "pixel_h", PyLong_FromLong (p->pixel_h));
       dict_set (d, "rotation", PyFloat_FromDouble (p->rotation));
       dict_set (d, "flip_h", PyBool_FromLong (p->flip_h));
@@ -2228,7 +2252,7 @@ m_object_set (PyObject *self, PyObject *args)
               else c->data = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
             }
           SET_TEXT (c->title) SET_TEXT (c->x_title) SET_TEXT (c->y_title) SET_TEXT (c->font_family) SET_TEXT (c->y_format)
-          SET_TEXT (c->data_sheet)
+          SET_TEXT (c->data_sheet) SET_TEXT (c->name)
           SET_BOOL (c->legend) SET_BOOL (c->series_in_rows) SET_BOOL (c->first_row_labels) SET_BOOL (c->first_col_labels)
           SET_BOOL (c->data_labels) SET_BOOL (c->three_d) SET_BOOL (c->gridlines)
           SET_NUM (c->font_size) SET_NUM (c->dx) SET_NUM (c->dy) SET_NUM (c->width) SET_NUM (c->height)
@@ -2262,7 +2286,14 @@ m_object_set (PyObject *self, PyObject *args)
               else if (k[5] == 's') s->head_start = head;
               else s->head_end = head;
             }
-          SET_TEXT (s->text) SET_TEXT (s->link) SET_TEXT (s->source) SET_TEXT (s->script)
+          else if (strcmp (k, "state") == 0)
+            {
+              /* Through the linked cell when there is one, so whatever
+               * watches the cell follows, as a click would. */
+              ok = want_double (value, &d);
+              if (ok) o42_sheet_control_set (sheet, s, d);
+            }
+          SET_TEXT (s->text) SET_TEXT (s->link) SET_TEXT (s->source) SET_TEXT (s->script) SET_TEXT (s->name)
           SET_NUM (s->line_width) SET_NUM (s->rotation) SET_NUM (s->dx) SET_NUM (s->dy) SET_NUM (s->width) SET_NUM (s->height)
           SET_NUM (s->value) SET_NUM (s->min) SET_NUM (s->max) SET_NUM (s->step) SET_NUM (s->page)
           SET_BOOL (s->flip_h) SET_BOOL (s->flip_v)
@@ -2276,6 +2307,7 @@ m_object_set (PyObject *self, PyObject *args)
               if (!PyArg_ParseTuple (value, "dddd", &p->crop_l, &p->crop_r, &p->crop_t, &p->crop_b))
                 ok = FALSE;
             }
+          SET_TEXT (p->name)
           SET_NUM (p->rotation) SET_NUM (p->dx) SET_NUM (p->dy) SET_NUM (p->width) SET_NUM (p->height)
           SET_BOOL (p->flip_h) SET_BOOL (p->flip_v) SET_BOOL (p->lock_aspect)
           SET_INT (p->row) SET_INT (p->col)
@@ -2290,6 +2322,9 @@ m_object_set (PyObject *self, PyObject *args)
   if (s != NULL && s->link != NULL && *s->link == '\0') { g_free (s->link); s->link = NULL; }
   if (s != NULL && s->source != NULL && *s->source == '\0') { g_free (s->source); s->source = NULL; }
   if (s != NULL && s->script != NULL && *s->script == '\0') { g_free (s->script); s->script = NULL; }
+  if (s != NULL && s->name != NULL && *s->name == '\0') { g_free (s->name); s->name = NULL; }
+  if (c != NULL && c->name != NULL && *c->name == '\0') { g_free (c->name); c->name = NULL; }
+  if (p != NULL && p->name != NULL && *p->name == '\0') { g_free (p->name); p->name = NULL; }
   if (!ok)
     return NULL;
   o42_sheet_set_modified (sheet, TRUE);

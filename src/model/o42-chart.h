@@ -84,6 +84,7 @@ typedef struct {
   guint         group;       /* objects grouped together share one; 0 for none */
   guint         z;           /* the painting order: higher is nearer the front */
   O42ChartKind  kind;
+  char         *name;          /* what the book calls it, "Chart 1": owned; NULL for none */
   O42Range      data;          /* the source cells */
   char         *data_sheet;    /* owned: the sheet they are on, "" for the
                                 * sheet the chart is itself on.  A chart

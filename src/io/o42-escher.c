@@ -255,6 +255,44 @@ head_from_escher (guint32 v)
   return v < O42_N_HEADS ? (O42Head) v : O42_HEAD_TRIANGLE;
 }
 
+/* wzName, a complex property: its entry in an Opt's table, and its
+ * bytes -- UTF-16 to a NUL -- after the table. */
+static glong
+name_units (const char *name)
+{
+  glong units = 0;
+  gunichar2 *wide = name != NULL ? g_utf8_to_utf16 (name, -1, NULL, &units, NULL) : NULL;
+
+  g_free (wide);
+  return wide != NULL ? units + 1 : 0;
+}
+
+static void
+put_name_entry (GByteArray *a, const char *name, guint *n)
+{
+  glong units = name_units (name);
+
+  if (units > 0)
+    {
+      put16 (a, 0x8380);
+      put32 (a, (guint32) units * 2);
+      (*n)++;
+    }
+}
+
+static void
+put_name_bytes (GByteArray *a, const char *name)
+{
+  glong units = 0;
+  gunichar2 *wide = name != NULL ? g_utf8_to_utf16 (name, -1, NULL, &units, NULL) : NULL;
+
+  if (wide == NULL)
+    return;
+  for (glong i = 0; i <= units; i++)
+    put16 (a, i < units ? wide[i] : 0);
+  g_free (wide);
+}
+
 /* The Opt record of a drawn shape: the properties in ascending order,
  * as the format wants them.  `txid` numbers the text, when there is
  * any, for the TXO that follows the OBJ. */
@@ -346,6 +384,7 @@ put_drawing_opt (GByteArray *a, const O42Shape *sh, guint txid)
       put16 (a, 0x0206); put32 (a, (guint32) (gint32) (sh->shadow_dy * 9525)); n++;
       put16 (a, 0x023F); put32 (a, 0x00020002); n++;                     /* fShadow */
     }
+  put_name_entry (a, sh->name, &n);
   put16 (a, 0x03BF); put32 (a, 0x00080000); n++;                         /* not hidden, printable */
   if (complex_from != NULL)
     {
@@ -377,6 +416,7 @@ put_drawing_opt (GByteArray *a, const O42Shape *sh, guint txid)
       put16 (a, complex_from->closed ? 0x6001 : 0x0000);                  /* close, or a lineTo of nothing */
       put16 (a, 0x8000);                                                  /* end */
     }
+  put_name_bytes (a, sh->name);
   /* The header's instance is the property count. */
   a->data[opt_at] = (3 & 0x0F) | ((n & 0x0F) << 4);
   a->data[opt_at + 1] = (n >> 4) & 0xFF;
@@ -443,19 +483,27 @@ o42_escher_drawing (int drawing_id, GArray *shapes)
       else if (s->is_control)
         {
           /* What Excel puts on a form control: no fill of its own, no
-           * line, and the text laid out inside the shape. */
-          header (a, 3, 7, ESC_OPT, 7 * 6);
+           * line, and the text laid out inside the shape; and its name. */
+          glong units = name_units (s->name);
+          guint n = 7;
+
+          header (a, 3, units > 0 ? 8 : 7, ESC_OPT, (units > 0 ? 8 * 6 + (guint32) units * 2 : 7 * 6));
           put16 (a, 0x007F); put32 (a, 0x01000100);
           put16 (a, 0x0080); put32 (a, 0x00000000);
           put16 (a, 0x0085); put32 (a, 0x00000001);
           put16 (a, 0x00BF); put32 (a, 0x001A0008);
           put16 (a, 0x01BF); put32 (a, 0x00100000);
           put16 (a, 0x01FF); put32 (a, 0x00080000);
+          put_name_entry (a, s->name, &n);
           put16 (a, 0x03BF); put32 (a, 0x00080000);
+          put_name_bytes (a, s->name);
         }
       else if (s->is_chart)
         {
-          header (a, 3, 9, ESC_OPT, 9 * 6);
+          glong units = name_units (s->name);
+          guint n = 9;
+
+          header (a, 3, units > 0 ? 10 : 9, ESC_OPT, (units > 0 ? 10 * 6 + (guint32) units * 2 : 9 * 6));
           put16 (a, 0x007F); put32 (a, 0x01040104);
           put16 (a, 0x00BF); put32 (a, 0x00080008);
           put16 (a, 0x0181); put32 (a, 0x0800004E);
@@ -464,7 +512,9 @@ o42_escher_drawing (int drawing_id, GArray *shapes)
           put16 (a, 0x01C0); put32 (a, 0x0800004D);
           put16 (a, 0x01FF); put32 (a, 0x00080008);
           put16 (a, 0x023F); put32 (a, 0x00020000);
+          put_name_entry (a, s->name, &n);
           put16 (a, 0x03BF); put32 (a, 0x00080000);
+          put_name_bytes (a, s->name);
         }
       else if (s->is_note)
         {
@@ -480,13 +530,17 @@ o42_escher_drawing (int drawing_id, GArray *shapes)
       else
         {
           gboolean turned = s->rotation != 0;
+          glong units = name_units (s->name);
+          guint n = turned ? 4 : 3;
 
-          header (a, 3, turned ? 4 : 3, ESC_OPT, (turned ? 4 : 3) * 6);
+          header (a, 3, n + (units > 0), ESC_OPT, (n + (units > 0)) * 6 + (guint32) units * 2);
           if (turned)
             { put16 (a, 0x0004); put32 (a, escher_rotation (s->rotation, s->flip_h, s->flip_v)); }
           put16 (a, 0x007F); put32 (a, 0x01000100);            /* lock aspect ratio */
           put16 (a, 0x4104); put32 (a, s->blip);               /* the picture */
           put16 (a, 0x01BF); put32 (a, 0x00110000);            /* no fill hit test */
+          put_name_entry (a, s->name, &n);
+          put_name_bytes (a, s->name);
         }
       put_anchor (a, s);
       header (a, 0, 0, ESC_CLIENT_DATA, 0);
@@ -824,6 +878,15 @@ o42_escher_parse_drawing (const guchar *data, gsize len, GArray *found)
                     {
                       if (id == 0x0145) { vertices = body + complex; n_vertex_bytes = actual; }
                       else if (id == 0x0146) { segments = body + complex; n_segment_bytes = actual; }
+                      else if (id == 0x0380 && actual >= 2)
+                        {
+                          /* wzName: the shape's name, UTF-16 to its NUL. */
+                          gunichar2 *wide = g_memdup2 (body + complex, actual & ~(gsize) 1);
+                          char *name = g_utf16_to_utf8 (wide, (glong) (actual / 2), NULL, NULL, NULL);
+                          g_free (wide);
+                          g_free (cur.name);
+                          cur.name = name;
+                        }
                       complex += actual;
                     }
                   else

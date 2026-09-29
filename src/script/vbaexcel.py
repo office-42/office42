@@ -179,6 +179,10 @@ XL.update({
     "xldatalabelsshownone": -4142, "xlscalelinear": -4132, "xlscalelogarithmic": -4133,
     "xltickLabelpositionnone": -4142, "xlticklabelpositionlow": -4134,
     "xlticklabelpositionhigh": -4127, "xlticklabelpositionnexttoaxis": 4,
+    # The Forms toolbar's controls, and what a check box says.
+    "xlButtonControl": 0, "xlCheckBox": 1, "xlDropDown": 2, "xlEditBox": 3, "xlGroupBox": 4,
+    "xlLabel": 5, "xlListBox": 6, "xlOptionButton": 7, "xlScrollBar": 8, "xlSpinner": 9,
+    "xlOn": 1, "xlOff": -4146, "xlMixed": 2,
 })
 XL = {k.lower(): v for k, v in XL.items()}
 
@@ -2621,6 +2625,9 @@ class Shape(_XlObject):
     @property
     def Name(self):
         p = self._props()
+        if p.get("name"):
+            return p["name"]
+        # One the book never named is called what Excel would call it.
         kind = p.get("kind", self._kind)
         label = {"button": "Button", "checkbox": "Check Box", "option": "Option Button",
                  "label": "Label", "listbox": "List Box", "combo": "Drop Down", "spinner": "Spinner",
@@ -2630,6 +2637,10 @@ class Shape(_XlObject):
         elif self._kind == "chart":
             label = "Chart"
         return "%s %d" % (label or "Rectangle", self._oid)
+
+    @Name.setter
+    def Name(self, v):
+        self._set(name=to_str(v))
 
     @property
     def OnAction(self):
@@ -2662,11 +2673,29 @@ class Shape(_XlObject):
 
     @property
     def Left(self):
-        return self.TopLeftCell.Left
+        return self.TopLeftCell.Left + self._props()["dx"] * 0.75
+
+    @Left.setter
+    def Left(self, v):
+        ws = self._host.worksheet_by_id(self._id)
+        r, c, dx, dy = ws._place(to_double(v), self.Top)
+        self._set(col=c, dx=dx)
 
     @property
     def Top(self):
-        return self.TopLeftCell.Top
+        return self.TopLeftCell.Top + self._props()["dy"] * 0.75
+
+    @Top.setter
+    def Top(self, v):
+        ws = self._host.worksheet_by_id(self._id)
+        r, c, dx, dy = ws._place(self.Left, to_double(v))
+        self._set(row=r, dy=dy)
+
+    @property
+    def BottomRightCell(self):
+        ws = self._host.worksheet_by_id(self._id)
+        r, c = ws._cell_at(self.Left + self.Width, self.Top + self.Height)
+        return Range(self._host, self._id, r, c)
 
     @property
     def Visible(self):
@@ -2678,9 +2707,29 @@ class Shape(_XlObject):
 
     @property
     def Type(self):
-        return {"chart": 3, "picture": 13}.get(self._kind, 1 if self._props().get("kind") not in (
-            "button", "checkbox", "option", "label", "listbox", "combo", "spinner", "scrollbar",
-            "groupbox") else 8)
+        return {"chart": 3, "picture": 13}.get(self._kind, 8 if self._props().get("kind") in _FORM_TYPES else 1)
+
+    @property
+    def FormControlType(self):
+        t = _FORM_TYPES.get(self._props().get("kind"))
+        if self._kind != "shape" or t is None:
+            raise VBAError(1004, "The shape is not a form control.")
+        return t
+
+    @property
+    def ControlFormat(self):
+        self.FormControlType
+        return FormControl(self._host, self._id, self._oid, self._position)
+
+    @property
+    def DrawingObject(self):
+        if self._kind == "shape" and self._props().get("kind") in _FORM_TYPES:
+            return FormControl(self._host, self._id, self._oid, self._position)
+        return self
+
+    @property
+    def OLEFormat(self):
+        return _OLEFormat(self)
 
     @property
     def TextFrame(self):
@@ -2694,9 +2743,39 @@ class Shape(_XlObject):
     def Select(self, Replace=MISSING):
         return True
 
+    def Copy(self):
+        # What a macro copies a shape for is, nearly always, a toolbar
+        # button's face (PasteFace), which office42 does not draw; the
+        # clipboard holds cells only.
+        return None
+
+    def CopyPicture(self, Appearance=MISSING, Format=MISSING):
+        return None
+
     @property
     def ZOrderPosition(self):
         return self._position
+
+
+class _OLEFormat:
+    """Shape.OLEFormat.Object, the way many macros reach a check box
+    from its shape."""
+
+    _vba_typename = "OLEFormat"
+
+    def __init__(self, shape):
+        self._shape = shape
+
+    @property
+    def Object(self):
+        return self._shape.DrawingObject
+
+    @property
+    def ProgID(self):
+        return ""
+
+    def Activate(self):
+        pass
 
 
 class _ShapeText:
@@ -2721,6 +2800,210 @@ class _ShapeText:
     @Text.setter
     def Text(self, v):
         self._shape._set(text=to_str(v))
+
+
+# The form controls, by the model's kind: Excel's XlFormControl number,
+# the old DrawingObjects class a macro sees, and the Worksheet
+# collection that holds each kind.
+_FORM_TYPES = {"button": 0, "checkbox": 1, "combo": 2, "groupbox": 4, "label": 5,
+               "listbox": 6, "option": 7, "scrollbar": 8, "spinner": 9}
+_FORM_CLASSES = {"button": "Button", "checkbox": "CheckBox", "combo": "DropDown", "groupbox": "GroupBox",
+                 "label": "Label", "listbox": "ListBox", "option": "OptionButton",
+                 "scrollbar": "ScrollBar", "spinner": "Spinner"}
+_FORM_KINDS = {v: k for k, v in _FORM_TYPES.items()}
+XL_ON, XL_OFF, XL_MIXED = 1, -4146, 2
+
+
+def _control_ref(v):
+    """A LinkedCell or ListFillRange as the model keeps it: "B2" or
+    "B2:B9", on the control's own sheet, which is where office42
+    looks for it."""
+    if isinstance(v, Range):
+        v = v.Address
+    t = to_str(v).strip()
+    if t.startswith("="):
+        t = t[1:]
+    if "!" in t:
+        t = t.rsplit("!", 1)[1]
+    return t.replace("$", "")
+
+
+def _absolute(ref):
+    """"B2:B9" as Excel gives it back, "$B$2:$B$9"."""
+    if not ref:
+        return ""
+    return ":".join(re.sub(r"^([A-Za-z]+)(\d+)$", r"$\1$\2", part) for part in ref.split(":"))
+
+
+class FormControl(Shape):
+    """A control from the Forms toolbar, as the sheet's CheckBoxes,
+    Buttons, DropDowns and the rest give it, and as
+    Shape.ControlFormat does: the same object, with the members of
+    both.  Its Value is its linked cell's when it has one."""
+
+    def __init__(self, host, sheet_id, oid, position):
+        Shape.__init__(self, host, sheet_id, "shape", oid, position)
+
+    @property
+    def _vba_typename(self):
+        return _FORM_CLASSES.get(self._props().get("kind"), "Shape")
+
+    @property
+    def Index(self):
+        return self._position
+
+    @property
+    def Caption(self):
+        return self._props().get("text") or ""
+
+    @Caption.setter
+    def Caption(self, v):
+        self._set(text=to_str(v))
+
+    Text = Caption
+
+    def Characters(self, Start=MISSING, Length=MISSING):
+        return _ShapeText(self)
+
+    @property
+    def Value(self):
+        p = self._props()
+        kind, state = p.get("kind"), p.get("state")
+        if kind == "checkbox":
+            if state is None or state == 0:
+                return XL_OFF
+            return XL_MIXED if state == 2 else XL_ON
+        if kind == "option":
+            return XL_ON if state is not None and state == (p["value"] or 1) else XL_OFF
+        if kind in ("listbox", "combo"):
+            return int(state) if state is not None else 0
+        if kind in ("spinner", "scrollbar"):
+            return int(state) if state is not None else int(p["min"])
+        return 0
+
+    @Value.setter
+    def Value(self, v):
+        p = self._props()
+        kind = p.get("kind")
+        if kind == "checkbox":
+            n = to_long(v)
+            self._set(state=0 if n in (0, XL_OFF) else (2 if n == XL_MIXED else 1))
+        elif kind == "option":
+            on = to_long(v) not in (0, XL_OFF)
+            mine = p["value"] or 1
+            if on:
+                self._set(state=mine)
+                if not p.get("link"):
+                    # Options with no cell to share turn each other off
+                    # themselves; Excel would ask the group box they sit
+                    # in, and office42 takes the whole sheet as one.
+                    for o in OptionButtons(self._host, self._id)._all():
+                        if o._oid != self._oid and o._props().get("state"):
+                            o._set(state=0)
+            elif p.get("state") == mine:
+                self._set(state=0)
+        elif kind in ("listbox", "combo", "spinner", "scrollbar"):
+            self._set(state=to_double(v))
+        else:
+            raise VBAError(438)
+
+    @property
+    def LinkedCell(self):
+        return _absolute(self._props().get("link"))
+
+    @LinkedCell.setter
+    def LinkedCell(self, v):
+        self._set(link=_control_ref(v))
+
+    @property
+    def ListFillRange(self):
+        return _absolute(self._props().get("source"))
+
+    @ListFillRange.setter
+    def ListFillRange(self, v):
+        self._set(source=_control_ref(v))
+
+    InputRange = ListFillRange
+
+    @property
+    def ListIndex(self):
+        state = self._props().get("state")
+        return int(state) if state is not None else 0
+
+    @ListIndex.setter
+    def ListIndex(self, v):
+        self._set(state=to_double(v))
+
+    @property
+    def ListCount(self):
+        return len(self._props().get("items", ()))
+
+    def List(self, Index=MISSING):
+        items = self._props().get("items", [])
+        if Index is MISSING:
+            return VBArray([(1, len(items))], data=list(items)) if items else EMPTY
+        i = to_long(Index)
+        if i < 1 or i > len(items):
+            raise VBAError(1004, "Unable to get the List property.")
+        return items[i - 1]
+
+    def AddItem(self, Text, Index=MISSING):
+        # A list's items are the cells of its ListFillRange; office42
+        # keeps no list of its own a macro could add to.
+        raise VBAError(1004, "office42 fills a list from its ListFillRange; AddItem is not there yet.")
+
+    def RemoveAllItems(self):
+        if self._props().get("source"):
+            self._set(source="")
+
+    @property
+    def Min(self):
+        return int(self._props()["min"])
+
+    @Min.setter
+    def Min(self, v):
+        self._set(min=to_double(v))
+
+    @property
+    def Max(self):
+        return int(self._props()["max"])
+
+    @Max.setter
+    def Max(self, v):
+        self._set(max=to_double(v))
+
+    @property
+    def SmallChange(self):
+        return int(self._props()["step"] or 1)
+
+    @SmallChange.setter
+    def SmallChange(self, v):
+        self._set(step=to_double(v))
+
+    @property
+    def LargeChange(self):
+        p = self._props()
+        return int(p["page"] or p["step"] or 1)
+
+    @LargeChange.setter
+    def LargeChange(self, v):
+        self._set(page=to_double(v))
+
+    @property
+    def Enabled(self):
+        return True
+
+    @Enabled.setter
+    def Enabled(self, v):
+        pass
+
+    @property
+    def Locked(self):
+        return True
+
+    @Locked.setter
+    def Locked(self, v):
+        pass
 
 
 class Shapes(_XlObject):
@@ -2769,6 +3052,13 @@ class Shapes(_XlObject):
         s._set(width=to_double(Width) / 0.75, height=to_double(Height) / 0.75)
         return s
 
+    def AddFormControl(self, Type, Left, Top, Width, Height):
+        kind = _FORM_KINDS.get(to_long(Type))
+        if kind is None:
+            raise VBAError(1004, "office42 has no such form control.")
+        cls = {c._kind_name: c for c in _FormControls.__subclasses__()}[kind]
+        return cls(self._host, self._id).Add(Left, Top, Width, Height)
+
     def AddTextbox(self, Orientation, Left, Top, Width, Height):
         ws = self._host.worksheet_by_id(self._id)
         at = ws._cell_at(to_double(Left), to_double(Top))
@@ -2787,6 +3077,89 @@ class Shapes(_XlObject):
         if to_double(Height) > 0:
             s._set(height=to_double(Height) / 0.75)
         return s
+
+
+class _FormControls(Shapes):
+    """Worksheet.CheckBoxes and its kin: the sheet's controls of one
+    kind.  What is set on the collection is set on each of them, as
+    Excel's ActiveSheet.CheckBoxes.Value = xlOff does."""
+
+    _kind_name = "button"
+
+    def __init__(self, host, sheet_id):
+        Shapes.__init__(self, host, sheet_id, ("shape",))
+
+    @property
+    def _vba_typename(self):
+        return _FORM_CLASSES[self._kind_name] + ("es" if self._kind_name == "checkbox" else "s")
+
+    def _all(self):
+        i = _index_of(self._id)
+        out = []
+        for t, oid in _c.objects(i):
+            if t == "shape" and _c.object_get(i, t, oid).get("kind") == self._kind_name:
+                out.append(FormControl(self._host, self._id, oid, len(out) + 1))
+        return out
+
+    def Add(self, Left, Top, Width, Height, Editable=MISSING):
+        ws = self._host.worksheet_by_id(self._id)
+        r, c, dx, dy = ws._place(to_double(Left), to_double(Top))
+        oid = _c.add_shape(_index_of(self._id), self._kind_name, r, c)
+        ctl = FormControl(self._host, self._id, oid, len(self._all()))
+        ctl._set(dx=dx, dy=dy, width=to_double(Width) / 0.75, height=to_double(Height) / 0.75)
+        return ctl
+
+    def Delete(self):
+        for ctl in self._all():
+            ctl.Delete()
+
+    def _each(self, name, v):
+        for ctl in self._all():
+            setattr(ctl, name, v)
+
+    Value = property(lambda self: EMPTY, lambda self, v: self._each("Value", v))
+    Caption = property(lambda self: EMPTY, lambda self, v: self._each("Caption", v))
+    Text = Caption
+    OnAction = property(lambda self: EMPTY, lambda self, v: self._each("OnAction", v))
+    LinkedCell = property(lambda self: EMPTY, lambda self, v: self._each("LinkedCell", v))
+    Enabled = property(lambda self: True, lambda self, v: None)
+    Visible = property(lambda self: True, lambda self, v: None)
+
+
+class Buttons(_FormControls):
+    _kind_name = "button"
+
+
+class CheckBoxes(_FormControls):
+    _kind_name = "checkbox"
+
+
+class OptionButtons(_FormControls):
+    _kind_name = "option"
+
+
+class DropDowns(_FormControls):
+    _kind_name = "combo"
+
+
+class ListBoxes(_FormControls):
+    _kind_name = "listbox"
+
+
+class Spinners(_FormControls):
+    _kind_name = "spinner"
+
+
+class ScrollBars(_FormControls):
+    _kind_name = "scrollbar"
+
+
+class Labels(_FormControls):
+    _kind_name = "label"
+
+
+class GroupBoxes(_FormControls):
+    _kind_name = "groupbox"
 
 
 class SortFields(_XlObject):
@@ -2879,6 +3252,13 @@ class Worksheet(_XlObject):
 
     def _index(self):
         return _index_of(self._id)
+
+    def _place(self, left, top):
+        """Where a thing put at a point goes: the cell under it and the
+        offset inside that cell, in pixels, as a shape is anchored."""
+        r, c = self._cell_at(left, top)
+        at = Range(self._host, self._id, r, c)
+        return r, c, max(0.0, (left - at.Left) / 0.75), max(0.0, (top - at.Top) / 0.75)
 
     def _cell_at(self, left, top):
         """The cell under a point, in points from the sheet's corner."""
@@ -3042,9 +3422,43 @@ class Worksheet(_XlObject):
     def Shapes(self):
         return Shapes(self._host, self._id)
 
-    @property
-    def Buttons(self):
-        return Shapes(self._host, self._id, ("shape",))
+    def _controls(self, cls, Index):
+        c = cls(self._host, self._id)
+        return c if Index is MISSING else c.Item(Index)
+
+    def Buttons(self, Index=MISSING):
+        return self._controls(Buttons, Index)
+
+    def CheckBoxes(self, Index=MISSING):
+        return self._controls(CheckBoxes, Index)
+
+    def OptionButtons(self, Index=MISSING):
+        return self._controls(OptionButtons, Index)
+
+    def DropDowns(self, Index=MISSING):
+        return self._controls(DropDowns, Index)
+
+    def ListBoxes(self, Index=MISSING):
+        return self._controls(ListBoxes, Index)
+
+    def Spinners(self, Index=MISSING):
+        return self._controls(Spinners, Index)
+
+    def ScrollBars(self, Index=MISSING):
+        return self._controls(ScrollBars, Index)
+
+    def Labels(self, Index=MISSING):
+        return self._controls(Labels, Index)
+
+    def GroupBoxes(self, Index=MISSING):
+        return self._controls(GroupBoxes, Index)
+
+    def DrawingObjects(self, Index=MISSING):
+        c = Shapes(self._host, self._id, ("shape",))
+        if Index is MISSING:
+            return c
+        s = c.Item(Index)
+        return s.DrawingObject
 
     def ChartObjects(self, Index=MISSING):
         c = Shapes(self._host, self._id, ("chart",))
@@ -3310,7 +3724,16 @@ class Workbook(_XlObject):
 
     def __init__(self, host):
         self._host = host
-        self._vba_module = None
+
+    @property
+    def _vba_module(self):
+        """The book's own module, by the code name the book gives it --
+        DieseArbeitsmappe in a German book -- however the macro named
+        the book."""
+        project = self._host.project
+        if project is None:
+            return None
+        return project.modules.get(_c.codename().lower()) or project.modules.get("thisworkbook")
 
     @property
     def Name(self):
@@ -3622,6 +4045,315 @@ class FileDialog(_XlObject):
         return None
 
 
+# ---- Command bars ----------------------------------------------------------------
+#
+# Excel 97's menus and toolbars, which books of its day build for
+# themselves in Workbook_Open.  A macro may add bars, controls and
+# popups, find them, set their captions and OnAction and delete them
+# again; office42 does not draw them, and the macros they would run are
+# in Tools > Macro > Macros as any other.
+
+_BUILTIN_BARS = ("Worksheet Menu Bar", "Chart Menu Bar", "Standard", "Formatting", "Cell", "Ply",
+                 "Row", "Column", "Drawing", "Forms", "Visual Basic")
+
+
+class CommandBarControl(_XlObject):
+    _vba_typename = "CommandBarButton"
+
+    def __init__(self, host, parent, kind=1, id=1, tag="", caption=""):
+        self._host = host
+        self._parent = parent
+        self._kind = kind
+        self._controls = CommandBarControls(host, self) if kind == 10 else None
+        self.Caption = caption
+        self.OnAction = ""
+        self.Tag = tag
+        self.TooltipText = ""
+        self.Parameter = ""
+        self.DescriptionText = ""
+        self.ShortcutText = ""
+        self.FaceId = 0
+        self.Style = 0
+        self.State = 0
+        self.Visible = True
+        self.Enabled = True
+        self.BeginGroup = False
+        self.ID = id
+        self.Priority = 0
+        self.Left = self.Top = 0
+        self.Width, self.Height = (100 if kind in (2, 3, 4) else 23), 22
+        # An edit box's, a drop-down's and a combo box's text and items.
+        self.Text = ""
+        self.DropDownLines = 0
+        self.DropDownWidth = 0
+        self.ListHeaderCount = -1
+        self._items = []
+        self._index = 0
+        if kind == 10:
+            self._vba_typename = "CommandBarPopup"
+        elif kind in (2, 3, 4):
+            self._vba_typename = "CommandBarComboBox"
+
+    def AddItem(self, Text, Index=MISSING):
+        at = len(self._items) if Index is MISSING else max(0, min(len(self._items), to_long(Index) - 1))
+        self._items.insert(at, to_str(Text))
+
+    def RemoveItem(self, Index):
+        i = to_long(Index)
+        if not 1 <= i <= len(self._items):
+            raise VBAError(5)
+        del self._items[i - 1]
+
+    def Clear(self):
+        del self._items[:]
+        self._index = 0
+        self.Text = ""
+
+    def List(self, Index):
+        i = to_long(Index)
+        if not 1 <= i <= len(self._items):
+            raise VBAError(5)
+        return self._items[i - 1]
+
+    def let_List(self, value, Index):
+        i = to_long(Index)
+        if not 1 <= i <= len(self._items):
+            raise VBAError(5)
+        self._items[i - 1] = to_str(value)
+
+    @property
+    def ListCount(self):
+        return len(self._items)
+
+    @property
+    def ListIndex(self):
+        return self._index
+
+    @ListIndex.setter
+    def ListIndex(self, v):
+        i = to_long(v)
+        if not 0 <= i <= len(self._items):
+            raise VBAError(5)
+        self._index = i
+        self.Text = self._items[i - 1] if i else ""
+
+    @property
+    def Type(self):
+        return self._kind
+
+    @property
+    def Parent(self):
+        return self._parent
+
+    @property
+    def Index(self):
+        return self._parent._controls._items.index(self) + 1
+
+    @property
+    def Controls(self):
+        if self._controls is None:
+            raise VBAError(438)
+        return self._controls
+
+    @property
+    def CommandBar(self):
+        return self._parent
+
+    def Delete(self, Temporary=MISSING):
+        self._parent._controls._items.remove(self)
+
+    def Execute(self):
+        if self.OnAction:
+            self._host.app.Run(self.OnAction)
+
+    def SetFocus(self):
+        return None
+
+    def Reset(self):
+        return None
+
+    def Move(self, Bar=MISSING, Before=MISSING):
+        return self
+
+    def Copy(self, Bar=MISSING, Before=MISSING):
+        return self
+
+    def PasteFace(self):
+        return None
+
+    def CopyFace(self):
+        return None
+
+
+class CommandBarControls(_XlObject):
+    _vba_typename = "CommandBarControls"
+
+    def __init__(self, host, owner):
+        self._host = host
+        self._owner = owner
+        self._items = []
+
+    @property
+    def Count(self):
+        return len(self._items)
+
+    def Item(self, Index):
+        if isinstance(Index, str):
+            for c in self._items:
+                if to_str(c.Caption).replace("&", "").lower() == Index.replace("&", "").lower():
+                    return c
+            raise VBAError(5)
+        i = to_long(Index)
+        if not 1 <= i <= len(self._items):
+            raise VBAError(5)
+        return self._items[i - 1]
+
+    def _vba_default_get(self, *args):
+        return self.Item(*args)
+
+    def _vba_iter(self):
+        return iter(list(self._items))
+
+    def Add(self, Type=1, Id=1, Parameter=MISSING, Before=MISSING, Temporary=MISSING):
+        c = CommandBarControl(self._host, self._owner, to_long(Type), to_long(Id))
+        if Parameter is not MISSING:
+            c.Parameter = to_str(Parameter)
+        if Before is MISSING:
+            self._items.append(c)
+        else:
+            self._items.insert(max(0, min(len(self._items), to_long(Before) - 1)), c)
+        return c
+
+
+class CommandBar(_XlObject):
+    _vba_typename = "CommandBar"
+
+    def __init__(self, host, name, position=1, builtin=False):
+        self._host = host
+        self.Name = name
+        self.NameLocal = name
+        self.Visible = builtin and name in ("Worksheet Menu Bar", "Standard", "Formatting")
+        self.Enabled = True
+        self.Position = position
+        self.Protection = 0
+        self.Top = self.Left = 0
+        self.Width = self.Height = 0
+        self.RowIndex = 0
+        self._builtin = builtin
+        self._controls = CommandBarControls(host, self)
+
+    @property
+    def BuiltIn(self):
+        return self._builtin
+
+    @property
+    def Type(self):
+        return 2 if self.Position == 5 else 1 if self.Name.endswith("Menu Bar") else 0
+
+    @property
+    def Controls(self):
+        return self._controls
+
+    @property
+    def Index(self):
+        return self._host.command_bars._bars.index(self) + 1
+
+    def Delete(self):
+        if self._builtin:
+            raise VBAError(5)
+        self._host.command_bars._bars.remove(self)
+
+    def Reset(self):
+        if self._builtin:
+            del self._controls._items[:]
+
+    def FindControl(self, Type=MISSING, Id=MISSING, Tag=MISSING, Visible=MISSING, Recursive=False):
+        return self._host.command_bars._find(Type, Id, Tag, Visible, [self])
+
+    def ShowPopup(self, x=MISSING, y=MISSING):
+        return None
+
+
+class CommandBars(_XlObject):
+    _vba_typename = "CommandBars"
+
+    def __init__(self, host):
+        self._host = host
+        self._bars = [CommandBar(host, name, 1, True) for name in _BUILTIN_BARS]
+        self.DisplayTooltips = True
+        self.LargeButtons = False
+        self.MenuAnimationStyle = 0
+
+    @property
+    def Count(self):
+        return len(self._bars)
+
+    def Item(self, Index):
+        if isinstance(Index, str):
+            for b in self._bars:
+                if b.Name.lower() == Index.lower():
+                    return b
+            raise VBAError(5)
+        i = to_long(Index)
+        if not 1 <= i <= len(self._bars):
+            raise VBAError(5)
+        return self._bars[i - 1]
+
+    def _vba_default_get(self, *args):
+        return self.Item(*args)
+
+    def _vba_iter(self):
+        return iter(list(self._bars))
+
+    def Add(self, Name=MISSING, Position=1, MenuBar=False, Temporary=False):
+        name = "Custom %d" % (len(self._bars) + 1) if Name is MISSING else to_str(Name)
+        if any(b.Name.lower() == name.lower() for b in self._bars):
+            raise VBAError(5)
+        bar = CommandBar(self._host, name, to_long(Position))
+        self._bars.append(bar)
+        return bar
+
+    def _find(self, Type, Id, Tag, Visible, bars):
+        def walk(controls):
+            for c in controls._items:
+                yield c
+                if c._controls is not None:
+                    yield from walk(c._controls)
+        for bar in bars:
+            for c in walk(bar._controls):
+                if Type is not MISSING and c.Type != to_long(Type):
+                    continue
+                if Id is not MISSING and c.ID != to_long(Id):
+                    continue
+                if Tag is not MISSING and to_str(c.Tag) != to_str(Tag):
+                    continue
+                if Visible is not MISSING and to_bool(Visible) and not c.Visible:
+                    continue
+                return c
+        return None
+
+    def FindControl(self, Type=MISSING, Id=MISSING, Tag=MISSING, Visible=MISSING):
+        return self._find(Type, Id, Tag, Visible, self._bars)
+
+    def FindControls(self, Type=MISSING, Id=MISSING, Tag=MISSING, Visible=MISSING):
+        found = self._find(Type, Id, Tag, Visible, self._bars)
+        coll = vba.Collection()
+        if found is not None:
+            coll.Add(found)
+        return None if found is None else coll
+
+    @property
+    def ActionControl(self):
+        return None
+
+    @property
+    def ActiveMenuBar(self):
+        return self.Item("Worksheet Menu Bar")
+
+    def ExecuteMso(self, idMso):
+        return None
+
+
 class Window(_XlObject):
     _vba_typename = "Window"
 
@@ -3907,7 +4639,9 @@ class Application(_XlObject):
 
     @property
     def CommandBars(self):
-        raise VBAError(1004, "Command bars are not available to macros in office42")
+        if self._host.command_bars is None:
+            self._host.command_bars = CommandBars(self._host)
+        return self._host.command_bars
 
     @property
     def VBE(self):
@@ -4112,6 +4846,7 @@ class ExcelHost(vba.Host):
         self.callers = []
         self.events_enabled = True
         self.project = None
+        self.command_bars = None
         self.conditions = {}
 
     # -- sheets --
@@ -4168,10 +4903,7 @@ class ExcelHost(vba.Host):
     def document(self, name):
         lname = name.lower()
         if lname == _c.codename().lower() or lname == "thisworkbook":
-            wb = self.workbook
-            if wb._vba_module is None and self.project is not None:
-                wb._vba_module = self.project.modules.get(lname)
-            return wb
+            return self.workbook
         m = self.project.modules.get(lname) if self.project is not None else None
         if m is not None:
             ws = self.find_sheet_for_module(m)
