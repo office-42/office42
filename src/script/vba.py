@@ -22,6 +22,7 @@ import os
 import random
 import re
 import time
+import weakref
 
 __all__ = ["Project", "VBAError", "VBASyntaxError", "EMPTY", "NULL", "MISSING"]
 
@@ -1547,6 +1548,7 @@ class ModuleAST:
         self.declares = []
         self.events = []
         self.attributes = {}
+        self.implements = []        # the interfaces a class names in Implements
 
 
 # Words that end a block, and so are never a label or a procedure call.
@@ -2531,7 +2533,10 @@ class Parser:
             return
         if w == "implements":
             self.next()
-            self.ident()
+            name = self.ident()
+            while self.accept_op("."):
+                name = self.ident()
+            m.implements.append(name.lower())
             self.end_statement()
             return
         private = False
@@ -2869,13 +2874,33 @@ class VBObject:
     """An instance of a class module: its own copy of the module's
     variables, and the module's procedures as its members."""
 
-    __slots__ = ("cls", "v", "__weakref__")
+    __slots__ = ("cls", "v", "gen", "__weakref__")
 
     def __init__(self, cls):
         self.cls = cls
+        self.gen = cls.project.generation
         self.v = [None] * len(cls.var_list)
         for slot, factory in cls.var_init:
             self.v[slot] = factory()
+        if cls.with_events:
+            cls.instances.add(self)
+
+    def __del__(self):
+        # Class_Terminate, as the last reference goes, which is when
+        # Visual Basic runs it too -- but not for what End, a reset or a
+        # project compiled afresh lets go of, which it drops without.
+        cls = self.cls
+        project = cls.project
+        if current is not project or self.gen != project.generation:
+            return
+        group = cls.procs.get("class_terminate")
+        proc = group.get("sub") if group else None
+        if proc is None:
+            return
+        try:
+            project.invoke(proc, [], None, self)
+        except BaseException:
+            pass
 
     def __repr__(self):
         return "<%s>" % self.cls.name
@@ -3161,6 +3186,12 @@ class ModuleRT:
         self.private_module = False
         self.default_member = None
         self.enum_member = None
+        # Dim WithEvents x As SomeClass: (slot, class, variable), and for a
+        # class the instances living now, among which RaiseEvent looks
+        # for the ones that hold the object raising it.
+        self.with_events = []
+        self.instances = weakref.WeakSet()
+        self.implements = []
 
     def __repr__(self):
         return "<Module %s>" % self.name
@@ -3183,6 +3214,8 @@ class Project:
         self.host = host if host is not None else Host()
         self.modules = {}           # lname -> ModuleRT
         self.order = []
+        self.event_holders = []
+        self.generation = 0         # one more at every End: see VBObject.__del__
         self.err = ErrObject()
         self.debug = DebugObject(self)
         self.files = {}
@@ -3216,7 +3249,9 @@ class Project:
         for m in self.order:
             self.declare_consts(m)
         for m in self.order:
+            m.with_events = []
             self.declare_vars(m)
+        self.event_holders = [m for m in self.order if m.with_events]
         for m in self.order:
             for group in m.procs.values():
                 for p in group.values():
@@ -3225,6 +3260,7 @@ class Project:
 
     def declare(self, m):
         a = m.ast
+        m.implements = a.implements
         m.text_compare = a.options["compare"] == "text"
         m.base = a.options["base"]
         m.explicit = a.options["explicit"]
@@ -3318,6 +3354,8 @@ class Project:
                 m.var_list.append((d.name.lower(), d.typ, d))
                 m.vars[d.name.lower()] = (slot, d.typ, d.dims is not None or d.dynamic, st.private)
                 m.var_init.append((slot, self.factory_for(m, d.typ, d.dims, d.dynamic, d.new, d.line)))
+                if d.with_events:
+                    m.with_events.append((slot, d.typ.lower().rpartition(".")[2], d.name.lower()))
         m.v = [None] * len(m.var_list)
         if m.kind != "class":
             for slot, factory in m.var_init:
@@ -3427,6 +3465,7 @@ class Project:
     def reset(self):
         """What End does: every module's variables begin again, and the
         open files close."""
+        self.generation += 1
         for m in self.order:
             m.reset()
         for f in list(self.files.values()):
@@ -3469,6 +3508,27 @@ class Project:
         if proc.module.kind == "document":
             return self.host.document(proc.module.name)
         return None
+
+    def raise_event(self, obj, event, args, caller):
+        """RaiseEvent: every variable declared WithEvents that holds `obj`
+        now has its handler, variable_Event, run with the arguments --
+        ByRef ones given back, as a Cancel is."""
+        cls = obj.cls.lname
+        for m in self.event_holders:
+            for slot, typ, var in m.with_events:
+                if typ != cls:
+                    continue
+                group = m.procs.get(var + "_" + event)
+                handler = group.get("sub") if group else None
+                if handler is None:
+                    continue
+                if m.kind == "class":
+                    holders = [(h, h.v) for h in list(m.instances)]
+                else:
+                    holders = [(self.me_for(handler), m.v)]
+                for me, store in holders:
+                    if store[slot] is obj:
+                        self.invoke(handler, args, caller, me)
 
     def run(self, name, args=()):
         """Runs a macro -- or any procedure -- by name, with values for
@@ -3587,6 +3647,17 @@ class Project:
         return EMPTY
 
     # -- members of objects --
+    def interface_member(self, cls, lname):
+        """A member the class has as Interface_Member, for an interface it
+        Implements: what a call through a variable of the interface's
+        type reaches.  The interpreter does not keep a variable's type
+        with its object, so any such member serves."""
+        for iface in cls.implements:
+            group = cls.procs.get(iface + "_" + lname)
+            if group:
+                return group
+        return None
+
     def member_get(self, obj, lname, args, caller):
         """obj.Name or obj.Name(args), as a value."""
         if obj is None:
@@ -3604,6 +3675,11 @@ class Project:
             if var is not None and not (var[3] and (caller is None or caller.proc.module is not cls)):
                 value = obj.v[var[0]]
                 return self.index_value(value, args, caller) if args else value
+            group = self.interface_member(cls, lname)
+            if group:
+                proc = group.get("get") or group.get("function") or group.get("sub")
+                if proc is not None:
+                    return self.invoke(proc, args, caller, obj)
             raise VBAError(438)
         if isinstance(obj, UDTValue):
             if lname not in obj.fields:
@@ -3684,6 +3760,12 @@ class Project:
                     obj.v[slot] = value if is_set else coerce(plain_value(value) if not self.is_object_type(typ)
                                                               else value, typ)
                 return
+            group = self.interface_member(cls, lname)
+            if group:
+                proc = group.get("set" if is_set else "let") or group.get("let") or group.get("set")
+                if proc is not None:
+                    self.invoke(proc, args, caller, obj, value, True)
+                    return
             raise VBAError(438)
         if isinstance(obj, UDTValue):
             if lname not in obj.fields:
@@ -3784,6 +3866,17 @@ class Project:
             stmts.extend(parser.parse_statement())
         sc = self.immediate_scope
         comp = Compiler(self, sc)
+        # Dim and Const declare for the lines typed after them too; a name
+        # declared again is the variable it already was.
+        for st in comp.walk(stmts):
+            if st.kind == "dim":
+                for d in st.decls:
+                    if d.name.lower() not in sc.locals:
+                        comp.add_local(d, False)
+            elif st.kind == "const":
+                for name, typ, expr in st.decls:
+                    v = const_eval(expr, comp.const_value)
+                    sc.locals[name.lower()] = ("const", coerce(v, typ) if typ else v)
         body = comp.block(stmts)
         proc = self.immediate_proc
         proc.nslots = sc.nslots
@@ -3791,10 +3884,13 @@ class Project:
         fr = self.immediate_frame
         if fr is None:
             fr = self.immediate_frame = Frame(proc, None)
-        if len(fr.v) < sc.nslots:
-            fr.v.extend([EMPTY] * (sc.nslots - len(fr.v)))
+            made = 0
+        else:
+            made = len(fr.v)
+            fr.v.extend([EMPTY] * (sc.nslots - made))
+        # The variables this line made start as their types say.
         for slot, factory in sc.init:
-            if fr.v[slot] is None:
+            if slot >= made:
                 fr.v[slot] = factory()
         _run_begin()
         try:
@@ -5037,7 +5133,14 @@ class Compiler:
         return error
 
     def st_raiseevent(self, st):
-        return None
+        args = self.args(st.args)
+        event = st.name.lower()
+        project = self.project
+
+        def raise_event(fr):
+            if isinstance(fr.me, VBObject):
+                project.raise_event(fr.me, event, args, fr)
+        return raise_event
 
     def st_redim(self, st):
         project = self.project
@@ -5308,7 +5411,7 @@ def type_of(project, value, typename):
     if value is None:
         return False
     if isinstance(value, VBObject):
-        return value.cls.lname == typename or typename == "object"
+        return value.cls.lname == typename or typename == "object" or typename in value.cls.implements
     if typename == "object":
         return is_object(value)
     return project.host.typename(value).lower() == typename or \
