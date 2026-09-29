@@ -159,6 +159,12 @@ void o42_window_tell_book (O42Window *self, const char *what);
 /* A message in a dialog of its own, for what has gone wrong. */
 void o42_window_show_error (O42Window *self, const char *heading, GError *error);
 
+/* Visual Basic's UserForms in windows of their own (o42-userform.c). */
+void o42_userform_install (GtkApplication *app);
+/* Around a wait for the user during a macro -- a message box, a form --
+ * the "macro running" window stands aside: FALSE before, TRUE after. */
+void o42_window_running_wait (gboolean done);
+
 /* The actions dialogs-edit.c answers: the File, Edit and Insert menus' dialogs. */
 void action_properties (GSimpleAction *a, GVariant *p, gpointer data);
 void action_fill_series (GSimpleAction *a, GVariant *p, gpointer data);

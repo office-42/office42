@@ -7562,6 +7562,7 @@ static struct {
   GtkWidget *window;
   gboolean   broken;
   gint64     quiet_until;   /* not before, after the macro waited for the user */
+  int        waiting;       /* how deep in waits for the user: a form's, a box's */
 } running;
 
 static gboolean
@@ -7608,9 +7609,21 @@ static void
 running_wait (gboolean done)
 {
   if (!done)
-    running_close ();
+    {
+      running.waiting++;
+      running_close ();
+    }
   else
-    running.quiet_until = g_get_monotonic_time () + G_USEC_PER_SEC;
+    {
+      running.waiting = MAX (0, running.waiting - 1);
+      running.quiet_until = g_get_monotonic_time () + G_USEC_PER_SEC;
+    }
+}
+
+void
+o42_window_running_wait (gboolean done)
+{
+  running_wait (done);
 }
 
 static gboolean
@@ -7625,7 +7638,7 @@ host_poll (gpointer user, O42Book *book, double seconds, gboolean draw)
       running.quiet_until = 0;
       return FALSE;
     }
-  if (self == NULL || seconds < 1.0 || g_get_monotonic_time () < running.quiet_until)
+  if (self == NULL || seconds < 1.0 || running.waiting > 0 || g_get_monotonic_time () < running.quiet_until)
     return FALSE;
   if (running.window == NULL)
     {
@@ -8046,6 +8059,7 @@ window_install_python_host (O42Window *self)
   if (host.user == NULL)
     return;
   o42_python_set_host (&host);
+  o42_userform_install (host.user);
   installed = TRUE;
 }
 
