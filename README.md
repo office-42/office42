@@ -114,7 +114,8 @@ writes Python, `=PY("expression")` in a cell, and functions defined in
 Python that appear in the Function Wizard. And Excel's own macros: an
 `.xlsm`'s or an `.xls`'s Visual Basic runs, from the Macro dialog, a
 button, a shortcut key or a cell, with Excel 97's Visual Basic Editor to
-edit and step through it, and is saved back for Excel. A book that
+edit and step through it, shows its UserForms, and is saved back for
+Excel. A book that
 arrives with scripts or macros offers to run them and never runs them by
 itself. A SQLite database can sit beside
 the book or inside it, queried from Data ▸ Get Data or from a cell with

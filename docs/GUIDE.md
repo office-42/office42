@@ -1017,7 +1017,9 @@ Enable Macros lets them run. They are listed in Tools ▸ Macro ▸ Macros
 beside the Python scripts, run from a button or the shortcut key Excel
 gave them, and work as functions in cells. Tools ▸ Macro ▸ Visual
 Basic Editor (Alt+F11) shows the modules, runs and steps through them,
-and has the Immediate window. A macro that runs on stops with Esc or
+and has the Immediate window. The dialogs a macro shows -- its
+UserForms -- come up as Excel laid them out, and their buttons, boxes
+and lists run the macro's code. A macro that runs on stops with Esc or
 Ctrl+Break. [VBA.md](VBA.md) has the details.
 
 **The macro recorder.** Tools ▸ Record Macro writes down what you do as

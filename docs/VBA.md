@@ -30,7 +30,10 @@ read.  The password is carried over for Excel.
 - **A shortcut key** from Macro Options runs the macro: a lower-case
   letter with Ctrl, an upper-case one with Ctrl+Shift.
 - **A button**, or any form control, whose macro is a Visual Basic one
-  runs it when clicked.
+  runs it when clicked.  A macro reaches the sheet's controls by the
+  names the book gave them -- `Sheets(1).CheckBoxes("chkTax").Value =
+  xlOn`, `Shapes("Button 3").OnAction`, `DropDowns(1).ListIndex` --
+  and a check box or a list with no linked cell keeps its own value.
 - **A function** in a standard module is a worksheet function once the
   macros are enabled: `=AddTax(A1)` or `=CountBig(A1:A9, 60)` in a
   cell.  A `Range` argument arrives as a `Range`, `Application.Caller`
@@ -45,11 +48,28 @@ read.  The password is carried over for Excel.
   writes with `Debug.Print` goes to the Immediate window, and only a
   run-time error in one puts up a box.
 
+**UserForms.** A form a macro shows -- `UserForm1.Show`, or `Show
+vbModeless` -- is a window of its own, laid out as it was designed in
+Excel, in its fonts and colours: labels, command and toggle buttons,
+text boxes, check boxes and option buttons (grouped as Excel groups
+them), list and combo boxes with their columns, spin buttons, scroll
+bars, frames, tab strips, MultiPages and images.  Clicking, typing,
+choosing and spinning run the form's event procedures (`Click`,
+`DblClick`, `Change`, `SpinUp`, `SpinDown`, and `UserForm_Initialize`,
+`Activate`, `QueryClose` and `Terminate`), and Esc presses the button
+whose `Cancel` is True.  A modal form holds the macro at `Show` until
+it is hidden or unloaded.  `Load`, `Unload`, `Me.Hide`, the form's
+default instance and `New UserForm1`, the controls' properties, and
+`Controls` with `Add` and `Remove` work as in Excel.
+
 A run-time error stops the macro with Excel's box -- `Run-time error
 '9': Subscript out of range` -- and the module, procedure and line it
 happened on; with the editor open the caret goes to that line.
 `MsgBox` asks with the buttons it is given and returns which was
-pressed; `InputBox` and `Application.InputBox` ask for a line.
+pressed; `InputBox` and `Application.InputBox` ask for a line;
+`Application.GetOpenFilename`, `GetSaveAsFilename` and
+`Application.FileDialog` put up the file chooser, with the filters
+the macro gives.
 
 **Stopping a macro.** A macro that has run for a second gets a small
 window of its own, and meanwhile the grid and the status bar show what
@@ -85,7 +105,11 @@ writes there.
 reads a `.bas` or `.cls` exported from Excel, and **Export File…**
 writes one Excel can import; **Remove** takes a module out; the name
 field renames a module or a class.  **Compile** checks every module and
-puts the caret on the first line it cannot make sense of.
+puts the caret on the first line it cannot make sense of.  As in
+Excel, a module is compiled when it is first needed, so one that does
+not compile stops only the macros that need it: the rest of the
+project runs, and calling into the broken module gives its compile
+error.
 
 ## Saving
 
@@ -113,7 +137,13 @@ Visual Basic 6's, as VBA has it:
   `Boolean`, `Byte`, `Integer`, `Long`, `LongLong`, `Single`, `Double`,
   `Currency`, `Date`, `String` and `String * n`, objects, user-defined
   types, arrays fixed and dynamic with any bounds (`ReDim Preserve`,
-  `Erase`), the overflow and type-mismatch errors of each.
+  `Erase`), the overflow and type-mismatch errors of each.  A `Byte`
+  array and a `String` convert into each other as in VBA, and
+  `StrConv` has `vbFromUnicode` and `vbUnicode`.
+- **Names qualified by their library**: `VBA.Left`, `Excel.Range`,
+  `Office.MsoTriState`, `MSForms.TextBox`, `Scripting.Dictionary`,
+  `MSXML2.DOMDocument60`, as a macro written with references writes
+  them; and Excel's and Office's constants, `xlUp` to `msoTrue`.
 - **Procedures**: `Sub`, `Function`, `Property Get/Let/Set`, `ByRef` by
   default and `ByVal`, `Optional` with defaults and `IsMissing`,
   `ParamArray`, named arguments (`Destination:=`), `Call`, `Exit`,
@@ -135,9 +165,16 @@ Visual Basic 6's, as VBA has it:
   (`Open`, `Print #`, `Write #`, `Input #`, `Line Input #`, `Get`, `Put`,
   `Close`, `Seek`, `EOF`, `LOF`, `FreeFile`) and `Dir`, `Kill`,
   `MkDir`, `FileCopy`, `FileLen`, `Name … As`.
-- **`CreateObject`**: `Scripting.Dictionary`,
+- **`CreateObject`** and **`New`**: `Scripting.Dictionary`,
   `Scripting.FileSystemObject` (with `TextStream`, `File` and `Folder`),
-  `VBScript.RegExp`, and `Excel.Application` for itself.
+  `VBScript.RegExp`, `Excel.Application` for itself, and Microsoft
+  XML: `MSXML2.DOMDocument` (and `Microsoft.XMLDOM`), which loads a
+  string, a file or a URL and has the DOM macros walk -- `childNodes`,
+  `getAttribute`, `text`, `xml`, `createElement`, `appendChild`, `save`
+  -- with `selectNodes` and `selectSingleNode` taking XPath 1.0; and
+  `MSXML2.XMLHTTP`, `ServerXMLHTTP` and `WinHttp.WinHttpRequest`, which
+  send a request and wait for the answer, so the VBA-JSON of the world
+  has something to parse.
 - **`Declare`**: `Sleep` and `GetTickCount`, which is what most macros
   declare; any other call into a Windows DLL is error 453.
 
@@ -154,7 +191,12 @@ return an error value rather than raising one, `StatusBar`,
 `Sheets`, `Names`, `BuiltinDocumentProperties`; `Worksheet` with
 `Cells`, `Range`, `Rows`, `Columns`, `UsedRange`, `Shapes`, `Name`,
 `Index`, `Visible`, `Activate`, `Add`, `Copy`, `Move`, `Delete`,
-`Protect`, `Unprotect`, `PageSetup`, `Sort`, `Calculate`; and `Range`
+`Protect`, `Unprotect`, `PageSetup`, `Sort`, `Calculate`, and the
+old form-control collections (`CheckBoxes`, `OptionButtons`,
+`Buttons`, `DropDowns`, `ListBoxes`, `Spinners`, `ScrollBars`, `Labels`,
+`GroupBoxes`); `Shape` with its `Name`, `ControlFormat`,
+`OLEFormat.Object` and `OnAction`; `CommandBars`, which a macro may
+build, fill and search, though office42 does not draw them; and `Range`
 with most of what macros use: `Value`, `Value2`, `Formula`,
 `FormulaR1C1`, `Text`, `NumberFormat`, `Address` in both styles,
 `Offset`, `Resize`, `End`, `CurrentRegion`, `EntireRow`,
@@ -168,11 +210,13 @@ with `For Each`, and reading and writing whole arrays at once.
 
 ## Not there
 
-- **UserForms.** A form's module and its storage are kept and saved
-  back, but the form is not shown; a macro that shows one stops with an
-  error.
-- **ActiveX controls** on a sheet, and the Windows API beyond `Sleep`
-  and `GetTickCount`.
+- **Designing a UserForm.** A form runs as it was laid out in Excel,
+  and the editor here edits its code; its layout is edited in Excel.
+- **Menus and toolbars from a macro.** `CommandBars` keeps what a macro
+  builds, for the macro to find again, but draws none of it; the
+  macros those buttons would run are in the Macro dialog.
+- **ActiveX controls** on a sheet, XSL transformations, and the Windows
+  API beyond `Sleep` and `GetTickCount`.
 - **Other books.** `Workbooks.Open` and `Workbooks.Add` are errors: a
   macro works on the book it is in, and office42 opens other books in
   windows of their own.  `Application.OnTime` is an error too.
@@ -201,7 +245,14 @@ vbaexec ?Range("A1").Value
                        a line as the Immediate window runs it
 vbaenable              Enable Macros: functions and events live
 vbacheck               every module compiled
+fire open              an event, as the window would raise it
 ```
+
+A form a macro shows is printed with its controls, and until it is
+closed the lines typed are what a user would do to it: `click NAME`,
+`dblclick NAME`, `type NAME TEXT`, `check NAME 1`, `choose NAME 2` (or
+`0,2` for a list that takes several), `spin NAME 5`, `page NAME 1`,
+`close` for the close box, and `dump` to print it again.
 
 ## How it is built
 
@@ -212,6 +263,10 @@ source alone written back.  The interpreter is Python, embedded as the
 rest of the script layer is: `src/script/vba.py` is the language --
 lexer, parser, and a compiler that turns each procedure into closures
 -- and `vbaexcel.py` is Excel's object model over the `_office42`
-module, which is the only way it reaches the book.  Neither sees GTK.
-The editor is `src/ui/o42-vbe.c`.  Without Python the project is still
+module, which is the only way it reaches the book; `vbaforms.py`
+reads a UserForm's design, after [MS-OFORMS], and runs it over a small
+table of calls, and `vbaxml.py` is Microsoft XML.  None of them sees
+GTK.  The editor is `src/ui/o42-vbe.c`, and the forms are drawn by
+`src/ui/o42-userform.c` in the window and as lines of text in
+`office42-calc`.  Without Python the project is still
 read, shown, edited and saved; it is only not run.

@@ -25,11 +25,14 @@ file.
 and dragging objects.
 
 **What Visual Basic still lacks.** Excel's macros run, with the editor
-and a debugger ([VBA.md](VBA.md)); what they reach for that is not
-here yet is UserForms, which are kept but not shown, and the chart
-inside a ChartObject -- its type, series and titles.  Other books from
-a macro (`Workbooks.Open`) and `Application.OnTime` wait on the same
-question, of a macro that outlives the book it was started from.
+and a debugger, and so do their UserForms and the Microsoft XML they
+read ([VBA.md](VBA.md)); what they reach for that is not here yet is a
+designer for UserForms, which run as Excel laid them out; the chart
+inside a ChartObject -- its type, series and titles; and the menus and
+toolbars a macro builds with `CommandBars`, which it keeps but nobody
+sees.  Other books from a macro (`Workbooks.Open`) and
+`Application.OnTime` wait on the same question, of a macro that
+outlives the book it was started from.
 
 ## Not planned
 
