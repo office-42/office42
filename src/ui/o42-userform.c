@@ -908,6 +908,22 @@ select_index (UCtl *c, int index)
     }
 }
 
+/* A texture of the pixbuf's pixels.  gdk_texture_new_for_pixbuf does
+ * this, and GTK 4.20 deprecates it; a form's picture is often a BMP or
+ * a GIF, which gdk-pixbuf reads, so the pixbuf stays. */
+static GdkTexture *
+texture_for_pixbuf (GdkPixbuf *pixbuf)
+{
+  GBytes *pixels = gdk_pixbuf_read_pixel_bytes (pixbuf);
+  GdkTexture *texture = gdk_memory_texture_new (gdk_pixbuf_get_width (pixbuf),
+                                                gdk_pixbuf_get_height (pixbuf),
+                                                gdk_pixbuf_get_has_alpha (pixbuf)
+                                                  ? GDK_MEMORY_R8G8B8A8 : GDK_MEMORY_R8G8B8,
+                                                pixels, gdk_pixbuf_get_rowstride (pixbuf));
+  g_bytes_unref (pixels);
+  return texture;
+}
+
 static void
 uf_set (gpointer user, int form, int control, const char *prop, const char *value)
 {
@@ -1116,7 +1132,7 @@ uf_set (gpointer user, int form, int control, const char *prop, const char *valu
           GdkPixbuf *pixbuf = gdk_pixbuf_loader_get_pixbuf (loader);
           if (pixbuf != NULL)
             {
-              GdkTexture *texture = gdk_texture_new_for_pixbuf (pixbuf);
+              GdkTexture *texture = texture_for_pixbuf (pixbuf);
               gtk_picture_set_paintable (GTK_PICTURE (c->inner), GDK_PAINTABLE (texture));
               g_object_unref (texture);
             }
