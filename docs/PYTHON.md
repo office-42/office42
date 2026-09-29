@@ -196,10 +196,12 @@ the grid shows what the script has done so far.
 
 ### Excel's own macros
 
-An `.xlsm` opens as an `.xlsx` does.  Its Visual Basic project is not
-run -- office42 runs Python -- but it is kept as it came, and saving
-as `.xlsm` gives it back to Excel untouched; saving as `.xlsx` leaves
-it out, as Excel does.  The bar under the toolbar says so.
+An `.xlsm`, or an `.xls` with macros, brings its Visual Basic project
+with it, and office42 runs that too: Enable Macros in the bar under the
+formula bar, Tools > Macro > Visual Basic Editor (Alt+F11), and the
+Macro dialog lists its macros beside the Python scripts.  Saving as
+`.xlsm` or `.xls` gives the project back to Excel.  See
+[VBA.md](VBA.md).
 
 ## Functions from scripts
 
@@ -319,5 +321,6 @@ GTK.
 
 ## Not there
 
-Running VBA (an `.xlsm`'s project is kept, not run); sandboxing — a script can do what the user can do, so run only
-scripts you trust.
+Sandboxing — a script can do what the user can do, so run only
+scripts you trust; the same goes for a book's Visual Basic, which
+[VBA.md](VBA.md) describes.

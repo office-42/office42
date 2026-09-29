@@ -89,7 +89,11 @@ dozen entry points, which makes the binding small.
    `xl/o42/scripts/*.py` in `.xlsx` (ignored by Excel). Never run on
    open; a bar like Excel's "Enable content" offers to run them.
 5. **Not in scope**: VBA import, a macro recorder, sandboxing. Say so
-   in the manual: a script can do what the user can do.
+   in the manual: a script can do what the user can do.  (Both the
+   first two came later: the recorder writes Python, and Excel's own
+   Visual Basic runs -- not as office42's language but for the macros
+   books arrive with, against the object model they were written for.
+   See [VBA.md](VBA.md).)
 
 Order of work: the C module and the console first (usable in a day,
 and it exercises the binding), then user-defined functions, then

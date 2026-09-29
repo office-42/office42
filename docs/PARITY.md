@@ -43,13 +43,16 @@ thing that knows what a mouse is.
 | | `o42-gnumeric.c` | 3,990 | The native format | Carries everything the model holds, and office42's own additions in `o42-` attributes Gnumeric passes over |
 | | `o42-pdf.c` | 1,412 | Pages out, and pages in through poppler | Shares its layout with the printer |
 | | `o42-sql.c` | 619 | The SQLite database | The smallest of the io files that does something whole |
+| | `o42-vba.c` | 1,711 | A Visual Basic project, read from its compound file and written back as source | After [MS-OVBA]; nothing in it runs anything |
 | | `o42-text-formats.c` | 687 | DIF, SYLK and LaTeX | Three formats older than the programs that read them, and the one a paper is set in |
 | | `o42-lotus.c` | 247 | Lotus 1-2-3, both ways | The oldest format here, and the smallest reader |
-| script | `o42-python.c` | 3,027 | CPython embedded | Optional; the API is `book` and `sheet` objects |
+| script | `o42-python.c` | 3,817 | CPython embedded | Optional; the API is `book` and `sheet` objects |
+| | `vba.py`, `vbaexcel.py` | 11,822 | Visual Basic: the language, and Excel's object model over the C module | Python, embedded as a string; the language compiles each procedure into closures |
 | ui | `o42-window.c` | 7,284 | The window itself: title bar, toolbars, actions, files, printing, tabs | Was 8,825 and held every dialog too |
 | | `o42-window-private.h` | 130 | The seam between the window and its dialogs | The frame a dialog is built in, and what a dialog may ask of the window |
 | | `o42-dialogs-*.c` | 7,187 | The File and Edit, Data, Tools and Format menus' dialogs, a file apiece | Each is the dialogs of one menu or two and nothing else |
 | | `o42-grid.c` | 8,448 | The grid widget: drawing, editing, selection, objects | The heart of the program, and the file most worth keeping small |
+| | `o42-vbe.c` | 1,426 | The Visual Basic Editor | Excel 97's, with the Immediate window and stepping |
 
 **A note on this table.** The row for entering and editing read 100%
 while point mode -- building a reference by clicking cells as a formula
@@ -355,7 +358,7 @@ is there.
 | Printing | 6 | 100% | 6.0 | the Report Manager, which was an add-in |
 | Undo | 5 | 100% | 5.0 | |
 | Window and dialogs | 6 | 99% | 5.9 | Window ▸ Arrange, which GTK 4 gives a program no way to do |
-| Automation | 3 | 100% | 3.0 | Python instead of Visual Basic, by choice; the recorder writes one line per operation, Alt+F8 and Ctrl+Shift+letter run them |
+| Automation | 3 | 100% | 3.0 | Python as office42's own language, and Excel's Visual Basic run with its editor and debugger; UserForms are kept but not shown |
 | **Total** | 110 | | **109.5** | |
 
 **Over 99% of Excel 97** (109.5 of a weight of 110), and the same
@@ -400,6 +403,7 @@ address. Two things are worth knowing:
 | **Edit ▸ Links** | it links to OLE objects, which have no home on this desktop |
 | **Insert ▸ Object, WordArt, Clip Gallery, Map** | OLE has no home on this desktop; WordArt is a text box with a font; the map was licensed data Excel dropped |
 | **File ▸ Save Workspace** | a list of open files and their windows; open them again |
+| **UserForms** | a macro's own dialogs, drawn in the Visual Basic Editor: kept in the file and saved back, not shown |
 | **Track changes, sharing** | not there, and not planned |
 | **The Office Assistant** | no |
 
@@ -475,7 +479,8 @@ A few things are here that neither has in this shape:
   whole SQLite database, and `SQLVALUE()` asks it from a cell. See
   [DATABASE.md](DATABASE.md).
 - **Python as the macro language**, in the program and recorded from
-  what you do, rather than Visual Basic. See [PYTHON.md](PYTHON.md).
+  what you do, beside the Visual Basic that Excel's books bring. See
+  [PYTHON.md](PYTHON.md) and [VBA.md](VBA.md).
 - **A terminal front-end.** `office42-calc` drives the whole engine
   from a script, which is how nearly everything here was checked.
 

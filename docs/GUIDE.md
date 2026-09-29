@@ -885,8 +885,8 @@ with a click:
 | Extension | What it is | What travels |
 |---|---|---|
 | `.gnumeric` | Gnumeric's own, gzipped XML | everything office42 has, the properties included, and the things no other format holds |
-| `.xlsx`, `.xlsm` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, validations, conditional formats, charts, shapes, pictures, print setup, protection, chart sheets, hidden sheets, custom views, scripts, the standard column width, the properties, the workbook protection, sheet backgrounds; an `.xlsm`'s Visual Basic is kept for Excel, not run |
-| `.xls` | Excel 97 to 2003, BIFF8 (and the older BIFF5 read) | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view, the properties |
+| `.xlsx`, `.xlsm` | Excel 2007 and later | cells, formulas, formats, styles, rich text, merges, notes, links, tables, scenarios, filters, validations, conditional formats, charts, shapes, pictures, print setup, protection, chart sheets, hidden sheets, custom views, scripts, the standard column width, the properties, the workbook protection, sheet backgrounds; an `.xlsm`'s Visual Basic |
+| `.xls` | Excel 97 to 2003, BIFF8 (and the older BIFF5 read) | cells, formulas as Excel's own tokens, formats, rich text, merges, notes, links, validations, conditional formats, filters, print setup, pictures, shapes, charts, form controls, hidden sheets, the view, the properties, the Visual Basic project |
 | `.ods`, `.fods` | OpenDocument, LibreOffice Calc's own, zipped or flat | cells, formulas in OpenFormula, formats, rich text, merges, notes, names, validations, frozen panes, print setup, pictures, shapes, charts, form controls, the properties |
 | `.html` | a table per sheet | values, fonts, fills, borders, alignments, merges, links |
 | `.csv` | comma (or semicolon) separated, through Text Import | the values as shown, quoted where they need it |
@@ -1011,6 +1011,15 @@ nothing runs until you say so.
 
 **`=PY()`.** A cell can call Python directly: `=PY("sum(range(10))")`.
 
+**Excel's own macros.** A book from Excel with Visual Basic in it opens
+with its macros disabled, and says so in a bar under the formula bar;
+Enable Macros lets them run. They are listed in Tools ▸ Macro ▸ Macros
+beside the Python scripts, run from a button or the shortcut key Excel
+gave them, and work as functions in cells. Tools ▸ Macro ▸ Visual
+Basic Editor (Alt+F11) shows the modules, runs and steps through them,
+and has the Immediate window. A macro that runs on stops with Esc or
+Ctrl+Break. [VBA.md](VBA.md) has the details.
+
 **The macro recorder.** Tools ▸ Record Macro writes down what you do as
 the Python that does it again, and stops into a script in the book.
 What is recorded is what the Python API can put back -- the text typed
@@ -1090,6 +1099,7 @@ prints the used range. The commands, by family:
 | Objects | `chart`, `charts`, `chartset`, `chartinfo`, `shape`, `shapes`, `controlset`, `click`, `picture`, `pictures`, `objgroup`, `objungroup`, `note`, `link`, `links`, `pictureset`, `objects`, `order` |
 | Files | `load`, `save`, `import`, `export`, `sniff`, `pdf`, `pdfbook`, `printarea`, `printscale`, `printsetup`, `printopt`, `pagebreak`, `margin`, `header`, `footer`, `titlerows`, `pageopt`, `titlecols` |
 | Python | `py`, `pyfile`, `script`, `scripts`, `runscript`, `delscript`, `record`, `select` |
+| Visual Basic | `vba`, `vbacode`, `vbaimport`, `vbaexport`, `vbadel`, `vbarun`, `vbaexec`, `vbaenable`, `vbacheck` ([VBA.md](VBA.md)) |
 | Database | `db`, `dbembed`, `dbtables`, `dbcols`, `dbexec`, `sql`, `sqlprint`, `dbput`, `dbrefresh`, `queries` |
 | Other | `undo`, `redo`, `name`, `names`, `unname`, `createnames`, `applynames`, `prop`, `props`, `autocorrect`, `correction`, `uncorrect`, `corrections`, `autocorrectopt`, `spell`, `view`, `views`, `shown`, `calcmode`, `iterate`, `recalc`, `evaluate`, `watch`, `watches`, `unwatch`, `check`, `date1904`, `precision`, `fixeddecimals` |
 
@@ -1136,7 +1146,10 @@ and `--version` the version.
 | Ctrl+Shift+Enter | enter a formula over the whole selection |
 | Ctrl+Shift+~ 1 2 3 4 5 6 | General, Comma, Time, Date, Currency, Percent, Scientific formats |
 | Alt+F8 | the Macros dialog |
+| Alt+F11 | the Visual Basic Editor |
 | Ctrl+Shift+letter | run the macro given that letter in Macro Options |
+| Ctrl+letter | run the Visual Basic macro given that lower-case letter |
+| Escape, Ctrl+Break | interrupt a running Visual Basic macro |
 | Escape | cancel the edit |
 
 ---

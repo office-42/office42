@@ -108,14 +108,18 @@ properties -- title, author, keywords and the rest -- travel in the
 three formats that hold them. Printing, print preview, page setup with
 headers and footers, and export and import of PDF.
 
-**Automation.** Python instead of Visual Basic: a console with `book` and
-`sheet` bound, scripts kept in the file, a macro recorder that writes
-Python, `=PY("expression")` in a cell, and functions defined in Python that
-appear in the Function Wizard. A book that arrives with scripts offers to
-run them and never runs them by itself. A SQLite database can sit beside
+**Automation.** Python as office42's own macro language: a console with
+`book` and `sheet` bound, scripts kept in the file, a macro recorder that
+writes Python, `=PY("expression")` in a cell, and functions defined in
+Python that appear in the Function Wizard. And Excel's own macros: an
+`.xlsm`'s or an `.xls`'s Visual Basic runs, from the Macro dialog, a
+button, a shortcut key or a cell, with Excel 97's Visual Basic Editor to
+edit and step through it, and is saved back for Excel. A book that
+arrives with scripts or macros offers to run them and never runs them by
+itself. A SQLite database can sit beside
 the book or inside it, queried from Data ▸ Get Data or from a cell with
-`=SQLVALUE(...)`. See [docs/PYTHON.md](docs/PYTHON.md) and
-[docs/DATABASE.md](docs/DATABASE.md).
+`=SQLVALUE(...)`. See [docs/PYTHON.md](docs/PYTHON.md),
+[docs/VBA.md](docs/VBA.md) and [docs/DATABASE.md](docs/DATABASE.md).
 
 **Spelling** with Hunspell, and **the terminal.** `office42-calc` drives the
 whole engine from stdin, which is how it is checked:
@@ -133,7 +137,7 @@ dump
 2     20
 ```
 
-Not planned: the ribbon, Visual Basic, co-authoring, Power Query and the
+Not planned: the ribbon, co-authoring, Power Query and the
 Quattro Pro and Applix formats. [docs/ROADMAP.md](docs/ROADMAP.md) says
 why.
 

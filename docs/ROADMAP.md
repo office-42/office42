@@ -24,6 +24,13 @@ file.
 **Splitting `o42-grid.c`.** 8,448 lines: drawing, editing, selection
 and dragging objects.
 
+**What Visual Basic still lacks.** Excel's macros run, with the editor
+and a debugger ([VBA.md](VBA.md)); what they reach for that is not
+here yet is UserForms, which are kept but not shown, and the chart
+inside a ChartObject -- its type, series and titles.  Other books from
+a macro (`Workbooks.Open`) and `Application.OnTime` wait on the same
+question, of a macro that outlives the book it was started from.
+
 ## Not planned
 
 **Quattro Pro and Applix files.** The last two formats Gnumeric reads.
@@ -33,9 +40,6 @@ unverified; Lotus 1-2-3 could be done because LibreOffice reads it.
 
 **Miltersen and Schwartz on commodity options.** It prices against a
 three-factor model, and there is nothing here to check it against.
-
-**Macros in Visual Basic.** Excel 97 had Visual Basic and its editor. office42 runs Python instead, records it, and keeps it in
-the file; see [PYTHON.md](PYTHON.md).
 
 **The ribbon.** The shape of this program is Excel 97's: a menu bar and
 two toolbars.

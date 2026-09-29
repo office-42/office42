@@ -224,8 +224,9 @@ validation, filters, subtotals, scenarios, Goal Seek and a Solver;
 conditional formatting, cell styles and rich text; notes, hyperlinks,
 pictures, shapes and form controls; printing, print preview and PDF
 export. Python is the macro language, with a console, a recorder and
-scripts kept in the file, and a book can carry a SQLite database
-inside it.
+scripts kept in the file; the Visual Basic macros Excel's books carry
+run too, with an editor in the shape of Excel 97's; and a book can
+carry a SQLite database inside it.
 
 It reads and writes Excel's .xlsx and .xls, OpenDocument .ods,
 Gnumeric's own format, CSV, HTML and the old Lotus, SYLK and DIF files,
@@ -240,6 +241,7 @@ office42.net.
 - Pivot tables, filters, subtotals, validation, scenarios
 - Goal Seek, Solver and the statistical analysis tools
 - Python console, macro recorder, scripts in the file
+- Runs Excel's VBA macros, with a Visual Basic Editor
 - Reads and writes .xlsx, .xls, .ods, .gnumeric and CSV
 - Printing, print preview and PDF export
 - A SQLite database inside the book

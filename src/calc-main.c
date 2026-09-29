@@ -424,6 +424,7 @@ main (int argc, char *argv[])
               "Files     load save import export sniff pdf pdfbook printarea printscale printsetup printopt\n"
               "          pagebreak margin pageopt header footer titlerows titlecols\n"
               "Python    py pyfile script scripts runscript delscript record select fire\n"
+              "VBA       vba vbacode vbaimport vbaexport vbadel vbarun vbaexec vbaenable vbacheck\n"
               "Database  db dbembed dbtables dbcols dbexec sql sqlprint dbput dbrefresh queries\n"
               "Other     undo redo name names unname createnames applynames prop props autocorrect\n"
               "          correction uncorrect corrections autocorrectopt spell view\n"
@@ -3657,6 +3658,25 @@ main (int argc, char *argv[])
             fprintf (stderr, "no such script\n");
           continue;
         }
+
+      /* The Visual Basic commands given nothing to work on: their usage. */
+      {
+        static const char *const USAGE[][2] = {
+          { "vbacode", "vbacode MODULE" }, { "vbaimport", "vbaimport PATH" },
+          { "vbaexport", "vbaexport MODULE PATH" }, { "vbadel", "vbadel MODULE" },
+          { "vbarun", "vbarun MACRO" }, { "vbaexec", "vbaexec LINE" },
+        };
+        gboolean bare = FALSE;
+
+        for (gsize i = 0; i < G_N_ELEMENTS (USAGE) && !bare; i++)
+          if (strcmp (text, USAGE[i][0]) == 0)
+            {
+              fprintf (stderr, "usage: %s\n", USAGE[i][1]);
+              bare = TRUE;
+            }
+        if (bare)
+          continue;
+      }
 
       /* vba lists the book's Visual Basic modules and its macros;
        * vbacode MODULE prints a module's text. */
