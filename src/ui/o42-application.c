@@ -82,6 +82,7 @@ static const struct {
   { "win.number::scientific", { "<Control><Shift>6", "<Control>asciicircum", NULL } },
   { "win.full-screen", { "F11", NULL } },
   { "win.macros",     { "<Alt>F8", NULL } },
+  { "win.vbe",        { "<Alt>F11", NULL } },
   { "win.script-step",     { "F8", NULL } },
   { "win.script-continue", { "<Shift>F8", NULL } },
   { "app.quit",       { "<Control>q", NULL } },

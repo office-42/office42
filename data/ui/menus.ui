@@ -330,6 +330,9 @@
             <item><attribute name="label" translatable="yes">Use Re_lative References</attribute><attribute name="action">win.relative-refs</attribute></item>
           </section>
           <section>
+            <item><attribute name="label" translatable="yes">_Visual Basic Editor</attribute><attribute name="action">win.vbe</attribute></item>
+          </section>
+          <section>
             <item><attribute name="label" translatable="yes">_Scripts in this Book...</attribute><attribute name="action">win.scripts</attribute></item>
             <item><attribute name="label" translatable="yes">S_tep Into Script</attribute><attribute name="action">win.script-step</attribute></item>
             <item><attribute name="label" translatable="yes">_Python Console...</attribute><attribute name="action">win.python-console</attribute></item>

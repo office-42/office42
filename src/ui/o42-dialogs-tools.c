@@ -16,6 +16,7 @@
 #include "o42-eval-steps.h"
 #include "o42-formula.h"
 #include "o42-python.h"
+#include "o42-vba.h"
 #include "o42-spell.h"
 #include "o42-types.h"
 #include "o42-entry.h"
@@ -730,6 +731,29 @@ action_scripts_run_all (GSimpleAction *a, GVariant *p, gpointer data)
   /* This is the user saying the book's Python may run: the scripts
    * now, and the =PY() cells, which are worked out again. */
   o42_book_set_scripts_trusted (self->book, TRUE);
+  /* And its Visual Basic: the functions go to the cells and the event
+   * procedures listen, before Workbook_Open is told the book is open. */
+  if (o42_book_n_vba_modules (self->book) > 0 && o42_python_available ())
+    {
+      char *output = NULL;
+      gboolean ok;
+
+      o42_vbe_commit (self);
+      ok = o42_vba_enable (self->book, self->sheet, &output);
+      if (!ok)
+        {
+          if (self->vbe != NULL)
+            o42_vbe_show_output (self, output, FALSE);
+          else
+            {
+              GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", _("The book's macros did not compile."));
+              gtk_alert_dialog_set_detail (alert, output != NULL ? output : "");
+              gtk_alert_dialog_show (alert, GTK_WINDOW (self));
+              g_object_unref (alert);
+            }
+        }
+      g_free (output);
+    }
   /* A book with an Auto_Open runs that and nothing else, as Excel
    * does; otherwise every script, in the order they are kept.  The
    * names first: a script may add or remove scripts. */
@@ -936,7 +960,9 @@ o42_window_debug_pause (O42Window *self, const char *filename, int line, const c
   ScriptsPrompt *prompt = self->scripts_prompt;
   int command;
 
-  (void) filename;
+  /* A macro stepped in the Visual Basic Editor names its module. */
+  if (self->vbe != NULL && (prompt == NULL || !prompt->running))
+    return o42_vbe_debug_pause (self, filename, line, variables);
   if (prompt == NULL || !prompt->running)
     return 0;
   prompt->paused = TRUE;
@@ -2597,6 +2623,39 @@ macros_fill (MacrosPrompt *prompt, const char *choose)
         chosen = i;
       g_free (note);
     }
+  /* The book's Visual Basic macros: named alone when the name is the
+   * only one of its kind, else with their module, as Excel lists them. */
+  {
+    GPtrArray *macros = o42_vba_macros (prompt->window->book);
+
+    for (guint i = 0; i < macros->len; i++)
+      {
+        O42VbaMacro *m = g_ptr_array_index (macros, i);
+        gboolean alone = TRUE;
+        char *label, *note, *qualified;
+        GtkWidget *list_row;
+
+        for (guint k = 0; k < macros->len; k++)
+          if (k != i && g_ascii_strcasecmp (((O42VbaMacro *) g_ptr_array_index (macros, k))->name, m->name) == 0)
+            alone = FALSE;
+        qualified = g_strdup_printf ("%s.%s", m->module, m->name);
+        label = g_strdup (alone ? m->name : qualified);
+        /* Translators: a note beside a macro's name in the Macro list:
+         * it is written in Visual Basic, and may have a key. */
+        note = m->shortcut == 0 ? g_strdup (_("Visual Basic"))
+             : g_strdup_printf ("%s  Ctrl+%s%c", _("Visual Basic"), g_ascii_isupper (m->shortcut) ? "Shift+" : "",
+                                g_ascii_toupper (m->shortcut));
+        list_row = macros_row (prompt, label, note);
+        g_object_set_data_full (G_OBJECT (list_row), "o42-script", g_strdup (label), g_free);
+        g_object_set_data_full (G_OBJECT (list_row), "o42-vba", qualified, g_free);
+        g_object_set_data_full (G_OBJECT (list_row), "o42-about", g_strdup (m->description), g_free);
+        if (choose != NULL && strcmp (choose, label) == 0)
+          chosen = gtk_list_box_row_get_index (GTK_LIST_BOX_ROW (list_row));
+        g_free (label);
+        g_free (note);
+      }
+    g_ptr_array_unref (macros);
+  }
   /* The personal scripts after the book's: the files in the user's
    * folder, run at start, and run again from here. */
   {
@@ -2628,10 +2687,20 @@ on_macros_row_selected (GtkListBox *list, GtkListBoxRow *row, gpointer data)
   MacrosPrompt *prompt = data;
   const char *sname = row != NULL ? g_object_get_data (G_OBJECT (row), "o42-script") : NULL;
   const char *path = row != NULL ? g_object_get_data (G_OBJECT (row), "o42-personal") : NULL;
+  const char *vba = row != NULL ? g_object_get_data (G_OBJECT (row), "o42-vba") : NULL;
   (void) list;
   gtk_label_set_text (GTK_LABEL (prompt->about),
                       path != NULL ? path
+                      : vba != NULL ? (const char *) g_object_get_data (G_OBJECT (row), "o42-about")
                       : sname != NULL ? o42_book_script_description (prompt->window->book, sname) : "");
+}
+
+/* The chosen row's macro in Visual Basic, as Module.Name, or NULL. */
+static const char *
+macros_chosen_vba (MacrosPrompt *prompt)
+{
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (prompt->list));
+  return row != NULL ? g_object_get_data (G_OBJECT (row), "o42-vba") : NULL;
 }
 
 static void
@@ -2640,9 +2709,20 @@ on_macros_run (GtkWidget *w, gpointer data)
   MacrosPrompt *prompt = data;
   const char *sname = macros_chosen (prompt);
   const char *path = macros_chosen_personal (prompt);
+  const char *vba = macros_chosen_vba (prompt);
   const char *code = sname != NULL && path == NULL ? o42_book_script_code (prompt->window->book, sname) : NULL;
   O42Window *self = prompt->window;
   (void) w;
+  if (vba != NULL)
+    {
+      char *macro = g_strdup (vba);
+      gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+      /* Running it from here is the user's say-so, as in Excel. */
+      o42_book_set_scripts_trusted (self->book, TRUE);
+      o42_window_run_vba (self, macro);
+      g_free (macro);
+      return;
+    }
   if (path != NULL)
     {
       GFile *file = g_file_new_for_path (path);
@@ -2699,12 +2779,20 @@ on_macros_edit (GtkWidget *w, gpointer data)
   O42Window *self = prompt->window;
   char *sname = g_strdup (macros_chosen (prompt));
   char *path = g_strdup (macros_chosen_personal (prompt));
+  char *vba = g_strdup (macros_chosen_vba (prompt));
   (void) w;
   gtk_window_destroy (GTK_WINDOW (prompt->dialog));
-  if (path != NULL)
+  if (vba != NULL)
+    {
+      char *dot = strrchr (vba, '.');
+      *dot = '\0';
+      o42_window_vbe (self, vba, dot + 1);
+    }
+  else if (path != NULL)
     macros_launch (self, path);
   else
     o42_window_edit_script (self, sname);
+  g_free (vba);
   g_free (sname);
   g_free (path);
 }
@@ -2714,9 +2802,26 @@ on_macros_delete (GtkWidget *w, gpointer data)
 {
   MacrosPrompt *prompt = data;
   const char *sname = macros_chosen (prompt);
+  const char *vba = macros_chosen_vba (prompt);
   (void) w;
   if (macros_chosen_personal (prompt) != NULL)
     return;   /* a file of the user's: not ours to delete */
+  if (vba != NULL)
+    {
+      /* Excel deletes the Sub from its module. */
+      char *module = g_strdup (vba);
+      char *dot = strrchr (module, '.');
+      *dot = '\0';
+      o42_vbe_commit (prompt->window);
+      if (o42_vba_remove_procedure (prompt->window->book, module, dot + 1))
+        {
+          macros_fill (prompt, NULL);
+          o42_window_bind_macro_keys (prompt->window);
+          window_sync (prompt->window);
+        }
+      g_free (module);
+      return;
+    }
   if (sname != NULL && o42_book_remove_script (prompt->window->book, sname))
     {
       macros_fill (prompt, NULL);
@@ -2731,6 +2836,7 @@ typedef struct {
   GtkWidget    *key;
   GtkWidget    *about;
   char         *name;
+  char         *vba;          /* Module.Name for a macro in Visual Basic */
 } MacroOptionsPrompt;
 
 static void
@@ -2739,6 +2845,22 @@ on_macro_options_ok (GtkWidget *w, gpointer data)
   MacroOptionsPrompt *prompt = data;
   const char *key = gtk_editable_get_text (GTK_EDITABLE (prompt->key));
   (void) w;
+  if (prompt->vba != NULL)
+    {
+      /* A macro in Visual Basic keeps its key and description in its
+       * module, where Excel reads them. */
+      char *module = g_strdup (prompt->vba);
+      char *dot = strrchr (module, '.');
+      *dot = '\0';
+      o42_vbe_commit (prompt->macros->window);
+      o42_vba_set_macro_options (prompt->macros->window->book, module, dot + 1, key[0],
+                                 gtk_editable_get_text (GTK_EDITABLE (prompt->about)));
+      g_free (module);
+      o42_window_bind_macro_keys (prompt->macros->window);
+      macros_fill (prompt->macros, prompt->name);
+      gtk_window_destroy (GTK_WINDOW (prompt->dialog));
+      return;
+    }
   o42_book_set_script_options (prompt->macros->window->book, prompt->name,
                                key[0], gtk_editable_get_text (GTK_EDITABLE (prompt->about)));
   o42_book_set_modified (prompt->macros->window->book, TRUE);
@@ -2753,6 +2875,7 @@ on_macro_options_free (GtkWidget *w, gpointer data)
   MacroOptionsPrompt *prompt = data;
   (void) w;
   g_free (prompt->name);
+  g_free (prompt->vba);
   g_free (prompt);
 }
 
@@ -2771,6 +2894,7 @@ on_macros_options (GtkWidget *w, gpointer data)
   prompt = g_new0 (MacroOptionsPrompt, 1);
   prompt->macros = macros;
   prompt->name = g_strdup (sname);
+  prompt->vba = g_strdup (macros_chosen_vba (macros));
   prompt->dialog = dialog_frame (macros->window, _("Macro Options"), TRUE, &content, &buttons);
   grid = gtk_grid_new ();
   gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
@@ -2783,6 +2907,20 @@ on_macros_options (GtkWidget *w, gpointer data)
   gtk_editable_set_width_chars (GTK_EDITABLE (prompt->key), 3);
   gtk_widget_set_halign (prompt->key, GTK_ALIGN_START);
   letter = o42_book_script_shortcut (macros->window->book, sname);
+  if (prompt->vba != NULL)
+    {
+      GPtrArray *all = o42_vba_macros (macros->window->book);
+      letter = 0;
+      for (guint i = 0; i < all->len; i++)
+        {
+          O42VbaMacro *m = g_ptr_array_index (all, i);
+          char *q = g_strdup_printf ("%s.%s", m->module, m->name);
+          if (strcmp (q, prompt->vba) == 0)
+            letter = m->shortcut;
+          g_free (q);
+        }
+      g_ptr_array_unref (all);
+    }
   if (letter != 0)
     {
       char text[2] = { letter, 0 };
@@ -2790,7 +2928,9 @@ on_macros_options (GtkWidget *w, gpointer data)
     }
   prompt->about = labelled (grid, 2, _("Description:"), gtk_entry_new ());
   gtk_widget_set_size_request (prompt->about, 300, -1);
-  gtk_editable_set_text (GTK_EDITABLE (prompt->about), o42_book_script_description (macros->window->book, sname));
+  gtk_editable_set_text (GTK_EDITABLE (prompt->about),
+                         prompt->vba != NULL ? gtk_label_get_text (GTK_LABEL (macros->about))
+                                             : o42_book_script_description (macros->window->book, sname));
   gtk_box_append (GTK_BOX (content), grid);
   hint = gtk_label_new (_("A letter, or nothing for no key.  The key is the book's, and saved with it."));
   gtk_widget_add_css_class (hint, "dim-label");
@@ -2816,7 +2956,7 @@ action_macros (GSimpleAction *a, GVariant *p, gpointer data)
   gtk_window_set_resizable (GTK_WINDOW (prompt->dialog), TRUE);
   gtk_window_set_default_size (GTK_WINDOW (prompt->dialog), 460, 380);
 
-  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Macros in this book, and the personal scripts:")));
+  gtk_box_append (GTK_BOX (content), gtk_label_new (_("Macros in this book, in Python and Visual Basic, and the personal scripts:")));
   prompt->list = gtk_list_box_new ();
   gtk_list_box_set_selection_mode (GTK_LIST_BOX (prompt->list), GTK_SELECTION_SINGLE);
   g_signal_connect (prompt->list, "row-selected", G_CALLBACK (on_macros_row_selected), prompt);
@@ -2846,6 +2986,75 @@ action_macros (GSimpleAction *a, GVariant *p, gpointer data)
 
   macros_fill (prompt, NULL);
   gtk_window_present (GTK_WINDOW (prompt->dialog));
+}
+
+/* A macro name as Excel writes it on a button -- 'Book1.xlsm'!Macro or
+ * Book1.xlsm!Module1.Macro -- without the book. */
+static char *
+vba_macro_name (const char *macro)
+{
+  const char *bang = strrchr (macro, '!');
+  char *name = g_strdup (bang != NULL ? bang + 1 : macro);
+  return g_strstrip (name);
+}
+
+gboolean
+o42_window_has_vba_macro (O42Window *self, const char *macro)
+{
+  char *name = vba_macro_name (macro);
+  GPtrArray *macros = o42_vba_macros (self->book);
+  gboolean found = FALSE;
+
+  for (guint i = 0; i < macros->len && !found; i++)
+    {
+      O42VbaMacro *m = g_ptr_array_index (macros, i);
+      char *qualified = g_strdup_printf ("%s.%s", m->module, m->name);
+      found = g_ascii_strcasecmp (name, m->name) == 0 || g_ascii_strcasecmp (name, qualified) == 0;
+      g_free (qualified);
+    }
+  g_ptr_array_unref (macros);
+  g_free (name);
+  return found;
+}
+
+gboolean
+o42_window_run_vba (O42Window *self, const char *macro)
+{
+  char *name, *output = NULL;
+  gboolean ok;
+
+  if (!o42_window_scripts_allowed (self))
+    return FALSE;
+  if (o42_grid_is_editing (self->grid))
+    o42_grid_commit_edit (self->grid);
+  o42_vbe_commit (self);
+  name = vba_macro_name (macro);
+  ok = o42_vba_run (self->book, self->sheet, name, &output);
+  o42_grid_refresh (self->grid);
+  window_sync (self);
+  if (self->vbe != NULL)
+    o42_vbe_show_output (self, output, ok);
+  else if (!ok)
+    {
+      /* Excel's box for a run-time error; Debug.Print's lines go to the
+       * Immediate window, which is closed. */
+      GtkAlertDialog *alert = gtk_alert_dialog_new ("%s", _("Microsoft Visual Basic"));
+      gtk_alert_dialog_set_detail (alert, output != NULL ? output : "");
+      gtk_alert_dialog_show (alert, GTK_WINDOW (self));
+      g_object_unref (alert);
+    }
+  g_free (output);
+  g_free (name);
+  return ok;
+}
+
+/* Ctrl+letter for a macro in Visual Basic, bound by o42_window_bind_macro_keys. */
+void
+action_run_vba (GSimpleAction *a, GVariant *p, gpointer data)
+{
+  (void) a;
+  if (p != NULL)
+    o42_window_run_vba (data, g_variant_get_string (p, NULL));
 }
 
 /* Ctrl+Shift+letter, bound by o42_window_bind_macro_keys. */

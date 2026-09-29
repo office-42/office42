@@ -1329,3 +1329,165 @@ o42_vba_macros (O42Book *book)
     }
   return out;
 }
+
+/* The lines of a module's text, and where procedure `name` begins and
+ * ends in them: the index of its Sub line and of its End Sub line. */
+static gboolean
+find_procedure (char **lines, const char *name, int *first, int *last)
+{
+  GRegex *head, *tail;
+  char *pattern = g_strdup_printf ("^\\s*(?:(?:Public|Private|Friend|Global)\\s+)?(?:Static\\s+)?"
+                                   "(Sub|Function|Property\\s+(?:Get|Let|Set))\\s+%s\\b", name);
+  gboolean found = FALSE;
+
+  head = g_regex_new (pattern, G_REGEX_CASELESS, 0, NULL);
+  tail = g_regex_new ("^\\s*End\\s+(Sub|Function|Property)\\b", G_REGEX_CASELESS, 0, NULL);
+  g_free (pattern);
+  if (head == NULL || tail == NULL)
+    {
+      if (head != NULL) g_regex_unref (head);
+      if (tail != NULL) g_regex_unref (tail);
+      return FALSE;
+    }
+  for (int i = 0; lines[i] != NULL && !found; i++)
+    if (g_regex_match (head, lines[i], 0, NULL))
+      {
+        *first = i;
+        for (int k = i + 1; lines[k] != NULL; k++)
+          if (g_regex_match (tail, lines[k], 0, NULL))
+            {
+              *last = k;
+              found = TRUE;
+              break;
+            }
+      }
+  g_regex_unref (head);
+  g_regex_unref (tail);
+  return found;
+}
+
+static gboolean
+is_attribute_of (const char *line, const char *name)
+{
+  const char *p = line;
+  gsize n = strlen (name);
+
+  while (*p == ' ' || *p == '\t')
+    p++;
+  if (g_ascii_strncasecmp (p, "Attribute ", 10) != 0)
+    return FALSE;
+  p += 10;
+  while (*p == ' ')
+    p++;
+  return g_ascii_strncasecmp (p, name, n) == 0 && p[n] == '.';
+}
+
+gboolean
+o42_vba_remove_procedure (O42Book *book, const char *module, const char *name)
+{
+  int at = o42_book_vba_module_find (book, module);
+  char **lines;
+  int first, last;
+  GString *out;
+
+  if (at < 0)
+    return FALSE;
+  lines = g_strsplit (o42_book_vba_module_code (book, at), "\n", -1);
+  if (!find_procedure (lines, name, &first, &last))
+    {
+      g_strfreev (lines);
+      return FALSE;
+    }
+  out = g_string_new (NULL);
+  for (int i = 0; lines[i] != NULL; i++)
+    {
+      if (i >= first && i <= last)
+        continue;
+      /* The blank line the Sub leaves behind goes with it. */
+      if (i == last + 1 && lines[i][strspn (lines[i], " \t\r")] == '\0')
+        continue;
+      g_string_append (out, lines[i]);
+      if (lines[i + 1] != NULL)
+        g_string_append_c (out, '\n');
+    }
+  o42_book_set_vba_module (book, o42_book_vba_module_name (book, at), o42_book_vba_module_kind (book, at), out->str);
+  g_string_free (out, TRUE);
+  g_strfreev (lines);
+  return TRUE;
+}
+
+gboolean
+o42_vba_set_macro_options (O42Book *book, const char *module, const char *name,
+                           char shortcut, const char *description)
+{
+  int at = o42_book_vba_module_find (book, module);
+  char **lines;
+  int first, last;
+  GString *out;
+
+  if (at < 0)
+    return FALSE;
+  lines = g_strsplit (o42_book_vba_module_code (book, at), "\n", -1);
+  if (!find_procedure (lines, name, &first, &last))
+    {
+      g_strfreev (lines);
+      return FALSE;
+    }
+  out = g_string_new (NULL);
+  for (int i = 0; lines[i] != NULL; i++)
+    {
+      if (i > first && i < last && is_attribute_of (lines[i], name))
+        continue;
+      g_string_append (out, lines[i]);
+      if (lines[i + 1] != NULL || i == first)
+        g_string_append_c (out, '\n');
+      if (i == first)
+        {
+          /* Excel writes the two just under the Sub line, the key as a
+           * letter and "\n14" -- a backslash and an n, as they stand. */
+          if (description != NULL && *description != '\0')
+            {
+              GString *quoted = g_string_new (NULL);
+              for (const char *p = description; *p != '\0'; p++)
+                {
+                  if (*p == '"')
+                    g_string_append_c (quoted, '"');
+                  if (*p != '\n' && *p != '\r')
+                    g_string_append_c (quoted, *p);
+                }
+              g_string_append_printf (out, "Attribute %s.VB_Description = \"%s\"\n", name, quoted->str);
+              g_string_free (quoted, TRUE);
+            }
+          if (shortcut != '\0' || (description != NULL && *description != '\0'))
+            g_string_append_printf (out, "Attribute %s.VB_ProcData.VB_Invoke_Func = \"%c\\n14\"\n",
+                                    name, g_ascii_isalpha (shortcut) ? shortcut : ' ');
+        }
+    }
+  o42_book_set_vba_module (book, o42_book_vba_module_name (book, at), o42_book_vba_module_kind (book, at), out->str);
+  g_string_free (out, TRUE);
+  g_strfreev (lines);
+  return TRUE;
+}
+
+gboolean
+o42_vba_has_code (O42Book *book)
+{
+  for (int i = 0; i < o42_book_n_vba_modules (book); i++)
+    {
+      char **lines = g_strsplit (o42_book_vba_module_code (book, i), "\n", -1);
+      gboolean code = FALSE;
+
+      for (int k = 0; lines[k] != NULL && !code; k++)
+        {
+          const char *p = lines[k] + strspn (lines[k], " \t\r");
+          if (*p == '\0' || *p == '\'' || g_ascii_strncasecmp (p, "Attribute ", 10) == 0 ||
+              g_ascii_strncasecmp (p, "Option ", 7) == 0 || g_ascii_strncasecmp (p, "Rem ", 4) == 0)
+            continue;
+          code = TRUE;
+        }
+      g_strfreev (lines);
+      if (code)
+        return TRUE;
+    }
+  return FALSE;
+}

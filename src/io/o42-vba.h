@@ -76,7 +76,20 @@ typedef struct {
   char *description;     /* "" for none */
 } O42VbaMacro;
 
+/* Whether any module has code in it, and not only the Attribute and
+ * Option lines every one begins with: whether there is anything to run. */
+gboolean   o42_vba_has_code (O42Book *book);
+
 /* The book's macros, module by module; free with g_ptr_array_unref. */
 GPtrArray *o42_vba_macros (O42Book *book);
+
+/* Tools > Macro > Macros > Delete: the Sub goes from its module, with
+ * the Attribute lines that belong to it.  FALSE if it is not there. */
+gboolean   o42_vba_remove_procedure (O42Book *book, const char *module, const char *name);
+
+/* Macro Options: the Attribute lines Excel keeps a macro's shortcut and
+ * description in, written afresh ('\0' and "" for none). */
+gboolean   o42_vba_set_macro_options (O42Book *book, const char *module, const char *name,
+                                      char shortcut, const char *description);
 
 G_END_DECLS

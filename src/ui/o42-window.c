@@ -60,6 +60,7 @@
 #include "o42-eval.h"
 #include "o42-formula.h"
 #include "o42-python.h"
+#include "o42-vba.h"
 
 #include <glib/gi18n.h>
 #include <glib/gstdio.h>
@@ -4051,15 +4052,53 @@ action_format_control (GSimpleAction *a, GVariant *p, gpointer data)
  * the file's, and one click on it is not the user's say-so.  Until
  * then the bar that offers to run them is shown again, and nothing
  * runs. */
+/* The bar under the formula bar that says what code the book brought
+ * and offers to run it: Excel's "Enable content".  Python scripts and
+ * =PY() cells are run by Run Scripts, Visual Basic macros made live by
+ * Enable Macros; both by Enable Content. */
+void
+o42_window_offer_scripts (O42Window *self)
+{
+  gboolean python = o42_python_available ();
+  gboolean scripts = python && (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY"));
+  gboolean vba = o42_book_n_vba_modules (self->book) > 0 && o42_vba_has_code (self->book);
+  const char *text;
+
+  if (scripts && vba)
+    text = _("This book has Visual Basic macros and Python scripts in it. They have not been run.");
+  else if (scripts)
+    text = _("This book has Python scripts in it. They have not been run.");
+  else if (vba && python)
+    text = _("This book has Visual Basic macros in it. They have been disabled.");
+  else if (o42_book_has_vba (self->book))
+    text = _("This book has Visual Basic macros, which this build of office42 cannot run "
+             "without Python; they are kept, and saved with the book as .xlsm or .xls.");
+  else
+    return;
+  gtk_label_set_text (GTK_LABEL (self->scripts_bar_label), text);
+  gtk_button_set_label (GTK_BUTTON (self->scripts_bar_run),
+                        scripts && vba ? _("_Enable Content") : vba ? _("_Enable Macros") : _("_Run Scripts"));
+  gtk_widget_set_visible (self->scripts_bar_run, scripts || (vba && python));
+  gtk_button_set_label (GTK_BUTTON (self->scripts_bar_show),
+                        vba && !scripts ? _("_Visual Basic...") : _("_Scripts..."));
+  gtk_actionable_set_action_name (GTK_ACTIONABLE (self->scripts_bar_show),
+                                  vba && !scripts ? "win.vbe" : "win.scripts");
+  gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), TRUE);
+}
+
 gboolean
 o42_window_scripts_allowed (O42Window *self)
 {
   if (o42_book_scripts_trusted (self->book))
     return TRUE;
-  gtk_label_set_text (GTK_LABEL (self->scripts_bar_label),
-                      _("This book has Python scripts in it. They have not been run."));
-  gtk_widget_set_visible (self->scripts_bar_run, TRUE);
-  gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), TRUE);
+  o42_window_offer_scripts (self);
+  if (!gtk_revealer_get_reveal_child (GTK_REVEALER (self->scripts_bar)))
+    {
+      gtk_label_set_text (GTK_LABEL (self->scripts_bar_label),
+                          _("This book's scripts have not been run."));
+      gtk_widget_set_visible (self->scripts_bar_run, TRUE);
+      gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), TRUE);
+    }
   return FALSE;
 }
 
@@ -4070,6 +4109,12 @@ on_grid_run_script (O42Grid *grid, const char *name, gpointer data)
   const char *code = name != NULL ? o42_book_script_code (self->book, name) : NULL;
 
   (void) grid;
+  if (code == NULL && name != NULL && o42_window_has_vba_macro (self, name))
+    {
+      /* A button from Excel names a Visual Basic macro. */
+      o42_window_run_vba (self, name);
+      return;
+    }
   if (code == NULL)
     {
       show_error (self, _("This button names a script the book has not got."), NULL);
@@ -5728,6 +5773,17 @@ file_is_xlsx (GFile *file)
 }
 
 static gboolean
+file_is_xlsm (GFile *file)
+{
+  char *name = g_file_get_basename (file);
+  char *folded = name != NULL ? g_ascii_strdown (name, -1) : NULL;
+  gboolean xlsm = folded != NULL && g_str_has_suffix (folded, ".xlsm");
+  g_free (folded);
+  g_free (name);
+  return xlsm;
+}
+
+static gboolean
 file_is_html (GFile *file)
 {
   char *name = g_file_get_basename (file);
@@ -5831,20 +5887,8 @@ window_open (O42Window *self, GFile *file, const char *text, const O42CsvOptions
    * offers, for scripts in the book and for =PY() in its cells alike. */
   if (ok)
     o42_book_set_scripts_trusted (self->book, FALSE);
-  {
-    gboolean scripts = ok && o42_python_available () &&
-                       (o42_book_n_scripts (self->book) > 0 || window_book_calls (self, "PY"));
-    gboolean vba = ok && o42_book_has_vba (self->book);
-
-    /* A Visual Basic project is not run -- office42 runs Python -- but
-     * it is kept, and the bar says so. */
-    gtk_label_set_text (GTK_LABEL (self->scripts_bar_label),
-                        scripts ? _("This book has Python scripts in it. They have not been run.")
-                                : _("This book has Visual Basic macros, which office42 does not run; "
-                                    "they are kept for Excel when it is saved as .xlsm."));
-    gtk_widget_set_visible (self->scripts_bar_run, scripts);
-    gtk_revealer_set_reveal_child (GTK_REVEALER (self->scripts_bar), scripts || vba);
-  }
+  if (ok)
+    o42_window_offer_scripts (self);
   o42_window_bind_macro_keys (self);
   return ok;
 }
@@ -5916,6 +5960,7 @@ window_save_to (O42Window *self, GFile *file, const O42CsvOptions *options)
   GError *error = NULL;
   gboolean ok;
 
+  o42_vbe_commit (self);
   o42_window_fire_event (self, "before_save", NULL);
 
   if (file_is_csv (file))
@@ -5987,6 +6032,13 @@ window_save_to (O42Window *self, GFile *file, const O42CsvOptions *options)
       show_error (self, said, NULL);
       g_free (said);
     }
+  /* An .xlsx is a book without macros, by Excel's rule, and an .ods
+   * has no room for Visual Basic: the macros stay in the book on screen,
+   * and this says where they can be kept. */
+  if ((file_is_ods (file) || (file_is_xlsx (file) && !file_is_xlsm (file))) && o42_book_has_vba (self->book))
+    show_error (self, _("This book's Visual Basic macros were not saved: this kind of file has no room "
+                        "for them. Save as .xlsm (Excel Macro-Enabled Workbook), .xls or .gnumeric "
+                        "to keep them."), NULL);
   if (file_is_csv (file) && o42_csv_lost_characters)
     show_error (self, _("Some characters have no place in the encoding this text file is "
                         "written in, and were saved as question marks. Save As lets you "
@@ -6630,6 +6682,8 @@ static const GActionEntry ACTIONS[] = {
   { "relative-refs",  action_relative_refs,  NULL, "false", NULL, { 0 } },
   { "macros",         action_macros,         NULL, NULL, NULL, { 0 } },
   { "run-macro",      action_run_macro,      "s",  NULL, NULL, { 0 } },
+  { "vbe",            action_vbe,            NULL, NULL, NULL, { 0 } },
+  { "run-vba",        action_run_vba,        "s",  NULL, NULL, { 0 } },
   { "analysis",       action_analysis,       NULL, NULL, NULL, { 0 } },
   { "group-objects",  action_group_objects,  NULL, NULL, NULL, { 0 } },
   { "ungroup-objects", action_ungroup_objects, NULL, NULL, NULL, { 0 } },
@@ -7321,6 +7375,43 @@ o42_window_bind_macro_keys (O42Window *self)
                                            "s", name));
       g_free (accel);
     }
+  /* A Visual Basic macro's key, from Macro Options: a capital letter is
+   * Ctrl+Shift and the letter, a small one Ctrl and the letter, which
+   * takes the key from office42 as it does from Excel. */
+  {
+    GPtrArray *macros = o42_vba_macros (self->book);
+
+    for (guint i = 0; i < macros->len; i++)
+      {
+        O42VbaMacro *m = g_ptr_array_index (macros, i);
+        char *accel, *qualified;
+        GtkShortcutTrigger *trigger;
+
+        if (m->shortcut == 0 || !g_ascii_isalpha (m->shortcut))
+          continue;
+        if (g_ascii_isupper (m->shortcut))
+          {
+            char *python = NULL;
+            for (int k = 0; k < o42_book_n_scripts (self->book) && python == NULL; k++)
+              if (g_ascii_toupper (o42_book_script_shortcut (self->book, o42_book_script_name (self->book, k))) ==
+                  m->shortcut)
+                python = (char *) o42_book_script_name (self->book, k);
+            if (python != NULL)
+              continue;     /* the book's Python script has the key */
+            accel = g_strdup_printf ("<Control><Shift>%c", g_ascii_tolower (m->shortcut));
+          }
+        else
+          accel = g_strdup_printf ("<Control>%c", m->shortcut);
+        qualified = g_strdup_printf ("%s.%s", m->module, m->name);
+        trigger = gtk_shortcut_trigger_parse_string (accel);
+        if (trigger != NULL)
+          gtk_shortcut_controller_add_shortcut (keys,
+            gtk_shortcut_new_with_arguments (trigger, gtk_named_action_new ("win.run-vba"), "s", qualified));
+        g_free (qualified);
+        g_free (accel);
+      }
+    g_ptr_array_unref (macros);
+  }
   self->macro_keys = GTK_EVENT_CONTROLLER (keys);
   gtk_widget_add_controller (GTK_WIDGET (self), self->macro_keys);
 }
@@ -7621,13 +7712,71 @@ host_debug_pause (gpointer user, O42Book *book, const char *filename, int line, 
   return self != NULL ? o42_window_debug_pause (self, filename, line, variables) : 0;
 }
 
+typedef struct {
+  GMainLoop *loop;
+  int        answer;
+} HostAsk;
+
+static void
+on_host_ask_done (GObject *source, GAsyncResult *result, gpointer data)
+{
+  HostAsk *ask = data;
+  GError *error = NULL;
+
+  ask->answer = gtk_alert_dialog_choose_finish (GTK_ALERT_DIALOG (source), result, &error);
+  if (error != NULL)
+    {
+      ask->answer = -1;
+      g_error_free (error);
+    }
+  g_main_loop_quit (ask->loop);
+}
+
+/* MsgBox with vbYesNo and its kin: the question, its buttons, and the
+ * macro waits for the one pressed. */
+static int
+host_ask (gpointer user, O42Book *book, const char *title, const char *text, const char *const *buttons)
+{
+  O42Window *self = host_window (user, book);
+  GtkAlertDialog *dialog = gtk_alert_dialog_new ("%s", text);
+  HostAsk ask = { g_main_loop_new (NULL, FALSE), -1 };
+  GPtrArray *labels = g_ptr_array_new ();
+
+  (void) title;
+  for (int i = 0; buttons[i] != NULL; i++)
+    {
+      /* The labels are Excel's English ones; the window shows its own. */
+      const char *label = buttons[i];
+      if (strcmp (label, "OK") == 0) label = _("OK");
+      else if (strcmp (label, "Cancel") == 0) label = _("Cancel");
+      else if (strcmp (label, "Yes") == 0) label = _("_Yes");
+      else if (strcmp (label, "No") == 0) label = _("_No");
+      else if (strcmp (label, "Abort") == 0) label = _("_Abort");
+      else if (strcmp (label, "Retry") == 0) label = _("_Retry");
+      else if (strcmp (label, "Ignore") == 0) label = _("_Ignore");
+      g_ptr_array_add (labels, (gpointer) label);
+      if (strcmp (buttons[i], "Cancel") == 0)
+        gtk_alert_dialog_set_cancel_button (dialog, i);
+    }
+  g_ptr_array_add (labels, NULL);
+  gtk_alert_dialog_set_buttons (dialog, (const char *const *) labels->pdata);
+  gtk_alert_dialog_set_default_button (dialog, 0);
+  gtk_alert_dialog_set_modal (dialog, TRUE);
+  gtk_alert_dialog_choose (dialog, self != NULL ? GTK_WINDOW (self) : NULL, NULL, on_host_ask_done, &ask);
+  g_main_loop_run (ask.loop);
+  g_main_loop_unref (ask.loop);
+  g_ptr_array_unref (labels);
+  g_object_unref (dialog);
+  return ask.answer;
+}
+
 static void
 window_install_python_host (O42Window *self)
 {
   static gboolean installed = FALSE;
   O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
                          host_input, host_status, host_path, host_save, host_open,
-                         host_close, host_debug_pause, NULL };
+                         host_close, host_debug_pause, host_ask };
 
   if (installed)
     return;
@@ -7811,6 +7960,9 @@ o42_window_init (O42Window *self)
     self->scripts_bar_run = run;
     gtk_label_set_wrap (GTK_LABEL (label), TRUE);
     GtkWidget *show = gtk_button_new_with_mnemonic (_("_Scripts..."));
+    self->scripts_bar_show = show;
+    gtk_button_set_use_underline (GTK_BUTTON (run), TRUE);
+    gtk_button_set_use_underline (GTK_BUTTON (show), TRUE);
     GtkWidget *hide = gtk_button_new_with_mnemonic (_("_Hide"));
 
     gtk_widget_add_css_class (row, "o42-scripts-bar");

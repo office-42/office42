@@ -28,9 +28,10 @@ struct _O42Window {
   O42Sheet   *sheet;           /* the sheet on show, one of the book's */
   gpointer    python_console;  /* the PyConsole while its window is open */
   gpointer    scripts_prompt;  /* the Scripts dialog while it is open, for the debugger */
+  gpointer    vbe;             /* the Visual Basic Editor while it is open */
   GtkEventController *macro_keys;  /* Ctrl+Shift+letter for the book's macros */
   GtkWidget  *scripts_bar;     /* "this book has scripts", shown on opening one */
-  GtkWidget  *scripts_bar_label, *scripts_bar_run;
+  GtkWidget  *scripts_bar_label, *scripts_bar_run, *scripts_bar_show;
   O42Grid    *grid;
   GtkWidget  *tabs;
 
@@ -114,6 +115,9 @@ gboolean o42_window_run_script (O42Window *self, const char *name, const char *c
 /* Whether the book's scripts may run from a button or a shortcut; when
  * not, shows the bar that offers to run them. */
 gboolean o42_window_scripts_allowed (O42Window *self);
+/* Shows the bar that says what code the book has and offers to run it,
+ * if it has any. */
+void     o42_window_offer_scripts (O42Window *self);
 void     o42_window_fire_event (O42Window *self, const char *event, const O42Range *range);
 
 /* The Scripts dialog's half of the step debugger: shows the line and
@@ -121,6 +125,27 @@ void     o42_window_fire_event (O42Window *self, const char *event, const O42Ran
 int      o42_window_debug_pause (O42Window *self, const char *filename, int line, const char *variables);
 /* Opens Scripts in this Book on the script of that name (NULL for the first). */
 void     o42_window_edit_script (O42Window *self, const char *which);
+
+/* ---- Visual Basic ---------------------------------------------------------- */
+
+/* Tools > Macro > Visual Basic Editor, opened on a module (NULL for the
+ * first) with the caret on a procedure (NULL for none). */
+void     o42_window_vbe (O42Window *self, const char *module, const char *proc);
+/* The editor's half of stepping a macro: shows the module and the line,
+ * waits for Step, Continue or Reset; 0, 1 or 2 as debug_pause wants. */
+int      o42_vbe_debug_pause (O42Window *self, const char *module, int line, const char *variables);
+/* The editor's text into the book, before a save or a run. */
+void     o42_vbe_commit (O42Window *self);
+/* What a macro printed, in the Immediate window when the editor is open. */
+void     o42_vbe_show_output (O42Window *self, const char *output, gboolean ok);
+/* Runs one of the book's macros by name -- Macro, Module.Macro, or
+ * 'Book.xlsm'!Macro as a button names it -- once the book's macros may
+ * run; says what went wrong in a message.  TRUE if it ran through. */
+gboolean o42_window_run_vba (O42Window *self, const char *macro);
+/* Whether the book has a macro by that name. */
+gboolean o42_window_has_vba_macro (O42Window *self, const char *macro);
+void action_vbe (GSimpleAction *a, GVariant *p, gpointer data);
+void action_run_vba (GSimpleAction *a, GVariant *p, gpointer data);
 void o42_scripts_bar_hide  (O42Window *self);
 gboolean window_book_calls (O42Window *self, const char *name);
 
