@@ -1269,12 +1269,18 @@ def _defined_elsewhere(name, owner):
     return name in _functions or any(name in fns for who, fns in _book_functions.items() if who != owner)
 
 
-def _call(name, args):
-    """Called from C for =NAME(...) in a cell."""
+def _call(name, args, refs=None, caller=None):
+    """Called from C for =NAME(...) in a cell: the arguments' values,
+    where each range argument is -- (sheet, row0, col0, row1, col1) or
+    None -- and the calling cell as (sheet, row, col).  A function from
+    Visual Basic wants the last two, to make its Range arguments and its
+    Application.Caller."""
     fn = _lookup(name)
     if fn is None:
         return Error("#NAME?")
     try:
+        if getattr(fn, "_wants_refs", False):
+            return fn(args, refs, caller)
         return fn(*args)
     except Exception:
         _errors.append("%s: %s" % (name, traceback.format_exc().strip().split("\n")[-1]))
@@ -1505,8 +1511,13 @@ def _debug(code, filename, breakpoints, step_first):
     return ok, out.getvalue()
 
 
+_forget_hooks = []  # what else keeps something per book: Visual Basic's projects
+
+
 def _forget_book(owner):
     """The book is going, or its scripts are being forgotten."""
+    for hook in _forget_hooks:
+        hook(owner)
     _forget_handlers(owner)
     for name in _book_functions.pop(owner, {}):
         if not _defined_elsewhere(name, owner):

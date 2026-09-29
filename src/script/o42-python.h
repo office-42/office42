@@ -118,8 +118,49 @@ typedef struct {
    * stop the script. */
   int      (*debug_pause)   (gpointer user, O42Book *book, const char *filename,
                              int line, const char *variables);
+  /* A message box with buttons, as Visual Basic's MsgBox with vbYesNo
+   * puts up: which of the NULL-ended `buttons` was pressed, from 0, or
+   * -1 when the box was closed without one. */
+  int      (*ask)           (gpointer user, O42Book *book, const char *title,
+                             const char *text, const char *const *buttons);
 } O42PythonHost;
 
 void o42_python_set_host (const O42PythonHost *host);
+
+/* ---- Visual Basic ------------------------------------------------------ */
+
+/* Excel's macros, run by an interpreter written in Python over the same
+ * interpreter the scripts use (vba.py, and vbaexcel.py for Excel's
+ * objects), so that without Python there is no Visual Basic either.
+ * The book's modules are compiled when first run and again after one of
+ * them changes; their module-level variables live as long as that.
+ * Running anything is the user saying the book's code may run, as for
+ * Python.  Each returns FALSE with a message in `output` when the code
+ * did not compile or stopped on an error; what Debug.Print wrote comes
+ * back in `output` either way. */
+
+/* Runs a macro: a Sub by its name, or Module.Name. */
+gboolean o42_vba_run       (O42Book *book, O42Sheet *sheet, const char *macro, char **output);
+
+/* A line typed into the Immediate window: ?expression prints its value,
+ * anything else runs as statements. */
+gboolean o42_vba_immediate (O42Book *book, O42Sheet *sheet, const char *line, char **output);
+
+/* The book's macros made live: its public Functions become functions
+ * for cells, its event procedures (Workbook_Open, Worksheet_Change ...)
+ * listen, and the cells that call its functions are worked out again.
+ * What Enable Macros does before running Auto_Open and Workbook_Open. */
+gboolean o42_vba_enable    (O42Book *book, O42Sheet *sheet, char **output);
+
+/* Runs a macro stepped, as o42_python_debug does: it pauses on every
+ * line when `step_first`, and otherwise at the "Module:line" of each of
+ * the NULL-ended `breakpoints`; the host's debug_pause is told the
+ * module and the line. */
+gboolean o42_vba_debug     (O42Book *book, O42Sheet *sheet, const char *macro,
+                            const char *const *breakpoints, gboolean step_first, char **output);
+
+/* Debug > Compile: NULL when every module compiles, else the message,
+ * with the module and line it is about (caller frees both). */
+char    *o42_vba_check     (O42Book *book, char **module, int *line);
 
 G_END_DECLS

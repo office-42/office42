@@ -78,8 +78,22 @@ office42_py_h = custom_target('office42-py.h',
   command: [python_prog, files('script/embed.py'), '@INPUT@', '@OUTPUT@'],
 )
 
+# Visual Basic: the language, and Excel's objects over the office42
+# module, compiled in the same way and loaded when a book first runs a
+# macro.
+o42vba_py_h = custom_target('o42vba-py.h',
+  input: 'script/vba.py',
+  output: 'o42vba-py.h',
+  command: [python_prog, files('script/embed.py'), '@INPUT@', '@OUTPUT@', 'O42VBA_PY'],
+)
+o42excel_py_h = custom_target('o42excel-py.h',
+  input: 'script/vbaexcel.py',
+  output: 'o42excel-py.h',
+  command: [python_prog, files('script/embed.py'), '@INPUT@', '@OUTPUT@', 'O42EXCEL_PY'],
+)
+
 o42_script = static_library('o42script',
-  ['script/o42-python.c', office42_py_h],
+  ['script/o42-python.c', office42_py_h, o42vba_py_h, o42excel_py_h],
   dependencies: python_dep.found() ? [o42_core_dep, python_dep] : [o42_core_dep],
   include_directories: o42_inc,
   install: false,

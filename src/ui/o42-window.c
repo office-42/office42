@@ -7627,7 +7627,7 @@ window_install_python_host (O42Window *self)
   static gboolean installed = FALSE;
   O42PythonHost host = { NULL, host_get_selection, host_set_selection, host_message,
                          host_input, host_status, host_path, host_save, host_open,
-                         host_close, host_debug_pause };
+                         host_close, host_debug_pause, NULL };
 
   if (installed)
     return;

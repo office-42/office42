@@ -20,6 +20,7 @@
 #include "o42-image.h"
 #include "o42-pyquote.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include <glib/gstdio.h>
 
@@ -97,6 +98,45 @@ o42_python_debug (O42Book *book, O42Sheet *sheet, const char *code, const char *
   return o42_python_run (book, sheet, code, filename, output);
 }
 
+gboolean
+o42_vba_run (O42Book *book, O42Sheet *sheet, const char *macro, char **output)
+{
+  (void) macro;
+  return o42_python_run (book, sheet, "", NULL, output);
+}
+
+gboolean
+o42_vba_immediate (O42Book *book, O42Sheet *sheet, const char *line, char **output)
+{
+  (void) line;
+  return o42_python_run (book, sheet, "", NULL, output);
+}
+
+gboolean
+o42_vba_enable (O42Book *book, O42Sheet *sheet, char **output)
+{
+  return o42_python_run (book, sheet, "", NULL, output);
+}
+
+gboolean
+o42_vba_debug (O42Book *book, O42Sheet *sheet, const char *macro, const char *const *breakpoints,
+               gboolean step_first, char **output)
+{
+  (void) macro; (void) breakpoints; (void) step_first;
+  return o42_python_run (book, sheet, "", NULL, output);
+}
+
+char *
+o42_vba_check (O42Book *book, char **where, int *line)
+{
+  (void) book;
+  if (where != NULL)
+    *where = NULL;
+  if (line != NULL)
+    *line = 0;
+  return g_strdup ("This build of Office42 Spreadsheet has no Python in it, and so no Visual Basic.");
+}
+
 #else /* HAVE_PYTHON */
 
 #define PY_SSIZE_T_CLEAN
@@ -106,6 +146,8 @@ o42_python_debug (O42Book *book, O42Sheet *sheet, const char *code, const char *
 #endif
 
 #include "office42-py.h"   /* generated from office42.py: OFFICE42_PY */
+#include "o42vba-py.h"     /* from vba.py: O42VBA_PY, the language */
+#include "o42excel-py.h"   /* from vbaexcel.py: O42EXCEL_PY, Excel's objects */
 
 static O42Book  *current_book  = NULL;
 static O42Sheet *current_sheet = NULL;
@@ -117,6 +159,8 @@ static gboolean  sheets_touched = FALSE; /* sheets added, removed or renamed */
 static int       handler_count = 0;      /* event handlers registered, all books */
 static const char *debug_filename = NULL; /* the script being stepped, while it is */
 static int       firing        = 0;      /* inside a handler: no handlers fire */
+static PyObject *vba_module    = NULL;   /* o42excel, loaded when first wanted */
+static char     *vba_failure   = NULL;
 
 /* ---- Between the two value systems --------------------------------- */
 
@@ -1113,6 +1157,9 @@ m_select (PyObject *self, PyObject *args)
     return NULL;
   if (host.set_selection == NULL)
     return no_window ("select in");
+  /* Selecting on another sheet shows it, as Excel's Select does: it is
+   * the active sheet from now on. */
+  current_sheet = sheet;
   host.set_selection (host.user, current_book, sheet, &r, arow, acol);
   Py_RETURN_NONE;
 }
@@ -1761,13 +1808,16 @@ m_debug_pause (PyObject *self, PyObject *args)
   const char *variables;
   int command = 0;
   (void) self;
-  if (!PyArg_ParseTuple (args, "is", &line, &variables))
+  const char *filename = NULL;
+  if (!PyArg_ParseTuple (args, "is|s", &line, &variables, &filename))
     return NULL;
   /* The window runs its own loop while the script waits; anything that
    * calls back into Python from it does so from this same thread, as a
-   * callback would, so the interpreter is left as it is. */
+   * callback would, so the interpreter is left as it is.  A macro in
+   * Visual Basic names the module it has stopped in. */
   if (host.debug_pause != NULL)
-    command = host.debug_pause (host.user, current_book, debug_filename, line, variables);
+    command = host.debug_pause (host.user, current_book, filename != NULL ? filename : debug_filename,
+                                line, variables);
   return PyLong_FromLong (command);
 }
 
@@ -2524,7 +2574,34 @@ python_function (O42EvalContext *ctx, const char *name, O42Operand *args, int n_
       PyList_SET_ITEM (list, i, item);
     }
 
-  result = PyObject_CallMethod (module, "_call", "sO", name, list);
+  /* Where each range argument is, and which cell is asking: what a
+   * function in Visual Basic sees as a Range and Application.Caller. */
+  {
+    PyObject *refs = PyList_New (n_args);
+    PyObject *caller;
+
+    for (int i = 0; i < n_args; i++)
+      {
+        PyObject *ref = Py_None;
+        if (args[i].is_range && current_book != NULL)
+          {
+            O42Sheet *on = args[i].sheet != NULL ? o42_book_find_sheet (current_book, args[i].sheet) : current_sheet;
+            int index = on != NULL ? o42_book_sheet_index (current_book, on) : -1;
+            if (index >= 0)
+              ref = Py_BuildValue ("(iiiii)", index, args[i].range.row0, args[i].range.col0,
+                                   args[i].range.row1, args[i].range.col1);
+          }
+        if (ref == Py_None)
+          Py_INCREF (ref);
+        PyList_SET_ITEM (refs, i, ref);
+      }
+    caller = Py_BuildValue ("(iii)", current_book != NULL && current_sheet != NULL
+                                     ? o42_book_sheet_index (current_book, current_sheet) : 0,
+                            ctx->row, ctx->col);
+    result = PyObject_CallMethod (module, "_call", "sOOO", name, list, refs, caller);
+    Py_DECREF (refs);
+    Py_DECREF (caller);
+  }
   Py_DECREF (list);
   if (result == NULL)
     {
@@ -2685,6 +2762,409 @@ m_remove_script (PyObject *self, PyObject *args)
   return PyBool_FromLong (current_book != NULL && o42_book_remove_script (current_book, name));
 }
 
+/* ---- For Visual Basic ------------------------------------------------ */
+
+/* A number that stays with a sheet while it moves about the book, as a
+ * Worksheet object does in Excel; and the sheet's index again, -1 if
+ * it has gone. */
+static PyObject *
+m_sheet_id (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &index) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  return PyLong_FromVoidPtr (sheet);
+}
+
+static PyObject *
+m_sheet_from_id (PyObject *self, PyObject *args)
+{
+  PyObject *id;
+  void *ptr;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "O", &id))
+    return NULL;
+  ptr = PyLong_AsVoidPtr (id);
+  if (PyErr_Occurred ())
+    return NULL;
+  for (int i = 0; current_book != NULL && i < o42_book_n_sheets (current_book); i++)
+    if ((void *) o42_book_sheet (current_book, i) == ptr)
+      return PyLong_FromLong (i);
+  return PyLong_FromLong (-1);
+}
+
+/* Whether a format shows a number as a date or a time: a preset that
+ * does, or a code with days, years, hours or seconds in it outside its
+ * quotes -- and m, when there are no digits for it to be minutes of. */
+static gboolean
+fmt_shows_date (const O42Fmt *f)
+{
+  const char *p;
+  gboolean digits = FALSE, month = FALSE;
+
+  if (f->custom == NULL)
+    return f->number == O42_NUM_DATE || f->number == O42_NUM_TIME || f->number == O42_NUM_DATETIME;
+  for (p = f->custom; *p != '\0'; p++)
+    {
+      char c = g_ascii_tolower (*p);
+      if (*p == '"')
+        {
+          p = strchr (p + 1, '"');
+          if (p == NULL)
+            break;
+          continue;
+        }
+      if (*p == '\\' && p[1] != '\0')
+        {
+          p++;
+          continue;
+        }
+      if (*p == '[')
+        {
+          /* [Red] and [$-409] say nothing of dates; [h] and [mm] do. */
+          const char *end = strchr (p, ']');
+          if (end == NULL)
+            break;
+          if (end > p + 1 && strchr ("hms", g_ascii_tolower (p[1])) != NULL)
+            return TRUE;
+          p = end;
+          continue;
+        }
+      if (c == 'd' || c == 'y' || c == 'h' || c == 's')
+        return TRUE;
+      if (c == 'm')
+        month = TRUE;
+      if (c == '0' || c == '#' || c == '?')
+        digits = TRUE;
+      if (*p == ';')
+        break;
+    }
+  return month && !digits;
+}
+
+/* get_value_date(i, row, col) -> (value, shown as a date) */
+static PyObject *
+m_get_value_date (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  O42Sheet *sheet;
+  O42Value v;
+  PyObject *value;
+  gboolean date = FALSE;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iii", &index, &row, &col) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  o42_sheet_get_value (sheet, row, col, &v);
+  if (v.type == O42_VALUE_NUMBER)
+    date = fmt_shows_date (o42_sheet_get_fmt (sheet, row, col));
+  value = value_to_py (&v);
+  o42_value_clear (&v);
+  return Py_BuildValue ("(NO)", value, date ? Py_True : Py_False);
+}
+
+/* number_code(i, row, col): the cell's number format as Excel writes one. */
+static PyObject *
+m_number_code (PyObject *self, PyObject *args)
+{
+  int index, row, col;
+  O42Sheet *sheet;
+  const O42Fmt *f;
+  char *code;
+  PyObject *result;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iii", &index, &row, &col) || (sheet = sheet_arg (index)) == NULL || !cell_ok (row, col))
+    return NULL;
+  f = o42_sheet_get_fmt (sheet, row, col);
+  if (f->custom != NULL)
+    return PyUnicode_FromString (f->custom);
+  if (f->number == O42_NUM_GENERAL)
+    return PyUnicode_FromString ("General");
+  code = o42_number_format_to_string (f->number, f->decimals);
+  result = PyUnicode_FromString (code != NULL ? code : "General");
+  g_free (code);
+  return result;
+}
+
+/* format_number(code, n): what Format() and TEXT() make of a number. */
+static PyObject *
+m_format_number (PyObject *self, PyObject *args)
+{
+  const char *code;
+  double n;
+  char *text;
+  PyObject *result;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "sd", &code, &n))
+    return NULL;
+  text = o42_format_string (code, n, NULL);
+  result = PyUnicode_FromString (text != NULL ? text : "");
+  g_free (text);
+  return result;
+}
+
+/* names() -> the book's defined names */
+static PyObject *
+m_names (PyObject *self, PyObject *args)
+{
+  GList *names = current_book != NULL ? o42_book_names (current_book) : NULL;
+  PyObject *list = PyList_New (0);
+  (void) self; (void) args;
+  for (GList *l = names; l != NULL; l = l->next)
+    {
+      PyObject *item = PyUnicode_FromString (l->data);
+      PyList_Append (list, item);
+      Py_DECREF (item);
+    }
+  g_list_free (names);
+  return list;
+}
+
+/* name_info(name) -> (sheet, r0, c0, r1, c1), the formula's text, or None */
+static PyObject *
+m_name_info (PyObject *self, PyObject *args)
+{
+  const char *name, *formula;
+  O42Sheet *sheet = NULL;
+  O42Range r;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &name))
+    return NULL;
+  if (current_book == NULL)
+    Py_RETURN_NONE;
+  if (o42_book_lookup_name (current_book, name, &sheet, &r) && sheet != NULL)
+    return Py_BuildValue ("(iiiii)", o42_book_sheet_index (current_book, sheet), r.row0, r.col0, r.row1, r.col1);
+  formula = o42_book_lookup_name_formula (current_book, name);
+  if (formula != NULL)
+    return PyUnicode_FromString (formula);
+  Py_RETURN_NONE;
+}
+
+/* define_name(name, sheet, r0, c0, r1, c1) or define_name(name, formula) */
+static PyObject *
+m_define_name (PyObject *self, PyObject *args)
+{
+  const char *name, *formula;
+  int index;
+  O42Range r;
+  gboolean ok;
+  (void) self;
+  if (current_book == NULL)
+    Py_RETURN_FALSE;
+  if (PyArg_ParseTuple (args, "siiiii", &name, &index, &r.row0, &r.col0, &r.row1, &r.col1))
+    {
+      O42Sheet *sheet = sheet_arg (index);
+      if (sheet == NULL || !range_ok (&r))
+        return NULL;
+      ok = o42_book_define_name (current_book, name, sheet, &r);
+    }
+  else
+    {
+      PyErr_Clear ();
+      if (!PyArg_ParseTuple (args, "ss", &name, &formula))
+        return NULL;
+      ok = o42_book_define_name_formula (current_book, name, formula);
+    }
+  book_touched = TRUE;
+  return PyBool_FromLong (ok);
+}
+
+static PyObject *
+m_delete_name (PyObject *self, PyObject *args)
+{
+  const char *name;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "s", &name))
+    return NULL;
+  book_touched = TRUE;
+  return PyBool_FromLong (current_book != NULL && o42_book_undefine_name (current_book, name));
+}
+
+/* activate(i): the sheet is the one on show from now on. */
+static PyObject *
+m_activate (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i", &index) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  current_sheet = sheet;
+  if (host.set_selection != NULL)
+    {
+      const O42SheetView *view = o42_sheet_view (sheet);
+      O42Range r = view->selection;
+      if (!range_ok (&r))
+        r = o42_range_normalise (0, 0, 0, 0);
+      host.set_selection (host.user, current_book, sheet, &r, view->active_row, view->active_col);
+    }
+  Py_RETURN_NONE;
+}
+
+static PyObject *
+m_codename (PyObject *self, PyObject *args)
+{
+  int index = -1;
+  const char *name;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "|i", &index))
+    return NULL;
+  if (index < 0)
+    return PyUnicode_FromString (current_book != NULL ? o42_book_codename (current_book) : "ThisWorkbook");
+  if ((sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  name = o42_sheet_codename (sheet);
+  if (name == NULL)
+    Py_RETURN_NONE;
+  return PyUnicode_FromString (name);
+}
+
+/* sheet_hidden(i) and sheet_hidden(i, hidden): Format > Sheet > Hide */
+static PyObject *
+m_sheet_hidden (PyObject *self, PyObject *args)
+{
+  int index, hide = -1;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i|p", &index, &hide) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (hide >= 0 && o42_sheet_hidden (sheet) != (gboolean) hide)
+    {
+      o42_sheet_set_hidden (sheet, hide);
+      sheets_touched = TRUE;
+    }
+  return PyBool_FromLong (o42_sheet_hidden (sheet));
+}
+
+/* protect_sheet(i) and protect_sheet(i, on, password) */
+static PyObject *
+m_protect_sheet (PyObject *self, PyObject *args)
+{
+  int index, on = -1;
+  const char *password = NULL;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "i|pz", &index, &on, &password) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  if (on == 1)
+    {
+      o42_sheet_set_password (sheet, password != NULL ? password : "");
+      o42_sheet_set_protected (sheet, TRUE);
+      book_touched = TRUE;
+    }
+  else if (on == 0)
+    {
+      if (o42_sheet_protected (sheet) && !o42_sheet_password_matches (sheet, password != NULL ? password : ""))
+        return PyErr_Format (PyExc_PermissionError, "The password you supplied is not correct.");
+      o42_sheet_set_protected (sheet, FALSE);
+      book_touched = TRUE;
+    }
+  return PyBool_FromLong (o42_sheet_protected (sheet));
+}
+
+/* modified() and modified(flag): whether the book has unsaved changes */
+static PyObject *
+m_modified (PyObject *self, PyObject *args)
+{
+  int flag = -1;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "|p", &flag))
+    return NULL;
+  if (current_book == NULL)
+    Py_RETURN_FALSE;
+  if (flag >= 0)
+    o42_book_set_modified (current_book, flag);
+  return PyBool_FromLong (o42_book_is_modified (current_book));
+}
+
+/* manual() and manual(flag): whether nothing is worked out until F9 */
+static PyObject *
+m_manual (PyObject *self, PyObject *args)
+{
+  int flag = -1;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "|p", &flag))
+    return NULL;
+  if (current_book == NULL)
+    Py_RETURN_FALSE;
+  if (flag >= 0)
+    o42_book_set_manual (current_book, flag);
+  return PyBool_FromLong (o42_book_manual (current_book));
+}
+
+/* set_array_formula(i, r0, c0, r1, c1, text): Ctrl+Shift+Enter */
+static PyObject *
+m_set_array_formula (PyObject *self, PyObject *args)
+{
+  int index;
+  O42Range r;
+  const char *text;
+  O42Sheet *sheet;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "iiiiis", &index, &r.row0, &r.col0, &r.row1, &r.col1, &text) ||
+      !range_ok (&r) || (sheet = sheet_arg (index)) == NULL)
+    return NULL;
+  o42_sheet_set_array_formula (sheet, &r, text);
+  book_touched = TRUE;
+  Py_RETURN_NONE;
+}
+
+/* ask(text, title, [button labels]) -> the index of the one pressed, -1
+ * for none: a message box with a choice, as MsgBox with vbYesNo is. */
+static PyObject *
+m_ask (PyObject *self, PyObject *args)
+{
+  const char *text, *title;
+  PyObject *labels;
+  GPtrArray *buttons;
+  int answer;
+  (void) self;
+  if (!PyArg_ParseTuple (args, "ssO!", &text, &title, &PyList_Type, &labels))
+    return NULL;
+  if (host.ask == NULL)
+    {
+      if (host.message == NULL)
+        return no_window ("ask a question in");
+      host.message (host.user, current_book, text);
+      return PyLong_FromLong (0);
+    }
+  buttons = g_ptr_array_new ();
+  for (Py_ssize_t i = 0; i < PyList_Size (labels); i++)
+    {
+      const char *label = PyUnicode_AsUTF8 (PyList_GetItem (labels, i));
+      g_ptr_array_add (buttons, (gpointer) (label != NULL ? label : "?"));
+    }
+  g_ptr_array_add (buttons, NULL);
+  answer = host.ask (host.user, current_book, title, text, (const char *const *) buttons->pdata);
+  g_ptr_array_unref (buttons);
+  return PyLong_FromLong (answer);
+}
+
+/* vba_modules() -> [(name, kind, text)], and vba_serial() -> the number
+ * that moves when one changes */
+static PyObject *
+m_vba_modules (PyObject *self, PyObject *args)
+{
+  int n = current_book != NULL ? o42_book_n_vba_modules (current_book) : 0;
+  PyObject *list = PyList_New (n);
+  static const char *const KINDS[] = { "standard", "class", "document", "form" };
+  (void) self; (void) args;
+  for (int i = 0; i < n; i++)
+    PyList_SET_ITEM (list, i, Py_BuildValue ("(sss)", o42_book_vba_module_name (current_book, i),
+                                             KINDS[o42_book_vba_module_kind (current_book, i)],
+                                             o42_book_vba_module_code (current_book, i)));
+  return list;
+}
+
+static PyObject *
+m_vba_serial (PyObject *self, PyObject *args)
+{
+  (void) self; (void) args;
+  return PyLong_FromUnsignedLong (current_book != NULL ? o42_book_vba_serial (current_book) : 0);
+}
+
 static PyMethodDef METHODS[] = {
   { "scripts",        m_scripts,        METH_NOARGS,  "The names of the book's scripts." },
   { "get_script",     m_get_script,     METH_VARARGS, "A script's code." },
@@ -2789,6 +3269,25 @@ static PyMethodDef METHODS[] = {
   { "conditions",     m_conditions,     METH_VARARGS, "The sheet's conditional formats." },
   { "add_condition",  (PyCFunction) (void (*) (void)) m_add_condition, METH_VARARGS | METH_KEYWORDS, "Adds a conditional format to a range." },
   { "clear_conditions", m_clear_conditions, METH_VARARGS, "Removes the conditional formats touching a range." },
+  { "sheet_id",       m_sheet_id,       METH_VARARGS, "A number that stays with sheet i." },
+  { "sheet_from_id",  m_sheet_from_id,  METH_VARARGS, "The index of the sheet with that number, or -1." },
+  { "get_value_date", m_get_value_date, METH_VARARGS, "A cell's value, and whether it shows as a date." },
+  { "number_code",    m_number_code,    METH_VARARGS, "A cell's number format as Excel writes it." },
+  { "format_number",  m_format_number,  METH_VARARGS, "A number in a format code." },
+  { "names",          m_names,          METH_NOARGS,  "The book's defined names." },
+  { "name_info",      m_name_info,      METH_VARARGS, "What a name refers to: a rectangle, a formula, or None." },
+  { "define_name",    m_define_name,    METH_VARARGS, "Defines a name for a rectangle or a formula." },
+  { "delete_name",    m_delete_name,    METH_VARARGS, "Forgets a defined name." },
+  { "activate",       m_activate,       METH_VARARGS, "Makes sheet i the one on show." },
+  { "codename",       m_codename,       METH_VARARGS, "The code name of sheet i, or of the book." },
+  { "sheet_hidden",   m_sheet_hidden,   METH_VARARGS, "Whether sheet i is hidden; hides or shows it." },
+  { "protect_sheet",  m_protect_sheet,  METH_VARARGS, "Whether sheet i is protected; protects or unprotects it." },
+  { "modified",       m_modified,       METH_VARARGS, "Whether the book has unsaved changes; sets it." },
+  { "manual",         m_manual,         METH_VARARGS, "Whether calculation is manual; sets it." },
+  { "set_array_formula", m_set_array_formula, METH_VARARGS, "An array formula over a range." },
+  { "ask",            m_ask,            METH_VARARGS, "A message box with buttons; the one pressed." },
+  { "vba_modules",    m_vba_modules,    METH_NOARGS,  "The book's Visual Basic modules." },
+  { "vba_serial",     m_vba_serial,     METH_NOARGS,  "A number that moves when a module changes." },
   { NULL, NULL, 0, NULL }
 };
 
@@ -2955,7 +3454,8 @@ o42_python_version (void)
  * (a new reference, taken over) against the book: what o42_python_run
  * and o42_python_debug share. */
 static gboolean
-run_method (O42Book *book, O42Sheet *sheet, const char *method, PyObject *args, char **output)
+run_method_in (PyObject *target, O42Book *book, O42Sheet *sheet, const char *method,
+               PyObject *args, char **output)
 {
   O42Sheet *saved_sheet = current_sheet;
   O42Book *saved_book = current_book;
@@ -2982,7 +3482,7 @@ run_method (O42Book *book, O42Sheet *sheet, const char *method, PyObject *args, 
   o42_book_set_scripts_trusted (book, TRUE);
   if (current_sheet != NULL)
     o42_sheet_begin_group (current_sheet);
-  callable = PyObject_GetAttrString (module, method);
+  callable = PyObject_GetAttrString (target, method);
   result = callable != NULL ? PyObject_CallObject (callable, args) : NULL;
   Py_XDECREF (callable);
   Py_XDECREF (args);
@@ -3026,6 +3526,12 @@ run_method (O42Book *book, O42Sheet *sheet, const char *method, PyObject *args, 
   book_touched = saved_touched;
   sheets_touched = saved_sheets;
   return ok;
+}
+
+static gboolean
+run_method (O42Book *book, O42Sheet *sheet, const char *method, PyObject *args, char **output)
+{
+  return run_method_in (module, book, sheet, method, args, output);
 }
 
 gboolean
@@ -3154,6 +3660,142 @@ o42_python_forget_book (O42Book *book)
   r = PyObject_CallMethod (module, "_forget_book", "n", (Py_ssize_t) (guintptr) book);
   Py_XDECREF (r);
   PyErr_Clear ();
+}
+
+/* ---- Visual Basic ---------------------------------------------------- */
+
+/* A module compiled from source into sys.modules under `name`. */
+static PyObject *
+load_module (const char *name, const char *source, const char *filename)
+{
+  PyObject *code = Py_CompileString (source, filename, Py_file_input);
+  PyObject *loaded = code != NULL ? PyImport_ExecCodeModule (name, code) : NULL;
+
+  Py_XDECREF (code);
+  if (loaded == NULL && vba_failure == NULL)
+    {
+      PyObject *type, *value, *trace, *text;
+      PyErr_Fetch (&type, &value, &trace);
+      text = value != NULL ? PyObject_Str (value) : NULL;
+      vba_failure = g_strdup_printf ("Visual Basic did not load: %s",
+                                     text != NULL ? PyUnicode_AsUTF8 (text) : "unknown reason");
+      Py_XDECREF (text); Py_XDECREF (type); Py_XDECREF (value); Py_XDECREF (trace);
+    }
+  return loaded;
+}
+
+/* The language and Excel's objects are compiled the first time a book's
+ * macros are wanted, so that a book without any costs nothing. */
+static PyObject *
+ensure_vba (void)
+{
+  PyObject *lang;
+
+  if (vba_module != NULL)
+    return vba_module;
+  if (vba_failure != NULL || !ensure_interpreter ())
+    return NULL;
+  lang = load_module ("o42vba", O42VBA_PY, "vba.py");
+  if (lang == NULL)
+    return NULL;
+  Py_DECREF (lang);
+  vba_module = load_module ("o42excel", O42EXCEL_PY, "vbaexcel.py");
+  return vba_module;
+}
+
+/* Whether Visual Basic is there to run; with the reason in `output`
+ * when it is not.  Nothing is asked of Python before this says yes. */
+static gboolean
+vba_ready (char **output)
+{
+  if (ensure_vba () != NULL)
+    return TRUE;
+  if (output != NULL)
+    *output = g_strdup_printf ("%s\n", vba_failure != NULL ? vba_failure
+                                       : init_failure != NULL ? init_failure : "Python did not start.");
+  return FALSE;
+}
+
+gboolean
+o42_vba_run (O42Book *book, O42Sheet *sheet, const char *macro, char **output)
+{
+  g_return_val_if_fail (book != NULL && macro != NULL, FALSE);
+  if (!vba_ready (output))
+    return FALSE;
+  return run_method_in (vba_module, book, sheet, "run_macro", Py_BuildValue ("(s)", macro), output);
+}
+
+gboolean
+o42_vba_immediate (O42Book *book, O42Sheet *sheet, const char *line, char **output)
+{
+  g_return_val_if_fail (book != NULL && line != NULL, FALSE);
+  if (!vba_ready (output))
+    return FALSE;
+  return run_method_in (vba_module, book, sheet, "immediate", Py_BuildValue ("(s)", line), output);
+}
+
+gboolean
+o42_vba_enable (O42Book *book, O42Sheet *sheet, char **output)
+{
+  g_return_val_if_fail (book != NULL, FALSE);
+  if (!vba_ready (output))
+    return FALSE;
+  return run_method_in (vba_module, book, sheet, "enable", PyTuple_New (0), output);
+}
+
+gboolean
+o42_vba_debug (O42Book *book, O42Sheet *sheet, const char *macro, const char *const *breakpoints,
+               gboolean step_first, char **output)
+{
+  PyObject *list;
+
+  g_return_val_if_fail (book != NULL && macro != NULL, FALSE);
+  if (!vba_ready (output))
+    return FALSE;
+  list = PyList_New (0);
+  for (int i = 0; breakpoints != NULL && breakpoints[i] != NULL; i++)
+    {
+      PyObject *item = PyUnicode_FromString (breakpoints[i]);
+      PyList_Append (list, item);
+      Py_DECREF (item);
+    }
+  return run_method_in (vba_module, book, sheet, "debug_macro",
+                        Py_BuildValue ("(sNO)", macro, list, step_first ? Py_True : Py_False), output);
+}
+
+char *
+o42_vba_check (O42Book *book, char **where, int *line)
+{
+  char *output = NULL;
+  char *message = NULL;
+  gboolean ok;
+
+  g_return_val_if_fail (book != NULL, NULL);
+  ok = vba_ready (&output) &&
+       run_method_in (vba_module, book, NULL, "check", PyTuple_New (0), &output);
+
+  if (where != NULL)
+    *where = NULL;
+  if (line != NULL)
+    *line = 0;
+  if (!ok)
+    {
+      /* "Module1\t12\tExpected: End Sub" */
+      char **parts = g_strsplit (output != NULL ? output : "", "\t", 3);
+      if (g_strv_length (parts) == 3)
+        {
+          if (where != NULL)
+            *where = g_strdup (parts[0]);
+          if (line != NULL)
+            *line = atoi (parts[1]);
+          message = g_strdup (g_strstrip (parts[2]));
+        }
+      else
+        message = g_strdup (output != NULL && *output != '\0' ? output : "The project did not compile.");
+      g_strfreev (parts);
+    }
+  g_free (output);
+  return message;
 }
 
 #endif /* HAVE_PYTHON */

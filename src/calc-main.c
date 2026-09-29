@@ -327,6 +327,33 @@ calc_input (gpointer user, O42Book *book, const char *prompt, const char *initia
   return g_strdup (g_strstrip (answer));
 }
 
+/* A message box with buttons: the question and its answers are
+ * printed, and the next line of input picks one by its name or its
+ * number; a line that is neither picks the first. */
+static int
+calc_ask (gpointer user, O42Book *book, const char *title, const char *text,
+          const char *const *buttons)
+{
+  char answer[1024];
+  int n = 0;
+  (void) user; (void) book; (void) title;
+  printf ("ask: %s [", text);
+  for (n = 0; buttons[n] != NULL; n++)
+    printf ("%s%s", n > 0 ? "/" : "", buttons[n]);
+  printf ("]\n");
+  fflush (stdout);
+  if (fgets (answer, sizeof answer, stdin) == NULL)
+    return -1;
+  g_strstrip (answer);
+  for (int i = 0; i < n; i++)
+    if (g_ascii_strcasecmp (answer, buttons[i]) == 0 ||
+        (answer[0] != '\0' && answer[1] == '\0' && g_ascii_tolower (answer[0]) == g_ascii_tolower (buttons[i][0])))
+      return i;
+  if (g_ascii_isdigit (answer[0]) && atoi (answer) >= 1 && atoi (answer) <= n)
+    return atoi (answer) - 1;
+  return 0;
+}
+
 static void
 calc_status (gpointer user, O42Book *book, const char *text)
 {
@@ -338,7 +365,7 @@ static void
 calc_install_host (O42Book *book)
 {
   O42PythonHost host = { NULL, calc_get_selection, calc_set_selection, calc_message,
-                         calc_input, calc_status, NULL, NULL, NULL, NULL, NULL };
+                         calc_input, calc_status, NULL, NULL, NULL, NULL, NULL, calc_ask };
   calc_selection.sheet = o42_book_sheet (book, 0);
   calc_selection.range = o42_range_normalise (0, 0, 0, 0);
   o42_python_set_host (&host);
@@ -3712,6 +3739,41 @@ main (int argc, char *argv[])
         {
           if (!o42_book_remove_vba_module (book, text + 7))
             fprintf (stderr, "no such module\n");
+          continue;
+        }
+      /* vbarun MACRO runs a macro; vbaexec LINE runs a line as the
+       * Immediate window would (?expr prints); vbaenable makes the
+       * book's functions and event procedures live, as Enable Macros
+       * does; vbacheck compiles every module. */
+      if (g_str_has_prefix (text, "vbarun ") || g_str_has_prefix (text, "vbaexec ") ||
+          strcmp (text, "vbaenable") == 0)
+        {
+          char *output = NULL;
+          gboolean ok = text[3] == 'r' ? o42_vba_run (book, sheet, text + 7, &output)
+                      : text[3] == 'e' && text[4] == 'x' ? o42_vba_immediate (book, sheet, text + 8, &output)
+                      : o42_vba_enable (book, sheet, &output);
+
+          fputs (output != NULL ? output : "", ok ? stdout : stderr);
+          if (output != NULL && *output != '\0' && output[strlen (output) - 1] != '\n')
+            fputc ('\n', ok ? stdout : stderr);
+          fflush (stdout);
+          g_free (output);
+          if (o42_book_sheet_index (book, sheet) < 0)
+            sheet = o42_book_sheet (book, 0);
+          continue;
+        }
+      if (strcmp (text, "vbacheck") == 0)
+        {
+          char *where = NULL;
+          int at = 0;
+          char *message = o42_vba_check (book, &where, &at);
+
+          if (message == NULL)
+            printf ("compiles\n");
+          else
+            fprintf (stderr, "%s, line %d: %s\n", where != NULL ? where : "?", at, message);
+          g_free (message);
+          g_free (where);
           continue;
         }
       if (g_str_has_prefix (text, "vbacode "))
