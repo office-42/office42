@@ -314,6 +314,116 @@ render_window (GtkWidget *window, int *width, int *height)
   return node;
 }
 
+/* The title bar is the system's, which a render of the widget tree does
+ * not include, so the picture draws one over each window: Windows'
+ * classic navy caption with the window's title and its caption buttons --
+ * minimize, maximize and close on a window, close alone on a dialog.  A
+ * window with a title bar of its own, a GtkHeaderBar, gets none. */
+static void
+draw_caption_button (cairo_t *cr, double x, double y, double w, double h,
+                     double scale, char glyph)
+{
+  double cx = x + w / 2.0, cy = y + h / 2.0;
+
+  cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
+  cairo_rectangle (cr, x, y, w, h);
+  cairo_fill (cr);
+  cairo_set_line_width (cr, 1.0);
+  cairo_set_source_rgb (cr, 1, 1, 1);
+  cairo_move_to (cr, x + 0.5, y + h - 1);
+  cairo_line_to (cr, x + 0.5, y + 0.5);
+  cairo_line_to (cr, x + w - 1, y + 0.5);
+  cairo_stroke (cr);
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  cairo_move_to (cr, x, y + h - 0.5);
+  cairo_line_to (cr, x + w - 0.5, y + h - 0.5);
+  cairo_line_to (cr, x + w - 0.5, y);
+  cairo_stroke (cr);
+  cairo_set_source_rgb (cr, 0.5, 0.5, 0.5);
+  cairo_move_to (cr, x + 1, y + h - 1.5);
+  cairo_line_to (cr, x + w - 1.5, y + h - 1.5);
+  cairo_line_to (cr, x + w - 1.5, y + 1);
+  cairo_stroke (cr);
+
+  cairo_save (cr);
+  cairo_translate (cr, cx, cy);
+  cairo_scale (cr, scale, scale);
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  if (glyph == '_')
+    {
+      cairo_rectangle (cr, -3, 2, 7, 2);
+      cairo_fill (cr);
+    }
+  else if (glyph == 'o')
+    {
+      cairo_rectangle (cr, -4.5, -4.5, 9, 9);
+      cairo_stroke (cr);
+      cairo_rectangle (cr, -4.5, -4.5, 9, 2);
+      cairo_fill (cr);
+    }
+  else
+    {
+      cairo_move_to (cr, -3.5, -3.5); cairo_line_to (cr, 3.5, 3.5);
+      cairo_move_to (cr, 3.5, -3.5); cairo_line_to (cr, -3.5, 3.5);
+      cairo_set_line_width (cr, 1.4);
+      cairo_stroke (cr);
+    }
+  cairo_restore (cr);
+}
+
+static int
+caption_height (GtkWidget *window)
+{
+  if (gtk_window_get_titlebar (GTK_WINDOW (window)) != NULL)
+    return 0;
+  return (int) (24 * o42_text_scale (gtk_widget_get_display (window)) + 0.5);
+}
+
+static void
+draw_caption (cairo_t *cr, GtkWindow *window, int width)
+{
+  double scale = o42_text_scale (gtk_widget_get_display (GTK_WIDGET (window)));
+  int height = caption_height (GTK_WIDGET (window));
+  double bw = 20 * scale, bh = 18 * scale, by = (height - bh) / 2.0;
+  double x = width - 2 * scale - bw;
+  const char *title = gtk_window_get_title (window);
+  PangoLayout *layout;
+  PangoFontDescription *font;
+  int tw, th, buttons_left;
+
+  if (height == 0)
+    return;
+  cairo_set_source_rgb (cr, 0, 0, 0.502);
+  cairo_rectangle (cr, 0, 0, width, height);
+  cairo_fill (cr);
+
+  draw_caption_button (cr, x, by, bw, bh, scale, 'x');
+  if (GTK_IS_APPLICATION_WINDOW (window))
+    {
+      x -= 2 * scale + bw;
+      draw_caption_button (cr, x, by, bw, bh, scale, 'o');
+      x -= 2 * scale + bw;
+      draw_caption_button (cr, x, by, bw, bh, scale, '_');
+    }
+  buttons_left = (int) x;
+
+  if (title == NULL)
+    return;
+  layout = pango_cairo_create_layout (cr);
+  font = pango_font_description_from_string ("MS Sans Serif, Segoe UI, DejaVu Sans, sans-serif Bold");
+  pango_font_description_set_absolute_size (font, 14 * scale * PANGO_SCALE);
+  pango_layout_set_font_description (layout, font);
+  pango_font_description_free (font);
+  pango_layout_set_text (layout, title, -1);
+  pango_layout_set_ellipsize (layout, PANGO_ELLIPSIZE_END);
+  pango_layout_set_width (layout, MAX (buttons_left - 8, 1) * PANGO_SCALE);
+  pango_layout_get_pixel_size (layout, &tw, &th);
+  cairo_set_source_rgb (cr, 1, 1, 1);
+  cairo_move_to (cr, MAX ((width - tw) / 2.0, 4), (height - th) / 2.0);
+  pango_cairo_show_layout (cr, layout);
+  g_object_unref (layout);
+}
+
 /* Every toplevel, stacked top to bottom in one picture: the main window,
  * then whatever dialog --activate opened, so a dialog can be looked at
  * from a script as well. */
@@ -321,7 +431,7 @@ static void
 render_all (O42Application *self)
 {
   GList *windows = gtk_application_get_windows (GTK_APPLICATION (self));
-  GList *toplevels;
+  GList *toplevels, *l;
   GPtrArray *nodes = g_ptr_array_new ();
   GArray *sizes = g_array_new (FALSE, FALSE, sizeof (int) * 2);
   int total_w = 0, total_h = 0, y = 0;
@@ -350,11 +460,12 @@ render_all (O42Application *self)
       }
   }
 
-  for (GList *l = toplevels; l != NULL; l = l->next)
+  for (l = toplevels; l != NULL; l = l->next)
     {
       int size[2];
       GskRenderNode *node = render_window (GTK_WIDGET (l->data), &size[0], &size[1]);
 
+      size[1] += caption_height (GTK_WIDGET (l->data));
       g_ptr_array_add (nodes, node);
       g_array_append_val (sizes, size);
       total_w = MAX (total_w, size[0]);
@@ -366,7 +477,8 @@ render_all (O42Application *self)
   cairo_set_source_rgb (cr, 0.4, 0.4, 0.4);
   cairo_paint (cr);
 
-  for (guint i = 0; i < nodes->len; i++)
+  l = toplevels;
+  for (guint i = 0; i < nodes->len; i++, l = l->next)
     {
       GskRenderNode *node = g_ptr_array_index (nodes, i);
       int *size = &g_array_index (sizes, int, i * 2);
@@ -376,6 +488,8 @@ render_all (O42Application *self)
       cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
       cairo_rectangle (cr, 0, 0, size[0], size[1]);
       cairo_fill (cr);
+      draw_caption (cr, GTK_WINDOW (l->data), size[0]);
+      cairo_translate (cr, 0, caption_height (GTK_WIDGET (l->data)));
       if (node != NULL)
         {
           gsk_render_node_draw (node, cr);
@@ -411,14 +525,14 @@ render_all (O42Application *self)
         else
           g_object_unref (top);
       }
-    for (GList *l = open; l != NULL; l = l->next)
+    for (l = open; l != NULL; l = l->next)
       {
         gtk_window_destroy (GTK_WINDOW (l->data));
         g_object_unref (l->data);
       }
     g_list_free (open);
     open = g_list_copy (gtk_application_get_windows (GTK_APPLICATION (self)));
-    for (GList *l = open; l != NULL; l = l->next)
+    for (l = open; l != NULL; l = l->next)
       gtk_window_destroy (GTK_WINDOW (l->data));
     g_list_free (open);
   }
