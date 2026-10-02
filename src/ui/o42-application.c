@@ -314,11 +314,12 @@ render_window (GtkWidget *window, int *width, int *height)
   return node;
 }
 
-/* The title bar is the system's, which a render of the widget tree does
- * not include, so the picture draws one over each window: Windows'
- * classic navy caption with the window's title and its caption buttons --
- * minimize, maximize and close on a window, close alone on a dialog.  A
- * window with a title bar of its own, a GtkHeaderBar, gets none. */
+/* The title bar and the border are the system's, which a render of the
+ * widget tree does not include, so the picture draws them round each
+ * window: Windows' classic raised frame, and its navy caption with the
+ * window's title and its caption buttons -- minimize, maximize and close
+ * on a window, close alone on a dialog.  A window with a title bar of its
+ * own, a GtkHeaderBar, draws its own edges as well and gets neither. */
 static void
 draw_caption_button (cairo_t *cr, double x, double y, double w, double h,
                      double scale, char glyph)
@@ -379,6 +380,48 @@ caption_height (GtkWidget *window)
   return (int) (24 * o42_text_scale (gtk_widget_get_display (window)) + 0.5);
 }
 
+static int
+frame_width (GtkWidget *window)
+{
+  if (gtk_window_get_titlebar (GTK_WINDOW (window)) != NULL)
+    return 0;
+  return (int) (4 * o42_text_scale (gtk_widget_get_display (window)) + 0.5);
+}
+
+/* The sizing border: a raised edge -- light grey and white above and to
+ * the left, black and dark grey below and to the right -- and the silver
+ * face inside it. */
+static void
+draw_frame (cairo_t *cr, int width, int height, int frame)
+{
+  static const double edges[2][2][3] = {
+    { { 0.753, 0.753, 0.753 }, { 0, 0, 0 } },
+    { { 1, 1, 1 },             { 0.5, 0.5, 0.5 } },
+  };
+
+  if (frame == 0)
+    return;
+  cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
+  cairo_rectangle (cr, 0, 0, width, height);
+  cairo_fill (cr);
+  cairo_set_line_width (cr, 1.0);
+  for (int i = 0; i < 2; i++)
+    {
+      double a = i + 0.5, r = width - i - 0.5, b = height - i - 0.5;
+
+      cairo_set_source_rgb (cr, edges[i][0][0], edges[i][0][1], edges[i][0][2]);
+      cairo_move_to (cr, a, b);
+      cairo_line_to (cr, a, a);
+      cairo_line_to (cr, r, a);
+      cairo_stroke (cr);
+      cairo_set_source_rgb (cr, edges[i][1][0], edges[i][1][1], edges[i][1][2]);
+      cairo_move_to (cr, r, a);
+      cairo_line_to (cr, r, b);
+      cairo_line_to (cr, a, b);
+      cairo_stroke (cr);
+    }
+}
+
 static void
 draw_caption (cairo_t *cr, GtkWindow *window, int width)
 {
@@ -424,6 +467,100 @@ draw_caption (cairo_t *cr, GtkWindow *window, int width)
   g_object_unref (layout);
 }
 
+#ifdef G_OS_WIN32
+#include <dwmapi.h>
+
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 0x00000002   /* Windows 8.1; not in MinGW's headers */
+#endif
+
+/* On Windows the frame is taken from Windows itself, title bar and
+ * border as the user sees them: PrintWindow draws the whole window into a
+ * bitmap, cut down to the frame's visible edge -- the window rectangle
+ * also holds the invisible margins the frame is resized by.  The client
+ * area it draws is whatever the compositor last had, so the caller paints
+ * the rendered widget tree over it, at *client_x, *client_y.  NULL for a
+ * window that draws its own title bar, or when Windows will not draw it;
+ * the window is then rendered and framed by hand. */
+static cairo_surface_t *
+grab_window (GtkWidget *window, int *client_x, int *client_y)
+{
+  GdkSurface *gs = gtk_native_get_surface (GTK_NATIVE (window));
+  HWND hwnd;
+  RECT whole, seen;
+  HDC wdc, mdc;
+  HBITMAP bitmap;
+  BITMAPINFO bi = { 0 };
+  cairo_surface_t *surface = NULL;
+  int w, h;
+  POINT origin = { 0, 0 };
+  BOOL ok;
+
+  if (frame_width (window) == 0 || !GDK_IS_WIN32_SURFACE (gs))
+    return NULL;
+  hwnd = gdk_win32_surface_get_handle (gs);
+  if (!ClientToScreen (hwnd, &origin))
+    return NULL;
+  if (!GetWindowRect (hwnd, &whole))
+    return NULL;
+  if (DwmGetWindowAttribute (hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &seen, sizeof seen) != S_OK)
+    seen = whole;
+  w = whole.right - whole.left;
+  h = whole.bottom - whole.top;
+  if (w <= 0 || h <= 0)
+    return NULL;
+
+  wdc = GetWindowDC (hwnd);
+  mdc = CreateCompatibleDC (wdc);
+  bitmap = CreateCompatibleBitmap (wdc, w, h);
+  SelectObject (mdc, bitmap);
+  ok = PrintWindow (hwnd, mdc, PW_RENDERFULLCONTENT);
+  if (ok)
+    {
+      int sx = seen.left - whole.left, sy = seen.top - whole.top;
+      int sw = MIN (seen.right - seen.left, w - sx), sh = MIN (seen.bottom - seen.top, h - sy);
+
+      *client_x = origin.x - seen.left;
+      *client_y = origin.y - seen.top;
+      guint32 *pixels = g_new (guint32, (gsize) w * h);
+
+      bi.bmiHeader.biSize = sizeof bi.bmiHeader;
+      bi.bmiHeader.biWidth = w;
+      bi.bmiHeader.biHeight = -h;
+      bi.bmiHeader.biPlanes = 1;
+      bi.bmiHeader.biBitCount = 32;
+      bi.bmiHeader.biCompression = BI_RGB;
+      if (sw > 0 && sh > 0
+          && GetDIBits (mdc, bitmap, 0, h, pixels, &bi, DIB_RGB_COLORS) == h)
+        {
+          guchar *data;
+          int stride;
+
+          surface = cairo_image_surface_create (CAIRO_FORMAT_RGB24, sw, sh);
+          data = cairo_image_surface_get_data (surface);
+          stride = cairo_image_surface_get_stride (surface);
+          for (int y = 0; y < sh; y++)
+            memcpy (data + (gsize) y * stride, pixels + (gsize) (sy + y) * w + sx,
+                    (gsize) sw * 4);
+          cairo_surface_mark_dirty (surface);
+        }
+      g_free (pixels);
+    }
+  DeleteObject (bitmap);
+  DeleteDC (mdc);
+  ReleaseDC (hwnd, wdc);
+
+  return surface;
+}
+#else
+static cairo_surface_t *
+grab_window (GtkWidget *window, int *client_x, int *client_y)
+{
+  (void) window; (void) client_x; (void) client_y;
+  return NULL;
+}
+#endif
+
 /* Every toplevel, stacked top to bottom in one picture: the main window,
  * then whatever dialog --activate opened, so a dialog can be looked at
  * from a script as well. */
@@ -433,7 +570,9 @@ render_all (O42Application *self)
   GList *windows = gtk_application_get_windows (GTK_APPLICATION (self));
   GList *toplevels, *l;
   GPtrArray *nodes = g_ptr_array_new ();
+  GPtrArray *grabs = g_ptr_array_new ();
   GArray *sizes = g_array_new (FALSE, FALSE, sizeof (int) * 2);
+  GArray *origins = g_array_new (FALSE, FALSE, sizeof (int) * 2);
   int total_w = 0, total_h = 0, y = 0;
   cairo_surface_t *surface;
   cairo_t *cr;
@@ -462,12 +601,26 @@ render_all (O42Application *self)
 
   for (l = toplevels; l != NULL; l = l->next)
     {
-      int size[2];
+      int size[2], origin[2] = { 0, 0 };
+      cairo_surface_t *grab = grab_window (GTK_WIDGET (l->data), &origin[0], &origin[1]);
       GskRenderNode *node = render_window (GTK_WIDGET (l->data), &size[0], &size[1]);
 
-      size[1] += caption_height (GTK_WIDGET (l->data));
+      if (grab != NULL)
+        {
+          size[0] = cairo_image_surface_get_width (grab);
+          size[1] = cairo_image_surface_get_height (grab);
+        }
+      else
+        {
+          int frame = frame_width (GTK_WIDGET (l->data));
+
+          size[0] += 2 * frame;
+          size[1] += caption_height (GTK_WIDGET (l->data)) + 2 * frame;
+        }
+      g_ptr_array_add (grabs, grab);
       g_ptr_array_add (nodes, node);
       g_array_append_val (sizes, size);
+      g_array_append_val (origins, origin);
       total_w = MAX (total_w, size[0]);
       total_h += size[1] + (l->next != NULL ? 8 : 0);
     }
@@ -482,13 +635,40 @@ render_all (O42Application *self)
     {
       GskRenderNode *node = g_ptr_array_index (nodes, i);
       int *size = &g_array_index (sizes, int, i * 2);
+      cairo_surface_t *grab = g_ptr_array_index (grabs, i);
+      int frame = frame_width (GTK_WIDGET (l->data));
 
+      if (grab != NULL)
+        {
+          int *origin = &g_array_index (origins, int, i * 2);
+          GdkSurface *gs = gtk_native_get_surface (GTK_NATIVE (l->data));
+          double scale = gs != NULL ? gdk_surface_get_scale (gs) : 1.0;
+
+          cairo_save (cr);
+          cairo_rectangle (cr, 0, y, size[0], size[1]);
+          cairo_clip (cr);
+          cairo_set_source_surface (cr, grab, 0, y);
+          cairo_paint (cr);
+          cairo_surface_destroy (grab);
+          if (node != NULL)
+            {
+              cairo_translate (cr, origin[0], y + origin[1]);
+              cairo_scale (cr, scale, scale);
+              gsk_render_node_draw (node, cr);
+              gsk_render_node_unref (node);
+            }
+          cairo_restore (cr);
+          y += size[1] + 8;
+          continue;
+        }
       cairo_save (cr);
       cairo_translate (cr, 0, y);
       cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
       cairo_rectangle (cr, 0, 0, size[0], size[1]);
       cairo_fill (cr);
-      draw_caption (cr, GTK_WINDOW (l->data), size[0]);
+      draw_frame (cr, size[0], size[1], frame);
+      cairo_translate (cr, frame, frame);
+      draw_caption (cr, GTK_WINDOW (l->data), size[0] - 2 * frame);
       cairo_translate (cr, 0, caption_height (GTK_WIDGET (l->data)));
       if (node != NULL)
         {
@@ -505,6 +685,8 @@ render_all (O42Application *self)
 
   cairo_surface_destroy (surface);
   g_ptr_array_free (nodes, TRUE);
+  g_ptr_array_free (grabs, TRUE);
+  g_array_free (origins, TRUE);
   g_array_free (sizes, TRUE);
   g_list_free (toplevels);
 

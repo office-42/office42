@@ -147,12 +147,19 @@ o42_ui_sources = files(
   'main.c',
 )
 
+# --screenshot takes the window from Windows, frame and all, which asks
+# the desktop window manager where the frame's visible edge is.
+o42_ui_link_args = o42_link_args
+if host_machine.system() == 'windows'
+  o42_ui_link_args += ['-ldwmapi']
+endif
+
 executable('office42',
   o42_ui_sources,
   o42_resources,
   dependencies: [o42_core_dep, o42_script_dep, cairo_dep, pango_dep, pangocairo_dep, gtk_dep],
   include_directories: o42_inc,
-  link_args: o42_link_args,
+  link_args: o42_ui_link_args,
   install: true,
   win_subsystem: 'windows',
 )
