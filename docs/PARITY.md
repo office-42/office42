@@ -336,6 +336,31 @@ black on the light colours and white on the dark.  Checked by drawing
 every kind through office42-calc and --screenshot, and the .xlsx
 through LibreOffice headless to PDF.
 
+**A book from openpyxl** -- a report a script wrote, six sheets and
+eight charts -- showed how far an .xlsx from outside could look from
+what LibreOffice makes of it, and is now drawn as LibreOffice draws
+it.  The first cellXf is the look of every cell that names none, and
+had been ignored, so the whole book came up in 10pt Arial: it is the
+sheet's default look now, Calibri 11 for most books, which new cells
+and sheets wear too and every writer keeps.  A font without a face
+or a size is 11pt Cambria, as LibreOffice reads one.  A row the file
+gives no height is fitted to its text when it is read, as Excel and
+LibreOffice fit it, and a long word wrapped in a cell is broken
+without a hyphen.  The charts were wrong outright: each series in an
+.xlsx names its own ranges, and the rectangle round them all had been
+read as one table.  The series are kept as named, and a chart from an
+.xlsx is drawn in Excel 2007's look rather than Excel 97's -- white
+plot, grey gridlines, the theme's accents, the legend where the file
+puts it, bars lying down stacked, a reversed category axis, and the
+value axis scaled by Excel's later rule -- while a chart office42
+made, or one Excel converted from an .xls, keeps the grey.  A date
+kept as text is no longer flagged as a number, the AutoFilter buttons
+show on a frozen heading row, and the font box names a face this
+computer lacks.  Checked side by side with LibreOffice 24.2's PDF of
+the book, through office42-calc's fontinfo, charts and check, and
+--screenshot of every sheet; the samples and a book of charts made
+here, through every format, draw pixel for pixel as before.
+
 ---
 
 ## 2. Parity with Excel 97, area by area
