@@ -1531,10 +1531,18 @@ o42_sheet_error_check (O42Sheet *sheet, int row, int col)
         {
           const char *t = cell->value.as.text;
           gboolean digits = FALSE;
+          O42Entry entry;
 
           for (const char *q = t; *q != '\0'; q++)
             if (g_ascii_isdigit (*q))
               digits = TRUE;
+          /* A date or a time kept as text -- a column of 2026-02-24s
+           * from a CSV or a script -- is not a number stored as text:
+           * Excel's check passes it by, and LibreOffice marks nothing. */
+          if (o42_entry_parse (t, &entry) &&
+              (entry.format == O42_NUM_DATE || entry.format == O42_NUM_TIME ||
+               entry.format == O42_NUM_DATETIME || entry.custom != NULL))
+            digits = FALSE;
           if (digits)
             return O42_CHECK_NUMBER_AS_TEXT;
         }

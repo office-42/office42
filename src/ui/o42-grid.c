@@ -7435,6 +7435,80 @@ paint_freeform (O42Grid *self, cairo_t *cr)
   cairo_restore (cr);
 }
 
+/* The marks drawn over the cells of rows first_row to last_row and
+ * columns first_col to last_col: a note's red corner and the AutoFilter
+ * buttons.  The scrolled cells and each frozen band have their own, so
+ * a filter on a frozen heading row keeps its buttons. */
+static void
+paint_cell_marks (O42Grid *self, cairo_t *cr, int first_row, int last_row,
+                  int first_col, int last_col)
+{
+  /* Notes: a small red triangle in the top-right corner of the cell, as
+   * Excel 97 marked them. */
+  {
+    GHashTable *notes = o42_sheet_notes (self->sheet);
+    GHashTableIter iter;
+    gpointer key_ptr;
+
+    cairo_set_source_rgb (cr, 0.8, 0, 0);
+    g_hash_table_iter_init (&iter, notes);
+    while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
+      {
+        guint64 key = *(guint64 *) key_ptr;
+        int row = o42_key_row (key), col = o42_key_col (key);
+        double nx, ny;
+
+        if (row < first_row || row > last_row || col < first_col || col > last_col)
+          continue;
+        nx = col_x (self, col) + o42_sheet_col_width (self->sheet, col);
+        ny = row_y (self, row);
+        cairo_move_to (cr, nx - 6, ny + 1);
+        cairo_line_to (cr, nx - 1, ny + 1);
+        cairo_line_to (cr, nx - 1, ny + 6);
+        cairo_close_path (cr);
+        cairo_fill (cr);
+      }
+  }
+
+  /* AutoFilter buttons: a small square with a triangle at the right of
+   * each heading, as Excel 97 drew them. */
+  {
+    O42Range filter;
+
+    if (o42_sheet_get_autofilter (self->sheet, &filter) &&
+        filter.row0 >= first_row && filter.row0 <= last_row)
+      {
+        double fy = row_y (self, filter.row0) + o42_sheet_row_height (self->sheet, filter.row0);
+
+        for (int col = MAX (filter.col0, first_col); col <= MIN (filter.col1, last_col); col++)
+          {
+            double fx = col_x (self, col) + o42_sheet_col_width (self->sheet, col);
+            double bx = fx - FILTER_BTN, by = fy - FILTER_BTN;
+            gboolean chosen = o42_sheet_autofilter_choice (self->sheet, col) != NULL;
+
+            if (o42_sheet_col_width (self->sheet, col) == 0)
+              continue;
+
+            cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
+            cairo_rectangle (cr, bx, by, FILTER_BTN - 1, FILTER_BTN - 1);
+            cairo_fill (cr);
+            cairo_set_source_rgb (cr, 0.5, 0.5, 0.5);
+            cairo_set_line_width (cr, 1.0);
+            cairo_rectangle (cr, floor (bx) + 0.5, floor (by) + 0.5, FILTER_BTN - 2, FILTER_BTN - 2);
+            cairo_stroke (cr);
+
+            if (chosen) cairo_set_source_rgb (cr, 0, 0, 0.6);
+            else        cairo_set_source_rgb (cr, 0, 0, 0);
+            cairo_move_to (cr, bx + 3, by + 5);
+            cairo_line_to (cr, bx + FILTER_BTN - 4, by + 5);
+            cairo_line_to (cr, bx + FILTER_BTN / 2.0 - 0.5, by + FILTER_BTN - 4);
+            cairo_close_path (cr);
+            cairo_fill (cr);
+          }
+      }
+  }
+}
+
 static void
 o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
 {
@@ -7553,70 +7627,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
 
   paint_cells (self, cr, &sel, first_row, last_row, first_col, last_col);
 
-  /* Notes: a small red triangle in the top-right corner of the cell, as
-   * Excel 97 marked them. */
-  {
-    GHashTable *notes = o42_sheet_notes (self->sheet);
-    GHashTableIter iter;
-    gpointer key_ptr;
-
-    cairo_set_source_rgb (cr, 0.8, 0, 0);
-    g_hash_table_iter_init (&iter, notes);
-    while (g_hash_table_iter_next (&iter, &key_ptr, NULL))
-      {
-        guint64 key = *(guint64 *) key_ptr;
-        int row = o42_key_row (key), col = o42_key_col (key);
-        double nx, ny;
-
-        if (row < first_row || row > last_row || col < first_col || col > last_col)
-          continue;
-        nx = col_x (self, col) + o42_sheet_col_width (self->sheet, col);
-        ny = row_y (self, row);
-        cairo_move_to (cr, nx - 6, ny + 1);
-        cairo_line_to (cr, nx - 1, ny + 1);
-        cairo_line_to (cr, nx - 1, ny + 6);
-        cairo_close_path (cr);
-        cairo_fill (cr);
-      }
-  }
-
-  /* AutoFilter buttons: a small square with a triangle at the right of
-   * each heading, as Excel 97 drew them. */
-  {
-    O42Range filter;
-
-    if (o42_sheet_get_autofilter (self->sheet, &filter) &&
-        filter.row0 >= first_row && filter.row0 <= last_row)
-      {
-        double fy = row_y (self, filter.row0) + o42_sheet_row_height (self->sheet, filter.row0);
-
-        for (int col = MAX (filter.col0, first_col); col <= MIN (filter.col1, last_col); col++)
-          {
-            double fx = col_x (self, col) + o42_sheet_col_width (self->sheet, col);
-            double bx = fx - FILTER_BTN, by = fy - FILTER_BTN;
-            gboolean chosen = o42_sheet_autofilter_choice (self->sheet, col) != NULL;
-
-            if (o42_sheet_col_width (self->sheet, col) == 0)
-              continue;
-
-            cairo_set_source_rgb (cr, 0.753, 0.753, 0.753);
-            cairo_rectangle (cr, bx, by, FILTER_BTN - 1, FILTER_BTN - 1);
-            cairo_fill (cr);
-            cairo_set_source_rgb (cr, 0.5, 0.5, 0.5);
-            cairo_set_line_width (cr, 1.0);
-            cairo_rectangle (cr, floor (bx) + 0.5, floor (by) + 0.5, FILTER_BTN - 2, FILTER_BTN - 2);
-            cairo_stroke (cr);
-
-            if (chosen) cairo_set_source_rgb (cr, 0, 0, 0.6);
-            else        cairo_set_source_rgb (cr, 0, 0, 0);
-            cairo_move_to (cr, bx + 3, by + 5);
-            cairo_line_to (cr, bx + FILTER_BTN - 4, by + 5);
-            cairo_line_to (cr, bx + FILTER_BTN / 2.0 - 0.5, by + FILTER_BTN - 4);
-            cairo_close_path (cr);
-            cairo_fill (cr);
-          }
-      }
-  }
+  paint_cell_marks (self, cr, first_row, last_row, first_col, last_col);
 
   /* The objects float above the cells, back to front, clipped to the
    * scrolling part of the grid: the frozen bands paint their own. */
@@ -7875,6 +7886,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_paint (cr);
           cairo_translate (cr, 0, dy);
           paint_cells (self, cr, &sel, top_row, band_last_row, first_col, last_col);
+          paint_cell_marks (self, cr, top_row, band_last_row, first_col, last_col);
           paint_selection (self, cr, &sel);
           paint_objects (self, cr, scroll_x + HEADER_W + frozen_w, scroll_y + HEADER_H - dy,
                          view_w, frozen_h);
@@ -7891,6 +7903,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_paint (cr);
           cairo_translate (cr, dx, 0);
           paint_cells (self, cr, &sel, first_row, last_row, left_col, band_last_col);
+          paint_cell_marks (self, cr, first_row, last_row, left_col, band_last_col);
           paint_selection (self, cr, &sel);
           paint_objects (self, cr, scroll_x + HEADER_W - dx, scroll_y + HEADER_H + frozen_h,
                          frozen_w, view_h);
@@ -7906,6 +7919,7 @@ o42_grid_snapshot (GtkWidget *widget, GtkSnapshot *snapshot)
           cairo_paint (cr);
           cairo_translate (cr, dx, dy);
           paint_cells (self, cr, &sel, top_row, band_last_row, left_col, band_last_col);
+          paint_cell_marks (self, cr, top_row, band_last_row, left_col, band_last_col);
           paint_selection (self, cr, &sel);
           paint_objects (self, cr, scroll_x + HEADER_W - dx, scroll_y + HEADER_H - dy,
                          frozen_w, frozen_h);

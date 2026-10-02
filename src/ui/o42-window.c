@@ -7242,6 +7242,18 @@ o42_window_sync (O42Window *self)
       if (fmt->family != NULL)
         {
           gpointer found = g_hash_table_lookup (self->family_index, fmt->family);
+
+          /* A face the cell names that this computer has not got --
+           * Calibri, drawn in Carlito -- is still the cell's, and the
+           * box says so, as Excel's and LibreOffice's do. */
+          if (found == NULL && GTK_IS_STRING_LIST (self->families))
+            {
+              guint n = g_list_model_get_n_items (self->families);
+
+              gtk_string_list_append (GTK_STRING_LIST (self->families), fmt->family);
+              found = GUINT_TO_POINTER (n + 1);
+              g_hash_table_insert (self->family_index, (gpointer) g_intern_string (fmt->family), found);
+            }
           if (found != NULL)
             gtk_drop_down_set_selected (GTK_DROP_DOWN (self->font_drop),
                                         GPOINTER_TO_UINT (found) - 1);
