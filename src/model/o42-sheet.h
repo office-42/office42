@@ -82,6 +82,12 @@ void o42_sheet_name_changed (O42Sheet *sheet, const char *upper);
 
 O42FmtTable *o42_sheet_fmt_table (O42Sheet *sheet);
 
+/* The sheet's default look, which every cell without a format of its
+ * own wears and every new cell starts from: Excel's Normal style.  A
+ * file loader sets it before the cells go in.  Not undone. */
+const O42Fmt *o42_sheet_default_fmt     (O42Sheet *sheet);
+void          o42_sheet_set_default_fmt (O42Sheet *sheet, const O42Fmt *fmt);
+
 /* ---- Content ---------------------------------------------------------- */
 
 /* Puts what the user typed into a cell.  Text beginning with "=" is parsed

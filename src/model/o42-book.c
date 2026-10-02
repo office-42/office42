@@ -902,6 +902,10 @@ o42_book_add_sheet (O42Book *book, const char *name, int index)
 
   sheet = o42_sheet_new (name);
   o42_sheet_set_book (sheet, book);
+  /* A new sheet is in the book's Normal look, which a file may have
+   * made Calibri 11 rather than Arial 10. */
+  if (book->sheets->len > 0)
+    o42_sheet_set_default_fmt (sheet, o42_sheet_default_fmt (g_ptr_array_index (book->sheets, 0)));
 
   /* One undo step: the sheet was not there. */
   o42_sheet_begin_group (sheet);
@@ -2054,6 +2058,12 @@ o42_book_clear (O42Book *book)
   /* Back to the standard width, not a width of its own on every column
    * -- which is what a file's own standard width would then lose to. */
   o42_sheet_reset_col_widths (first);
+  {
+    O42Fmt plain;
+
+    o42_fmt_init_default (&plain);
+    o42_sheet_set_default_fmt (first, &plain);
+  }
   o42_book_rename_sheet (book, 0, "Sheet1");
 
   names = o42_book_names (book);

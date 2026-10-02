@@ -2372,6 +2372,20 @@ o42_sheet_fmt_table (O42Sheet *sheet)
   return sheet->formats;
 }
 
+const O42Fmt *
+o42_sheet_default_fmt (O42Sheet *sheet)
+{
+  g_return_val_if_fail (sheet != NULL, NULL);
+  return o42_fmt_table_get (sheet->formats, o42_fmt_table_default (sheet->formats));
+}
+
+void
+o42_sheet_set_default_fmt (O42Sheet *sheet, const O42Fmt *fmt)
+{
+  g_return_if_fail (sheet != NULL && fmt != NULL);
+  o42_fmt_table_set_default (sheet->formats, fmt);
+}
+
 void
 o42_sheet_set_book (O42Sheet *sheet, O42Book *book)
 {
@@ -13940,6 +13954,7 @@ o42_sheet_duplicate (O42Sheet *src, const char *name)
   g_return_val_if_fail (src != NULL, NULL);
 
   dst = o42_sheet_new (name != NULL ? name : src->name);
+  o42_sheet_set_default_fmt (dst, o42_sheet_default_fmt (src));
 
   /* The cells.  A spilled cell is its head's to make again, and the
    * cells of an array block are set with the block below; the formats

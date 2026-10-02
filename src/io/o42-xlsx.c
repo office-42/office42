@@ -10,6 +10,7 @@
 
 #include <stdio.h>
 #include <math.h>
+#include <pango/pangocairo.h>
 #include <string.h>
 
 /* A <border> part's four sides. */
@@ -474,7 +475,6 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
   int default_height = o42_sheet_row_height (sheet, O42_MAX_ROWS - 1);
   GArray *keys = g_array_new (FALSE, FALSE, sizeof (guint64));
   O42FmtTable *table = o42_sheet_fmt_table (sheet);
-  O42FmtIdx default_idx = o42_fmt_table_default (table);
 
   {
     /* Excel only fits the sheet to pages when the sheet properties
@@ -635,8 +635,7 @@ write_sheet (Writer *w, O42Sheet *sheet, gboolean selected, int drawing_rid, int
             int col = o42_key_col (g_array_index (keys, guint64, i));
             O42FmtIdx idx = o42_sheet_get_fmt_idx (sheet, row, col);
             guint style = style_index (w, sheet, row, col);
-            guint xf = (idx == default_idx && style == 0)
-                       ? 0 : xf_for_style (w, o42_fmt_table_get (table, idx), style);
+            guint xf = xf_for_style (w, o42_fmt_table_get (table, idx), style);
             append_cell (w, out, sheet, row, col, xf);
             i++;
           }
@@ -1928,13 +1927,12 @@ o42_xlsx_save (O42Book *book, GFile *file, GError **error)
   w.style_xf = g_array_new (FALSE, FALSE, sizeof (guint));
   w.link_rids = g_hash_table_new_full (key_hash_64, key_equal_64, g_free, NULL);
   {
-    /* xf 0 is the default look, whatever any sheet says its default is,
-     * and it wears no style. */
-    O42Fmt plain;
+    /* xf 0 is the default look -- the first sheet's, which is the
+     * book's Normal -- and it wears no style.  A sheet whose default
+     * differs writes its cells with an xf of their own. */
     guint none = 0;
 
-    o42_fmt_init_default (&plain);
-    xf_for_style (&w, &plain, none);
+    xf_for_style (&w, o42_sheet_default_fmt (o42_book_sheet (book, 0)), none);
   }
 
   /* The book's cell styles: each gets an xf of its own holding the
@@ -3215,6 +3213,154 @@ rgb_attr (Reader *r, const char **names, const char **values)
   return 0xFFFFFFFFu;
 }
 
+/* ---- rows left to fit their text ---- */
+
+/* A row the file gives no height is one Excel fits to its text as it
+ * shows it, and LibreOffice when it opens the file: a heading in a big
+ * font, or one wrapped onto three lines, has the room it needs.  What
+ * a cell needs is measured against one line of the sheet's own font,
+ * and the row grows by the difference from the height the file gave
+ * every row: Pango's notion of a line of 11pt Calibri need not be
+ * Excel's 15 points exactly, but the step up to two lines of it is. */
+typedef struct {
+  PangoLayout *layout;
+  GHashTable  *wanted;    /* row -> pixels */
+  GHashTable  *lines;     /* const O42Fmt * -> one line's height */
+  GArray      *merges;
+  const O42Fmt *plain;    /* the sheet's default look */
+} RowFitter;
+
+static void
+fit_font (PangoLayout *layout, const O42Fmt *fmt, int size)
+{
+  PangoFontDescription *desc = pango_font_description_new ();
+
+  pango_font_description_set_family (desc, fmt->family != NULL ? fmt->family : "Sans");
+  pango_font_description_set_size (desc, size * PANGO_SCALE / 2);
+  pango_font_description_set_weight (desc, fmt->bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+  pango_font_description_set_style (desc, fmt->italic ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
+  pango_layout_set_font_description (layout, desc);
+  pango_font_description_free (desc);
+}
+
+static int
+fit_line_height (PangoLayout *layout, const O42Fmt *fmt, int size)
+{
+  int w, h;
+
+  fit_font (layout, fmt, size);
+  pango_layout_set_width (layout, -1);
+  pango_layout_set_text (layout, "Xg", -1);
+  pango_layout_get_pixel_size (layout, &w, &h);
+  return h;
+}
+
+static void
+fit_note_cell (O42Sheet *sheet, int row, int col, gpointer user)
+{
+  RowFitter *f = user;
+  const O42Fmt *fmt;
+  const O42TextRun *runs;
+  int n_runs = 0, size, need;
+
+  if (o42_sheet_row_height_set (sheet, row) || o42_sheet_is_empty (sheet, row, col))
+    return;
+  fmt = o42_sheet_get_fmt (sheet, row, col);
+  if (fmt == NULL || fmt->rotation != 0)
+    return;
+  size = fmt->size;
+  runs = o42_sheet_runs (sheet, row, col, &n_runs);
+  for (int i = 0; runs != NULL && i < n_runs; i++)
+    size = MAX (size, runs[i].fmt.size);
+  /* The common case first: a line of the sheet's own font. */
+  if (!fmt->wrap && n_runs == 0 && size <= f->plain->size &&
+      fmt->family == f->plain->family && fmt->bold == f->plain->bold)
+    return;
+  /* Excel does not fit a row to a merged cell. */
+  for (guint i = 0; i < f->merges->len; i++)
+    {
+      const O42Range *m = &g_array_index (f->merges, O42Range, i);
+      if (row >= m->row0 && row <= m->row1 && col >= m->col0 && col <= m->col1)
+        return;
+    }
+
+  if (fmt->wrap)
+    {
+      O42Value value;
+      char *text;
+      int w, h;
+
+      o42_sheet_get_value (sheet, row, col, &value);
+      text = o42_fmt_display (fmt, &value);
+      o42_value_clear (&value);
+      fit_font (f->layout, fmt, size);
+      pango_layout_set_text (f->layout, text, -1);
+      /* The grid's own wrap: the cell's width less its padding. */
+      pango_layout_set_width (f->layout, MAX (o42_sheet_col_width (sheet, col) - 6, 1) * PANGO_SCALE);
+      pango_layout_get_pixel_size (f->layout, &w, &h);
+      need = h;
+      g_free (text);
+    }
+  else
+    {
+      gpointer had;
+
+      if (n_runs == 0 && g_hash_table_lookup_extended (f->lines, fmt, NULL, &had))
+        need = GPOINTER_TO_INT (had);
+      else
+        {
+          need = fit_line_height (f->layout, fmt, size);
+          if (n_runs == 0)
+            g_hash_table_insert (f->lines, (gpointer) fmt, GINT_TO_POINTER (need));
+        }
+    }
+
+  if (need > GPOINTER_TO_INT (g_hash_table_lookup (f->wanted, GINT_TO_POINTER (row))))
+    g_hash_table_insert (f->wanted, GINT_TO_POINTER (row), GINT_TO_POINTER (need));
+}
+
+static void
+fit_rows (O42Sheet *sheet, int default_height)
+{
+  cairo_surface_t *surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 1, 1);
+  cairo_t *cr = cairo_create (surface);
+  PangoAttrList *attrs = pango_attr_list_new ();
+  RowFitter f;
+  GHashTableIter iter;
+  gpointer key, value;
+  int base;
+
+  f.layout = pango_cairo_create_layout (cr);
+  /* Wrapped as the grid wraps: at a word, or inside one too long for
+   * the cell, and with no hyphen put in where it is broken. */
+  pango_layout_set_wrap (f.layout, PANGO_WRAP_WORD_CHAR);
+  pango_attr_list_insert (attrs, pango_attr_insert_hyphens_new (FALSE));
+  pango_layout_set_attributes (f.layout, attrs);
+  pango_attr_list_unref (attrs);
+  f.wanted = g_hash_table_new (g_direct_hash, g_direct_equal);
+  f.lines = g_hash_table_new (g_direct_hash, g_direct_equal);
+  f.merges = o42_sheet_merges (sheet);
+  f.plain = o42_sheet_default_fmt (sheet);
+  base = fit_line_height (f.layout, f.plain, f.plain->size);
+
+  o42_sheet_foreach_cell (sheet, fit_note_cell, &f);
+  g_hash_table_iter_init (&iter, f.wanted);
+  while (g_hash_table_iter_next (&iter, &key, &value))
+    {
+      int row = GPOINTER_TO_INT (key);
+      int height = default_height + GPOINTER_TO_INT (value) - base;
+
+      if (height > o42_sheet_row_height (sheet, row) && !o42_sheet_row_hidden (sheet, row))
+        o42_sheet_set_row_height (sheet, row, height);
+    }
+
+  g_hash_table_destroy (f.wanted);
+  g_hash_table_destroy (f.lines);
+  g_object_unref (f.layout);
+  cairo_destroy (cr);
+  cairo_surface_destroy (surface);
+}
+
 /* xl/theme/theme1.xml: only the colour scheme is wanted, twelve
  * colours by name, each an srgbClr or a sysClr with its lastClr. */
 static void
@@ -3363,7 +3509,14 @@ styles_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if (r->in_fonts)
     {
       if (strcmp (n, "font") == 0)
-        o42_fmt_init_default (&r->cur_font);
+        {
+          /* A font that leaves out its face or its size -- openpyxl's
+           * Font(bold=True) does -- is read as LibreOffice reads it,
+           * in 11pt Cambria, rather than in our own 10pt Arial. */
+          o42_fmt_init_default (&r->cur_font);
+          r->cur_font.family = g_intern_static_string ("Cambria");
+          r->cur_font.size = 22;
+        }
       else if (strcmp (n, "b") == 0) r->cur_font.bold = !attr (names, values, "val") || attr_flag (names, values, "val");
       else if (strcmp (n, "i") == 0) r->cur_font.italic = !attr (names, values, "val") || attr_flag (names, values, "val");
       else if (strcmp (n, "u") == 0)
@@ -4870,6 +5023,10 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
 
           r.row = -1;
           r.col = -1;
+          /* The first xf is the look of every cell that names none,
+           * written or not: Excel's Normal, Calibri 11 for most files. */
+          if (r.xfs->len > 0)
+            o42_sheet_set_default_fmt (r.sheet, &g_array_index (r.xfs, O42Fmt, 0));
           r.default_width = o42_sheet_default_col_width (r.sheet);
           r.default_height = o42_sheet_row_height (r.sheet, O42_MAX_ROWS - 1);
           g_hash_table_remove_all (r.shared);
@@ -4893,6 +5050,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
           g_clear_pointer (&r.sheet_rels, g_hash_table_unref);
           if (ok)
             {
+              fit_rows (r.sheet, r.default_height);
               o42_sheet_autofilter_refresh (r.sheet);
               if (r.drawing_rid != NULL)
                 o42_xlsx_draw_read (parts, part, r.drawing_rid, r.sheet);

@@ -6071,12 +6071,19 @@ wrapped_height (O42Grid *self, int row, int col)
   pango_layout_set_font_description (self->layout, desc);
   pango_font_description_free (desc);
 
-  pango_layout_set_attributes (self->layout, NULL);
+  {
+    PangoAttrList *attrs = pango_attr_list_new ();
+
+    pango_attr_list_insert (attrs, pango_attr_insert_hyphens_new (FALSE));
+    pango_layout_set_attributes (self->layout, attrs);
+    pango_attr_list_unref (attrs);
+  }
   pango_layout_set_text (self->layout, text, -1);
   pango_layout_set_width (self->layout, (int) MAX (width - 2 * CELL_PAD, 1) * PANGO_SCALE);
   pango_layout_set_wrap (self->layout, PANGO_WRAP_WORD_CHAR);
   pango_layout_get_pixel_size (self->layout, &tw, &th);
   pango_layout_set_width (self->layout, -1);
+  pango_layout_set_attributes (self->layout, NULL);
   g_free (text);
   return th + 2;
 }
@@ -6335,6 +6342,14 @@ draw_cell_text (O42Grid      *self,
           pango_attr_list_insert (attrs, pango_attr_underline_new (PANGO_UNDERLINE_SINGLE));
         if (fmt->strikeout)
           pango_attr_list_insert (attrs, pango_attr_strikethrough_new (TRUE));
+      }
+    /* A word too long for its cell is broken where the cell ends, as
+     * Excel breaks it, without the hyphen Pango would put there. */
+    if (fmt->wrap)
+      {
+        if (attrs == NULL)
+          attrs = pango_attr_list_new ();
+        pango_attr_list_insert (attrs, pango_attr_insert_hyphens_new (FALSE));
       }
     if (flayout.n_pads > 0)
       {

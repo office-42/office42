@@ -364,6 +364,13 @@ draw_page (cairo_t      *cr,
                 if (fmt->strikeout)
                   pango_attr_list_insert (attrs, pango_attr_strikethrough_new (TRUE));
               }
+            /* A long word broken without a hyphen, as on screen. */
+            if (fmt->wrap)
+              {
+                if (attrs == NULL)
+                  attrs = pango_attr_list_new ();
+                pango_attr_list_insert (attrs, pango_attr_insert_hyphens_new (FALSE));
+              }
             pango_layout_set_attributes (layout, attrs);
             if (attrs != NULL)
               pango_attr_list_unref (attrs);

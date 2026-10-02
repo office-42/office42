@@ -189,6 +189,13 @@ o42_fmt_table_default (O42FmtTable *table)
   return table->fallback;
 }
 
+void
+o42_fmt_table_set_default (O42FmtTable *table, const O42Fmt *fmt)
+{
+  g_return_if_fail (table != NULL && fmt != NULL);
+  table->fallback = o42_fmt_table_intern (table, fmt);
+}
+
 /* ---------------------------------------------------------------------- */
 /* Writing a value out                                                     */
 /* ---------------------------------------------------------------------- */

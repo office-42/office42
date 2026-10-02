@@ -152,6 +152,11 @@ void           o42_fmt_table_free    (O42FmtTable *table);
 O42FmtIdx      o42_fmt_table_intern  (O42FmtTable *table, const O42Fmt *fmt);
 const O42Fmt  *o42_fmt_table_get     (O42FmtTable *table, O42FmtIdx idx);
 O42FmtIdx      o42_fmt_table_default (O42FmtTable *table);
+/* The look a cell with no record of its own wears: Arial 10 unless a
+ * file says otherwise, as an .xlsx's first xf does.  Cells already
+ * wearing the old default keep it, so a loader sets this before it
+ * makes any. */
+void           o42_fmt_table_set_default (O42FmtTable *table, const O42Fmt *fmt);
 
 /* ---- Writing a value out ---------------------------------------------- */
 

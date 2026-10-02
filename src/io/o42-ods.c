@@ -2027,6 +2027,18 @@ cell_has_drawings (O42Sheet *sheet, int row, int col)
   return FALSE;
 }
 
+/* Is the sheet's default look the "Default" style this file writes,
+ * 10pt Arial?  One a file brought with it -- an .xlsx's Calibri 11 --
+ * is written out on each cell, or it would come back as Arial. */
+static gboolean
+default_is_plain (O42Sheet *sheet)
+{
+  O42Fmt plain;
+
+  o42_fmt_init_default (&plain);
+  return memcmp (&plain, o42_sheet_default_fmt (sheet), sizeof plain) == 0;
+}
+
 static void
 write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, int col,
             O42FmtIdx default_idx)
@@ -2049,7 +2061,7 @@ write_cell (GString *out, Styles *s, O42Sheet *sheet, int sheet_index, int row, 
 
   o42_sheet_get_value (sheet, row, col, &value);
   g_string_append (out, "<table:table-cell");
-  if (idx != default_idx)
+  if (idx != default_idx || !default_is_plain (sheet))
     g_string_append_printf (out, " table:style-name=\"%s\"", cell_style (s, fmt));
   {
     int vi = validation_index_at (sheet, row, col);
