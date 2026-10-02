@@ -31,15 +31,80 @@ static const guint32 LINE_COLOURS[] = {
  * it grey and drew the gridlines black across it. */
 #define PLOT_AREA_GREY 0xC0C0C0
 
+/* The theme's six accents in turn, as Excel 2007 and LibreOffice give
+ * them to a chart nothing has coloured; past the sixth series they come
+ * round again lighter, and then darker. */
+static guint32
+office_colour (const O42Chart *chart, int index)
+{
+  int at = ((index % 18) + 18) % 18;
+  guint32 accent = chart->accents[at % 6];
+
+  if (at >= 12)
+    return o42_colour_luminance (accent, 0.6, 0);
+  if (at >= 6)
+    return o42_colour_luminance (accent, 0.6, 0.4);
+  return accent;
+}
+
 guint32
 o42_chart_series_colour (const O42Chart *chart, int index)
 {
   gboolean drawn = chart->kind == O42_CHART_LINE || chart->kind == O42_CHART_SCATTER ||
                    chart->kind == O42_CHART_RADAR || chart->kind == O42_CHART_POLAR ||
                    chart->kind == O42_CHART_STOCK;
+  gboolean round = chart->kind == O42_CHART_PIE || chart->kind == O42_CHART_DOUGHNUT;
   const guint32 *row = drawn ? LINE_COLOURS : FILL_COLOURS;
 
+  /* A colour the file gave the series is its own; a pie's colours go
+   * slice by slice, and a series' colour is not a slice's. */
+  if (chart->series != NULL && !round && index >= 0 && (guint) index < chart->series->len)
+    {
+      guint32 own = g_array_index (chart->series, O42ChartSeries, index).colour;
+      if (own != O42_CHART_AUTO_COLOUR)
+        return own;
+    }
+  if (chart->look == O42_CHART_LOOK_OFFICE)
+    return office_colour (chart, index);
   return row[((index % 16) + 16) % 16];
+}
+
+guint32
+o42_colour_luminance (guint32 rgb, double mod, double off)
+{
+  double c[3] = { ((rgb >> 16) & 0xFF) / 255.0, ((rgb >> 8) & 0xFF) / 255.0, (rgb & 0xFF) / 255.0 };
+  double hi = MAX (c[0], MAX (c[1], c[2])), lo = MIN (c[0], MIN (c[1], c[2]));
+  double l = (hi + lo) / 2, h = 0, s = 0, q, p;
+  guint32 out = 0;
+
+  if (hi != lo)
+    {
+      double d = hi - lo;
+
+      s = l > 0.5 ? d / (2 - hi - lo) : d / (hi + lo);
+      if (hi == c[0])      h = (c[1] - c[2]) / d + (c[1] < c[2] ? 6 : 0);
+      else if (hi == c[1]) h = (c[2] - c[0]) / d + 2;
+      else                 h = (c[0] - c[1]) / d + 4;
+      h /= 6;
+    }
+  l = CLAMP (l * mod + off, 0, 1);
+  q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  p = 2 * l - q;
+  for (int i = 0; i < 3; i++)
+    {
+      double t = h + (i == 0 ? 1.0 / 3 : i == 1 ? 0 : -1.0 / 3);
+      double v;
+
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (s == 0)           v = l;
+      else if (t < 1.0 / 6) v = p + (q - p) * 6 * t;
+      else if (t < 0.5)     v = q;
+      else if (t < 2.0 / 3) v = p + (q - p) * (2.0 / 3 - t) * 6;
+      else                  v = p;
+      out = (out << 8) | (guint32) CLAMP ((int) (v * 255 + 0.5), 0, 255);
+    }
+  return out;
 }
 
 static void
@@ -59,9 +124,17 @@ set_text_over (cairo_t *cr, guint32 rgb)
 }
 
 static void
-fill_plot_area (cairo_t *cr, double left, double top, double right, double bottom)
+fill_plot_area (const O42Chart *chart, cairo_t *cr, double left, double top, double right, double bottom)
 {
-  set_rgb (cr, PLOT_AREA_GREY);
+  if (chart->look == O42_CHART_LOOK_OFFICE)
+    {
+      /* White unless the file shades it. */
+      if (chart->plot_fill == O42_CHART_AUTO_COLOUR)
+        return;
+      set_rgb (cr, chart->plot_fill);
+    }
+  else
+    set_rgb (cr, PLOT_AREA_GREY);
   cairo_rectangle (cr, left, top, right - left, bottom - top);
   cairo_fill (cr);
 }
@@ -84,8 +157,68 @@ o42_chart_new (O42ChartKind kind, const O42Range *data)
   chart->data_sheet = g_strdup ("");
   chart->width = 360;
   chart->height = 220;
+  /* Office's own theme, for a chart in its look that names none. */
+  chart->accents[0] = 0x4472C4; chart->accents[1] = 0xED7D31; chart->accents[2] = 0xA5A5A5;
+  chart->accents[3] = 0xFFC000; chart->accents[4] = 0x5B9BD5; chart->accents[5] = 0x70AD47;
+  chart->plot_fill = O42_CHART_AUTO_COLOUR;
 
   return chart;
+}
+
+void
+o42_chart_add_series (O42Chart *chart, const O42Range *name, const char *label,
+                      const O42Range *cats, const O42Range *values, guint32 colour)
+{
+  O42ChartSeries one;
+
+  g_return_if_fail (chart != NULL && values != NULL);
+  memset (&one, 0, sizeof one);
+  one.name.row0 = one.cats.row0 = -1;
+  if (name != NULL)
+    one.name = *name;
+  if (cats != NULL)
+    one.cats = *cats;
+  one.values = *values;
+  one.label = g_strdup (label);
+  one.colour = colour;
+  if (chart->series == NULL)
+    chart->series = g_array_new (FALSE, FALSE, sizeof (O42ChartSeries));
+  g_array_append_val (chart->series, one);
+}
+
+void
+o42_chart_clear_series (O42Chart *chart)
+{
+  g_return_if_fail (chart != NULL);
+  if (chart->series == NULL)
+    return;
+  for (guint i = 0; i < chart->series->len; i++)
+    g_free (g_array_index (chart->series, O42ChartSeries, i).label);
+  g_clear_pointer (&chart->series, g_array_unref);
+}
+
+void
+o42_chart_copy_layout (O42Chart *to, const O42Chart *from)
+{
+  g_return_if_fail (to != NULL && from != NULL);
+  if (to == from)
+    return;
+  o42_chart_clear_series (to);
+  for (guint i = 0; from->series != NULL && i < from->series->len; i++)
+    {
+      const O42ChartSeries *one = &g_array_index (from->series, O42ChartSeries, i);
+
+      o42_chart_add_series (to, one->name.row0 >= 0 ? &one->name : NULL, one->label,
+                            one->cats.row0 >= 0 ? &one->cats : NULL, &one->values, one->colour);
+    }
+  to->look = from->look;
+  memcpy (to->accents, from->accents, sizeof to->accents);
+  to->plot_fill = from->plot_fill;
+  to->legend_pos = from->legend_pos;
+  to->cats_reversed = from->cats_reversed;
+  to->horizontal = from->horizontal;
+  to->gap_width = from->gap_width;
+  to->x_gridlines = from->x_gridlines;
 }
 
 void
@@ -100,6 +233,7 @@ o42_chart_free (O42Chart *chart)
   g_free (chart->data_sheet);
   g_free (chart->y_format);
   g_free (chart->name);
+  o42_chart_clear_series (chart);
   g_free (chart);
 }
 
@@ -237,6 +371,133 @@ chart_data_free (ChartData *d)
  * and with the series along the rows a point is a column.  The two heading
  * flags stay attached to the range -- the top row and the left column --
  * so it is the orientation that decides which of them names the series. */
+/* How many cells a series' range holds, and where the i-th of them is:
+ * down a column, along a row, or row by row through a block. */
+static int
+range_cells (const O42Range *r)
+{
+  if (r->row0 < 0)
+    return 0;
+  return (r->row1 - r->row0 + 1) * (r->col1 - r->col0 + 1);
+}
+
+static void
+range_cell (const O42Range *r, int i, int *row, int *col)
+{
+  int across = r->col1 - r->col0 + 1;
+
+  *row = r->row0 + i / across;
+  *col = r->col0 + i % across;
+}
+
+/* The series as the file named them one by one.  A scatter keeps the
+ * table's arrangement -- the first line its x, the rest each a series
+ * of y -- so the first series' x stands for all of them. */
+static void
+chart_data_read_series (const O42Chart *chart, O42ChartFetch fetch, gpointer user,
+                        ChartData *d)
+{
+  GArray *list = chart->series;
+  gboolean xy = chart->kind == O42_CHART_SCATTER;
+  const O42ChartSeries *with_cats = NULL;
+  int offset = xy ? 1 : 0;
+
+  memset (d, 0, sizeof *d);
+  for (guint i = 0; i < list->len; i++)
+    {
+      const O42ChartSeries *one = &g_array_index (list, O42ChartSeries, i);
+
+      d->n_points = MAX (d->n_points, range_cells (&one->values));
+      if (with_cats == NULL && one->cats.row0 >= 0)
+        with_cats = one;
+    }
+  d->n_series = (int) list->len + offset;
+  d->values = g_new (double, (gsize) d->n_series * d->n_points + 1);
+  d->series = g_new0 (char *, (gsize) d->n_series + 1);
+  d->categories = g_new0 (char *, (gsize) d->n_points + 1);
+
+  if (xy)
+    {
+      d->series[0] = g_strdup ("X");
+      for (int p = 0; p < d->n_points; p++)
+        {
+          double x = p + 1;   /* Excel's 1, 2, 3 where there is no x */
+
+          if (with_cats != NULL && p < range_cells (&with_cats->cats))
+            {
+              O42Value v;
+              int row, col;
+
+              range_cell (&with_cats->cats, p, &row, &col);
+              fetch (user, row, col, &v);
+              if (v.type == O42_VALUE_NUMBER)
+                x = v.as.number;
+              o42_value_clear (&v);
+            }
+          d->values[p] = x;
+        }
+    }
+
+  for (guint i = 0; i < list->len; i++)
+    {
+      const O42ChartSeries *one = &g_array_index (list, O42ChartSeries, i);
+      int s = (int) i + offset;
+      int n = range_cells (&one->values);
+
+      if (one->name.row0 >= 0)
+        {
+          O42Value v;
+
+          fetch (user, one->name.row0, one->name.col0, &v);
+          d->series[s] = o42_value_to_text (&v);
+          o42_value_clear (&v);
+        }
+      else if (one->label != NULL)
+        d->series[s] = g_strdup (one->label);
+      else
+        d->series[s] = g_strdup_printf ("Series%u", i + 1);
+
+      for (int p = 0; p < d->n_points; p++)
+        {
+          double y = NAN;
+
+          if (p < n)
+            {
+              O42Value v;
+              int row, col;
+
+              range_cell (&one->values, p, &row, &col);
+              fetch (user, row, col, &v);
+              if (v.type == O42_VALUE_NUMBER)
+                y = v.as.number;
+              o42_value_clear (&v);
+            }
+          d->values[s * d->n_points + p] = y;
+          if (!isnan (y))
+            {
+              d->min = MIN (d->min, y);
+              d->max = MAX (d->max, y);
+            }
+        }
+    }
+
+  for (int p = 0; p < d->n_points; p++)
+    {
+      if (!xy && with_cats != NULL && p < range_cells (&with_cats->cats))
+        {
+          O42Value v;
+          int row, col;
+
+          range_cell (&with_cats->cats, p, &row, &col);
+          fetch (user, row, col, &v);
+          d->categories[p] = o42_value_to_text (&v);
+          o42_value_clear (&v);
+        }
+      else
+        d->categories[p] = g_strdup_printf ("%d", p + 1);
+    }
+}
+
 static void
 chart_data_read (const O42Chart *chart, O42ChartFetch fetch, gpointer user,
                  ChartData *d)
@@ -248,6 +509,11 @@ chart_data_read (const O42Chart *chart, O42ChartFetch fetch, gpointer user,
   gboolean series_named = rows ? chart->first_col_labels : chart->first_row_labels;
   gboolean points_named = rows ? chart->first_row_labels : chart->first_col_labels;
 
+  if (chart->series != NULL && chart->series->len > 0)
+    {
+      chart_data_read_series (chart, fetch, user, d);
+      return;
+    }
   memset (d, 0, sizeof *d);
   d->n_series = rows ? MAX (0, r->row1 - row0 + 1) : MAX (0, r->col1 - col0 + 1);
   d->n_points = rows ? MAX (0, r->col1 - col0 + 1) : MAX (0, r->row1 - row0 + 1);
@@ -1001,7 +1267,7 @@ draw_axes_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout,
   #define VY(v) (bottom - ((v) - lo) / (hi - lo) * plot_h)
 
   if (!chart->three_d)
-    fill_plot_area (cr, left, top, right, bottom);
+    fill_plot_area (chart, cr, left, top, right, bottom);
 
   /* Gridlines and the value axis. */
   cairo_set_line_width (cr, 1);
@@ -1470,7 +1736,7 @@ draw_bar_chart (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const C
   double top = y0 + 8, bottom = y0 + h - 22;
   double plot_w = right - left, plot_h = bottom - top;
 
-  fill_plot_area (cr, left, top, right, bottom);
+  fill_plot_area (chart, cr, left, top, right, bottom);
 
   if (hi <= lo)
     hi = lo + step;
@@ -1548,7 +1814,7 @@ draw_stock (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Chart
   double left = x0 + 44, right = x0 + w - 8;
   double top = y0 + 8, bottom = y0 + h - 22;
 
-  fill_plot_area (cr, left, top, right, bottom);
+  fill_plot_area (chart, cr, left, top, right, bottom);
   gboolean any = FALSE, candles;
   int high_at, low_at, close_at, open_at = -1;
 
@@ -1794,7 +2060,7 @@ draw_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Cha
   double left = x0 + 44, right = x0 + w - 8;
   double top = y0 + 8, bottom = y0 + h - 22;
 
-  fill_plot_area (cr, left, top, right, bottom);
+  fill_plot_area (chart, cr, left, top, right, bottom);
   gboolean any = FALSE;
 
   if (d->n_series < 2 || d->n_points == 0)
@@ -2215,6 +2481,722 @@ draw_legend (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const Char
       if (x > x0 + w - 40)
         break;
     }
+}
+
+/* ---- The Office look ---------------------------------------------------- */
+
+/* Excel 2007's chart, as LibreOffice also draws one from an .xlsx: the
+ * plot area white, the gridlines and the axes a mid grey, the border
+ * round the chart a light one, the text 10pt Calibri and the title 18pt
+ * and bold; the legend on the right unless the file puts it elsewhere;
+ * and the value axis scaled by Excel's own rule rather than Excel 97's. */
+#define OFFICE_LINES 0x868686
+#define OFFICE_FRAME 0xD9D9D9
+#define OFFICE_KEY   7          /* the side of a legend's colour key, px */
+
+static double
+office_points (const O42Chart *chart)
+{
+  return chart->font_size > 0 ? chart->font_size : 10;
+}
+
+/* Lays `text` out in the chart's face at `points`, wrapped to `width`
+ * pixels and centred in it when a width is given, and says how big it
+ * came out. */
+static void
+office_text (const O42Chart *chart, PangoLayout *layout, const char *text,
+             double points, gboolean bold, double width, int *w, int *h)
+{
+  const char *family = (chart->font_family != NULL && chart->font_family[0] != '\0')
+                       ? chart->font_family : "Calibri";
+  PangoFontDescription *desc = pango_font_description_new ();
+  int tw, th;
+
+  pango_font_description_set_family (desc, family);
+  pango_font_description_set_weight (desc, bold ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+  pango_font_description_set_size (desc, (int) (points * PANGO_SCALE));
+  pango_layout_set_font_description (layout, desc);
+  pango_font_description_free (desc);
+  pango_layout_set_width (layout, width > 0 ? (int) (width * PANGO_SCALE) : -1);
+  pango_layout_set_wrap (layout, PANGO_WRAP_WORD_CHAR);
+  pango_layout_set_alignment (layout, PANGO_ALIGN_CENTER);
+  pango_layout_set_text (layout, text != NULL ? text : "", -1);
+  pango_layout_get_pixel_size (layout, &tw, &th);
+  if (w != NULL) *w = tw;
+  if (h != NULL) *h = th;
+}
+
+/* Shows what office_text laid out with its top left at x, y. */
+static void
+office_show (cairo_t *cr, PangoLayout *layout, double x, double y)
+{
+  cairo_move_to (cr, x, y);
+  pango_cairo_show_layout (cr, layout);
+}
+
+static void
+office_line (cairo_t *cr, double x0, double y0, double x1, double y1)
+{
+  set_rgb (cr, OFFICE_LINES);
+  cairo_set_line_width (cr, 1);
+  if (x0 == x1)
+    {
+      cairo_move_to (cr, floor (x0) + 0.5, y0);
+      cairo_line_to (cr, floor (x1) + 0.5, y1);
+    }
+  else
+    {
+      cairo_move_to (cr, x0, floor (y0) + 0.5);
+      cairo_line_to (cr, x1, floor (y1) + 0.5);
+    }
+  cairo_stroke (cr);
+}
+
+/* An axis as Excel scales one it is left to scale: zero kept on it
+ * unless the values all sit more than five sixths of the way from it,
+ * room of a twentieth of the span past the far value, and the smallest
+ * step of 1, 2 or 5 times a power of ten that needs no more than ten of
+ * them.  A minimum or maximum the file fixes is kept as it is. */
+static void
+office_scale (double min, double max, gboolean has_min, double fixed_min,
+              gboolean has_max, double fixed_max, double *lo, double *hi, double *unit)
+{
+  double a = min, b = max, span, top, bottom, base;
+
+  if (!(b >= a))
+    { a = 0; b = 1; }
+  if (a >= 0)
+    a = (b > 0 && a > b * 5 / 6) ? a - (b - a) / 2 : 0;
+  else if (b <= 0)
+    b = (b < a * 5 / 6) ? b + (b - a) / 2 : 0;
+  if (has_min) a = fixed_min;
+  if (has_max) b = fixed_max;
+  if (b <= a)
+    b = a + 1;
+  span = b - a;
+  top = has_max ? b : (b > 0 ? b + span / 20 : b);
+  bottom = has_min ? a : (a < 0 ? a - span / 20 : a);
+  base = pow (10, floor (log10 ((top - bottom) / 10)));
+  for (int k = 0; k < 30; k++)
+    {
+      double u = base * pow (10, k / 3) * (k % 3 == 0 ? 1 : k % 3 == 1 ? 2 : 5);
+      double l = has_min ? a : floor (bottom / u + 1e-9) * u;
+      double h = has_max ? b : ceil (top / u - 1e-9) * u;
+
+      if ((h - l) / u <= 10 + 1e-9)
+        {
+          *lo = l; *hi = h; *unit = u;
+          return;
+        }
+    }
+  *lo = a; *hi = b; *unit = span;
+}
+
+/* The k-th step of an axis, with what adding up a step at a time would
+ * have left in the last digit taken off. */
+static double
+office_tick (double lo, double unit, int k)
+{
+  double v = lo + k * unit;
+
+  if (fabs (v) < unit * 1e-9)
+    return 0;
+  return v;
+}
+
+static char *
+office_value_text (const O42Chart *chart, double v, gboolean percent)
+{
+  if (percent)
+    return g_strdup_printf ("%g%%", v);
+  return chart_number (chart, v);
+}
+
+/* A category's name with a place to break after each hyphen.  Unicode
+ * keeps "TRIP-" with the digits after it, but Excel and LibreOffice
+ * both break a name like "TRIP-59359" there when it is too wide for
+ * its column, rather than in the middle of the number. */
+static char *
+office_breakable (const char *text)
+{
+  GString *out = g_string_new (NULL);
+
+  for (const char *p = text != NULL ? text : ""; *p != '\0'; p++)
+    {
+      g_string_append_c (out, *p);
+      if (*p == '-' && p[1] != '\0' && p[1] != ' ')
+        g_string_append (out, "\xE2\x80\x8B");   /* U+200B, a zero width space */
+    }
+  return g_string_free (out, FALSE);
+}
+
+/* The extent of the values: the stacks' for a stacked chart, a percent
+ * chart's hundred, and the values' own for the rest. */
+static void
+office_extent (const O42Chart *chart, const ChartData *d, double *min, double *max)
+{
+  gboolean any = FALSE;
+
+  if (chart->kind == O42_CHART_PERCENT)
+    { *min = 0; *max = 100; return; }
+  if (chart->kind == O42_CHART_STACKED)
+    { stacked_extent (d, min, max); return; }
+  *min = 0; *max = 0;
+  for (int s = 0; s < d->n_series; s++)
+    for (int p = 0; p < d->n_points; p++)
+      {
+        double v = d->values[s * d->n_points + p];
+
+        if (isnan (v))
+          continue;
+        if (!any) { *min = *max = v; any = TRUE; }
+        *min = MIN (*min, v);
+        *max = MAX (*max, v);
+      }
+}
+
+/* Columns, bars, lines and areas against a category axis.  Along the
+ * category axis a distance t is drawn at start + dir * t: left to right
+ * for columns and bottom to top for bars, as Excel lays them out, and
+ * the other way when the file reverses the axis -- which also moves the
+ * value axis to the far side, where the categories now begin. */
+static void
+draw_office_axes (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartData *d,
+                  double x0, double y0, double w, double h)
+{
+  gboolean stacked = chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT;
+  gboolean percent = chart->kind == O42_CHART_PERCENT;
+  gboolean lying = chart->kind == O42_CHART_BAR || (stacked && chart->horizontal);
+  gboolean bars = chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_BAR || stacked;
+  gboolean far = chart->cats_reversed;
+  double points = office_points (chart);
+  double gap = (chart->gap_width > 0 ? chart->gap_width : 150) / 100.0;
+  double vmin, vmax, lo, hi, unit, cross;
+  double left, right, top, bottom, slot, start, dir;
+  int n = MAX (d->n_points, 1), steps, vw = 0, vh = 0, cw = 0, ch = 0, tw, th;
+
+  office_extent (chart, d, &vmin, &vmax);
+  if (percent && !chart->has_min && !chart->has_max)
+    { lo = 0; hi = 100; unit = 10; }
+  else
+    office_scale (vmin, vmax, chart->has_min, chart->min, chart->has_max, chart->max, &lo, &hi, &unit);
+  steps = (int) floor ((hi - lo) / unit + 1e-6);
+  cross = CLAMP (0, lo, hi);
+
+  for (int k = 0; k <= steps; k++)
+    {
+      char *label = office_value_text (chart, office_tick (lo, unit, k), percent);
+
+      office_text (chart, layout, label, points, FALSE, -1, &tw, &th);
+      vw = MAX (vw, tw);
+      vh = MAX (vh, th);
+      g_free (label);
+    }
+
+  if (!lying)
+    {
+      double cat_w;
+
+      left = x0 + (far ? 0 : vw + 6);
+      right = x0 + w - (far ? vw + 6 : 2);
+      cat_w = (right - left) / n;
+      for (int p = 0; p < d->n_points; p++)
+        {
+          char *name = office_breakable (d->categories[p]);
+
+          office_text (chart, layout, name, points, FALSE, MAX (cat_w - 2, 8), &tw, &th);
+          ch = MAX (ch, th);
+          g_free (name);
+        }
+      top = y0 + vh / 2.0;
+      bottom = y0 + h - ch - 4;
+      slot = (right - left) / n;
+      start = far ? right : left;
+      dir = far ? -1 : 1;
+    }
+  else
+    {
+      double most = w * 0.4;
+
+      for (int p = 0; p < d->n_points; p++)
+        {
+          office_text (chart, layout, d->categories[p], points, FALSE, -1, &tw, &th);
+          cw = MAX (cw, MIN (tw, most));
+        }
+      left = x0 + cw + 6;
+      right = x0 + w - vw / 2.0 - 2;
+      top = y0 + (far ? vh + 4 : vh / 2.0);
+      bottom = y0 + h - (far ? 2 : vh + 4);
+      slot = (bottom - top) / n;
+      start = far ? top : bottom;
+      dir = far ? 1 : -1;
+    }
+  if (right - left < 10 || bottom - top < 10)
+    return;
+
+  #define OV(v) (lying ? left + ((v) - lo) / (hi - lo) * (right - left) \
+                       : bottom - ((v) - lo) / (hi - lo) * (bottom - top))
+  #define OC(t) (start + dir * (t))
+
+  fill_plot_area (chart, cr, left, top, right, bottom);
+
+  /* Gridlines across the values, and between the categories when the
+   * file asks for those too. */
+  for (int k = 0; k <= steps && chart->gridlines; k++)
+    {
+      double at = OV (office_tick (lo, unit, k));
+
+      if (lying)
+        office_line (cr, at, top, at, bottom);
+      else
+        office_line (cr, left, at, right, at);
+    }
+  for (int p = 0; p <= n && chart->x_gridlines; p++)
+    {
+      double at = OC (p * slot);
+
+      if (lying)
+        office_line (cr, left, at, right, at);
+      else
+        office_line (cr, at, top, at, bottom);
+    }
+
+  /* The value axis' labels, on the side the categories start from. */
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  for (int k = 0; k <= steps; k++)
+    {
+      double v = office_tick (lo, unit, k);
+      char *label = office_value_text (chart, v, percent);
+
+      office_text (chart, layout, label, points, FALSE, -1, &tw, &th);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      if (lying)
+        office_show (cr, layout, OV (v) - tw / 2.0, far ? top - th - 3 : bottom + 3);
+      else
+        office_show (cr, layout, far ? right + 6 : left - 6 - tw, OV (v) - th / 2.0);
+      g_free (label);
+    }
+
+  /* The bars, clipped to the plot as Excel clips one past a fixed end. */
+  cairo_save (cr);
+  cairo_rectangle (cr, left, top, right - left, bottom - top);
+  cairo_clip (cr);
+  if (bars)
+    {
+      double bar = stacked ? slot / (1 + gap) : slot / (d->n_series + gap);
+
+      for (int p = 0; p < d->n_points; p++)
+        {
+          double up = cross, down = cross, total = 0;
+
+          if (percent)
+            for (int s = 0; s < d->n_series; s++)
+              {
+                double v = d->values[s * d->n_points + p];
+                if (!isnan (v)) total += fabs (v);
+              }
+          for (int s = 0; s < d->n_series; s++)
+            {
+              double v = d->values[s * d->n_points + p];
+              double from, to, t0, c0, c1, v0, v1;
+
+              if (isnan (v))
+                continue;
+              if (percent)
+                v = total > 0 ? 100 * fabs (v) / total : 0;
+              if (stacked)
+                {
+                  if (v >= 0) { from = up; up += v; to = up; }
+                  else        { from = down; down += v; to = down; }
+                  t0 = p * slot + bar * gap / 2;
+                }
+              else
+                {
+                  from = cross;
+                  to = v;
+                  t0 = p * slot + bar * gap / 2 + s * bar;
+                }
+              c0 = MIN (OC (t0), OC (t0 + bar));
+              c1 = MAX (OC (t0), OC (t0 + bar));
+              v0 = MIN (OV (from), OV (to));
+              v1 = MAX (OV (from), OV (to));
+              set_rgb (cr, o42_chart_series_colour (chart, s));
+              if (lying)
+                cairo_rectangle (cr, v0, c0, v1 - v0, c1 - c0);
+              else
+                cairo_rectangle (cr, c0, v0, c1 - c0, v1 - v0);
+              cairo_fill (cr);
+            }
+        }
+    }
+  else
+    {
+      for (int s = 0; s < d->n_series; s++)
+        {
+          gboolean started = FALSE;
+          double first = 0, last = 0;
+
+          set_rgb (cr, o42_chart_series_colour (chart, s));
+          cairo_set_line_width (cr, chart->kind == O42_CHART_AREA ? 1 : 2.5);
+          cairo_set_line_join (cr, CAIRO_LINE_JOIN_ROUND);
+          for (int p = 0; p < d->n_points; p++)
+            {
+              double v = d->values[s * d->n_points + p];
+              double c = OC ((p + 0.5) * slot);
+
+              if (isnan (v))
+                {
+                  if (chart->kind != O42_CHART_AREA)
+                    started = FALSE;
+                  continue;
+                }
+              if (lying)
+                {
+                  if (started) cairo_line_to (cr, OV (v), c);
+                  else cairo_move_to (cr, OV (v), c);
+                }
+              else
+                {
+                  if (started) cairo_line_to (cr, c, OV (v));
+                  else { cairo_move_to (cr, c, OV (v)); first = c; }
+                }
+              last = c;
+              started = TRUE;
+            }
+          if (chart->kind == O42_CHART_AREA && started && !lying)
+            {
+              cairo_line_to (cr, last, OV (cross));
+              cairo_line_to (cr, first, OV (cross));
+              cairo_close_path (cr);
+              cairo_fill (cr);
+              continue;
+            }
+          cairo_stroke (cr);
+          if (chart->marker != O42_MARKER_NONE)
+            for (int p = 0; p < d->n_points; p++)
+              {
+                double v = d->values[s * d->n_points + p];
+                double c = OC ((p + 0.5) * slot);
+
+                if (!isnan (v))
+                  draw_marker (chart, cr, d, lying ? OV (v) : c, lying ? c : OV (v));
+              }
+        }
+      cairo_set_line_width (cr, 1);
+    }
+  cairo_restore (cr);
+
+  /* The axes over the plot: the category axis where the values cross
+   * it, and the value axis along the side the categories start from. */
+  if (lying)
+    {
+      office_line (cr, OV (cross), top, OV (cross), bottom);
+      office_line (cr, left, far ? top : bottom, right, far ? top : bottom);
+    }
+  else
+    {
+      office_line (cr, left, OV (cross), right, OV (cross));
+      office_line (cr, far ? right : left, top, far ? right : left, bottom);
+    }
+
+  /* The categories: under each column, wrapped to its width, or beside
+   * each bar, as many as there is room for. */
+  cairo_set_source_rgb (cr, 0, 0, 0);
+  {
+    int every = 1;
+
+    if (lying)
+      {
+        office_text (chart, layout, "Xg", points, FALSE, -1, &tw, &th);
+        while (every < n && slot * every < th * 0.9)
+          every++;
+      }
+    for (int p = 0; p < d->n_points; p += every)
+      {
+        double c = OC ((p + 0.5) * slot);
+
+        if (lying)
+          {
+            office_text (chart, layout, d->categories[p], points, FALSE, -1, &tw, &th);
+            if (tw > cw)
+              office_text (chart, layout, d->categories[p], points, FALSE, cw, &tw, &th);
+            pango_layout_set_alignment (layout, PANGO_ALIGN_RIGHT);
+            cairo_set_source_rgb (cr, 0, 0, 0);
+            office_show (cr, layout, left - 6 - (tw > cw ? cw : tw), c - th / 2.0);
+          }
+        else
+          {
+            double cell = MAX (slot - 2, 8);
+            char *name = office_breakable (d->categories[p]);
+
+            office_text (chart, layout, name, points, FALSE, cell, &tw, &th);
+            cairo_set_source_rgb (cr, 0, 0, 0);
+            office_show (cr, layout, c - cell / 2, bottom + 3);
+            g_free (name);
+          }
+      }
+  }
+
+  /* Each point's value, past the end of its bar or over its point. */
+  if (chart->data_labels)
+    for (int s = 0; s < d->n_series; s++)
+      for (int p = 0; p < d->n_points; p++)
+        {
+          double v = d->values[s * d->n_points + p];
+          double bar = slot / (d->n_series + gap);
+          double c = bars && !stacked ? OC (p * slot + bar * gap / 2 + (s + 0.5) * bar)
+                                      : OC ((p + 0.5) * slot);
+          char *label;
+
+          if (isnan (v) || stacked)
+            continue;
+          label = chart_number (chart, v);
+          office_text (chart, layout, label, points, FALSE, -1, &tw, &th);
+          cairo_set_source_rgb (cr, 0, 0, 0);
+          if (lying)
+            office_show (cr, layout, OV (v) + (v >= cross ? 3 : -3 - tw), c - th / 2.0);
+          else
+            office_show (cr, layout, c - tw / 2.0, OV (v) + (v >= cross ? -th - 1 : 1));
+          g_free (label);
+        }
+  #undef OV
+  #undef OC
+}
+
+/* XY in the Office look: both axes scaled by Excel's rule, gridlines
+ * from each that asks for them, a dot at each point. */
+static void
+draw_office_scatter (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartData *d,
+                     double x0, double y0, double w, double h)
+{
+  double points = office_points (chart);
+  double xmin = 0, xmax = 0, ymin = 0, ymax = 0;
+  double xlo, xhi, xunit, ylo, yhi, yunit, left, right, top, bottom;
+  gboolean xany = FALSE, yany = FALSE;
+  int xsteps, ysteps, yw = 0, yh = 0, xh = 0, xw = 0, tw, th;
+
+  for (int p = 0; p < d->n_points; p++)
+    {
+      double x = d->values[p];
+
+      if (isnan (x)) continue;
+      if (!xany) { xmin = xmax = x; xany = TRUE; }
+      xmin = MIN (xmin, x); xmax = MAX (xmax, x);
+    }
+  for (int s = 1; s < d->n_series; s++)
+    for (int p = 0; p < d->n_points; p++)
+      {
+        double y = d->values[s * d->n_points + p];
+
+        if (isnan (y)) continue;
+        if (!yany) { ymin = ymax = y; yany = TRUE; }
+        ymin = MIN (ymin, y); ymax = MAX (ymax, y);
+      }
+  office_scale (xmin, xmax, FALSE, 0, FALSE, 0, &xlo, &xhi, &xunit);
+  office_scale (ymin, ymax, chart->has_min, chart->min, chart->has_max, chart->max, &ylo, &yhi, &yunit);
+  xsteps = (int) floor ((xhi - xlo) / xunit + 1e-6);
+  ysteps = (int) floor ((yhi - ylo) / yunit + 1e-6);
+
+  for (int k = 0; k <= ysteps; k++)
+    {
+      char *label = chart_number (chart, office_tick (ylo, yunit, k));
+
+      office_text (chart, layout, label, points, FALSE, -1, &tw, &th);
+      yw = MAX (yw, tw); yh = MAX (yh, th);
+      g_free (label);
+    }
+  for (int k = 0; k <= xsteps; k++)
+    {
+      char *label = o42_number_format (office_tick (xlo, xunit, k), O42_NUM_GENERAL, 0);
+
+      office_text (chart, layout, label, points, FALSE, -1, &tw, &th);
+      xw = MAX (xw, tw); xh = MAX (xh, th);
+      g_free (label);
+    }
+  left = x0 + yw + 6;
+  right = x0 + w - xw / 2.0 - 2;
+  top = y0 + yh / 2.0;
+  bottom = y0 + h - xh - 4;
+  if (right - left < 10 || bottom - top < 10)
+    return;
+
+  #define SX(v) (left + ((v) - xlo) / (xhi - xlo) * (right - left))
+  #define SY(v) (bottom - ((v) - ylo) / (yhi - ylo) * (bottom - top))
+
+  fill_plot_area (chart, cr, left, top, right, bottom);
+  for (int k = 0; k <= ysteps && chart->gridlines; k++)
+    office_line (cr, left, SY (office_tick (ylo, yunit, k)), right, SY (office_tick (ylo, yunit, k)));
+  for (int k = 0; k <= xsteps && chart->x_gridlines; k++)
+    office_line (cr, SX (office_tick (xlo, xunit, k)), top, SX (office_tick (xlo, xunit, k)), bottom);
+  office_line (cr, left, SY (CLAMP (0, ylo, yhi)), right, SY (CLAMP (0, ylo, yhi)));
+  office_line (cr, SX (CLAMP (0, xlo, xhi)), top, SX (CLAMP (0, xlo, xhi)), bottom);
+
+  for (int k = 0; k <= ysteps; k++)
+    {
+      double v = office_tick (ylo, yunit, k);
+      char *label = chart_number (chart, v);
+
+      office_text (chart, layout, label, points, FALSE, -1, &tw, &th);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      office_show (cr, layout, left - 6 - tw, SY (v) - th / 2.0);
+      g_free (label);
+    }
+  for (int k = 0; k <= xsteps; k++)
+    {
+      double v = office_tick (xlo, xunit, k);
+      char *label = o42_number_format (v, O42_NUM_GENERAL, 0);
+
+      office_text (chart, layout, label, points, FALSE, -1, &tw, &th);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      office_show (cr, layout, SX (v) - tw / 2.0, bottom + 3);
+      g_free (label);
+    }
+
+  cairo_save (cr);
+  cairo_rectangle (cr, left - 4, top - 4, right - left + 8, bottom - top + 8);
+  cairo_clip (cr);
+  for (int s = 1; s < d->n_series; s++)
+    {
+      set_rgb (cr, o42_chart_series_colour (chart, s - 1));
+      for (int p = 0; p < d->n_points; p++)
+        {
+          double x = d->values[p], y = d->values[s * d->n_points + p];
+
+          if (isnan (x) || isnan (y))
+            continue;
+          draw_marker (chart, cr, d, SX (x), SY (y));
+        }
+    }
+  cairo_restore (cr);
+  #undef SX
+  #undef SY
+}
+
+/* Is this chart one the Office look draws for itself?  The rest --
+ * pies, radars, 3-D, a second axis, trendlines, error bars -- are
+ * drawn as before, in the Office look's colours. */
+static gboolean
+office_drawn (const O42Chart *chart)
+{
+  switch (chart->kind)
+    {
+    case O42_CHART_COLUMN: case O42_CHART_BAR: case O42_CHART_STACKED:
+    case O42_CHART_PERCENT: case O42_CHART_LINE: case O42_CHART_AREA:
+    case O42_CHART_SCATTER:
+      break;
+    default:
+      return FALSE;
+    }
+  return chart->look == O42_CHART_LOOK_OFFICE && !chart->three_d && chart->secondary_from == 0 &&
+         chart->trend == O42_TREND_NONE && chart->err_bars == O42_ERRBAR_NONE;
+}
+
+/* The legend's entries, from `first` on: a key in the series' colour
+ * and its name, one under another or side by side. */
+static void
+office_legend (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartData *d,
+               int first, gboolean across, double x, double y, double *width, double *height)
+{
+  double points = office_points (chart);
+  double at_x = x, at_y = y, most = 0, row = 0;
+
+  for (int s = first; s < d->n_series; s++)
+    {
+      int tw, th;
+
+      office_text (chart, layout, d->series[s], points, FALSE, -1, &tw, &th);
+      row = MAX (row, th);
+      if (cr != NULL)
+        {
+          set_rgb (cr, o42_chart_series_colour (chart, s - first));
+          cairo_rectangle (cr, at_x, at_y + (th - OFFICE_KEY) / 2.0, OFFICE_KEY, OFFICE_KEY);
+          cairo_fill (cr);
+          cairo_set_source_rgb (cr, 0, 0, 0);
+          office_show (cr, layout, at_x + OFFICE_KEY + 4, at_y);
+        }
+      if (across)
+        at_x += OFFICE_KEY + 4 + tw + 12;
+      else
+        {
+          most = MAX (most, OFFICE_KEY + 4 + tw);
+          at_y += th;
+        }
+    }
+  *width = across ? MAX (at_x - x - 12, 0) : most;
+  *height = across ? row : at_y - y;
+}
+
+static void
+draw_office (const O42Chart *chart, cairo_t *cr, PangoLayout *layout, const ChartData *d,
+             double width, double height)
+{
+  double points = office_points (chart);
+  double left = 7, right = width - 7, top = 7, bottom = height - 7;
+  int first = chart->kind == O42_CHART_SCATTER ? 1 : 0;
+  gboolean legend = chart->legend && d->n_series > first;
+  gboolean across = chart->legend_pos == O42_LEGEND_TOP || chart->legend_pos == O42_LEGEND_BOTTOM;
+  double lw = 0, lh = 0, lx = 0, ly = 0;
+  int tw, th;
+
+  cairo_set_source_rgb (cr, 1, 1, 1);
+  cairo_rectangle (cr, 0, 0, width, height);
+  cairo_fill (cr);
+  set_rgb (cr, OFFICE_FRAME);
+  cairo_set_line_width (cr, 1);
+  cairo_rectangle (cr, 0.5, 0.5, width - 1, height - 1);
+  cairo_stroke (cr);
+
+  if (chart->title != NULL && chart->title[0] != '\0')
+    {
+      office_text (chart, layout, chart->title, points * 1.8, TRUE, right - left, &tw, &th);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      office_show (cr, layout, left, top + 2);
+      top += th + 8;
+    }
+
+  if (legend)
+    {
+      office_legend (chart, NULL, layout, d, first, across, 0, 0, &lw, &lh);
+      switch (chart->legend_pos)
+        {
+        case O42_LEGEND_LEFT:
+          lx = left; ly = top + (bottom - top - lh) / 2; left += lw + 12; break;
+        case O42_LEGEND_TOP:
+          lx = (width - lw) / 2; ly = top; top += lh + 8; break;
+        case O42_LEGEND_BOTTOM:
+          lx = (width - lw) / 2; ly = bottom - lh; bottom -= lh + 8; break;
+        default:
+          lx = right - lw; ly = top + (bottom - top - lh) / 2; right -= lw + 12; break;
+        }
+    }
+
+  /* The axis titles, bold, under the plot and up its left. */
+  if (chart->x_title != NULL && chart->x_title[0] != '\0')
+    {
+      office_text (chart, layout, chart->x_title, points, TRUE, right - left, &tw, &th);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      office_show (cr, layout, left, bottom - th);
+      bottom -= th + 4;
+    }
+  if (chart->y_title != NULL && chart->y_title[0] != '\0')
+    {
+      office_text (chart, layout, chart->y_title, points, TRUE, -1, &tw, &th);
+      cairo_save (cr);
+      cairo_translate (cr, left, (top + bottom) / 2 + tw / 2.0);
+      cairo_rotate (cr, -G_PI / 2);
+      cairo_set_source_rgb (cr, 0, 0, 0);
+      office_show (cr, layout, 0, 0);
+      cairo_restore (cr);
+      left += th + 4;
+    }
+
+  if (chart->kind == O42_CHART_SCATTER)
+    draw_office_scatter (chart, cr, layout, d, left, top, right - left, bottom - top);
+  else
+    draw_office_axes (chart, cr, layout, d, left, top, right - left, bottom - top);
+
+  if (legend)
+    office_legend (chart, cr, layout, d, first, across, lx, ly, &lw, &lh);
 }
 
 /* ---- The four plots Gnumeric has and Excel has not --------------------- */
@@ -2653,6 +3635,21 @@ o42_chart_draw_full (const O42Chart *chart, cairo_t *cr, double width, double he
   d.marker_picture = (picture != NULL && chart->marker == O42_MARKER_PICTURE)
                      ? picture (picture_user, chart->marker_picture) : NULL;
   layout = pango_cairo_create_layout (cr);
+
+  if (office_drawn (chart))
+    {
+      /* A long category name is broken where it must be, without the
+       * hyphen Pango would add. */
+      PangoAttrList *attrs = pango_attr_list_new ();
+
+      pango_attr_list_insert (attrs, pango_attr_insert_hyphens_new (FALSE));
+      pango_layout_set_attributes (layout, attrs);
+      pango_attr_list_unref (attrs);
+      draw_office (chart, cr, layout, &d, width, height);
+      g_object_unref (layout);
+      chart_data_free (&d);
+      return;
+    }
 
   /* Paper, with a hairline frame. */
   cairo_set_source_rgb (cr, 1, 1, 1);

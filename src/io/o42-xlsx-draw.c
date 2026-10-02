@@ -154,16 +154,117 @@ axis_title_xml (const char *text)
   return xml;
 }
 
+/* One series as chart_xml writes it: its ranges as references, escaped,
+ * each NULL where it has none. */
+typedef struct {
+  char *name;     /* the cell naming it */
+  char *label;    /* or the name itself */
+  char *cats;     /* its categories, or a scatter's or a bubble's x */
+  char *values;
+  char *sizes;    /* a bubble's sizes */
+} SeriesXml;
+
+static void
+series_xml_free (gpointer data)
+{
+  SeriesXml *line = data;
+
+  g_free (line->name);
+  g_free (line->label);
+  g_free (line->cats);
+  g_free (line->values);
+  g_free (line->sizes);
+  g_free (line);
+}
+
+static char *
+range_ref (const char *source, const O42Range *r)
+{
+  return ref_text (source, r->row0, r->col0, r->row1, r->col1);
+}
+
+/* The chart's series: the ones a file named, as it named them, or one
+ * per line of the table -- per data column, or per data row when the
+ * series lie that way, the heading that names the series and the one
+ * that names the categories swapping with the orientation as they do
+ * when it is drawn. */
+static GPtrArray *
+series_lines (O42Sheet *sheet, const O42Chart *chart, const char *source)
+{
+  GPtrArray *lines = g_ptr_array_new_with_free_func (series_xml_free);
+  const O42Range *d = &chart->data;
+  gboolean scatter = chart->kind == O42_CHART_SCATTER;
+  gboolean bubble = chart->kind == O42_CHART_BUBBLE;
+  int first_row = d->row0 + (chart->first_row_labels ? 1 : 0);
+  int first_col = d->col0 + (chart->first_col_labels ? 1 : 0);
+  gboolean rows = chart->series_in_rows;
+  gboolean series_named = rows ? chart->first_col_labels : chart->first_row_labels;
+  gboolean points_named = rows ? chart->first_row_labels : chart->first_col_labels;
+  int cat_line = rows ? d->row0 : d->col0;
+  int first = rows ? first_row : first_col;
+  int last = rows ? d->row1 : d->col1;
+  int r0, c0, r1, c1;
+
+  (void) sheet;
+  if (chart->series != NULL && chart->series->len > 0)
+    {
+      for (guint i = 0; i < chart->series->len; i++)
+        {
+          const O42ChartSeries *one = &g_array_index (chart->series, O42ChartSeries, i);
+          SeriesXml *line = g_new0 (SeriesXml, 1);
+
+          if (one->name.row0 >= 0)
+            line->name = range_ref (source, &one->name);
+          else if (one->label != NULL)
+            line->label = g_markup_escape_text (one->label, -1);
+          if (one->cats.row0 >= 0)
+            line->cats = range_ref (source, &one->cats);
+          line->values = range_ref (source, &one->values);
+          g_ptr_array_add (lines, line);
+        }
+      return lines;
+    }
+
+  /* A scatter's first line is x, not a series of its own, and a
+   * bubble's first is x with the second up and a third for the
+   * sizes -- the three the chart is drawn from. */
+  if (scatter || bubble)
+    first = cat_line + 1;
+  for (int i = first; i <= last; i++)
+    {
+      SeriesXml *line = g_new0 (SeriesXml, 1);
+
+      if (series_named)
+        {
+          int nr = rows ? i : d->row0;
+          int nc = rows ? d->col0 : i;
+
+          line->name = ref_text (source, nr, nc, nr, nc);
+        }
+      line_range (chart, first_row, first_col, i, &r0, &c0, &r1, &c1);
+      line->values = ref_text (source, r0, c0, r1, c1);
+      if (scatter || bubble || points_named)
+        {
+          line_range (chart, first_row, first_col, cat_line, &r0, &c0, &r1, &c1);
+          line->cats = ref_text (source, r0, c0, r1, c1);
+        }
+      if (bubble && i + 1 <= last)
+        {
+          line_range (chart, first_row, first_col, i + 1, &r0, &c0, &r1, &c1);
+          line->sizes = ref_text (source, r0, c0, r1, c1);
+        }
+      g_ptr_array_add (lines, line);
+    }
+  return lines;
+}
+
 static char *
 chart_xml (O42Sheet *sheet, const O42Chart *chart)
 {
   GString *out = g_string_new (
     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
     "<c:chartSpace xmlns:c=\"" NS_C "\" xmlns:a=\"" NS_A "\" xmlns:r=\"" NS_R "\">"
-    "<c:roundedCorners val=\"0\"/><c:chart>");
-  const O42Range *d = &chart->data;
-  int first_row = d->row0 + (chart->first_row_labels ? 1 : 0);
-  int first_col = d->col0 + (chart->first_col_labels ? 1 : 0);
+    "<c:roundedCorners val=\"0\"/>");
   gboolean scatter = chart->kind == O42_CHART_SCATTER;
   gboolean pie = chart->kind == O42_CHART_PIE;
   /* A round chart's series takes no trendline and no error bars, and a
@@ -182,6 +283,16 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
                        ? chart->data_sheet : o42_sheet_get_name (sheet);
   const char *element;
   int series = 0;
+  gboolean office = chart->look == O42_CHART_LOOK_OFFICE;
+  gboolean lying = chart->kind == O42_CHART_BAR ||
+                   ((chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT) && chart->horizontal);
+  GPtrArray *lines = series_lines (sheet, chart, source);
+
+  /* Excel 2007's look says so with a chart style; office42 reads a
+   * chart of its own without one as one in Excel 97's. */
+  if (office)
+    g_string_append (out, "<c:style val=\"2\"/>");
+  g_string_append (out, "<c:chart>");
 
   if (chart->title != NULL && chart->title[0] != '\0')
     {
@@ -231,8 +342,14 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     {
     case O42_CHART_COLUMN:  g_string_append (out, "<c:barDir val=\"col\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_BAR:     g_string_append (out, "<c:barDir val=\"bar\"/><c:grouping val=\"clustered\"/><c:varyColors val=\"0\"/>"); break;
-    case O42_CHART_STACKED: g_string_append (out, "<c:barDir val=\"col\"/><c:grouping val=\"stacked\"/><c:varyColors val=\"0\"/>"); break;
-    case O42_CHART_PERCENT: g_string_append (out, "<c:barDir val=\"col\"/><c:grouping val=\"percentStacked\"/><c:varyColors val=\"0\"/>"); break;
+    case O42_CHART_STACKED:
+      g_string_append_printf (out, "<c:barDir val=\"%s\"/><c:grouping val=\"stacked\"/><c:varyColors val=\"0\"/>",
+                              lying ? "bar" : "col");
+      break;
+    case O42_CHART_PERCENT:
+      g_string_append_printf (out, "<c:barDir val=\"%s\"/><c:grouping val=\"percentStacked\"/><c:varyColors val=\"0\"/>",
+                              lying ? "bar" : "col");
+      break;
     case O42_CHART_LINE:    g_string_append (out, "<c:grouping val=\"standard\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_AREA:    g_string_append (out, "<c:grouping val=\"standard\"/><c:varyColors val=\"0\"/>"); break;
     case O42_CHART_PIE:
@@ -256,147 +373,99 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
       break;
     }
 
-  /* One series per data column, or per data row when the series lie that
-   * way.  The heading that names the series and the one that names the
-   * categories swap with the orientation, as they do when it is drawn. */
-  {
-    gboolean rows = chart->series_in_rows;
-    gboolean series_named = rows ? chart->first_col_labels : chart->first_row_labels;
-    gboolean points_named = rows ? chart->first_row_labels : chart->first_col_labels;
-    int cat_line = rows ? d->row0 : d->col0;
-    int first = rows ? first_row : first_col;
-    int last = rows ? d->row1 : d->col1;
-    int x_line = -1;
-    int r0, c0, r1, c1;
+  /* The series, each with the ranges series_lines found for it. */
+  for (guint k = 0; k < lines->len && (!pie || series == 0) && (!bubble || series == 0); k++)
+    {
+      const SeriesXml *line = g_ptr_array_index (lines, k);
+      int ordinal = (int) k;
 
-    /* A scatter's first line is x, not a series of its own, and a
-     * bubble's first is x with the second up and a third for the
-     * sizes -- the three the chart is drawn from. */
-    if (scatter || bubble)
-      { x_line = cat_line; first = cat_line + 1; }
-
-    for (int i = first; i <= last && (!pie || series == 0) && (!bubble || series == 0); i++)
+      if (secondary && (ordinal >= chart->secondary_from - 1) != (group == 1))
+        continue;
+      g_string_append_printf (out, "<c:ser><c:idx val=\"%d\"/><c:order val=\"%d\"/>", ordinal, ordinal);
+      if (line->name != NULL)
+        g_string_append_printf (out, "<c:tx><c:strRef><c:f>%s</c:f></c:strRef></c:tx>", line->name);
+      else if (line->label != NULL)
+        g_string_append_printf (out, "<c:tx><c:v>%s</c:v></c:tx>", line->label);
       {
-        int ordinal = i - first;
-
-        if (secondary && (ordinal >= chart->secondary_from - 1) != (group == 1))
-          continue;
-        g_string_append_printf (out, "<c:ser><c:idx val=\"%d\"/><c:order val=\"%d\"/>", ordinal, ordinal);
-        if (series_named)
-          {
-            int nr = rows ? i : d->row0;
-            int nc = rows ? d->col0 : i;
-            char *ref = ref_text (source, nr, nc, nr, nc);
-            g_string_append_printf (out, "<c:tx><c:strRef><c:f>%s</c:f></c:strRef></c:tx>", ref);
-            g_free (ref);
-          }
-        {
-          /* The series colours o42_chart_draw uses, written out so
-           * readers that take an absent style as "no fill"
-           * (LibreOffice) show bars. */
-          guint32 colour = o42_chart_series_colour (chart, ordinal);
-          if (chart->kind == O42_CHART_LINE || scatter)
-            g_string_append_printf (out,
-              "<c:spPr><a:ln w=\"28575\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill></a:ln></c:spPr>", colour);
-          else if (!pie)
-            g_string_append_printf (out,
-              "<c:spPr><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill></c:spPr>", colour);
-          if (chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_BAR ||
-              chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT)
-            g_string_append (out, "<c:invertIfNegative val=\"0\"/>");
-        }
-        /* What follows is in the order the schema lays a series out:
-         * the marker, then the labels, the trendline and the error
-         * bars, and the cells last.  Excel reads a series against that
-         * order and offers to repair a file that puts the cells first,
-         * which is how this was written before. */
-        if (scatter)
-          g_string_append (out, "<c:marker><c:symbol val=\"circle\"/></c:marker>");
-        if (chart->data_labels && !surface)
-          g_string_append (out, "<c:dLbls><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/>"
-                                "<c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbls>");
-        if (chart->trend != O42_TREND_NONE && !round && !surface && !radar)
-          {
-            static const char *types[] = { "", "linear", "poly", "exp", "log", "power", "movingAvg" };
-
-            g_string_append_printf (out, "<c:trendline><c:trendlineType val=\"%s\"/>",
-                                    types[chart->trend]);
-            if (chart->trend == O42_TREND_POLY)
-              g_string_append_printf (out, "<c:order val=\"%d\"/>", CLAMP (chart->trend_order, 2, 6));
-            else if (chart->trend == O42_TREND_MOVING)
-              g_string_append_printf (out, "<c:period val=\"%d\"/>", MAX (chart->trend_order, 2));
-            g_string_append (out, "</c:trendline>");
-          }
-        if (chart->err_bars != O42_ERRBAR_NONE && !round && !surface && !radar)
-          {
-            static const char *types[] = { "", "fixedVal", "percentage", "stdDev", "stdErr" };
-
-            g_string_append_printf (out,
-              "<c:errBars><c:errDir val=\"y\"/><c:errBarType val=\"both\"/>"
-              "<c:errValType val=\"%s\"/><c:noEndCap val=\"0\"/>", types[chart->err_bars]);
-            if (chart->err_bars != O42_ERRBAR_STDERR)
-              {
-                char buf[G_ASCII_DTOSTR_BUF_SIZE];
-
-                g_ascii_dtostr (buf, sizeof buf, chart->err_value);
-                g_string_append_printf (out, "<c:val val=\"%s\"/>", buf);
-              }
-            g_string_append (out, "</c:errBars>");
-          }
-
-        line_range (chart, first_row, first_col, i, &r0, &c0, &r1, &c1);
-        if (scatter || bubble)
-          {
-            int xr0, xc0, xr1, xc1;
-            char *yref = ref_text (source, r0, c0, r1, c1);
-            char *xref;
-
-            line_range (chart, first_row, first_col, x_line, &xr0, &xc0, &xr1, &xc1);
-            xref = ref_text (source, xr0, xc0, xr1, xc1);
-            g_string_append_printf (out,
-              "<c:xVal><c:numRef><c:f>%s</c:f></c:numRef></c:xVal>"
-              "<c:yVal><c:numRef><c:f>%s</c:f></c:numRef></c:yVal>", xref, yref);
-            g_free (xref);
-            g_free (yref);
-            /* The line after the values, where there is one, gives the
-             * size of each bubble. */
-            if (bubble && i + 1 <= last)
-              {
-                int sr0, sc0, sr1, sc1;
-                char *sref;
-
-                line_range (chart, first_row, first_col, i + 1, &sr0, &sc0, &sr1, &sc1);
-                sref = ref_text (source, sr0, sc0, sr1, sc1);
-                g_string_append_printf (out,
-                  "<c:bubbleSize><c:numRef><c:f>%s</c:f></c:numRef></c:bubbleSize>", sref);
-                g_free (sref);
-              }
-          }
-        else
-          {
-            char *vref = ref_text (source, r0, c0, r1, c1);
-            if (points_named)
-              {
-                int cr0, cc0, cr1, cc1;
-                char *cref;
-
-                line_range (chart, first_row, first_col, cat_line, &cr0, &cc0, &cr1, &cc1);
-                cref = ref_text (source, cr0, cc0, cr1, cc1);
-                g_string_append_printf (out, "<c:cat><c:strRef><c:f>%s</c:f></c:strRef></c:cat>", cref);
-                g_free (cref);
-              }
-            g_string_append_printf (out, "<c:val><c:numRef><c:f>%s</c:f></c:numRef></c:val>", vref);
-            g_free (vref);
-          }
-        g_string_append (out, "</c:ser>");
-        series++;
+        /* The series colours o42_chart_draw uses, written out so
+         * readers that take an absent style as "no fill"
+         * (LibreOffice) show bars. */
+        guint32 colour = o42_chart_series_colour (chart, ordinal);
+        if (chart->kind == O42_CHART_LINE || scatter)
+          g_string_append_printf (out,
+            "<c:spPr><a:ln w=\"28575\"><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill></a:ln></c:spPr>", colour);
+        else if (!pie)
+          g_string_append_printf (out,
+            "<c:spPr><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill></c:spPr>", colour);
+        if (chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_BAR ||
+            chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT)
+          g_string_append (out, "<c:invertIfNegative val=\"0\"/>");
       }
-  }
+      /* What follows is in the order the schema lays a series out:
+       * the marker, then the labels, the trendline and the error
+       * bars, and the cells last.  Excel reads a series against that
+       * order and offers to repair a file that puts the cells first,
+       * which is how this was written before. */
+      if (scatter)
+        g_string_append (out, "<c:marker><c:symbol val=\"circle\"/></c:marker>");
+      if (chart->data_labels && !surface)
+        g_string_append (out, "<c:dLbls><c:showLegendKey val=\"0\"/><c:showVal val=\"1\"/><c:showCatName val=\"0\"/>"
+                              "<c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbls>");
+      if (chart->trend != O42_TREND_NONE && !round && !surface && !radar)
+        {
+          static const char *types[] = { "", "linear", "poly", "exp", "log", "power", "movingAvg" };
+
+          g_string_append_printf (out, "<c:trendline><c:trendlineType val=\"%s\"/>",
+                                  types[chart->trend]);
+          if (chart->trend == O42_TREND_POLY)
+            g_string_append_printf (out, "<c:order val=\"%d\"/>", CLAMP (chart->trend_order, 2, 6));
+          else if (chart->trend == O42_TREND_MOVING)
+            g_string_append_printf (out, "<c:period val=\"%d\"/>", MAX (chart->trend_order, 2));
+          g_string_append (out, "</c:trendline>");
+        }
+      if (chart->err_bars != O42_ERRBAR_NONE && !round && !surface && !radar)
+        {
+          static const char *types[] = { "", "fixedVal", "percentage", "stdDev", "stdErr" };
+
+          g_string_append_printf (out,
+            "<c:errBars><c:errDir val=\"y\"/><c:errBarType val=\"both\"/>"
+            "<c:errValType val=\"%s\"/><c:noEndCap val=\"0\"/>", types[chart->err_bars]);
+          if (chart->err_bars != O42_ERRBAR_STDERR)
+            {
+              char buf[G_ASCII_DTOSTR_BUF_SIZE];
+
+              g_ascii_dtostr (buf, sizeof buf, chart->err_value);
+              g_string_append_printf (out, "<c:val val=\"%s\"/>", buf);
+            }
+          g_string_append (out, "</c:errBars>");
+        }
+
+      if (scatter || bubble)
+        {
+          if (line->cats != NULL)
+            g_string_append_printf (out, "<c:xVal><c:numRef><c:f>%s</c:f></c:numRef></c:xVal>", line->cats);
+          g_string_append_printf (out, "<c:yVal><c:numRef><c:f>%s</c:f></c:numRef></c:yVal>", line->values);
+          /* The line after the values, where there is one, gives the
+           * size of each bubble. */
+          if (line->sizes != NULL)
+            g_string_append_printf (out,
+              "<c:bubbleSize><c:numRef><c:f>%s</c:f></c:numRef></c:bubbleSize>", line->sizes);
+        }
+      else
+        {
+          if (line->cats != NULL)
+            g_string_append_printf (out, "<c:cat><c:strRef><c:f>%s</c:f></c:strRef></c:cat>", line->cats);
+          g_string_append_printf (out, "<c:val><c:numRef><c:f>%s</c:f></c:numRef></c:val>", line->values);
+        }
+      g_string_append (out, "</c:ser>");
+      series++;
+    }
 
   if (chart->kind == O42_CHART_STACKED || chart->kind == O42_CHART_PERCENT)
-    g_string_append (out, "<c:gapWidth val=\"150\"/><c:overlap val=\"100\"/>");
+    g_string_append_printf (out, "<c:gapWidth val=\"%d\"/><c:overlap val=\"100\"/>",
+                            chart->gap_width > 0 ? chart->gap_width : 150);
   else if (chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_BAR)
-    g_string_append (out, "<c:gapWidth val=\"150\"/>");
+    g_string_append_printf (out, "<c:gapWidth val=\"%d\"/>", chart->gap_width > 0 ? chart->gap_width : 150);
   else if (chart->kind == O42_CHART_LINE)
     g_string_append (out, "<c:marker val=\"1\"/>");
   else if (chart->kind == O42_CHART_PIE && chart->of_pie != 0)
@@ -418,7 +487,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
   if (!round)
     {
       const char *cat_axis = scatter || bubble ? "valAx" : "catAx";
-      gboolean bar = chart->kind == O42_CHART_BAR;
+      gboolean bar = lying;
       char *xt = axis_title_xml (chart->x_title);
       char *yt = axis_title_xml (chart->y_title);
       const char *code = chart->y_format != NULL && *chart->y_format != '\0' ? chart->y_format : "General";
@@ -432,10 +501,11 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
                       chart->has_min ? "<c:min val=\"" : "", chart->has_min ? g_ascii_dtostr (b, sizeof b, chart->min) : "", chart->has_min ? "\"/>" : "");
         }
       g_string_append_printf (out,
-        "<c:%s><c:axId val=\"10001\"/><c:scaling><c:orientation val=\"minMax\"/></c:scaling><c:delete val=\"0\"/>"
-        "<c:axPos val=\"%s\"/>%s<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:tickLblPos val=\"nextTo\"/>"
+        "<c:%s><c:axId val=\"10001\"/><c:scaling><c:orientation val=\"%s\"/></c:scaling><c:delete val=\"0\"/>"
+        "<c:axPos val=\"%s\"/>%s%s<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:tickLblPos val=\"nextTo\"/>"
         "<c:crossAx val=\"10002\"/><c:crosses val=\"autoZero\"/>%s</c:%s>",
-        cat_axis, bar ? "l" : "b", xt,
+        cat_axis, chart->cats_reversed && !scatter && !bubble ? "maxMin" : "minMax", bar ? "l" : "b",
+        chart->x_gridlines ? "<c:majorGridlines/>" : "", xt,
         /* The tail of an axis differs with its kind: a value axis
          * across (a scatter's or a bubble's) takes crossBetween, and a
          * category axis the three that say how its labels sit. */
@@ -474,15 +544,27 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
     }
   /* The grey plot area Excel 97 gave a chart with axes, so that Excel
    * and LibreOffice show what office42 draws. */
-  if (!chart->three_d &&
+  if (office)
+    {
+      /* The Office look's plot area is white unless it was shaded. */
+      if (chart->plot_fill != O42_CHART_AUTO_COLOUR)
+        g_string_append_printf (out, "<c:spPr><a:solidFill><a:srgbClr val=\"%06X\"/></a:solidFill></c:spPr>",
+                                chart->plot_fill & 0xFFFFFF);
+    }
+  else if (!chart->three_d &&
       (chart->kind == O42_CHART_COLUMN || chart->kind == O42_CHART_LINE || chart->kind == O42_CHART_BAR ||
        chart->kind == O42_CHART_AREA || chart->kind == O42_CHART_SCATTER || chart->kind == O42_CHART_STACKED ||
        chart->kind == O42_CHART_PERCENT || chart->kind == O42_CHART_BUBBLE || chart->kind == O42_CHART_STOCK))
     g_string_append (out, "<c:spPr><a:solidFill><a:srgbClr val=\"C0C0C0\"/></a:solidFill>"
                           "<a:ln><a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill></a:ln></c:spPr>");
   g_string_append (out, "</c:plotArea>");
-  if ((series > 1 || pie) && chart->legend)
-    g_string_append (out, "<c:legend><c:legendPos val=\"r\"/><c:overlay val=\"0\"/></c:legend>");
+  if (((series > 1 || pie) || (office && series > 0)) && chart->legend)
+    {
+      static const char *const POS[] = { "b", "r", "t", "l" };
+
+      g_string_append_printf (out, "<c:legend><c:legendPos val=\"%s\"/><c:overlay val=\"0\"/></c:legend>",
+                              office ? POS[chart->legend_pos] : "r");
+    }
   g_string_append (out, "<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart>");
   /* The face and size the whole chart's text is set in, which is where
    * Excel keeps it too: one c:txPr on the chart space. */
@@ -500,6 +582,7 @@ chart_xml (O42Sheet *sheet, const O42Chart *chart)
       g_free (face);
     }
   g_string_append (out, "</c:chartSpace>");
+  g_ptr_array_unref (lines);
   return g_string_free (out, FALSE);
 }
 
@@ -960,6 +1043,7 @@ typedef struct
   gboolean     in_f, in_title, in_t;
   int          in_axis;        /* 1 in catAx (or the first valAx of a scatter), 2 in valAx */
   gboolean     saw_valax, saw_grid, saw_legend, saw_labels, has_min, has_max, in_err;
+  gboolean     saw_x_valax;   /* a scatter's first value axis, its x, is behind us */
   gboolean     three_d;
   int          of_pie, of_pie_count;   /* ofPieChart: its type and split */
   char        *font_family;
@@ -977,7 +1061,55 @@ typedef struct
   O42Range     box;
   const char  *sheet;     /* interned, from the first reference */
   gboolean     have_box, have_tx, have_cat;
+
+  /* The series one by one, as they are named; `box` is only the
+   * rectangle around them, for the formats that want a table. */
+  GArray      *series;    /* SeriesRead */
+  int          depth;     /* of the element being read */
+  int          ser_depth; /* of the c:ser being read, 0 outside one */
+  int          plot_depth;
+  gboolean     in_ser_sppr; /* in the series' own c:spPr */
+  gboolean     in_label;  /* a series name given as c:v rather than a cell */
+  gboolean     foreign;   /* a reference to another sheet than the first */
+  guint32     *colour_to; /* where a solidFill being read goes, or NULL */
+  int          colour_depth;
+  guint32      colour;    /* the a:srgbClr or a:schemeClr being read */
+  double       lum_mod, lum_off;
+  const guint32 *theme;   /* the book's twelve, in Excel's order */
+  gboolean     ours;      /* the book is one office42 wrote */
+  gboolean     styled;    /* c:style: Excel's own look for the chart */
+  guint32      plot_fill;
+  gboolean     plot_filled;
+  O42LegendPos legend_pos;
+  gboolean     cats_reversed, horizontal, x_grid;
+  int          gap_width;
 } ChartReader;
+
+typedef struct {
+  O42Range  name, cats, values;
+  gboolean  has_name, has_cats, has_values;
+  GString  *label;
+  guint32   colour;
+} SeriesRead;
+
+/* A theme colour by its DrawingML name, from the book's twelve. */
+static guint32
+scheme_colour (const ChartReader *c, const char *name)
+{
+  static const char *const NAMES[12] = { "bg1", "tx1", "bg2", "tx2", "accent1", "accent2",
+                                         "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink" };
+
+  if (name == NULL || c->theme == NULL)
+    return 0x000000;
+  if (strcmp (name, "lt1") == 0) name = "bg1";
+  else if (strcmp (name, "dk1") == 0) name = "tx1";
+  else if (strcmp (name, "lt2") == 0) name = "bg2";
+  else if (strcmp (name, "dk2") == 0) name = "tx2";
+  for (int i = 0; i < 12; i++)
+    if (strcmp (name, NAMES[i]) == 0)
+      return c->theme[i];
+  return 0x000000;
+}
 
 static void
 chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
@@ -986,6 +1118,84 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
   ChartReader *c = user;
   const char *n = local (name);
   (void) ctx; (void) error;
+
+  c->depth++;
+  if (strcmp (n, "ser") == 0)
+    {
+      SeriesRead one;
+
+      memset (&one, 0, sizeof one);
+      one.colour = O42_CHART_AUTO_COLOUR;
+      g_array_append_val (c->series, one);
+      c->ser_depth = c->depth;
+    }
+  else if (strcmp (n, "plotArea") == 0)
+    c->plot_depth = c->depth;
+  else if (strcmp (n, "style") == 0 && c->depth <= 4 && c->plot_depth == 0)
+    c->styled = TRUE;   /* c:style, or c14:style in an mc:AlternateContent */
+  else if (strcmp (n, "spPr") == 0 && c->ser_depth > 0 && c->depth == c->ser_depth + 1)
+    c->in_ser_sppr = TRUE;
+  else if (strcmp (n, "v") == 0 && c->ser_depth > 0 && c->depth == c->ser_depth + 2 &&
+           c->role == g_intern_string ("tx"))
+    c->in_label = TRUE;
+  else if (strcmp (n, "solidFill") == 0 || strcmp (n, "noFill") == 0)
+    {
+      /* The series' own fill, or its line's, directly in its spPr; and
+       * the plot area's. */
+      SeriesRead *one = c->ser_depth > 0 ? &g_array_index (c->series, SeriesRead, c->series->len - 1) : NULL;
+      gboolean fill = strcmp (n, "solidFill") == 0;
+
+      if (one != NULL && one->colour == O42_CHART_AUTO_COLOUR && fill && c->in_ser_sppr &&
+          (c->depth == c->ser_depth + 2 || c->depth == c->ser_depth + 3))
+        { c->colour_to = &one->colour; c->colour_depth = c->depth; }
+      else if (c->plot_depth > 0 && c->ser_depth == 0 && c->depth == c->plot_depth + 2 && !c->plot_filled)
+        {
+          c->plot_filled = TRUE;
+          c->plot_fill = O42_CHART_AUTO_COLOUR;
+          if (fill)
+            { c->colour_to = &c->plot_fill; c->colour_depth = c->depth; }
+        }
+    }
+  else if (c->colour_to != NULL && c->depth == c->colour_depth + 1 &&
+           (strcmp (n, "srgbClr") == 0 || strcmp (n, "schemeClr") == 0 || strcmp (n, "sysClr") == 0))
+    {
+      const char *v = attr (names, values, n[1] == 'y' ? "lastClr" : "val");
+
+      c->lum_mod = 1;
+      c->lum_off = 0;
+      if (n[0] == 's' && n[1] == 'c')
+        c->colour = scheme_colour (c, v);
+      else
+        c->colour = v != NULL ? (guint32) g_ascii_strtoull (v, NULL, 16) & 0xFFFFFF : 0;
+    }
+  else if (c->colour_to != NULL && c->depth == c->colour_depth + 2 &&
+           (strcmp (n, "lumMod") == 0 || strcmp (n, "lumOff") == 0))
+    {
+      const char *v = attr (names, values, "val");
+      double f = v != NULL ? g_ascii_strtod (v, NULL) / 100000 : 0;
+
+      if (n[3] == 'M') c->lum_mod = f;
+      else c->lum_off = f;
+    }
+  else if (strcmp (n, "legendPos") == 0)
+    {
+      const char *v = attr (names, values, "val");
+
+      c->legend_pos = g_strcmp0 (v, "b") == 0 ? O42_LEGEND_BOTTOM
+                    : g_strcmp0 (v, "t") == 0 ? O42_LEGEND_TOP
+                    : g_strcmp0 (v, "l") == 0 ? O42_LEGEND_LEFT : O42_LEGEND_RIGHT;
+    }
+  else if (strcmp (n, "orientation") == 0 && c->in_axis == 1 && c->kind != O42_CHART_SCATTER)
+    c->cats_reversed = g_strcmp0 (attr (names, values, "val"), "maxMin") == 0;
+  else if (strcmp (n, "majorGridlines") == 0 && c->in_axis == 1)
+    c->x_grid = TRUE;
+  else if (strcmp (n, "gapWidth") == 0 && c->ser_depth == 0)
+    {
+      const char *v = attr (names, values, "val");
+
+      if (v != NULL)
+        c->gap_width = CLAMP (atoi (v), 0, 500);
+    }
 
   /* Each plot element opens a chart group; a second group is what a
    * secondary axis looks like in the file. */
@@ -1031,10 +1241,15 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if (strcmp (n, "grouping") == 0)
     {
       const char *v = attr (names, values, "val");
-      if (v && c->kind == O42_CHART_COLUMN)
+      /* Bars stacked lying down are stacked columns turned over. */
+      if (v && (c->kind == O42_CHART_COLUMN || c->kind == O42_CHART_BAR))
         {
+          gboolean lying = c->kind == O42_CHART_BAR;
+
           if (strcmp (v, "stacked") == 0) c->kind = O42_CHART_STACKED;
           else if (strcmp (v, "percentStacked") == 0) c->kind = O42_CHART_PERCENT;
+          if (c->kind != O42_CHART_BAR)
+            c->horizontal = lying;
         }
     }
   else if (strcmp (n, "val") == 0 && c->in_err)
@@ -1063,8 +1278,9 @@ chart_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if (strcmp (n, "valAx") == 0)
     {
       /* A scatter has two value axes: the first is x. */
-      c->in_axis = (c->kind == O42_CHART_SCATTER && !c->saw_valax) ? 1 : 2;
+      c->in_axis = (c->kind == O42_CHART_SCATTER && !c->saw_x_valax) ? 1 : 2;
       if (c->in_axis == 2) c->saw_valax = TRUE;
+      else c->saw_x_valax = TRUE;
     }
   else if (strcmp (n, "majorGridlines") == 0 && c->in_axis == 2)
     c->saw_grid = TRUE;
@@ -1138,6 +1354,21 @@ chart_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
   const char *n = local (name);
   (void) ctx; (void) error;
 
+  if (c->colour_to != NULL && c->depth == c->colour_depth + 1 &&
+      (strcmp (n, "srgbClr") == 0 || strcmp (n, "schemeClr") == 0 || strcmp (n, "sysClr") == 0))
+    *c->colour_to = o42_colour_luminance (c->colour, c->lum_mod, c->lum_off);
+  else if (c->colour_to != NULL && c->depth == c->colour_depth)
+    c->colour_to = NULL;
+  if (strcmp (n, "ser") == 0)
+    c->ser_depth = 0;
+  else if (strcmp (n, "spPr") == 0 && c->ser_depth > 0 && c->depth == c->ser_depth + 1)
+    c->in_ser_sppr = FALSE;
+  else if (strcmp (n, "plotArea") == 0)
+    c->plot_depth = 0;
+  else if (strcmp (n, "v") == 0)
+    c->in_label = FALSE;
+  c->depth--;
+
   if (strcmp (n, "f") == 0 && c->in_f)
     {
       O42Node *tree = o42_formula_parse (c->f->str);
@@ -1172,6 +1403,19 @@ chart_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
               if (strcmp (c->role, "tx") == 0) c->have_tx = TRUE;
               if (strcmp (c->role, "cat") == 0) c->have_cat = TRUE;
             }
+          else
+            c->foreign = TRUE;
+          if (c->ser_depth > 0 && c->series->len > 0)
+            {
+              SeriesRead *one = &g_array_index (c->series, SeriesRead, c->series->len - 1);
+
+              if (strcmp (c->role, "tx") == 0)
+                { one->name = r; one->has_name = TRUE; }
+              else if (strcmp (c->role, "cat") == 0 || strcmp (c->role, "xVal") == 0)
+                { one->cats = r; one->has_cats = TRUE; }
+              else if (strcmp (c->role, "val") == 0 || strcmp (c->role, "yVal") == 0)
+                { one->values = r; one->has_values = TRUE; }
+            }
         }
       o42_node_free (tree);
     }
@@ -1194,6 +1438,14 @@ chart_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user
   (void) ctx; (void) error;
   if (c->in_f)
     g_string_append_len (c->f, text, (gssize) len);
+  else if (c->in_label && c->series->len > 0)
+    {
+      SeriesRead *one = &g_array_index (c->series, SeriesRead, c->series->len - 1);
+
+      if (one->label == NULL)
+        one->label = g_string_new (NULL);
+      g_string_append_len (one->label, text, (gssize) len);
+    }
   else if (c->in_title && c->in_t)
     g_string_append_len (c->in_axis == 1 ? c->x_title : c->in_axis == 2 ? c->y_title : c->title, text, (gssize) len);
 }
@@ -1201,7 +1453,7 @@ chart_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user
 static void
 add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
                      int row, int col, double dx, double dy, double width, double height,
-                     O42AnchorMode anchor, const char *name)
+                     O42AnchorMode anchor, const char *name, const guint32 *theme, gboolean ours)
 {
   static const GMarkupParser parser = { chart_start, chart_end, chart_text, NULL, NULL };
   ChartReader c;
@@ -1212,11 +1464,44 @@ add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
   c.x_title = g_string_new (NULL);
   c.y_title = g_string_new (NULL);
   c.y_format = g_string_new (NULL);
+  c.series = g_array_new (FALSE, FALSE, sizeof (SeriesRead));
+  c.theme = theme;
+  c.ours = ours;
+  c.legend_pos = O42_LEGEND_RIGHT;   /* the schema's default */
   if (parse_part (parts, part, &parser, &c) && c.have_box)
     {
       O42Chart *chart = o42_sheet_add_chart (sheet, c.kind_known ? c.kind : O42_CHART_COLUMN, &c.box, row, col);
       if (chart != NULL)
         {
+          /* Excel 97's grey plot area is a chart in Excel 97's look: one
+           * Excel brought over from an .xls, or one office42 made, which
+           * marks one in the newer look with a c:style.  Anything else
+           * is drawn as Excel 2007 and LibreOffice draw it. */
+          gboolean grey = c.plot_filled && c.plot_fill == 0xC0C0C0;
+
+          chart->look = grey || (c.ours && !c.styled) ? O42_CHART_LOOK_97 : O42_CHART_LOOK_OFFICE;
+          if (theme != NULL)
+            memcpy (chart->accents, theme + 4, sizeof chart->accents);
+          chart->plot_fill = c.plot_filled ? c.plot_fill : O42_CHART_AUTO_COLOUR;
+          chart->legend_pos = chart->look == O42_CHART_LOOK_OFFICE ? c.legend_pos : O42_LEGEND_BOTTOM;
+          chart->cats_reversed = c.cats_reversed;
+          chart->horizontal = c.horizontal;
+          chart->gap_width = c.gap_width;
+          chart->x_gridlines = c.x_grid;
+          /* The series as named, unless they are a bubble's -- three
+           * lines to a series, which the table holds better -- or name
+           * cells on more than one sheet. */
+          if (!c.foreign && c.kind != O42_CHART_BUBBLE)
+            for (guint i = 0; i < c.series->len; i++)
+              {
+                SeriesRead *one = &g_array_index (c.series, SeriesRead, i);
+
+                if (one->has_values)
+                  o42_chart_add_series (chart, one->has_name ? &one->name : NULL,
+                                        one->label != NULL ? one->label->str : NULL,
+                                        one->has_cats ? &one->cats : NULL, &one->values,
+                                        one->colour);
+              }
           chart->anchor = anchor;
           chart->name = g_strdup (name);
           chart->first_row_labels = c.have_tx;
@@ -1265,6 +1550,10 @@ add_chart_from_part (GHashTable *parts, const char *part, O42Sheet *sheet,
   g_string_free (c.y_title, TRUE);
   g_string_free (c.y_format, TRUE);
   g_free (c.font_family);
+  for (guint i = 0; i < c.series->len; i++)
+    if (g_array_index (c.series, SeriesRead, i).label != NULL)
+      g_string_free (g_array_index (c.series, SeriesRead, i).label, TRUE);
+  g_array_unref (c.series);
 }
 
 /* ---- the drawing part ---- */
@@ -1275,6 +1564,8 @@ typedef struct
   GHashTable *rels;        /* the drawing's relationships */
   char       *dir;         /* the drawing part's directory */
   O42Sheet   *sheet;
+  const guint32 *theme;    /* the book's twelve theme colours */
+  gboolean    ours;        /* the book is one office42 wrote */
 
   gboolean    in_anchor, in_from, in_to;
   int         from_col, from_row, to_col, to_row;
@@ -1871,7 +2162,8 @@ finish_anchor (DrawReader *d)
       const char *target = g_hash_table_lookup (d->rels, d->chart);
       char *part = target ? resolve (d->dir, target) : NULL;
       if (part != NULL)
-        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height, d->anchor_mode, d->name);
+        add_chart_from_part (d->parts, part, d->sheet, row, col, dx, dy, width, height, d->anchor_mode, d->name,
+                             d->theme, d->ours);
       g_free (part);
     }
 }
@@ -1935,7 +2227,8 @@ draw_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user,
 }
 
 void
-o42_xlsx_draw_read (GHashTable *parts, const char *sheet_part, const char *rid, O42Sheet *sheet)
+o42_xlsx_draw_read (GHashTable *parts, const char *sheet_part, const char *rid, O42Sheet *sheet,
+                    const guint32 *theme, gboolean ours)
 {
   static const GMarkupParser parser = { draw_start, draw_end, draw_text, NULL, NULL };
   GHashTable *sheet_rels = o42_xlsx_read_rels (parts, sheet_part);
@@ -1954,6 +2247,8 @@ o42_xlsx_draw_read (GHashTable *parts, const char *sheet_part, const char *rid, 
   memset (&d, 0, sizeof d);
   d.parts = parts;
   d.sheet = sheet;
+  d.theme = theme;
+  d.ours = ours;
   d.rels = o42_xlsx_read_rels (parts, drawing_part);
   d.dir = part_dir (drawing_part);
   d.text = g_string_new (NULL);

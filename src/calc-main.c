@@ -3443,9 +3443,33 @@ main (int argc, char *argv[])
                       c->title ? c->title : "", c->row, c->col, c->width, c->height);
               if (c->name != NULL)
                 printf (" name \"%s\"", c->name);
+              if (c->look == O42_CHART_LOOK_OFFICE)
+                printf (", office look, legend %s%s%s",
+                        c->legend_pos == O42_LEGEND_RIGHT ? "right" : c->legend_pos == O42_LEGEND_TOP ? "top"
+                        : c->legend_pos == O42_LEGEND_LEFT ? "left" : "bottom",
+                        c->cats_reversed ? ", categories reversed" : "",
+                        c->horizontal ? ", lying down" : "");
               printf ("\n");
               g_free (a);
               g_free (b);
+              /* The series a file named one by one, each by its ranges. */
+              for (guint k = 0; c->series != NULL && k < c->series->len; k++)
+                {
+                  const O42ChartSeries *one = &g_array_index (c->series, O42ChartSeries, k);
+                  char *n0 = one->name.row0 >= 0 ? o42_ref_name (one->name.row0, one->name.col0) : NULL;
+                  char *c0 = one->cats.row0 >= 0 ? o42_ref_name (one->cats.row0, one->cats.col0) : NULL;
+                  char *c1 = one->cats.row0 >= 0 ? o42_ref_name (one->cats.row1, one->cats.col1) : NULL;
+                  char *v0 = o42_ref_name (one->values.row0, one->values.col0);
+                  char *v1 = o42_ref_name (one->values.row1, one->values.col1);
+
+                  printf ("  series %u: name %s, categories %s%s%s, values %s:%s",
+                          k + 1, n0 != NULL ? n0 : one->label != NULL ? one->label : "-",
+                          c0 != NULL ? c0 : "-", c0 != NULL ? ":" : "", c1 != NULL ? c1 : "", v0, v1);
+                  if (one->colour != O42_CHART_AUTO_COLOUR)
+                    printf (", colour %06X", one->colour);
+                  printf ("\n");
+                  g_free (n0); g_free (c0); g_free (c1); g_free (v0); g_free (v1);
+                }
             }
           continue;
         }

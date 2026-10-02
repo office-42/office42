@@ -4751,6 +4751,27 @@ objects_follow (O42Sheet *sheet, GArray *places)
   g_array_free (places, TRUE);
 }
 
+/* A chart's range when rows (or columns) go in or come out at `at`:
+ * it moves as a range in a formula would. */
+static void
+chart_range_shift (O42Range *r, gboolean rows, int at, int count, int limit)
+{
+  int *lo = rows ? &r->row0 : &r->col0;
+  int *hi = rows ? &r->row1 : &r->col1;
+
+  if (count > 0)
+    {
+      if (*lo >= at) *lo = MIN (*lo + count, limit - 1);
+      if (*hi >= at) *hi = MIN (*hi + count, limit - 1);
+    }
+  else
+    {
+      if (*lo >= at - count) *lo += count; else if (*lo >= at) *lo = at;
+      if (*hi >= at - count) *hi += count; else if (*hi >= at) *hi = at - 1;
+      if (*hi < *lo) *hi = *lo;
+    }
+}
+
 static void
 sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
                          int band_lo, int band_hi)
@@ -5257,26 +5278,30 @@ sheet_shift_band_within (O42Sheet *sheet, gboolean rows, int at, int count,
     }
 
   /* A chart moves with its anchor, and its data range moves as a range
-   * in a formula would. */
+   * in a formula would, and so does each range a series names. */
   for (guint i = 0; i < sheet->charts->len; i++)
     {
       O42Chart *chart = g_ptr_array_index (sheet->charts, i);
       int *idx = rows ? &chart->row : &chart->col;
-      int *lo = rows ? &chart->data.row0 : &chart->data.col0;
-      int *hi = rows ? &chart->data.row1 : &chart->data.col1;
 
       if (count > 0)
         {
           if (*idx >= at) *idx = MIN (*idx + count, limit - 1);
-          if (*lo >= at) *lo = MIN (*lo + count, limit - 1);
-          if (*hi >= at) *hi = MIN (*hi + count, limit - 1);
         }
       else
         {
           if (*idx >= at - count) *idx += count; else if (*idx >= at) *idx = at;
-          if (*lo >= at - count) *lo += count; else if (*lo >= at) *lo = at;
-          if (*hi >= at - count) *hi += count; else if (*hi >= at) *hi = at - 1;
-          if (*hi < *lo) *hi = *lo;
+        }
+      chart_range_shift (&chart->data, rows, at, count, limit);
+      for (guint k = 0; chart->series != NULL && k < chart->series->len; k++)
+        {
+          O42ChartSeries *one = &g_array_index (chart->series, O42ChartSeries, k);
+
+          if (one->name.row0 >= 0)
+            chart_range_shift (&one->name, rows, at, count, limit);
+          if (one->cats.row0 >= 0)
+            chart_range_shift (&one->cats, rows, at, count, limit);
+          chart_range_shift (&one->values, rows, at, count, limit);
         }
     }
 
@@ -8374,6 +8399,7 @@ chart_copy (const O42Chart *chart)
   copy->dx = chart->dx; copy->dy = chart->dy;
   copy->width = chart->width; copy->height = chart->height;
   copy->name = g_strdup (chart->name);
+  o42_chart_copy_layout (copy, chart);
   return copy;
 }
 
@@ -8586,6 +8612,7 @@ obj_snap_apply (const ObjSnap *snap)
           {
             chart->kind = snap->chart->kind;
             chart->data = snap->chart->data;
+            o42_chart_copy_layout (chart, snap->chart);
             chart->first_row_labels = snap->chart->first_row_labels;
             chart->first_col_labels = snap->chart->first_col_labels;
             g_free (chart->title);

@@ -2250,7 +2250,12 @@ m_object_set (PyObject *self, PyObject *args)
               O42Range r;
               if (!PyArg_ParseTuple (value, "iiii", &r.row0, &r.col0, &r.row1, &r.col1) || !range_ok (&r))
                 ok = FALSE;
-              else c->data = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+              else
+                {
+                  /* A table now, whatever series the file named. */
+                  c->data = o42_range_normalise (r.row0, r.col0, r.row1, r.col1);
+                  o42_chart_clear_series (c);
+                }
             }
           SET_TEXT (c->title) SET_TEXT (c->x_title) SET_TEXT (c->y_title) SET_TEXT (c->font_family) SET_TEXT (c->y_format)
           SET_TEXT (c->data_sheet) SET_TEXT (c->name)

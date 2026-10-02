@@ -35,8 +35,12 @@ char       *o42_xlsx_resolve   (const char *part, const char *target);
 
 /* Reads the drawing that `sheet_part` (the worksheet's part name)
  * refers to by relationship id `rid`, adding its pictures and charts
- * to `sheet`. */
+ * to `sheet`.  `theme` is the book's twelve theme colours, lt1, dk1,
+ * lt2, dk2, the six accents and the two link colours, which a chart
+ * takes its colours from; `ours` says the book is one office42 wrote,
+ * whose charts are in Excel 97's look unless they say otherwise. */
 void     o42_xlsx_draw_read  (GHashTable *parts, const char *sheet_part,
-                              const char *rid, O42Sheet *sheet);
+                              const char *rid, O42Sheet *sheet,
+                              const guint32 *theme, gboolean ours);
 
 G_END_DECLS

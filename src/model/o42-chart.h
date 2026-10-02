@@ -79,6 +79,39 @@ typedef enum {
   O42_ERRBAR_STDERR     /* the standard error of the series' mean */
 } O42ErrBarKind;
 
+/* Where the legend stands: Excel 97's ChartWizard put it at the bottom,
+ * and an .xlsx says where it goes, on the right as often as not. */
+typedef enum {
+  O42_LEGEND_BOTTOM = 0,
+  O42_LEGEND_RIGHT,
+  O42_LEGEND_TOP,
+  O42_LEGEND_LEFT
+} O42LegendPos;
+
+/* How a chart looks when nothing says otherwise.  Excel 97 shaded the
+ * plot area grey, drew black gridlines and took its colours from its
+ * palette; Excel 2007 and later, and LibreOffice reading their files,
+ * leave the plot area white, draw the gridlines grey, set the text in
+ * 10pt Calibri under an 18pt title and take the colours from the
+ * theme's six accents. */
+typedef enum {
+  O42_CHART_LOOK_97 = 0,
+  O42_CHART_LOOK_OFFICE
+} O42ChartLook;
+
+/* One series named cell by cell, as an .xlsx chart names its series:
+ * its name, its categories and its values each a range of their own,
+ * which need not lie together in one table. */
+typedef struct {
+  O42Range  name;       /* the cell that names it; row0 < 0 for none */
+  char     *label;      /* or its name as text, owned; NULL for none */
+  O42Range  cats;       /* its categories, or a scatter's x; row0 < 0 for none */
+  O42Range  values;     /* its values, or a scatter's y */
+  guint32   colour;     /* the file's own colour, or O42_CHART_AUTO_COLOUR */
+} O42ChartSeries;
+
+#define O42_CHART_AUTO_COLOUR 0xFFFFFFFFu
+
 typedef struct {
   guint         id;
   guint         group;       /* objects grouped together share one; 0 for none */
@@ -134,6 +167,25 @@ typedef struct {
   double        width;         /* pixels */
   O42AnchorMode anchor;        /* how it follows the cells */
   double        height;
+
+  /* The series one by one, as an .xlsx names them; NULL when the chart
+   * reads `data` as a table, which is how a chart made here does it.
+   * `data` is then only the rectangle around them all. */
+  GArray       *series;        /* O42ChartSeries */
+  O42ChartLook  look;
+  guint32       accents[6];    /* the theme's accents, for the Office look */
+  guint32       plot_fill;     /* the plot area's colour in the Office look,
+                                * O42_CHART_AUTO_COLOUR for none */
+  O42LegendPos  legend_pos;
+  gboolean      cats_reversed; /* the categories run from the far end of
+                                * their axis -- top to bottom, for bars --
+                                * and the value axis crosses at that end */
+  gboolean      horizontal;    /* a stacked or 100% chart whose bars lie
+                                * down, as O42_CHART_BAR's do */
+  int           gap_width;     /* the gap between categories, per cent of a
+                                * bar; 0 for Excel's 150 */
+  gboolean      x_gridlines;   /* gridlines across the category (or x) axis
+                                * too, in the Office look */
 } O42Chart;
 
 /* The colour the series at `index` is drawn in: Excel 97's chart fills
@@ -142,6 +194,21 @@ guint32   o42_chart_series_colour (const O42Chart *chart, int index);
 
 O42Chart *o42_chart_new  (O42ChartKind kind, const O42Range *data);
 void      o42_chart_free (O42Chart *chart);
+
+/* Adds a series named by its own ranges (any of `name`, `label` and
+ * `cats` may be NULL), and the chart from then on reads its series so
+ * rather than from `data`.  Clearing them goes back to the table. */
+void      o42_chart_add_series   (O42Chart *chart, const O42Range *name, const char *label,
+                                  const O42Range *cats, const O42Range *values, guint32 colour);
+void      o42_chart_clear_series (O42Chart *chart);
+/* Copies what o42_chart_new does not set -- the series, the look and
+ * where the legend goes -- from one chart to another. */
+void      o42_chart_copy_layout  (O42Chart *to, const O42Chart *from);
+
+/* DrawingML's lumMod and lumOff, in HSL: the luminance times `mod`
+ * and then `off` added, each a fraction.  Accent 1 at 0.6 and 0.4 is
+ * Excel's "Lighter 40%". */
+guint32   o42_colour_luminance (guint32 rgb, double mod, double off);
 
 /* The chart's data as it stands: `get` fetches a cell of the sheet the
  * chart belongs to.  The evaluator's callback shape, so a sheet can hand

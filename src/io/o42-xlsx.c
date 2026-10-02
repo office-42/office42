@@ -2660,6 +2660,8 @@ typedef struct
   GHashTable *shared;       /* si -> master formula "row,col,text" */
   int         default_width, default_height;
   int         prop_which;   /* the property a docProps element is, or -1 */
+  gboolean    in_application;  /* app.xml's Application, being read */
+  gboolean    ours;         /* the book is one office42 wrote */
   gboolean    book_protected; /* workbookProtection, applied once the book is cleared */
   char       *book_codename;  /* workbookPr's codeName, the same */
   guint16     book_password;
@@ -2820,6 +2822,7 @@ props_start (GMarkupParseContext *ctx, const char *name, const char **names,
   else if (strcmp (n, "category") == 0)    r->prop_which = O42_PROP_CATEGORY;
   else if (strcmp (n, "keywords") == 0)    r->prop_which = O42_PROP_KEYWORDS;
   else if (strcmp (n, "description") == 0) r->prop_which = O42_PROP_COMMENTS;
+  r->in_application = strcmp (n, "Application") == 0;
   if (r->prop_which >= 0)
     {
       if (r->prop_text == NULL)
@@ -2833,6 +2836,7 @@ props_end (GMarkupParseContext *ctx, const char *name, gpointer user, GError **e
 {
   Reader *r = user;
   (void) ctx; (void) name; (void) error;
+  r->in_application = FALSE;
   if (r->prop_which >= 0)
     {
       o42_book_set_property (r->book, (O42Property) r->prop_which, r->prop_text->str);
@@ -2847,6 +2851,10 @@ props_text (GMarkupParseContext *ctx, const char *text, gsize len, gpointer user
   (void) ctx; (void) error;
   if (r->prop_which >= 0)
     g_string_append_len (r->prop_text, text, (gssize) len);
+  /* Which program wrote the book: our own charts come back in the look
+   * they were made in. */
+  if (r->in_application && len >= 8 && g_ascii_strncasecmp (text, "Office42", 8) == 0)
+    r->ours = TRUE;
 }
 
 static void
@@ -5053,7 +5061,7 @@ o42_xlsx_load (O42Book *book, GFile *file, GError **error)
               fit_rows (r.sheet, r.default_height);
               o42_sheet_autofilter_refresh (r.sheet);
               if (r.drawing_rid != NULL)
-                o42_xlsx_draw_read (parts, part, r.drawing_rid, r.sheet);
+                o42_xlsx_draw_read (parts, part, r.drawing_rid, r.sheet, r.theme, r.ours);
               /* The background picture, by its relationship. */
               if (r.picture_rid != NULL)
                 {
